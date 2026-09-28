@@ -87,8 +87,172 @@ select {
     cursor: pointer;
     font-size: 16px;
     font-weight: bold;
+    margin-top: 10px;
+    margin-bottom: 10px;
 }
 
 .btn-submit:hover {
     background: #555;
+}
+
+.btn-view {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    margin-top: 10px;
+    background: #f4f4f9;
+    color: #333;
+    text-align: center;
+    text-decoration: none; /* Quita el subrayado del enlace */
+    border: 2px solid #333;
+    border-radius: 6px;
+    box-sizing: border-box;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.btn-view:hover {
+    background: #e2e2e8;
+}
+
+.btn-back {
+    display: inline-block;
+    margin-bottom: 20px;
+    color: #333;
+    text-decoration: none;
+    font-weight: bold;
+    border: 2px solid #333;
+    padding: 8px 15px;
+    border-radius: 6px;
+    transition: background 0.2s;
+}
+
+.btn-back:hover {
+    background: #e2e2e8;
+}
+
+/* Selector de Semana */
+.controls {
+    text-align: center;
+    margin-bottom: 25px;
+}
+
+.controls label {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-right: 15px;
+}
+
+.controls input[type="week"] {
+    padding: 10px;
+    font-size: 1.1rem;
+    border: 2px solid #000;
+    border-radius: 6px;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+/* Ajustes de Tabla y Responsividad */
+.table-responsive {
+    width: 100%;
+    /* Permite deslizar lateralmente en móviles */
+    overflow-x: auto; 
+    /* Suaviza el scroll en dispositivos iOS */
+    -webkit-overflow-scrolling: touch; 
+}
+
+.mood-table {
+    /* Fuerza un ancho mínimo para que las bolitas no se deformen en celulares */
+    min-width: 800px; 
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.mood-table th, 
+.mood-table td {
+    border: 2px solid #000;
+    text-align: center;
+}
+
+.mood-table th {
+    padding: 15px 10px;
+    font-size: 1rem;
+    font-weight: bold;
+}
+
+.row-label {
+    padding: 30px 15px;
+    font-weight: bold;
+    font-size: 1.1rem;
+    width: 120px;
+}
+
+.mood-cell {
+    height: 80px;
+    width: 80px;
+    vertical-align: middle;
+    text-align: center;     
+}
+
+.mood-cell .color-dot {
+    width: 35px; 
+    height: 35px;
+    border-radius: 50%;
+    border: 2px solid #000;
+    display: inline-block;
+    box-shadow: 2px 2px 0px rgba(0,0,0,0.1); 
+}
+
+.legend-list {
+    list-style: none; /* Esto borra los puntos negros por defecto */
+    padding: 0;       /* Elimina la sangría izquierda */
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.legend-list li {
+    display: flex;
+    align-items: center;
+    font-size: 1rem;
+    font-weight: bold;
+}
+
+.legend-list .color-dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #000;
+    margin-right: 15px;
+    display: inline-block;
+}
+
+/* Media Query exclusivo para Celulares y Tablets */
+@media (max-width: 950px) {
+    .tracker-layout {
+        flex-direction: column; /* Apila la tabla arriba y la leyenda abajo */
+        align-items: center;
+    }
+    
+    .tracker-title {
+        font-size: 1.8rem;
+    }
+
+    .mood-legend {
+        width: 100%;
+        margin-top: 30px;
+        padding-left: 0;
+    }
+    
+    .legend-list {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 20px;
+    }
 }

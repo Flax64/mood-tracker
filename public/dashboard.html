@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador Mood Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="tracker-container">
+
+        <!-- Botón para regresar al formulario -->
+        <a href="index.html" class="btn-back">⬅ Volver al registro</a>
+
+        <h1 class="tracker-title">MI MOOD TRACKER SEMANAL</h1>
+
+        <!-- Selector de Semana -->
+        <div class="controls">
+            <label for="semanaSeleccionada">Elige una semana:</label>
+            <input type="week" id="semanaSeleccionada">
+        </div>
+
+        <hr class="title-divider">
+
+        <div class="tracker-layout">
+
+            <!-- Contenedor Responsivo para deslizar en celular -->
+            <div class="table-responsive">
+                <table class="mood-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>LUNES</th>
+                            <th>MARTES</th>
+                            <th>MIÉRCOLES</th>
+                            <th>JUEVES</th>
+                            <th>VIERNES</th>
+                            <th>SÁBADO</th>
+                            <th>DOMINGO</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="row-label">Mañana</td>
+                            <td class="mood-cell" data-day="Lunes" data-time="Mañana"></td>
+                            <td class="mood-cell" data-day="Martes" data-time="Mañana"></td>
+                            <td class="mood-cell" data-day="Miércoles" data-time="Mañana"></td>
+                            <td class="mood-cell" data-day="Jueves" data-time="Mañana"></td>
+                            <td class="mood-cell" data-day="Viernes" data-time="Mañana"></td>
+                            <td class="mood-cell" data-day="Sábado" data-time="Mañana"></td>
+                            <td class="mood-cell" data-day="Domingo" data-time="Mañana"></td>
+                        </tr>
+                        <tr>
+                            <td class="row-label">Mediodía</td>
+                            <td class="mood-cell" data-day="Lunes" data-time="Mediodía"></td>
+                            <td class="mood-cell" data-day="Martes" data-time="Mediodía"></td>
+                            <td class="mood-cell" data-day="Miércoles" data-time="Mediodía"></td>
+                            <td class="mood-cell" data-day="Jueves" data-time="Mediodía"></td>
+                            <td class="mood-cell" data-day="Viernes" data-time="Mediodía"></td>
+                            <td class="mood-cell" data-day="Sábado" data-time="Mediodía"></td>
+                            <td class="mood-cell" data-day="Domingo" data-time="Mediodía"></td>
+                        </tr>
+                        <tr>
+                            <td class="row-label">Tarde</td>
+                            <td class="mood-cell" data-day="Lunes" data-time="Tarde"></td>
+                            <td class="mood-cell" data-day="Martes" data-time="Tarde"></td>
+                            <td class="mood-cell" data-day="Miércoles" data-time="Tarde"></td>
+                            <td class="mood-cell" data-day="Jueves" data-time="Tarde"></td>
+                            <td class="mood-cell" data-day="Viernes" data-time="Tarde"></td>
+                            <td class="mood-cell" data-day="Sábado" data-time="Tarde"></td>
+                            <td class="mood-cell" data-day="Domingo" data-time="Tarde"></td>
+                        </tr>
+                        <tr>
+                            <td class="row-label">Noche</td>
+                            <td class="mood-cell" data-day="Lunes" data-time="Noche"></td>
+                            <td class="mood-cell" data-day="Martes" data-time="Noche"></td>
+                            <td class="mood-cell" data-day="Miércoles" data-time="Noche"></td>
+                            <td class="mood-cell" data-day="Jueves" data-time="Noche"></td>
+                            <td class="mood-cell" data-day="Viernes" data-time="Noche"></td>
+                            <td class="mood-cell" data-day="Sábado" data-time="Noche"></td>
+                            <td class="mood-cell" data-day="Domingo" data-time="Noche"></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Leyenda Lateral -->
+            <aside class="mood-legend">
+                <h3 class="legend-title">MI ESTADO DE ÁNIMO</h3>
+                <hr class="legend-divider">
+                <ul class="legend-list">
+                    <li><span class="color-dot" style="background-color: #FDE047;"></span> FELIZ</li>
+                    <li><span class="color-dot" style="background-color: #4ADE80;"></span> TRANQUILO/A</li>
+                    <li><span class="color-dot" style="background-color: #7DD3FC;"></span> EMOCIONADO/A</li>
+                    <li><span class="color-dot" style="background-color: #D8B4FE;"></span> CANSADO/A</li>
+                    <li><span class="color-dot" style="background-color: #3B82F6;"></span> TRISTE</li>
+                    <li><span class="color-dot" style="background-color: #EF4444;"></span> ENOJADO/A</li>
+                    <li><span class="color-dot" style="background-color: #F97316;"></span> PREOCUPADO/A</li>
+                    <li><span class="color-dot" style="background-color: #9CA3AF;"></span> ASUSTADO/A</li>
+                </ul>
+            </aside>
+        </div>
+    </div>
+    <script src="frontend.js"></script>
+</body>
+
+</html>
