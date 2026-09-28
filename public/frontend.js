@@ -40,20 +40,20 @@ if (formRegistro) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
         })
-        .then(response => {
-            if (!response.ok) {
-                return response.text().then(text => { throw new Error(text) })
-            }
-            return response.text();
-        })
-        .then(mensaje => {
-            alert(mensaje);
-            botones.forEach(b => b.classList.remove('selected'));
-            estadoSeleccionado = '';
-            colorSeleccionado = '';
-            document.getElementById('momento').value = "";
-        })
-        .catch(error => alert('Error: ' + error.message));
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text) })
+                }
+                return response.text();
+            })
+            .then(mensaje => {
+                alert(mensaje);
+                botones.forEach(b => b.classList.remove('selected'));
+                estadoSeleccionado = '';
+                colorSeleccionado = '';
+                document.getElementById('momento').value = "";
+            })
+            .catch(error => alert('Error: ' + error.message));
     });
 }
 
@@ -71,20 +71,25 @@ if (inputSemana) {
         const simple = new Date(year, 0, 1 + (week - 1) * 7);
         const diaSemana = simple.getDay();
         const inicioSemanaISO = simple;
-        
+
         if (diaSemana <= 4) {
             inicioSemanaISO.setDate(simple.getDate() - simple.getDay() + 1);
         } else {
             inicioSemanaISO.setDate(simple.getDate() + 8 - simple.getDay());
         }
 
-        const lunes = new Date(inicioSemanaISO);
+        // --- CÁLCULO ACTUALIZADO: DE DOMINGO A SÁBADO ---
+        // inicioSemanaISO es el Lunes. Retrocedemos 1 día para sacar el Domingo.
         const domingo = new Date(inicioSemanaISO);
-        domingo.setDate(lunes.getDate() + 6);
+        domingo.setDate(inicioSemanaISO.getDate() - 1);
+
+        // Avanzamos 5 días desde el Lunes para sacar el Sábado.
+        const sabado = new Date(inicioSemanaISO);
+        sabado.setDate(inicioSemanaISO.getDate() + 5);
 
         return {
-            inicio: lunes.toISOString().split('T')[0],
-            fin: domingo.toISOString().split('T')[0]
+            inicio: domingo.toISOString().split('T')[0],
+            fin: sabado.toISOString().split('T')[0]
         };
     }
 
