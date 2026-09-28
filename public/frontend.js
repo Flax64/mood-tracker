@@ -78,12 +78,12 @@ if (inputSemana) {
             inicioSemanaISO.setDate(simple.getDate() + 8 - simple.getDay());
         }
 
-        // --- CÁLCULO ACTUALIZADO: DE DOMINGO A SÁBADO ---
+        // --- CÁLCULO ACTUALIZADO: DE DOMINGO A Sabado ---
         // inicioSemanaISO es el Lunes. Retrocedemos 1 día para sacar el Domingo.
         const domingo = new Date(inicioSemanaISO);
         domingo.setDate(inicioSemanaISO.getDate() - 1);
 
-        // Avanzamos 5 días desde el Lunes para sacar el Sábado.
+        // Avanzamos 5 días desde el Lunes para sacar el Sabado.
         const sabado = new Date(inicioSemanaISO);
         sabado.setDate(inicioSemanaISO.getDate() + 5);
 
@@ -102,7 +102,7 @@ if (inputSemana) {
         fetch(`/api/moods?inicio=${rango.inicio}&fin=${rango.fin}`)
             .then(response => response.json())
             .then(registros => {
-                const diasSemana = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+                const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
