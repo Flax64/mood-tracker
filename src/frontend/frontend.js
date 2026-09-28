@@ -30,7 +30,8 @@ document.getElementById('moodForm').addEventListener('submit', function (e) {
         color_hex: colorSeleccionado
     };
 
-    fetch('http://localhost:3000/api/mood', {
+    const IP = process.env.PUBLIC_IP;
+    fetch(`http://${IP}:3000/api/mood`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(datos)

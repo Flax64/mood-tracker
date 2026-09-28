@@ -8,10 +8,10 @@ app.use(express.json());
 
 // Configuración de MySQL
 const db = mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: 'KameHameH4!',
-    database: 'MoodTrackerLocal'
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME
 });
 
 db.connect(err => {
@@ -37,6 +37,7 @@ app.post('/api/mood', (req, res) => {
     });
 });
 
-app.listen(3000, () => {
-    console.log('Servidor backend corriendo en http://localhost:3000');
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Servidor backend corriendo en http://localhost:${PORT}`);
 });

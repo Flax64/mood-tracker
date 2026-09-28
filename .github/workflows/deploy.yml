@@ -1,0 +1,35 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v3
+
+      - name: Desplegar en EC2 vía SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Crear la carpeta si no existe
+            mkdir -p /home/${{ secrets.EC2_USER }}/projects
+            cd /home/${{ secrets.EC2_USER }}/projects
+            
+            # Clonar o actualizar el repositorio
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/Flax64/mood-tracker.git
+            else
+              git pull origin main
+            fi
+            
+            # Levantar o actualizar los contenedores
+            docker compose up -d --build
