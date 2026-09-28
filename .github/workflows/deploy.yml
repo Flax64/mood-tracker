@@ -22,7 +22,7 @@ jobs:
           script: |
             # Crear la carpeta si no existe
             mkdir -p /home/${{ secrets.EC2_USER }}/projects
-            cd /home/${{ secrets.EC2_USER }}/projects
+            cd /home/${{ secrets.EC2_USER }}/projects/mood-tracker
             
             # Clonar o actualizar el repositorio
             if [ ! -d ".git" ]; then
