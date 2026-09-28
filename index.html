@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta viewport content="width=device-width, initial-scale=1.0">
     <title>Personal Mood Tracker</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="src/css/style.css">
 </head>
 
 <body>
@@ -61,60 +61,5 @@
         </form>
     </div>
 
-    <script>
-        // Establecer la fecha de hoy por defecto
-        document.getElementById('fecha').valueAsDate = new Date();
-
-        let estadoSeleccionado = '';
-        let colorSeleccionado = '';
-
-        // Lógica para seleccionar un estado de ánimo
-        const botones = document.querySelectorAll('.mood-btn');
-        botones.forEach(btn => {
-            btn.addEventListener('click', () => {
-                botones.forEach(b => b.classList.remove('selected'));
-                btn.classList.add('selected');
-                estadoSeleccionado = btn.getAttribute('data-mood');
-                colorSeleccionado = btn.getAttribute('data-color');
-            });
-        });
-
-        // Enviar datos al backend
-        document.getElementById('moodForm').addEventListener('submit', function (e) {
-            e.preventDefault();
-
-            if (!estadoSeleccionado) {
-                alert('Por favor, selecciona un estado de ánimo.');
-                return;
-            }
-
-            const datos = {
-                fecha: document.getElementById('fecha').value,
-                momento_dia: document.getElementById('momento').value,
-                estado_animo: estadoSeleccionado,
-                color_hex: colorSeleccionado
-            };
-
-            fetch('http://localhost:3000/api/mood', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(datos)
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        return response.text().then(text => { throw new Error(text) });
-                    }
-                    return response.text();
-                })
-                .then(mensaje => {
-                    alert(mensaje);
-                    // Resetear opciones visuales tras guardar
-                    botones.forEach(b => b.classList.remove('selected'));
-                    estadoSeleccionado = '';
-                    colorSeleccionado = '';
-                    document.getElementById('momento').value = "";
-                })
-                .catch(error => alert('Error: ' + error.message));
-        });
-    </script>
+    <script src="src/frontend/frontend.js"></script>
 </body>
