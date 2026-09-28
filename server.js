@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors')
@@ -21,7 +22,7 @@ db.connect(err => {
     console.log('Conectado a la BD MoodTrackerLocal');
 });
 
-// Ruta para guardar el estado de ánimo
+// Ruta para guardar el estado de ánimo (Tu código)
 app.post('/api/mood', (req, res) => {
     const {fecha, momento_dia, estado_animo, color_hex} = req.body;
 
@@ -36,6 +37,22 @@ app.post('/api/mood', (req, res) => {
             return res.status(500).send('Error al guardar en la base de datos');
         }
         res.send('Estado de ánimo registrado correctamente');
+    });
+});
+
+// NUEVA RUTA: Para consultar los datos de la semana y llenar tu tabla visual
+app.get('/api/moods', (req, res) => {
+    const { inicio, fin } = req.query;
+    
+    // Busca los registros cuya fecha esté entre el Lunes y el Domingo seleccionados
+    const sql = 'SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
+    
+    db.query(sql, [inicio, fin], (err, results) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al consultar la base de datos');
+        }
+        res.json(results); // Devuelve los registros al frontend
     });
 });
 
