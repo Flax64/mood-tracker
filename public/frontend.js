@@ -20,6 +20,25 @@ if (formRegistro) {
         });
     });
 
+    // 1. Declarar las variables necesarias
+    const momentoDia = document.getElementById('momento');
+    const hora = new Date().getHours();
+
+    // 2. Definir la función
+    const obtenerMomentoDia = (horaActual) => {
+        if (horaActual >= 6 && horaActual < 12) {
+            momentoDia.value = 'Morning';
+        } else if (horaActual >= 12 && horaActual < 15) {
+            momentoDia.value = 'Noon';
+        } else if (horaActual >= 15 && horaActual < 20) {
+            momentoDia.value = 'Afternoon';
+        } else {
+            momentoDia.value = 'Night';
+        }
+    };
+
+    obtenerMomentoDia(hora);
+
     formRegistro.addEventListener('submit', function (e) {
         e.preventDefault();
 
@@ -76,20 +95,20 @@ if (selectSemana) {
         sab.setDate(sab.getDate() + 6);
 
         // Formatear las fechas para enviar al backend (YYYY-MM-DD)
-        const domStr = `${dom.getFullYear()}-${String(dom.getMonth()+1).padStart(2,'0')}-${String(dom.getDate()).padStart(2,'0')}`;
-        const sabStr = `${sab.getFullYear()}-${String(sab.getMonth()+1).padStart(2,'0')}-${String(sab.getDate()).padStart(2,'0')}`;
-        
+        const domStr = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
+        const sabStr = `${sab.getFullYear()}-${String(sab.getMonth() + 1).padStart(2, '0')}-${String(sab.getDate()).padStart(2, '0')}`;
+
         // Crear el texto visual amigable en español
         const opcMes = { day: 'numeric', month: 'short' };
-        const textoVisual = `${dom.toLocaleDateString('es-ES', opcMes)} - ${sab.toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`;
+        const textoVisual = `${dom.toLocaleDateString('es-ES', opcMes)} - ${sab.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
         const option = document.createElement('option');
         option.value = `${domStr}|${sabStr}`; // Guardamos inicio y fin unidos por un |
         option.textContent = `Semana: ${textoVisual}`;
-        
+
         // Seleccionar automáticamente la semana actual
-        if (i === 0) option.selected = true; 
-        
+        if (i === 0) option.selected = true;
+
         selectSemana.appendChild(option);
     }
 
