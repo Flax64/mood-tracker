@@ -12,6 +12,8 @@ services:
       - db_data:/var/lib/mysql
       # Ejecuta el script SQL al crear el contenedor por primera vez
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - mood_network
     healthcheck:
       test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
       timeout: 20s
@@ -32,6 +34,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      - mood_network
 
 volumes:
   db_data:
+
+networks:
+  mood_network:
+    driver: bridge
