@@ -28,9 +28,9 @@ if (formRegistro) {
     const obtenerMomentoDia = (horaActual) => {
         if (horaActual >= 6 && horaActual < 12) {
             momentoDia.value = 'Morning';
-        } else if (horaActual >= 12 && horaActual < 15) {
+        } else if (horaActual >= 12 && horaActual < 14) {
             momentoDia.value = 'Noon';
-        } else if (horaActual >= 15 && horaActual < 20) {
+        } else if (horaActual >= 14 && horaActual < 20) {
             momentoDia.value = 'Afternoon';
         } else {
             momentoDia.value = 'Night';
