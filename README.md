@@ -80,11 +80,11 @@ Crea un archivo `.env` en la raíz del proyecto y define las credenciales de la 
 
 
 ```env
-DB_HOST=db
-DB_USER=root
-DB_PASS=tu_contraseña_segura
-DB_NAME=MoodTrackerLocal
-PORT=3000
+DB_HOST
+DB_USER
+DB_PASS
+DB_NAME
+PORT
 
 ```
 
