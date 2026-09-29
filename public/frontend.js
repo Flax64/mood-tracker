@@ -63,30 +63,25 @@ if (formRegistro) {
 // ==========================================
 const inputSemana = document.getElementById('semanaSeleccionada');
 
-// Solo ejecutamos esto si estamos en la página del visualizador
 if (inputSemana) {
-    function obtenerRangoFechas(semanaString) {
-        if (!semanaString) return null;
-        const [year, week] = semanaString.split('-W');
-        const simple = new Date(year, 0, 1 + (week - 1) * 7);
-        const diaSemana = simple.getDay();
-        const inicioSemanaISO = simple;
-
-        if (diaSemana <= 4) {
-            inicioSemanaISO.setDate(simple.getDate() - simple.getDay() + 1);
-        } else {
-            inicioSemanaISO.setDate(simple.getDate() + 8 - simple.getDay());
-        }
-
-        // --- CÁLCULO ACTUALIZADO: DE DOMINGO A Sabado ---
-        // inicioSemanaISO es el Lunes. Retrocedemos 1 día para sacar el Domingo.
-        const domingo = new Date(inicioSemanaISO);
-        domingo.setDate(inicioSemanaISO.getDate() - 1);
-
-        // Avanzamos 5 días desde el Lunes para sacar el Sabado.
-        const sabado = new Date(inicioSemanaISO);
-        sabado.setDate(inicioSemanaISO.getDate() + 5);
-
+    // Nueva función que calcula Domingo a Sábado a partir de un solo día
+    function obtenerRangoFechasDesdeDia(fechaString) {
+        if (!fechaString) return null;
+        
+        // Separamos la fecha para evitar problemas de zonas horarias
+        const [year, month, day] = fechaString.split('-');
+        const fechaElegida = new Date(year, month - 1, day);
+        
+        const diaSemana = fechaElegida.getDay(); // 0 es Domingo, 6 es Sábado
+        
+        // Restamos los días necesarios para llegar al Domingo
+        const domingo = new Date(fechaElegida);
+        domingo.setDate(fechaElegida.getDate() - diaSemana);
+        
+        // Sumamos 6 días al Domingo para llegar al Sábado
+        const sabado = new Date(domingo);
+        sabado.setDate(domingo.getDate() + 6);
+        
         return {
             inicio: domingo.toISOString().split('T')[0],
             fin: sabado.toISOString().split('T')[0]
@@ -94,11 +89,13 @@ if (inputSemana) {
     }
 
     inputSemana.addEventListener('change', () => {
-        const rango = obtenerRangoFechas(inputSemana.value);
+        const rango = obtenerRangoFechasDesdeDia(inputSemana.value);
         if (!rango) return;
 
+        // Limpiar tabla
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
 
+        // Solicitar datos al backend
         fetch(`/api/moods?inicio=${rango.inicio}&fin=${rango.fin}`)
             .then(response => response.json())
             .then(registros => {
@@ -117,11 +114,14 @@ if (inputSemana) {
             .catch(error => console.error('Error cargando los datos:', error));
     });
 
+    // Poner la fecha de hoy por defecto al cargar la página
     window.addEventListener('DOMContentLoaded', () => {
         const hoy = new Date();
-        const año = hoy.getFullYear();
-        const numSemana = Math.ceil(Math.floor((hoy - new Date(año, 0, 1)) / (24 * 60 * 60 * 1000)) / 7);
-        inputSemana.value = `${año}-W${numSemana.toString().padStart(2, '0')}`;
+        const year = hoy.getFullYear();
+        const month = String(hoy.getMonth() + 1).padStart(2, '0');
+        const day = String(hoy.getDate()).padStart(2, '0');
+        
+        inputSemana.value = `${year}-${month}-${day}`;
         inputSemana.dispatchEvent(new Event('change'));
     });
 }
