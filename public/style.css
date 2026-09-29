@@ -216,13 +216,15 @@ select {
 
 .legend-list {
     list-style: none;
-    /* Esto borra los puntos negros por defecto */
     padding: 0;
-    /* Elimina la sangría izquierda */
     margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    /* 4 columnas exactas en PC */
+    gap: 20px 15px;
+    /* Separación vertical y horizontal */
+    width: 100%;
+    max-width: 900px;
 }
 
 .legend-list li {
@@ -230,6 +232,7 @@ select {
     align-items: center;
     font-size: 1rem;
     font-weight: bold;
+    justify-content: flex-start;
 }
 
 .legend-list .color-dot {
@@ -239,6 +242,21 @@ select {
     border: 2px solid #000;
     margin-right: 15px;
     display: inline-block;
+}
+
+.tracker-layout {
+    display: flex;
+    flex-direction: column;
+    /* Apila la tabla arriba y la leyenda abajo */
+    align-items: center;
+    width: 100%;
+}
+
+.mood-legend {
+    width: 100%;
+    /* Permite que ocupe todo el ancho */
+    margin-top: 30px;
+    padding-left: 0;
 }
 
 /* 1. PRIMERO el Media Query de Tablets (950px) */
@@ -288,16 +306,13 @@ select {
     .tracker-container {
         padding: 15px;
         width: 100%;
-        /* Evita que el contenedor desborde */
         box-sizing: border-box;
     }
 
     .tracker-title {
         font-size: 1.3rem;
-        /* Un poco más pequeño para asegurar */
         letter-spacing: 0px;
         word-wrap: break-word;
-        /* Seguro anticaídas: fuerza al texto a saltar de línea si no cabe */
     }
 
     .row-label {
@@ -321,13 +336,12 @@ select {
     }
 
     .legend-list {
-        flex-direction: column;
-        align-items: left;
-        gap: 15px;
+        grid-template-columns: 1fr;
+        justify-items: left;
     }
 
     .legend-list li {
-        width: 160px;
+        width: 180px; 
         justify-content: flex-start;
     }
 }
