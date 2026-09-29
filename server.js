@@ -19,7 +19,7 @@ const db = mysql.createConnection({
 
 db.connect(err => {
     if(err) throw err;
-    console.log('Conectado a la BD MoodTrackerLocal');
+    console.log('Conectado a la Base de Datos');
 });
 
 // Ruta para guardar el estado de ánimo (Tu código)
