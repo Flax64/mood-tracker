@@ -57,46 +57,52 @@ if (formRegistro) {
     });
 }
 
-
 // ==========================================
 // LÓGICA PARA DASHBOARD.HTML (TABLA)
 // ==========================================
-const inputSemana = document.getElementById('semanaSeleccionada');
+const selectSemana = document.getElementById('semanaSeleccionada');
 
-if (inputSemana) {
-    // Nueva función que calcula Domingo a Sábado a partir de un solo día
-    function obtenerRangoFechasDesdeDia(fechaString) {
-        if (!fechaString) return null;
+if (selectSemana) {
+    // 1. Llenar el menú con semanas estrictas de Domingo a Sábado
+    const hoy = new Date();
+    // Encontrar el domingo de la semana actual
+    const domingoActual = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - hoy.getDay());
+
+    // Generar 5 semanas hacia atrás y 5 hacia adelante
+    for (let i = -5; i <= 5; i++) {
+        const dom = new Date(domingoActual);
+        dom.setDate(dom.getDate() + (i * 7));
+        const sab = new Date(dom);
+        sab.setDate(sab.getDate() + 6);
+
+        // Formatear las fechas para enviar al backend (YYYY-MM-DD)
+        const domStr = `${dom.getFullYear()}-${String(dom.getMonth()+1).padStart(2,'0')}-${String(dom.getDate()).padStart(2,'0')}`;
+        const sabStr = `${sab.getFullYear()}-${String(sab.getMonth()+1).padStart(2,'0')}-${String(sab.getDate()).padStart(2,'0')}`;
         
-        // Separamos la fecha para evitar problemas de zonas horarias
-        const [year, month, day] = fechaString.split('-');
-        const fechaElegida = new Date(year, month - 1, day);
+        // Crear el texto visual amigable en español
+        const opcMes = { day: 'numeric', month: 'short' };
+        const textoVisual = `${dom.toLocaleDateString('es-ES', opcMes)} - ${sab.toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'})}`;
+
+        const option = document.createElement('option');
+        option.value = `${domStr}|${sabStr}`; // Guardamos inicio y fin unidos por un |
+        option.textContent = `Semana: ${textoVisual}`;
         
-        const diaSemana = fechaElegida.getDay(); // 0 es Domingo, 6 es Sábado
+        // Seleccionar automáticamente la semana actual
+        if (i === 0) option.selected = true; 
         
-        // Restamos los días necesarios para llegar al Domingo
-        const domingo = new Date(fechaElegida);
-        domingo.setDate(fechaElegida.getDate() - diaSemana);
-        
-        // Sumamos 6 días al Domingo para llegar al Sábado
-        const sabado = new Date(domingo);
-        sabado.setDate(domingo.getDate() + 6);
-        
-        return {
-            inicio: domingo.toISOString().split('T')[0],
-            fin: sabado.toISOString().split('T')[0]
-        };
+        selectSemana.appendChild(option);
     }
 
-    inputSemana.addEventListener('change', () => {
-        const rango = obtenerRangoFechasDesdeDia(inputSemana.value);
-        if (!rango) return;
+    // 2. Escuchar cuando eliges una semana distinta
+    selectSemana.addEventListener('change', () => {
+        // Extraer el inicio y fin del value elegido
+        const [inicio, fin] = selectSemana.value.split('|');
 
-        // Limpiar tabla
+        // Limpiar todos los cuadros de la tabla
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
 
         // Solicitar datos al backend
-        fetch(`/api/moods?inicio=${rango.inicio}&fin=${rango.fin}`)
+        fetch(`/api/moods?inicio=${inicio}&fin=${fin}`)
             .then(response => response.json())
             .then(registros => {
                 const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -114,14 +120,6 @@ if (inputSemana) {
             .catch(error => console.error('Error cargando los datos:', error));
     });
 
-    // Poner la fecha de hoy por defecto al cargar la página
-    window.addEventListener('DOMContentLoaded', () => {
-        const hoy = new Date();
-        const year = hoy.getFullYear();
-        const month = String(hoy.getMonth() + 1).padStart(2, '0');
-        const day = String(hoy.getDate()).padStart(2, '0');
-        
-        inputSemana.value = `${year}-${month}-${day}`;
-        inputSemana.dispatchEvent(new Event('change'));
-    });
+    // 3. Disparar el evento inmediatamente al abrir la página para cargar la tabla
+    selectSemana.dispatchEvent(new Event('change'));
 }
