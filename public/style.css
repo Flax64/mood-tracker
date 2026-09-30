@@ -1,13 +1,14 @@
+/* =========================================
+   ESTILOS GENERALES Y FORMULARIO (index.html)
+========================================= */
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background-color: #f4f4f9;
     margin: 0;
     padding: 20px;
     min-height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
     box-sizing: border-box;
+    /* Se eliminó el Flexbox centrado que causaba los cortes a la izquierda */
 }
 
 .card {
@@ -15,10 +16,10 @@ body {
     padding: 30px;
     border-radius: 12px;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-    /* Sombra más suave y moderna */
     width: 100%;
     max-width: 450px;
     box-sizing: border-box;
+    margin: 0 auto 40px auto; /* Centra la tarjeta de forma segura */
 }
 
 h2 {
@@ -51,7 +52,7 @@ select {
 
 .mood-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 12px;
     margin-bottom: 25px;
 }
@@ -60,7 +61,6 @@ select {
     display: flex;
     align-items: center;
     padding: 12px 10px;
-    /* Área táctil más grande para usabilidad móvil */
     border: 2px solid transparent;
     border-radius: 8px;
     cursor: pointer;
@@ -89,12 +89,14 @@ select {
     flex-shrink: 0;
 }
 
+/* =========================================
+   BOTONES
+========================================= */
 .btn-submit,
 .btn-view {
     display: block;
     width: 100%;
     padding: 14px;
-    /* Botones principales más altos */
     border-radius: 6px;
     box-sizing: border-box;
     font-size: 16px;
@@ -142,7 +144,16 @@ select {
     background: #e2e2e8;
 }
 
-/* Selector de Semana */
+/* =========================================
+   VISUALIZADOR SEMANAL (dashboard.html)
+========================================= */
+.tracker-container {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto; /* Centra el visualizador sin causar cortes */
+    box-sizing: border-box;
+}
+
 .controls {
     text-align: center;
     margin-bottom: 25px;
@@ -154,26 +165,28 @@ select {
     margin-right: 15px;
 }
 
-.controls input[type="week"] {
+#semanaSeleccionada {
     padding: 10px;
     font-size: 1.1rem;
     border: 2px solid #000;
     border-radius: 6px;
-    font-family: inherit;
     cursor: pointer;
 }
 
-/* Ajustes de Tabla y Responsividad */
+.tracker-layout {
+    display: flex;
+    flex-direction: column; 
+    align-items: flex-start; /* Evita que el contenido ancho sea empujado fuera de la pantalla */
+    width: 100%;
+}
+
 .table-responsive {
     width: 100%;
-    /* Permite deslizar lateralmente en móviles */
     overflow-x: auto;
-    /* Suaviza el scroll en dispositivos iOS */
     -webkit-overflow-scrolling: touch;
 }
 
 .mood-table {
-    /* Fuerza un ancho mínimo para que las bolitas no se deformen en celulares */
     min-width: 800px;
     border-collapse: collapse;
     width: 100%;
@@ -214,15 +227,21 @@ select {
     box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.1);
 }
 
+.mood-legend {
+    width: 100%;
+    margin-top: 30px;
+    padding-left: 0;
+}
+
 .legend-list {
     list-style: none;
     padding: 0;
-    margin: 0;
+    margin: 0 auto; 
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    /* 4 columnas exactas en PC */
-    gap: 20px 15px;
-    /* Separación vertical y horizontal */
+    /* auto-fit calcula solo cuántas columnas caben sin importar el dispositivo */
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
+    justify-items: center; 
+    gap: 20px 10px;
     width: 100%;
     max-width: 900px;
 }
@@ -233,6 +252,8 @@ select {
     font-size: 1rem;
     font-weight: bold;
     justify-content: flex-start;
+    width: 100%;
+    max-width: 160px; /* Mantiene la leyenda ordenada */
 }
 
 .legend-list .color-dot {
@@ -244,52 +265,15 @@ select {
     display: inline-block;
 }
 
-.tracker-layout {
-    display: flex;
-    flex-direction: column;
-    /* Apila la tabla arriba y la leyenda abajo */
-    align-items: center;
-    width: 100%;
-}
-
-.mood-legend {
-    width: 100%;
-    /* Permite que ocupe todo el ancho */
-    margin-top: 30px;
-    padding-left: 0;
-}
+/* =========================================
+   MEDIA QUERIES (SOLO PARA TAMAÑOS DE FUENTE Y TABLA)
+========================================= */
 
 /* 1. PRIMERO el Media Query de Tablets (950px) */
 @media (max-width: 950px) {
-    .tracker-layout {
-        flex-direction: column;
-        align-items: center;
-    }
-
     .tracker-title {
         font-size: 1.8rem;
-    }
-
-    .mood-legend {
-        width: 100%;
-        margin-top: 30px;
-        padding-left: 0;
-    }
-
-    .legend-list {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 20px;
-    }
-
-    #semanaSeleccionada {
-        padding: 10px;
-        font-size: 1.1rem;
-        border: 2px solid #000;
-        border-radius: 6px;
-        cursor: pointer;
-
+        text-align: center;
     }
 }
 
@@ -300,13 +284,11 @@ select {
     }
 
     .mood-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr; /* 2 columnas en celulares para botones de registro */
     }
 
     .tracker-container {
-        padding: 15px;
-        width: 100%;
-        box-sizing: border-box;
+        padding: 10px; /* Reduce los márgenes laterales en celulares */
     }
 
     .tracker-title {
@@ -333,15 +315,5 @@ select {
     .mood-cell .color-dot {
         width: 25px;
         height: 25px;
-    }
-
-    .legend-list {
-        grid-template-columns: 1fr;
-        justify-items: left;
-    }
-
-    .legend-list li {
-        width: 180px; 
-        justify-content: flex-start;
     }
 }
