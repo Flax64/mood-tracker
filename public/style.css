@@ -17,7 +17,7 @@ body {
     border-radius: 12px;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
     width: 100%;
-    max-width: 450px;
+    max-width: 650px;
     box-sizing: border-box;
     margin: 0 auto 40px auto; /* Centra la tarjeta de forma segura */
 }
@@ -275,6 +275,10 @@ select {
         font-size: 1.8rem;
         text-align: center;
     }
+
+    .mood-grid {
+        grid-template-columns: repeat(3, 1fr); /* Baja a 3 columnas automáticamente */
+    }
 }
 
 /* 2. AL FINAL el Media Query de Celulares (480px) */
@@ -284,7 +288,7 @@ select {
     }
 
     .mood-grid {
-        grid-template-columns: 1fr 1fr; /* 2 columnas en celulares para botones de registro */
+        grid-template-columns: repeat(2, 1fr); /* Baja a 2 columnas en teléfonos */
     }
 
     .tracker-container {
