@@ -5,7 +5,12 @@ const formRegistro = document.getElementById('moodForm');
 
 // Solo ejecutamos esto si estamos en la página del formulario
 if (formRegistro) {
-    document.getElementById('fecha').valueAsDate = new Date();
+    const hoy = new Date();
+    const year = hoy.getFullYear();
+    // Sumamos 1 al mes porque en JavaScript enero es 0
+    const month = String(hoy.getMonth() + 1).padStart(2, '0');
+    const day = String(hoy.getDate()).padStart(2, '0');
+    document.getElementById('fecha').value = `${year}-${month}-${day}`;
 
     let estadoSeleccionado = '';
     let colorSeleccionado = '';
