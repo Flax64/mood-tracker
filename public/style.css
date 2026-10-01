@@ -28,6 +28,13 @@ h2 {
     font-size: 1.8rem;
 }
 
+.card h3 {
+    text-align: right;
+    color: #5d8de7;
+    margin-top: 0;
+    font-size: 0.7rem;
+}
+
 .form-group {
     margin-bottom: 20px;
 }

@@ -24,7 +24,7 @@ db.connect(err => {
 });
 
 // Ruta para guardar el estado de ánimo (Tu código)
-app.post('/api/mood', (req, res) => {
+app.post('/api/insert-mood', (req, res) => {
     const { fecha, momento_dia, estado_animo, color_hex } = req.body;
 
     const checkSql = 'SELECT * FROM RegistrosMood WHERE fecha = ? AND momento_dia = ?';
@@ -39,8 +39,10 @@ app.post('/api/mood', (req, res) => {
             if (puedeModificar(fecha, momento_dia)) {
                 const sqlUpdate = 'UPDATE RegistrosMood SET estado_animo = ?, color_hex = ? WHERE fecha = ? AND momento_dia = ?';
                 db.query(sqlUpdate, [estado_animo, color_hex, fecha, momento_dia], (errUpdate) => {
-                    if (errUpdate) return res.status(500).send('Error al actualizar el registro');
-
+                    if (errUpdate) {
+                        console.error(errUpdate);
+                        return res.status(500).send('Error al actualizar el registro');
+                    }
                     res.send('Registro actualizado correctamente \nAún estabas a tiempo');
                 });
             } else {
@@ -49,7 +51,10 @@ app.post('/api/mood', (req, res) => {
         } else {
             const sqlInsert = 'INSERT INTO RegistrosMood (fecha, momento_dia, estado_animo, color_hex) VALUES (?, ?, ?, ?)';
             db.query(sqlInsert, [fecha, momento_dia, estado_animo, color_hex], (errInsert) => {
-                if (errInsert) return res.status(500).send('Error al guardar en la base de datos');
+                if (errInsert) {
+                    console.error(errInsert);
+                    return res.status(500).send('Error al guardar en la base de datos');
+                }
 
                 res.send('Estado de ánimo registrado correctamente')
             });
@@ -57,8 +62,8 @@ app.post('/api/mood', (req, res) => {
     });
 });
 
-// NUEVA RUTA: Para consultar los datos de la semana y llenar tu tabla visual
-app.get('/api/moods', (req, res) => {
+// Ruta para consultar con el fin de llenar el calendario
+app.get('/api/get-moods', (req, res) => {
     const { inicio, fin } = req.query;
 
     // Busca los registros cuya fecha esté entre el Lunes y el Domingo seleccionados
@@ -73,6 +78,22 @@ app.get('/api/moods', (req, res) => {
     });
 });
 
+// Ruta para dar de alta un nuevo registro de sueño
+app.post('/api/insert-sleep', (req, res) => {
+    const { fecha, horas, calidad } = req.body;
+
+    const sql = 'INSERT INTO RegistrosSleep (fecha, horas, calidad) VALUES (?, ?, ?)';
+    db.query(sql, [fecha, horas, calidad], (err) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al guardar el registro de sueño');
+        }
+        res.send('Registro de sueño gruardado con éxito');
+    });
+});
+
+
+// Funcion que verifica si aun es tiempo de poder modifiar un estado de animo
 function puedeModificar(fecha, momento_dia) {
     const now = new Date();
 

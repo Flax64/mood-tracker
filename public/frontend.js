@@ -59,7 +59,7 @@ if (formRegistro) {
             color_hex: colorSeleccionado
         };
 
-        fetch(`/api/mood`, {
+        fetch(`/api/insert-mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
@@ -126,7 +126,7 @@ if (selectSemana) {
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
 
         // Solicitar datos al backend
-        fetch(`/api/moods?inicio=${inicio}&fin=${fin}`)
+        fetch(`/api/get-moods?inicio=${inicio}&fin=${fin}`)
             .then(response => response.json())
             .then(registros => {
                 const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
