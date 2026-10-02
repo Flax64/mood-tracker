@@ -190,17 +190,23 @@ if (selectSemana) {
                         }
                     }
 
+                    // Convertimos el decimal sumado de vuelta a formato HH:MM
+                    let textoHoras = '--';
+                    if (datosDia.horas > 0) {
+                        const horasEnteras = Math.floor(datosDia.horas);
+                        // Extraemos los decimales y los multiplicamos por 60 para sacar los minutos
+                        const minutosRestantes = Math.round((datosDia.horas - horasEnteras) * 60);
+                        textoHoras = `${horasEnteras}:${String(minutosRestantes).padStart(2, '0')} h`;
+                    }
+
                     // Crear el bloque HTML de la tarjeta
                     const card = document.createElement('div');
                     card.className = 'sleep-card';
                     card.style.borderColor = datosDia.horas > 0 ? colorBorde : '#e9ecef';
 
-                    card.innerHTML = `
-                <div class="day-name">${diasNombres[index]}</div>
-                <div class="sleep-hours">${datosDia.horas > 0 ? datosDia.horas.toFixed(1) + 'h' : '--'}</div>
-                <div class="sleep-quality">${emoji}</div>
-            `;
-
+                    card.innerHTML = `<div class="day-name">${diasNombres[index]}</div>
+                                        <div class="sleep-hours">${textoHoras}</div>
+                                        <div class="sleep-quality">${emoji}</div>`;
                     sleepGrid.appendChild(card);
                 });
             })
