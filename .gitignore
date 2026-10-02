@@ -1,3 +1,5 @@
 .env
 .ssh/
 base_datos/
+automatizacion/
+pruebas/
