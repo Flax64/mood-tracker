@@ -287,6 +287,51 @@ select {
 }
 
 /* =========================================
+   DISEÑO DEL CONTROL DE SUEÑO
+========================================= */
+.sleep-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    /* 7 días de la semana en PC */
+    gap: 15px;
+    margin-top: 20px;
+    width: 100%;
+}
+
+.sleep-card {
+    background-color: #fff;
+    border: 3px solid #e9ecef;
+    border-radius: 10px;
+    padding: 15px 10px;
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+    transition: transform 0.2s;
+}
+
+.sleep-card:hover {
+    transform: translateY(-3px);
+}
+
+.sleep-card .day-name {
+    font-size: 0.95rem;
+    color: #555;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+}
+
+.sleep-card .sleep-hours {
+    font-size: 1.6rem;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.sleep-card .sleep-quality {
+    font-size: 1.5rem;
+}
+
+/* =========================================
    MEDIA QUERIES (SOLO PARA TAMAÑOS DE FUENTE Y TABLA)
 ========================================= */
 
