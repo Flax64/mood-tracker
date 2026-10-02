@@ -5,11 +5,11 @@ const formRegistro = document.getElementById('moodForm');
 
 // Solo ejecutamos esto si estamos en la página del formulario
 if (formRegistro) {
-    const hoy = new Date();
-    const year = hoy.getFullYear();
+    const now = new Date();
+    const year = now.getFullYear();
     // Sumamos 1 al mes porque en JavaScript enero es 0
-    const month = String(hoy.getMonth() + 1).padStart(2, '0');
-    const day = String(hoy.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
     document.getElementById('fecha').value = `${year}-${month}-${day}`;
 
     let estadoSeleccionado = '';
@@ -59,7 +59,7 @@ if (formRegistro) {
             color_hex: colorSeleccionado
         };
 
-        fetch(`/api/mood`, {
+        fetch(`/api/insert-mood`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
@@ -88,9 +88,9 @@ const selectSemana = document.getElementById('semanaSeleccionada');
 
 if (selectSemana) {
     // 1. Llenar el menú con semanas estrictas de Domingo a Sábado
-    const hoy = new Date();
+    const now = new Date();
     // Encontrar el domingo de la semana actual
-    const domingoActual = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - hoy.getDay());
+    const domingoActual = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
 
     // Generar 5 semanas hacia atrás y 5 hacia adelante
     for (let i = -5; i <= 5; i++) {
@@ -126,7 +126,7 @@ if (selectSemana) {
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
 
         // Solicitar datos al backend
-        fetch(`/api/moods?inicio=${inicio}&fin=${fin}`)
+        fetch(`/api/get-moods?inicio=${inicio}&fin=${fin}`)
             .then(response => response.json())
             .then(registros => {
                 const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -141,9 +141,75 @@ if (selectSemana) {
                     }
                 });
             })
-            .catch(error => console.error('Error cargando los datos:', error));
+            .catch(error => alert('Error:' + error.message));
     });
 
     // 3. Disparar el evento inmediatamente al abrir la página para cargar la tabla
     selectSemana.dispatchEvent(new Event('change'));
+}
+
+// ==========================================
+// LÓGICA PARA SLEEP TRACKER
+// ==========================================
+const formSleep = document.getElementById('sleepForm');
+if (formSleep) {
+    function calcularHoras() {
+        const sleepTime = document.getElementById('sleepTime').value;
+        const wakeupTime = document.getElementById('wakeupTime').value;
+
+        if (sleepTime && wakeupTime) {
+            const sleepDate = new Date(`2000-01-01T${sleepTime}`);
+            const wakeupDate = new Date(`2000-01-01T${wakeupTime}`);
+
+            // Si es otro dia
+            if (wakeupDate < sleepDate) {
+                wakeupDate.setDate(wakeupDate.getDate() + 1);
+            }
+
+            const diferenciaMilisegundos = wakeupDate - sleepDate;
+            const horasTotales = diferenciaMilisegundos / (1000 * 60 * 60);
+
+            document.getElementById('sleepHours').value = horasTotales.toFixed(1);
+        }
+    }
+
+    document.getElementById('sleepTime').addEventListener('change', () => calcularHoras());
+    document.getElementById('wakeupTime').addEventListener('change', () => calcularHoras());
+
+    document.getElementById('btn-save-sleep').addEventListener('click', () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+
+        const fecha = `${year}-${month}-${day}`;
+        const horas = parseFloat(document.getElementById('sleepHours').value);
+        const calidad = document.getElementById('quality-sleep').value;
+
+        const datos = {
+            fecha: fecha,
+            horas: horas,
+            calidad: calidad
+        };
+
+        fetch('/api/insert-sleep', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(datos)
+        })
+            .then(resopnse => {
+                if (!resopnse.ok) {
+                    resopnse.text().then(text => { throw new Error(text) })
+                }
+                return resopnse.text();
+            })
+            .then(mensaje => {
+                alert(mensaje);
+                document.getElementById('sleepTime').value = '';
+                document.getElementById('wakeupTime').value = '';
+                document.getElementById('sleepHours').value = '';
+                document.getElementById('quality-sleep').value = '';
+            })
+            .catch(error => alert('Error: ' + error.message))
+    });
 }

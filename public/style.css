@@ -8,7 +8,6 @@ body {
     padding: 20px;
     min-height: 100vh;
     box-sizing: border-box;
-    /* Se eliminó el Flexbox centrado que causaba los cortes a la izquierda */
 }
 
 .card {
@@ -19,7 +18,7 @@ body {
     width: 100%;
     max-width: 650px;
     box-sizing: border-box;
-    margin: 0 auto 40px auto; /* Centra la tarjeta de forma segura */
+    margin: 0 auto 40px auto;
 }
 
 h2 {
@@ -27,6 +26,13 @@ h2 {
     color: #333;
     margin-top: 0;
     font-size: 1.8rem;
+}
+
+.card h3 {
+    text-align: right;
+    color: #5d8de7;
+    margin-top: 0;
+    font-size: 0.7rem;
 }
 
 .form-group {
@@ -144,13 +150,28 @@ select {
     background: #e2e2e8;
 }
 
+#sleepHours {
+    background-color: white;
+    cursor: not-allowed;
+    border-radius: 5%;
+    width: 8rem;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.hour-picker {
+    background-color: white;
+    border-radius: 5%;
+    width: 6rem;
+}
+
+
 /* =========================================
    VISUALIZADOR SEMANAL (dashboard.html)
 ========================================= */
 .tracker-container {
     width: 100%;
     max-width: 1000px;
-    margin: 0 auto; /* Centra el visualizador sin causar cortes */
+    margin: 0 auto;
     box-sizing: border-box;
 }
 
@@ -175,8 +196,8 @@ select {
 
 .tracker-layout {
     display: flex;
-    flex-direction: column; 
-    align-items: flex-start; /* Evita que el contenido ancho sea empujado fuera de la pantalla */
+    flex-direction: column;
+    align-items: flex-start;
     width: 100%;
 }
 
@@ -236,11 +257,10 @@ select {
 .legend-list {
     list-style: none;
     padding: 0;
-    margin: 0 auto; 
+    margin: 0 auto;
     display: grid;
-    /* auto-fit calcula solo cuántas columnas caben sin importar el dispositivo */
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
-    justify-items: center; 
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    justify-items: center;
     gap: 20px 10px;
     width: 100%;
     max-width: 900px;
@@ -253,7 +273,8 @@ select {
     font-weight: bold;
     justify-content: flex-start;
     width: 100%;
-    max-width: 160px; /* Mantiene la leyenda ordenada */
+    max-width: 160px;
+    /* Mantiene la leyenda ordenada */
 }
 
 .legend-list .color-dot {
@@ -277,7 +298,8 @@ select {
     }
 
     .mood-grid {
-        grid-template-columns: repeat(3, 1fr); /* Baja a 3 columnas automáticamente */
+        grid-template-columns: repeat(3, 1fr);
+        /* Baja a 3 columnas automáticamente */
     }
 }
 
@@ -288,11 +310,13 @@ select {
     }
 
     .mood-grid {
-        grid-template-columns: repeat(2, 1fr); /* Baja a 2 columnas en teléfonos */
+        grid-template-columns: repeat(2, 1fr);
+        /* Baja a 2 columnas en teléfonos */
     }
 
     .tracker-container {
-        padding: 10px; /* Reduce los márgenes laterales en celulares */
+        padding: 10px;
+        /* Reduce los márgenes laterales en celulares */
     }
 
     .tracker-title {

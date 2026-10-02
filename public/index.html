@@ -88,5 +88,38 @@
         </form>
     </div>
 
+    <div class="card">
+        <form id="sleepForm">
+            <h3>De preferencia registrar al despertar</h3>
+            <h2>😴 Control de Sueño</h2>
+
+            <div class="form-group">
+                <label for="sleepTime">¿A qué hora te dormiste?</label>
+                <input type="time" id="sleepTime" class="hour-picker" required>
+            </div>
+
+            <div class="form-group">
+                <label for="wakeupTime">¿A qué hora despertaste?</label>
+                <input type="time" id="wakeupTime" class="hour-picker" required>
+            </div>
+
+            <div class="form-group">
+                <label for="sleepHours">Horas totales de sueño:</label>
+                <input type="number" id="sleepHours" step="0.1" readonly>
+            </div>
+
+            <div class="form-group">
+                <label>¿Cómo sentiste este descanso?</label>
+                <select id="quality-sleep" required>
+                    <option value="" disabled selected>Selecciona una opcion...</option>
+                    <option value="Good">🟢 Bueno / Reparador</option>
+                    <option value="Regular">🟡 Regular / Intermitente</option>
+                    <option value="Bad">🔴 Malo / Pesado</option>
+                </select>
+            </div>
+
+            <button type="button" class="btn-submit" id="btn-save-sleep">Registrar Sueño</button>
+        </form>
+    </div>
     <script src="frontend.js"></script>
 </body>
