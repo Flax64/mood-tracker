@@ -285,7 +285,7 @@ if (formSleep) {
         })
             .then(resopnse => {
                 if (!resopnse.ok) {
-                    resopnse.text().then(text => { throw new Error(text) })
+                    return resopnse.text().then(text => { throw new Error(text) })
                 }
                 return resopnse.text();
             })
