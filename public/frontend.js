@@ -142,7 +142,6 @@ if (selectSemana) {
                 });
             })
             .catch(error => alert('Error:' + error.message));
-        // ====== AGREGAR ESTO DEBAJO DEL FETCH DE MOODS ======
 
         const sleepGrid = document.getElementById('sleepGrid');
         sleepGrid.innerHTML = ''; // Limpiar tarjetas anteriores
