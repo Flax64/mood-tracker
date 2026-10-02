@@ -93,17 +93,17 @@ app.get('/api/get-moods', (req, res) => {
 });
 
 // Ruta para consultar con el fin de consultar las horas de sueño
-app.get('/api/get-sleep', (req, resp) => {
+app.get('/api/get-sleep', (req, res) => {
     const { begin, end } = req.query;
 
-    const sql = 'SELECT fecha, horas, calidad FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
+    const sql = 'SELECT fecha, horas, calidad FROM RegistrosSleep WHERE fecha BETWEEN ? AND ?';
 
     db.query(sql, [begin, end], (err, result) => {
         if(err) {
             console.error(err);
             return res.status(500).send('Error al consultar la base de datos');
         }
-        res.json(result)
+        res.json(result);
     });
 });
 

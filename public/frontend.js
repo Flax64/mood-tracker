@@ -120,16 +120,15 @@ if (selectSemana) {
     // 2. Escuchar cuando eliges una semana distinta
     selectSemana.addEventListener('change', () => {
         // Extraer el inicio y fin del value elegido
-        const [inicio, fin] = selectSemana.value.split('|');
+        const [begin, end] = selectSemana.value.split('|');
 
         // Limpiar todos los cuadros de la tabla
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
-
+        const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         // Solicitar datos al backend
-        fetch(`/api/get-moods?inicio=${inicio}&fin=${fin}`)
+        fetch(`/api/get-moods?begin=${begin}&end=${end}`)
             .then(response => response.json())
             .then(registros => {
-                const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
@@ -158,7 +157,7 @@ if (selectSemana) {
             'Saturday': { horas: 0, calidades: [] }
         };
 
-        fetch(`/api/get-sleep?inicio=${inicio}&fin=${fin}`)
+        fetch(`/api/get-sleep?begin=${begin}&end=${end}`)
             .then(response => response.json())
             .then(registros => {
                 // 1. Sumamos las horas de todos los registros que lleguen
