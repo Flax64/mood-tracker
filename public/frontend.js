@@ -120,16 +120,15 @@ if (selectSemana) {
     // 2. Escuchar cuando eliges una semana distinta
     selectSemana.addEventListener('change', () => {
         // Extraer el inicio y fin del value elegido
-        const [inicio, fin] = selectSemana.value.split('|');
+        const [begin, end] = selectSemana.value.split('|');
 
         // Limpiar todos los cuadros de la tabla
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
-
+        const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         // Solicitar datos al backend
-        fetch(`/api/get-moods?inicio=${inicio}&fin=${fin}`)
+        fetch(`/api/get-moods?begin=${begin}&end=${end}`)
             .then(response => response.json())
             .then(registros => {
-                const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
@@ -142,6 +141,76 @@ if (selectSemana) {
                 });
             })
             .catch(error => alert('Error:' + error.message));
+
+        const sleepGrid = document.getElementById('sleepGrid');
+        sleepGrid.innerHTML = ''; // Limpiar tarjetas anteriores
+
+        // Preparamos un objeto vacío para sumar las horas de los 7 días
+        const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        let sumatoriaSueno = {
+            'Sunday': { horas: 0, calidades: [] },
+            'Monday': { horas: 0, calidades: [] },
+            'Tuesday': { horas: 0, calidades: [] },
+            'Wednesday': { horas: 0, calidades: [] },
+            'Thursday': { horas: 0, calidades: [] },
+            'Friday': { horas: 0, calidades: [] },
+            'Saturday': { horas: 0, calidades: [] }
+        };
+
+        fetch(`/api/get-sleep?begin=${begin}&end=${end}`)
+            .then(response => response.json())
+            .then(registros => {
+                // 1. Sumamos las horas de todos los registros que lleguen
+                registros.forEach(registro => {
+                    const fechaObj = new Date(registro.fecha);
+                    const nombreDia = diasSemana[fechaObj.getUTCDay()]; // getUTCDay evita desfases
+
+                    sumatoriaSueno[nombreDia].horas += parseFloat(registro.horas);
+                    sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
+                });
+
+                // 2. Dibujamos las 7 tarjetas
+                diasSemana.forEach((dia, index) => {
+                    const datosDia = sumatoriaSueno[dia];
+                    let emoji = '➖';
+                    let colorBorde = '#e9ecef';
+
+                    // Lógica de calidad: Si hubo al menos un registro ese día
+                    if (datosDia.horas > 0) {
+                        // Si en tus pausas tuviste al menos un descanso "Bad", predomina el rojo
+                        if (datosDia.calidades.includes('Bad')) {
+                            emoji = '🔴';
+                            colorBorde = '#EF4444'; // Rojo
+                        } else if (datosDia.calidades.includes('Regular')) {
+                            emoji = '🟡';
+                            colorBorde = '#FDE047'; // Amarillo
+                        } else {
+                            emoji = '🟢';
+                            colorBorde = '#4ADE80'; // Verde
+                        }
+                    }
+
+                    // Convertimos el decimal sumado de vuelta a formato HH:MM
+                    let textoHoras = '--';
+                    if (datosDia.horas > 0) {
+                        const horasEnteras = Math.floor(datosDia.horas);
+                        // Extraemos los decimales y los multiplicamos por 60 para sacar los minutos
+                        const minutosRestantes = Math.round((datosDia.horas - horasEnteras) * 60);
+                        textoHoras = `${horasEnteras}:${String(minutosRestantes).padStart(2, '0')} h`;
+                    }
+
+                    // Crear el bloque HTML de la tarjeta
+                    const card = document.createElement('div');
+                    card.className = 'sleep-card';
+                    card.style.borderColor = datosDia.horas > 0 ? colorBorde : '#e9ecef';
+
+                    card.innerHTML = `<div class="day-name">${diasNombres[index]}</div>
+                                        <div class="sleep-hours">${textoHoras}</div>
+                                        <div class="sleep-quality">${emoji}</div>`;
+                    sleepGrid.appendChild(card);
+                });
+            })
+            .catch(error => console.error('Error cargando el sueño:', error));
     });
 
     // 3. Disparar el evento inmediatamente al abrir la página para cargar la tabla

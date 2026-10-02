@@ -62,22 +62,6 @@ app.post('/api/insert-mood', (req, res) => {
     });
 });
 
-// Ruta para consultar con el fin de llenar el calendario
-app.get('/api/get-moods', (req, res) => {
-    const { inicio, fin } = req.query;
-
-    // Busca los registros cuya fecha esté entre el Lunes y el Domingo seleccionados
-    const sql = 'SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
-
-    db.query(sql, [inicio, fin], (err, results) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).send('Error al consultar la base de datos');
-        }
-        res.json(results); // Devuelve los registros al frontend
-    });
-});
-
 // Ruta para dar de alta un nuevo registro de sueño
 app.post('/api/insert-sleep', (req, res) => {
     const { fecha, horas, calidad } = req.body;
@@ -92,6 +76,36 @@ app.post('/api/insert-sleep', (req, res) => {
     });
 });
 
+// Ruta para consultar con el fin de llenar el calendario
+app.get('/api/get-moods', (req, res) => {
+    const { begin, end } = req.query;
+
+    // Busca los registros cuya fecha esté entre el Lunes y el Domingo seleccionados
+    const sql = 'SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
+
+    db.query(sql, [begin, end], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al consultar la base de datos');
+        }
+        res.json(result);
+    });
+});
+
+// Ruta para consultar con el fin de consultar las horas de sueño
+app.get('/api/get-sleep', (req, res) => {
+    const { begin, end } = req.query;
+
+    const sql = 'SELECT fecha, horas, calidad FROM RegistrosSleep WHERE fecha BETWEEN ? AND ?';
+
+    db.query(sql, [begin, end], (err, result) => {
+        if(err) {
+            console.error(err);
+            return res.status(500).send('Error al consultar la base de datos');
+        }
+        res.json(result);
+    });
+});
 
 // Funcion que verifica si aun es tiempo de poder modifiar un estado de animo
 function puedeModificar(fecha, momento_dia) {
