@@ -166,10 +166,27 @@ if (formSleep) {
                 wakeupDate.setDate(wakeupDate.getDate() + 1);
             }
 
+            // Convertimos a minutos totales primero
             const diferenciaMilisegundos = wakeupDate - sleepDate;
-            const horasTotales = diferenciaMilisegundos / (1000 * 60 * 60);
+            const totalMinutes = Math.floor(diferenciaMilisegundos / (1000 * 60));
 
-            document.getElementById('sleepHours').value = horasTotales.toFixed(1);
+            // Extraemos las horas y los minutos sobrantes
+            const intHours = Math.floor(totalMinutes / 60);
+            const intMinutes = totalMinutes % 60;
+
+            let visualText = `${intHours} horas`;
+            if (intMinutes > 0 && intMinutes <= 1) {
+                visualText += ` y ${intMinutes} minuto`;
+            } else if (intMinutes > 1) {
+                visualText += ` y ${intMinutes} minutos`;
+            }
+
+            // Mostramos el texto en la pantalla
+            const inputSleep = document.getElementById('sleepHours');
+            inputSleep.value = visualText;
+
+            // Escondemos el valor decimal exacto (ej. 5.5) en el HTML para la base de datos
+            inputSleep.dataset.decimal = (totalMinutes / 60).toFixed(2);
         }
     }
 
@@ -183,7 +200,7 @@ if (formSleep) {
         const day = String(now.getDate()).padStart(2, '0');
 
         const fecha = `${year}-${month}-${day}`;
-        const horas = parseFloat(document.getElementById('sleepHours').value);
+        const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
         const calidad = document.getElementById('quality-sleep').value;
 
         const datos = {
