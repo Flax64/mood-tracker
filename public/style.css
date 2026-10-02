@@ -346,6 +346,11 @@ select {
         grid-template-columns: repeat(3, 1fr);
         /* Baja a 3 columnas automáticamente */
     }
+
+    .sleep-grid {
+        grid-template-columns: repeat(4, 1fr);
+        /* 4 tarjetas arriba, 3 abajo */
+    }
 }
 
 /* 2. AL FINAL el Media Query de Celulares (480px) */
@@ -356,12 +361,10 @@ select {
 
     .mood-grid {
         grid-template-columns: repeat(2, 1fr);
-        /* Baja a 2 columnas en teléfonos */
     }
 
     .tracker-container {
         padding: 10px;
-        /* Reduce los márgenes laterales en celulares */
     }
 
     .tracker-title {
@@ -388,5 +391,9 @@ select {
     .mood-cell .color-dot {
         width: 25px;
         height: 25px;
+    }
+
+    .sleep-grid {
+        grid-template-columns: repeat(2, 1fr);
     }
 }

@@ -142,6 +142,71 @@ if (selectSemana) {
                 });
             })
             .catch(error => alert('Error:' + error.message));
+        // ====== AGREGAR ESTO DEBAJO DEL FETCH DE MOODS ======
+
+        const sleepGrid = document.getElementById('sleepGrid');
+        sleepGrid.innerHTML = ''; // Limpiar tarjetas anteriores
+
+        // Preparamos un objeto vacío para sumar las horas de los 7 días
+        const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+        let sumatoriaSueno = {
+            'Sunday': { horas: 0, calidades: [] },
+            'Monday': { horas: 0, calidades: [] },
+            'Tuesday': { horas: 0, calidades: [] },
+            'Wednesday': { horas: 0, calidades: [] },
+            'Thursday': { horas: 0, calidades: [] },
+            'Friday': { horas: 0, calidades: [] },
+            'Saturday': { horas: 0, calidades: [] }
+        };
+
+        fetch(`/api/get-sleep?inicio=${inicio}&fin=${fin}`)
+            .then(response => response.json())
+            .then(registros => {
+                // 1. Sumamos las horas de todos los registros que lleguen
+                registros.forEach(registro => {
+                    const fechaObj = new Date(registro.fecha);
+                    const nombreDia = diasSemana[fechaObj.getUTCDay()]; // getUTCDay evita desfases
+
+                    sumatoriaSueno[nombreDia].horas += parseFloat(registro.horas);
+                    sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
+                });
+
+                // 2. Dibujamos las 7 tarjetas
+                diasSemana.forEach((dia, index) => {
+                    const datosDia = sumatoriaSueno[dia];
+                    let emoji = '➖';
+                    let colorBorde = '#e9ecef';
+
+                    // Lógica de calidad: Si hubo al menos un registro ese día
+                    if (datosDia.horas > 0) {
+                        // Si en tus pausas tuviste al menos un descanso "Bad", predomina el rojo
+                        if (datosDia.calidades.includes('Bad')) {
+                            emoji = '🔴';
+                            colorBorde = '#EF4444'; // Rojo
+                        } else if (datosDia.calidades.includes('Regular')) {
+                            emoji = '🟡';
+                            colorBorde = '#FDE047'; // Amarillo
+                        } else {
+                            emoji = '🟢';
+                            colorBorde = '#4ADE80'; // Verde
+                        }
+                    }
+
+                    // Crear el bloque HTML de la tarjeta
+                    const card = document.createElement('div');
+                    card.className = 'sleep-card';
+                    card.style.borderColor = datosDia.horas > 0 ? colorBorde : '#e9ecef';
+
+                    card.innerHTML = `
+                <div class="day-name">${diasNombres[index]}</div>
+                <div class="sleep-hours">${datosDia.horas > 0 ? datosDia.horas.toFixed(1) + 'h' : '--'}</div>
+                <div class="sleep-quality">${emoji}</div>
+            `;
+
+                    sleepGrid.appendChild(card);
+                });
+            })
+            .catch(error => console.error('Error cargando el sueño:', error));
     });
 
     // 3. Disparar el evento inmediatamente al abrir la página para cargar la tabla
