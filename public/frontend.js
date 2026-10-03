@@ -333,3 +333,39 @@ if (formSleep) {
             .catch(error => alert('Error: ' + error.message))
     });
 }
+
+// ==========================================
+// LÓGICA PARA EL JOURNAL (NOTAS A WORD)
+// ==========================================
+const journalForm = document.getElementById('journalForm');
+
+if (journalForm) {
+    journalForm.addEventListener('submit', function (e) {
+        e.preventDefault(); // Evita que la página se recargue
+
+        const textInput = document.getElementById('journalText');
+        const texto = textInput.value;
+
+        // Evitar enviar envíos vacíos o con puros espacios
+        if (!texto.trim()) return;
+
+        // Enviar el texto al backend (que lo dejará en espera para tu script de Python)
+        fetch('/api/send-to-pc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ texto: texto })
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text) });
+                }
+                return response.text();
+            })
+            .then(mensaje => {
+                // Si fue exitoso, mostramos mensaje y vaciamos el cuadro
+                alert('¡Nota enviada! Tu script de Python la guardará en el Word en el próximo escaneo.');
+                textInput.value = '';
+            })
+            .catch(error => alert('Error al enviar la nota: ' + error.message));
+    });
+}

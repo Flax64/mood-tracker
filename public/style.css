@@ -332,6 +332,30 @@ select {
 }
 
 /* =========================================
+   DISEÑO DEL JOURNAL (NOTAS EN INGLÉS)
+========================================= */
+#journalText {
+    width: 100%;
+    min-height: 250px;
+    /* Suficientemente grande para escribir mucho */
+    padding: 15px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    box-sizing: border-box;
+    font-size: 1.1rem;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    resize: vertical;
+    line-height: 1.5;
+    background-color: #fdfdfd;
+}
+
+#journalText:focus {
+    outline: none;
+    border-color: #333;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+}
+
+/* =========================================
    MEDIA QUERIES (SOLO PARA TAMAÑOS DE FUENTE Y TABLA)
 ========================================= */
 
