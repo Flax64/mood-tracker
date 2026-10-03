@@ -99,7 +99,7 @@ app.get('/api/get-sleep', (req, res) => {
     const sql = 'SELECT fecha, horas, calidad FROM RegistrosSleep WHERE fecha BETWEEN ? AND ?';
 
     db.query(sql, [begin, end], (err, result) => {
-        if(err) {
+        if (err) {
             console.error(err);
             return res.status(500).send('Error al consultar la base de datos');
         }
@@ -136,6 +136,26 @@ function puedeModificar(fecha, momento_dia) {
             return false;
     }
 }
+
+// Memoria temporal para guardar los textos
+let colaDeTextos = [];
+
+// 1. Ruta para que tu página web mande el texto al servidor
+app.post('/api/send-to-pc', (req, res) => {
+    const { texto } = req.body;
+    if (texto) {
+        colaDeTextos.push(texto);
+        res.send('Texto encolado esperando a tu PC');
+    }
+});
+
+// 2. Ruta para que tu PC consulte si hay textos nuevos
+app.get('/api/pull-text', (req, res) => {
+    // Enviamos los textos a la PC
+    res.json(colaDeTextos);
+    // Vaciamos la cola inmediatamente para no repetir textos
+    colaDeTextos = [];
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
