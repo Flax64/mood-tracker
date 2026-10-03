@@ -148,13 +148,13 @@ if (selectSemana) {
         // Preparamos un objeto vacío para sumar las horas de los 7 días
         const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
         let sumatoriaSueno = {
-            'Sunday': { horas: 0, calidades: [] },
-            'Monday': { horas: 0, calidades: [] },
-            'Tuesday': { horas: 0, calidades: [] },
-            'Wednesday': { horas: 0, calidades: [] },
-            'Thursday': { horas: 0, calidades: [] },
-            'Friday': { horas: 0, calidades: [] },
-            'Saturday': { horas: 0, calidades: [] }
+            'Sunday': { horas: 0, calidades: [], sesiones: [] },
+            'Monday': { horas: 0, calidades: [], sesiones: [] },
+            'Tuesday': { horas: 0, calidades: [], sesiones: [] },
+            'Wednesday': { horas: 0, calidades: [], sesiones: [] },
+            'Thursday': { horas: 0, calidades: [], sesiones: [] },
+            'Friday': { horas: 0, calidades: [], sesiones: [] },
+            'Saturday': { horas: 0, calidades: [], sesiones: [] }
         };
 
         fetch(`/api/get-sleep?begin=${begin}&end=${end}`)
@@ -163,10 +163,14 @@ if (selectSemana) {
                 // 1. Sumamos las horas de todos los registros que lleguen
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
-                    const nombreDia = diasSemana[fechaObj.getUTCDay()]; // getUTCDay evita desfases
+                    const nombreDia = diasSemana[fechaObj.getUTCDay()];
 
-                    sumatoriaSueno[nombreDia].horas += parseFloat(registro.horas);
+                    const horasRegistro = parseFloat(registro.horas);
+                    sumatoriaSueno[nombreDia].horas += horasRegistro;
                     sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
+
+                    // NUEVO: Guardamos el fragmento exacto para saber si es intermitente
+                    sumatoriaSueno[nombreDia].sesiones.push(horasRegistro);
                 });
 
                 // 2. Dibujamos las 7 tarjetas
@@ -174,39 +178,59 @@ if (selectSemana) {
                     const datosDia = sumatoriaSueno[dia];
                     let emoji = '➖';
                     let colorBorde = '#e9ecef';
-
-                    // Lógica de calidad: Si hubo al menos un registro ese día
-                    if (datosDia.horas > 0) {
-                        // Si en tus pausas tuviste al menos un descanso "Bad", predomina el rojo
-                        if (datosDia.calidades.includes('Bad')) {
-                            emoji = '🔴';
-                            colorBorde = '#EF4444'; // Rojo
-                        } else if (datosDia.calidades.includes('Regular')) {
-                            emoji = '🟡';
-                            colorBorde = '#FDE047'; // Amarillo
-                        } else {
-                            emoji = '🟢';
-                            colorBorde = '#4ADE80'; // Verde
-                        }
-                    }
-
-                    // Convertimos el decimal sumado de vuelta a formato HH:MM
                     let textoHoras = '--';
+                    let textoIntervalos = ''; // Para mostrar (5h + 2h)
+
                     if (datosDia.horas > 0) {
-                        const horasEnteras = Math.floor(datosDia.horas);
-                        // Extraemos los decimales y los multiplicamos por 60 para sacar los minutos
-                        const minutosRestantes = Math.round((datosDia.horas - horasEnteras) * 60);
+                        const totalH = datosDia.horas;
+                        const cantidadSesiones = datosDia.sesiones.length;
+                        const intermitente = cantidadSesiones > 1; // Si hay más de un registro, es interrumpido
+
+                        // Formato de reloj para el Total (Ej. 7:30 h)
+                        const horasEnteras = Math.floor(totalH);
+                        const minutosRestantes = Math.round((totalH - horasEnteras) * 60);
                         textoHoras = `${horasEnteras}:${String(minutosRestantes).padStart(2, '0')} h`;
+
+                        // Si es intermitente, creamos el sub-texto con los fragmentos
+                        if (intermitente) {
+                            const listaIntervalos = datosDia.sesiones.map(sesionH => {
+                                const hE = Math.floor(sesionH);
+                                const mR = Math.round((sesionH - hE) * 60);
+                                return `${hE}:${String(mR).padStart(2, '0')}`;
+                            });
+                            // Dibuja algo como: (5:00 + 2:30) en texto más pequeño
+                            textoIntervalos = `<div style="font-size: 0.8rem; color: #777; margin-top: 5px; font-weight: normal;">(${listaIntervalos.join(' + ')})</div>`;
+                        }
+
+                        // === LÓGICA DE CALIDAD INTELIGENTE ===
+                        if (totalH < 4 || (totalH < 6 && intermitente)) {
+                            // Rojo: Menor a 4h en total, o menor a 6h pero interrumpido
+                            emoji = '🔴';
+                            colorBorde = '#EF4444';
+                        } else if (totalH >= 7 && !intermitente) {
+                            // Verde: ÚNICAMENTE si es 7h o más, y NO fue interrumpido (1 sola sesión)
+                            emoji = '🟢';
+                            colorBorde = '#4ADE80';
+                        } else {
+                            // Amarillo: Todo lo demás (ej. 4 a 6.9h de corrido, o cualquier sueño interrumpido mayor a 6h)
+                            emoji = '🟡';
+                            colorBorde = '#FDE047';
+                        }
                     }
 
                     // Crear el bloque HTML de la tarjeta
                     const card = document.createElement('div');
                     card.className = 'sleep-card';
-                    card.style.borderColor = datosDia.horas > 0 ? colorBorde : '#e9ecef';
+                    card.style.borderColor = colorBorde;
 
-                    card.innerHTML = `<div class="day-name">${diasNombres[index]}</div>
-                                        <div class="sleep-hours">${textoHoras}</div>
-                                        <div class="sleep-quality">${emoji}</div>`;
+                    card.innerHTML = `
+                        <div class="day-name">${diasNombres[index]}</div>
+                        <div class="sleep-hours" style="line-height: 1.1;">
+                            ${textoHoras}
+                            ${textoIntervalos}
+                        </div>
+                        <div class="sleep-quality" style="margin-top: 10px;">${emoji}</div>
+                    `;
                     sleepGrid.appendChild(card);
                 });
             })
@@ -266,13 +290,13 @@ if (formSleep) {
         const sleepTime = document.getElementById('sleepTime').value;
         const wakeupTime = document.getElementById('wakeupTime').value;
         const quality = document.getElementById('quality-sleep').value;
-        
+
         // 2. VALIDACIÓN ESTRICTA
         if (!sleepTime || !wakeupTime || !quality) {
             alert('Por favor, llena todos los campos (hora de dormir, despertar y calidad de sueño).');
-            return; 
+            return;
         }
-        
+
         const now = new Date();
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
