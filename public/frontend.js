@@ -263,6 +263,16 @@ if (formSleep) {
     document.getElementById('wakeupTime').addEventListener('change', () => calcularHoras());
 
     document.getElementById('btn-save-sleep').addEventListener('click', () => {
+        const sleepTime = document.getElementById('sleepTime').value;
+        const wakeupTime = document.getElementById('wakeupTime').value;
+        const quality = document.getElementById('quality-sleep').value;
+        
+        // 2. VALIDACIÓN ESTRICTA
+        if (!sleepTime || !wakeupTime || !quality) {
+            alert('Por favor, llena todos los campos (hora de dormir, despertar y calidad de sueño).');
+            return; 
+        }
+        
         const now = new Date();
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
