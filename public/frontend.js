@@ -346,14 +346,26 @@ if (journalForm) {
         const textInput = document.getElementById('journalText');
         const texto = textInput.value;
 
-        // Evitar enviar envíos vacíos o con puros espacios
+        // Evitar enviar envíos vacíos
         if (!texto.trim()) return;
 
-        // Enviar el texto al backend (que lo dejará en espera para tu script de Python)
+        // 1. Clave secreta (DEBE tener exactamente 32 caracteres)
+        const LLAVE_SECRETA = CryptoJS.enc.Utf8.parse('ClaveSecretaDiario2026Password!!');
+
+        // 2. Generar un vector aleatorio para que mensajes iguales generen códigos distintos
+        const iv = CryptoJS.lib.WordArray.random(16);
+
+        // 3. Encriptar el texto
+        const encriptado = CryptoJS.AES.encrypt(texto, LLAVE_SECRETA, { iv: iv });
+
+        // 4. Juntamos el vector y el texto encriptado separados por ":"
+        const textoSeguro = iv.toString(CryptoJS.enc.Hex) + ":" + encriptado.toString();
+
+        // Enviar el texto ENCRIPTADO al backend
         fetch('/api/send-to-pc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ texto: texto })
+            body: JSON.stringify({ texto: textoSeguro })
         })
             .then(response => {
                 if (!response.ok) {
@@ -362,7 +374,6 @@ if (journalForm) {
                 return response.text();
             })
             .then(mensaje => {
-                // Si fue exitoso, mostramos mensaje y vaciamos el cuadro
                 alert('¡Nota enviada! Tu script de Python la guardará en el Word en el próximo escaneo.');
                 textInput.value = '';
             })
