@@ -346,28 +346,38 @@ if (journalForm) {
         const textInput = document.getElementById('journalText');
         const texto = textInput.value;
 
-        // Evitar enviar envíos vacíos
+        // Evitar envíos vacíos
         if (!texto.trim()) return;
 
-        // 1. Clave secreta (DEBE tener exactamente 32 caracteres)
-        const LLAVE_SECRETA = CryptoJS.enc.Utf8.parse('ClaveSecretaDiario2026Password!!');
+        // 1. Buscar la llave en la bóveda del navegador
+        let llaveTexto = localStorage.getItem('diario_llave_secreta');
 
-        // 2. Generar un vector aleatorio para que mensajes iguales generen códigos distintos
+        // 2. Si no existe, pedírsela al usuario por única vez
+        if (!llaveTexto || llaveTexto.length !== 32) {
+            llaveTexto = prompt("🔒 Seguridad E2EE:\nIngresa tu clave secreta de 32 caracteres.\nSolo se te pedirá esta vez en este dispositivo:");
+            
+            if (llaveTexto && llaveTexto.length === 32) {
+                // Guardarla permanentemente en el navegador
+                localStorage.setItem('diario_llave_secreta', llaveTexto);
+            } else {
+                alert("Operación cancelada: La clave debe tener exactamente 32 caracteres.");
+                return; // Detener el envío
+            }
+        }
+
+        // 3. Usar la llave guardada para encriptar
+        const LLAVE_SECRETA = CryptoJS.enc.Utf8.parse(llaveTexto);
         const iv = CryptoJS.lib.WordArray.random(16);
-
-        // 3. Encriptar el texto
         const encriptado = CryptoJS.AES.encrypt(texto, LLAVE_SECRETA, { iv: iv });
-
-        // 4. Juntamos el vector y el texto encriptado separados por ":"
         const textoSeguro = iv.toString(CryptoJS.enc.Hex) + ":" + encriptado.toString();
 
-        // Enviar el texto ENCRIPTADO al backend
+        // 4. Enviar el texto ENCRIPTADO al backend
         fetch('/api/send-to-pc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ texto: textoSeguro })
         })
-            .then(response => {
+        // ... (El resto del .then() y .catch() se queda igual) ...            .then(response => {
                 if (!response.ok) {
                     return response.text().then(text => { throw new Error(text) });
                 }
