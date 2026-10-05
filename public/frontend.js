@@ -355,7 +355,7 @@ if (journalForm) {
         // 2. Si no existe, pedírsela al usuario por única vez
         if (!llaveTexto || llaveTexto.length !== 32) {
             llaveTexto = prompt("🔒 Seguridad E2EE:\nIngresa tu clave secreta de 32 caracteres.\nSolo se te pedirá esta vez en este dispositivo:");
-            
+
             if (llaveTexto && llaveTexto.length === 32) {
                 // Guardarla permanentemente en el navegador
                 localStorage.setItem('diario_llave_secreta', llaveTexto);
@@ -376,8 +376,8 @@ if (journalForm) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ texto: textoSeguro })
-        })
-        // ... (El resto del .then() y .catch() se queda igual) ...            .then(response => {
+        })          
+            .then(response => {
                 if (!response.ok) {
                     return response.text().then(text => { throw new Error(text) });
                 }
