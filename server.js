@@ -161,3 +161,15 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Servidor backend corriendo en http://localhost:${PORT}`);
 });
+
+// Capturar errores imprevistos para saber por qué se cayó
+process.on('uncaughtException', (err) => {
+    console.error(`\n[CRASH] ${new Date().toISOString()} - El servidor se cayó por este error:`);
+    console.error(err);
+    process.exit(1); // Obliga a cerrar el proceso para que Docker lo reinicie
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error(`\n[CRASH] ${new Date().toISOString()} - Promesa no manejada:`, reason);
+    process.exit(1);
+});
