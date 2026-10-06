@@ -24,6 +24,11 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       - DB_HOST=db # Apunta al nombre del servicio contenedor de arriba
       - DB_USER=${DB_USER}
