@@ -315,6 +315,11 @@ if (formSleep) {
         const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
         const calidad = document.getElementById('quality-sleep').value;
 
+        const btnGuardarSleep = document.getElementById('btn-save-sleep');
+        const textoBtnSleep = btnGuardarSleep.textContent;
+        btnGuardarSleep.disable = true;
+        btnGuardarSleep.textContent = "Guardando...";
+
         const datos = {
             fecha: fecha,
             horas: horas,
@@ -340,6 +345,10 @@ if (formSleep) {
                 document.getElementById('quality-sleep').value = '';
             })
             .catch(error => alert('Error: ' + error.message))
+            .finally(() => {
+                btnGuardarSleep.disable = false;
+                btnGuardarSleep.textContent = textoBtnSleep;
+            });
     });
 }
 
