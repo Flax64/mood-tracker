@@ -52,6 +52,11 @@ if (formRegistro) {
             return;
         }
 
+        const btnGuardarMood = document.getElementById('btn-save-mood');
+        const textoBtnMood = btnGuardarMood.textContent;
+        btnGuardarMood.disable = true;
+        btnGuardarMood.textContent = "Guardando..."
+
         const datos = {
             fecha: document.getElementById('fecha').value,
             momento_dia: document.getElementById('momento').value,
@@ -77,7 +82,11 @@ if (formRegistro) {
                 colorSeleccionado = '';
                 document.getElementById('momento').value = "";
             })
-            .catch(error => alert('Error: ' + error.message));
+            .catch(error => alert('Error: ' + error.message))
+            .finally(() => {
+                btnGuardarMood.disable = false;
+                btnGuardarMood.textContent = textoBtnMood;
+            });
     });
 }
 
@@ -306,6 +315,11 @@ if (formSleep) {
         const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
         const calidad = document.getElementById('quality-sleep').value;
 
+        const btnGuardarSleep = document.getElementById('btn-save-sleep');
+        const textoBtnSleep = btnGuardarSleep.textContent;
+        btnGuardarSleep.disable = true;
+        btnGuardarSleep.textContent = "Guardando...";
+
         const datos = {
             fecha: fecha,
             horas: horas,
@@ -331,6 +345,10 @@ if (formSleep) {
                 document.getElementById('quality-sleep').value = '';
             })
             .catch(error => alert('Error: ' + error.message))
+            .finally(() => {
+                btnGuardarSleep.disable = false;
+                btnGuardarSleep.textContent = textoBtnSleep;
+            });
     });
 }
 
@@ -370,6 +388,11 @@ if (journalForm) {
         const iv = CryptoJS.lib.WordArray.random(16);
         const encriptado = CryptoJS.AES.encrypt(texto, LLAVE_SECRETA, { iv: iv });
         const textoSeguro = iv.toString(CryptoJS.enc.Hex) + ":" + encriptado.toString();
+        
+        const btnEnviarWord = document.getElementById('btn-send-word');
+        const textoBtnWord = btnEnviarWord.textContent;
+        btnEnviarWord.disable = true;
+        btnEnviarWord.textContent = "Enviando...";
 
         // 4. Enviar el texto ENCRIPTADO al backend
         fetch('/api/send-to-pc', {
@@ -387,6 +410,10 @@ if (journalForm) {
                 alert('¡Nota enviada! Tu script de Python la guardará en el Word en el próximo escaneo.');
                 textInput.value = '';
             })
-            .catch(error => alert('Error al enviar la nota: ' + error.message));
+            .catch(error => alert('Error al enviar la nota: ' + error.message))
+            .finally(() => {
+                btnEnviarWord.disable = false;
+                btnEnviarWord.textContent = textoBtnWord;
+            });
     });
 }

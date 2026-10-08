@@ -154,15 +154,19 @@ select {
 #sleepHours {
     background-color: white;
     cursor: not-allowed;
-    border-radius: 5%;
-    width: 8rem;
+    border-radius: 5px;
+    width: 12rem;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: large;
+    padding: 3px 12px 3px 12px;
 }
 
 .hour-picker {
     background-color: white;
-    border-radius: 5%;
-    width: 6rem;
+    border-radius: 5px;
+    width: 8rem;
+    font-size: large;
+    padding: 3px 12px 3px 12px;
 }
 
 
