@@ -302,7 +302,7 @@ select {
     gap: 15px;
     margin: 40px 0 40px 0;
     width: 100%;
-    max-width: 100dvw;
+    max-width: 100%;
 }
 
 .sleep-container h3 {
@@ -316,7 +316,6 @@ select {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
     gap: 30px;
-    width: 100%;
 }
 
 .sleep-card {
@@ -329,6 +328,7 @@ select {
     transition: transform 0.2s;
     width: 100px;
     min-width: 100px;
+    max-width: 100px;
 }
 
 .sleep-card:hover {
