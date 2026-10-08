@@ -174,8 +174,8 @@ select {
    VISUALIZADOR SEMANAL (dashboard.html)
 ========================================= */
 .tracker-container {
-    width: 100%;
-    max-width: 1000px;
+    width: 85dvw;
+    max-width: 900px;
     margin: 0 auto;
     box-sizing: border-box;
 }
@@ -294,13 +294,28 @@ select {
 /* =========================================
    DISEÑO DEL CONTROL DE SUEÑO
 ========================================= */
+.sleep-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100%, 1fr));
+    flex-wrap: wrap;
+    box-sizing: border-box;
+    gap: 15px;
+    margin: 40px 0 40px 0;
+    width: 100%;
+    max-width: 100%;
+}
+
+.sleep-container h3 {
+    text-align: left;
+    border-bottom: 2px solid #ccc;
+    padding-bottom: 10px;
+    color: #333;
+}
+
 .sleep-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    /* 7 días de la semana en PC */
-    gap: 15px;
-    margin-top: 20px;
-    width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 30px;
 }
 
 .sleep-card {
@@ -311,6 +326,9 @@ select {
     text-align: center;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
     transition: transform 0.2s;
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
 }
 
 .sleep-card:hover {
@@ -370,12 +388,6 @@ select {
         font-size: 1.8rem;
         text-align: center;
     }
-
-    .sleep-grid {
-        grid-template-columns: repeat(4, 1fr);
-        box-sizing: border-box;
-        /* 4 tarjetas arriba, 3 abajo */
-    }
 }
 
 /* 2. AL FINAL el Media Query de Celulares (480px) */
@@ -412,9 +424,5 @@ select {
     .mood-cell .color-dot {
         width: 25px;
         height: 25px;
-    }
-
-    .sleep-grid {
-        grid-template-columns: repeat(2, 1fr);
     }
 }
