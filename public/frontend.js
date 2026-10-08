@@ -52,6 +52,11 @@ if (formRegistro) {
             return;
         }
 
+        const btnGuardarMood = document.getElementById('btn-save-mood');
+        const textoBtnMood = btnGuardarMood.textContent;
+        btnGuardarMood.disable = true;
+        btnGuardarMood.textContent = "Guardando..."
+
         const datos = {
             fecha: document.getElementById('fecha').value,
             momento_dia: document.getElementById('momento').value,
@@ -77,7 +82,11 @@ if (formRegistro) {
                 colorSeleccionado = '';
                 document.getElementById('momento').value = "";
             })
-            .catch(error => alert('Error: ' + error.message));
+            .catch(error => alert('Error: ' + error.message))
+            .finally(() => {
+                btnGuardarMood.disable = false;
+                btnGuardarMood.textContent = textoBtnMood;
+            });
     });
 }
 
