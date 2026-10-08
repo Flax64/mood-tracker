@@ -58,9 +58,10 @@ select {
 
 .mood-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 12px;
     margin-bottom: 25px;
+    box-sizing: border-box;
 }
 
 .mood-btn {
@@ -366,13 +367,9 @@ select {
         text-align: center;
     }
 
-    .mood-grid {
-        grid-template-columns: repeat(3, 1fr);
-        /* Baja a 3 columnas automáticamente */
-    }
-
     .sleep-grid {
         grid-template-columns: repeat(4, 1fr);
+        box-sizing: border-box;
         /* 4 tarjetas arriba, 3 abajo */
     }
 }
@@ -381,10 +378,6 @@ select {
 @media (max-width: 480px) {
     .card {
         padding: 20px;
-    }
-
-    .mood-grid {
-        grid-template-columns: repeat(2, 1fr);
     }
 
     .tracker-container {
