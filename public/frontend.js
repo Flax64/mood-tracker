@@ -388,6 +388,11 @@ if (journalForm) {
         const iv = CryptoJS.lib.WordArray.random(16);
         const encriptado = CryptoJS.AES.encrypt(texto, LLAVE_SECRETA, { iv: iv });
         const textoSeguro = iv.toString(CryptoJS.enc.Hex) + ":" + encriptado.toString();
+        
+        const btnEnviarWord = document.getElementById('btn-send-word');
+        const textoBtnWord = btnEnviarWord.textContent;
+        btnEnviarWord.disable = true;
+        btnEnviarWord.textContent = "Enviando...";
 
         // 4. Enviar el texto ENCRIPTADO al backend
         fetch('/api/send-to-pc', {
@@ -405,6 +410,10 @@ if (journalForm) {
                 alert('¡Nota enviada! Tu script de Python la guardará en el Word en el próximo escaneo.');
                 textInput.value = '';
             })
-            .catch(error => alert('Error al enviar la nota: ' + error.message));
+            .catch(error => alert('Error al enviar la nota: ' + error.message))
+            .finally(() => {
+                btnEnviarWord.disable = false;
+                btnEnviarWord.textContent = textoBtnWord;
+            });
     });
 }
