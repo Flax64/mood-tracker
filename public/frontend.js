@@ -44,17 +44,21 @@ if (formRegistro) {
 
     obtenerMomentoDia(hora);
 
-    formRegistro.addEventListener('submit', function (e) {
+    formRegistro.addEventListener('submit', (e) => {
         e.preventDefault();
+
+        // Prevenir el click fantasma o docke click
+        const btnGuardarMood = document.getElementById('btn-save-mood');
+        if (btnGuardarMood.disabled) return;
 
         if (!estadoSeleccionado) {
             alert('Por favor, selecciona un estado de ánimo.');
             return;
         }
 
-        const btnGuardarMood = document.getElementById('btn-save-mood');
+
         const textoBtnMood = btnGuardarMood.textContent;
-        btnGuardarMood.disable = true;
+        btnGuardarMood.disabled = true;
         btnGuardarMood.textContent = "Guardando..."
 
         const datos = {
@@ -84,7 +88,7 @@ if (formRegistro) {
             })
             .catch(error => alert('Error: ' + error.message))
             .finally(() => {
-                btnGuardarMood.disable = false;
+                btnGuardarMood.disabled = false;
                 btnGuardarMood.textContent = textoBtnMood;
             });
     });
@@ -295,7 +299,11 @@ if (formSleep) {
     document.getElementById('sleepTime').addEventListener('change', () => calcularHoras());
     document.getElementById('wakeupTime').addEventListener('change', () => calcularHoras());
 
-    document.getElementById('btn-save-sleep').addEventListener('click', () => {
+    formSleep.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const btnGuardarSleep = document.getElementById('btn-save-sleep');
+        if (btnGuardarSleep.disabled) return;
+
         const sleepTime = document.getElementById('sleepTime').value;
         const wakeupTime = document.getElementById('wakeupTime').value;
         const quality = document.getElementById('quality-sleep').value;
@@ -306,6 +314,10 @@ if (formSleep) {
             return;
         }
 
+        const textoBtnSleep = btnGuardarSleep.textContent;
+        btnGuardarSleep.disabled = true;
+        btnGuardarSleep.textContent = "Guardando...";
+
         const now = new Date();
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -314,11 +326,6 @@ if (formSleep) {
         const fecha = `${year}-${month}-${day}`;
         const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
         const calidad = document.getElementById('quality-sleep').value;
-
-        const btnGuardarSleep = document.getElementById('btn-save-sleep');
-        const textoBtnSleep = btnGuardarSleep.textContent;
-        btnGuardarSleep.disable = true;
-        btnGuardarSleep.textContent = "Guardando...";
 
         const datos = {
             fecha: fecha,
@@ -346,7 +353,7 @@ if (formSleep) {
             })
             .catch(error => alert('Error: ' + error.message))
             .finally(() => {
-                btnGuardarSleep.disable = false;
+                btnGuardarSleep.disabled = false;
                 btnGuardarSleep.textContent = textoBtnSleep;
             });
     });
@@ -360,6 +367,8 @@ const journalForm = document.getElementById('journalForm');
 if (journalForm) {
     journalForm.addEventListener('submit', function (e) {
         e.preventDefault(); // Evita que la página se recargue
+        const btnEnviarWord = document.getElementById('btn-send-word');
+        if (btnEnviarWord.disabled) return;
 
         const textInput = document.getElementById('journalText');
         const texto = textInput.value;
@@ -383,23 +392,22 @@ if (journalForm) {
             }
         }
 
+        const textoBtnWord = btnEnviarWord.textContent;
+        btnEnviarWord.disabled = true;
+        btnEnviarWord.textContent = "Enviando...";
+
         // 3. Usar la llave guardada para encriptar
         const LLAVE_SECRETA = CryptoJS.enc.Utf8.parse(llaveTexto);
         const iv = CryptoJS.lib.WordArray.random(16);
         const encriptado = CryptoJS.AES.encrypt(texto, LLAVE_SECRETA, { iv: iv });
         const textoSeguro = iv.toString(CryptoJS.enc.Hex) + ":" + encriptado.toString();
-        
-        const btnEnviarWord = document.getElementById('btn-send-word');
-        const textoBtnWord = btnEnviarWord.textContent;
-        btnEnviarWord.disable = true;
-        btnEnviarWord.textContent = "Enviando...";
 
         // 4. Enviar el texto ENCRIPTADO al backend
         fetch('/api/send-to-pc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ texto: textoSeguro })
-        })          
+        })
             .then(response => {
                 if (!response.ok) {
                     return response.text().then(text => { throw new Error(text) });
@@ -412,7 +420,7 @@ if (journalForm) {
             })
             .catch(error => alert('Error al enviar la nota: ' + error.message))
             .finally(() => {
-                btnEnviarWord.disable = false;
+                btnEnviarWord.disabled = false;
                 btnEnviarWord.textContent = textoBtnWord;
             });
     });
