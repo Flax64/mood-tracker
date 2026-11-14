@@ -48,6 +48,9 @@ mood-tracker/
 │       └── deploy.yml              # CI/CD automático hacia AWS EC2
 ├── base_datos/
 │   └── Diseño Base Datos.xml       # Modelo visual de base de datos
+├── guides/                         # Documentación técnica y operativa
+│   ├── GUIA_OPERACION_Y_MIGRACION.md
+│   └── GUIA_TECNICA_ARQUITECTURA.md
 ├── public/                         # Archivos estáticos servidos por Express
 │   ├── index.html                  # Shell principal, pantalla de arranque, barra lateral y vistas
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
@@ -71,6 +74,13 @@ mood-tracker/
 ├── README.md
 └── server.js                       # Backend Express y API REST
 ```
+
+---
+
+## 📚 Guías del Proyecto
+
+* [Guía Técnica de Arquitectura e Implementación](guides/GUIA_TECNICA_ARQUITECTURA.md): diseño por capas, esquema MySQL, seguridad E2EE/RBAC, optimizaciones para `t3.micro` y flujo CI/CD.
+* [Guía de Operación, Bóveda Local y Migración EC2](guides/GUIA_OPERACION_Y_MIGRACION.md): gestión de `.env.enc`, sincronizador de Word en Windows (`sincronizador.py`), respaldos con `rclone` y migración de instancia AWS EC2.
 
 ---
 
