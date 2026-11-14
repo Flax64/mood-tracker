@@ -142,12 +142,16 @@ jobs:
             # 6. Si es una instancia nueva / BD vacía, restaurar automáticamente el último backup de Google Drive
             ./scripts/restore.sh --if-empty
 
-            # 7. Registrar respaldo automático diario a Google Drive (3:00 AM)
+            # 7. Limpiar imágenes huérfanas y caché viejo de Docker para no llenar el disco de la t3.micro
+            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
+            $DOCKER_CMD builder prune -f --filter "until=24h" >/dev/null 2>&1 || true
+
+            # 8. Registrar respaldo automático diario a Google Drive (3:00 AM)
             mkdir -p "$HOME/projects/respaldos"
             CRON_JOB="0 3 * * * $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" || true; echo "$CRON_JOB") | crontab -
 
-            # 8. Opcional: eliminar .env plano tras desplegar si SEAL_ENV_AFTER_DEPLOY=true
+            # 9. Opcional: eliminar .env plano tras desplegar si SEAL_ENV_AFTER_DEPLOY=true
             if [ "${SEAL_ENV_AFTER_DEPLOY:-false}" = "true" ]; then
               shred -u .env 2>/dev/null || rm -f .env
               echo "Archivo .env en texto plano eliminado tras el despliegue (SEAL_ENV_AFTER_DEPLOY=true)."
