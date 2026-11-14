@@ -225,25 +225,218 @@ function nextAgendaStatus(currentStatus) {
 }
 
 // ==========================================
-// E2EE CLIENT CRYPTO HELPERS (SHARED BY JOURNAL & ENGLISH NOTEBOOK)
+// UX HELPERS: TOASTS, BANNERS, MODALS & E2EE KEY
 // ==========================================
-function obtenerLlaveE2EE() {
-    let llaveTexto = localStorage.getItem('diario_llave_secreta');
+const MOOD_COLOR_LABELS = {
+    '#FDE047': 'Happy',
+    '#4ADE80': 'Calm',
+    '#7DD3FC': 'Excited',
+    '#D8B4FE': 'Tired',
+    '#3B82F6': 'Sad',
+    '#EF4444': 'Angry',
+    '#F97316': 'Worried',
+    '#9CA3AF': 'Scared',
+    '#14B8A6': 'Focused',
+    '#F59E0B': 'Motivated',
+    '#991B1B': 'Stressed',
+    '#D946EF': 'Frustrated',
+    '#D1D5DB': 'Bored',
+    '#A3E635': 'Anxious',
+    '#F9A8D4': 'Distracted',
+    '#6B21A8': 'Desperate'
+};
 
-    if (!llaveTexto || llaveTexto.length !== 32) {
-        llaveTexto = prompt(
-            '🔒 E2EE Security:\nEnter your 32-character secret key.\nIt will only be requested once on this device:'
-        );
+const MOOD_BLOCK_ORDER = [
+    { key: 'Madrugada', label: 'Late Night', range: '00:00 - 05:59' },
+    { key: 'Morning', label: 'Morning', range: '06:00 - 11:59' },
+    { key: 'Noon', label: 'Noon', range: '12:00 - 13:59' },
+    { key: 'Afternoon', label: 'Afternoon', range: '14:00 - 19:59' },
+    { key: 'Night', label: 'Night', range: '20:00 - 23:59' }
+];
 
-        if (llaveTexto && llaveTexto.length === 32) {
-            localStorage.setItem('diario_llave_secreta', llaveTexto);
-        } else {
-            alert('Canceled: Your secret key must be exactly 32 characters long.');
-            return null;
-        }
+function showToast(type, message, durationMs = 4200) {
+    if (!message) return;
+    const container = document.getElementById('appToastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `app-toast ${type === 'err' ? 'toast-err' : (type === 'ok' ? 'toast-ok' : '')}`;
+
+    const text = document.createElement('span');
+    text.textContent = String(message);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'app-toast-close';
+    closeBtn.setAttribute('aria-label', 'Dismiss notification');
+    closeBtn.textContent = '✕';
+
+    const removeToast = () => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+    };
+    closeBtn.addEventListener('click', removeToast);
+
+    toast.append(text, closeBtn);
+    container.appendChild(toast);
+
+    while (container.children.length > 4) {
+        container.removeChild(container.firstElementChild);
     }
 
-    return llaveTexto;
+    if (durationMs > 0) {
+        setTimeout(removeToast, durationMs);
+    }
+}
+
+function setInlineBanner(bannerId, type, message) {
+    const el = document.getElementById(bannerId);
+    if (!el) return;
+    if (!message) {
+        el.hidden = true;
+        el.textContent = '';
+        el.className = 'inline-status-banner';
+        return;
+    }
+    const cls = type === 'err' ? 'err' : (type === 'info' ? 'info' : 'ok');
+    el.className = `inline-status-banner ${cls}`;
+    el.textContent = String(message);
+    el.hidden = false;
+}
+
+let activeConfirmResolver = null;
+function closeConfirmDialog(accepted = false) {
+    const modal = document.getElementById('confirmActionModal');
+    if (modal) modal.hidden = true;
+    const resolver = activeConfirmResolver;
+    activeConfirmResolver = null;
+    if (resolver) resolver(Boolean(accepted));
+}
+
+function openConfirmDialog({ title = 'Confirm Action', message = 'Are you sure?', confirmText = 'Confirm', danger = false } = {}) {
+    const modal = document.getElementById('confirmActionModal');
+    const titleEl = document.getElementById('confirmActionTitle');
+    const msgEl = document.getElementById('confirmActionMessage');
+    const acceptBtn = document.getElementById('btnConfirmAccept');
+    const cancelBtn = document.getElementById('btnConfirmCancel');
+    const closeBtn = document.getElementById('btnCloseConfirmModal');
+
+    if (!modal || !acceptBtn || !cancelBtn) {
+        return Promise.resolve(false);
+    }
+
+    if (activeConfirmResolver) closeConfirmDialog(false);
+
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+    acceptBtn.textContent = confirmText;
+    acceptBtn.style.backgroundColor = danger ? '#dc2626' : '';
+
+    return new Promise((resolve) => {
+        activeConfirmResolver = resolve;
+        modal.hidden = false;
+
+        acceptBtn.onclick = () => closeConfirmDialog(true);
+        cancelBtn.onclick = () => closeConfirmDialog(false);
+        if (closeBtn) closeBtn.onclick = () => closeConfirmDialog(false);
+        modal.onclick = (e) => {
+            if (e.target === modal) closeConfirmDialog(false);
+        };
+        setTimeout(() => cancelBtn.focus(), 20);
+    });
+}
+
+// ==========================================
+// E2EE CLIENT CRYPTO HELPERS (SHARED BY JOURNAL & ENGLISH NOTEBOOK)
+// ==========================================
+let activeE2eeResolver = null;
+function closeE2eeModal(resultKey = null) {
+    const modal = document.getElementById('e2eeKeyModal');
+    if (modal) modal.hidden = true;
+    const resolver = activeE2eeResolver;
+    activeE2eeResolver = null;
+    if (resolver) resolver(resultKey);
+}
+
+function updateE2eeCharCounter() {
+    const input = document.getElementById('e2eeKeyInput');
+    const countEl = document.getElementById('e2eeKeyCharCount');
+    if (!input || !countEl) return;
+    const len = input.value.length;
+    countEl.textContent = `${len} / 32 characters`;
+    countEl.style.color = len === 32 ? '#16a34a' : '';
+}
+
+function solicitarLlaveE2EEAsync({ forceEdit = false } = {}) {
+    const saved = localStorage.getItem('diario_llave_secreta') || '';
+    if (!forceEdit && saved.length === 32) {
+        return Promise.resolve(saved);
+    }
+
+    const modal = document.getElementById('e2eeKeyModal');
+    const form = document.getElementById('e2eeKeyForm');
+    const input = document.getElementById('e2eeKeyInput');
+    const forgetBtn = document.getElementById('btnForgetE2eeModal');
+    const cancelBtn = document.getElementById('btnCancelE2eeModal');
+    const closeBtn = document.getElementById('btnCloseE2eeModal');
+
+    if (!modal || !form || !input) {
+        return Promise.resolve(null);
+    }
+
+    if (activeE2eeResolver) closeE2eeModal(null);
+
+    input.value = saved.length === 32 ? saved : '';
+    input.type = 'password';
+    updateE2eeCharCounter();
+    setInlineBanner('e2eeKeyModalStatus', '', '');
+    if (forgetBtn) forgetBtn.hidden = saved.length === 0;
+
+    return new Promise((resolve) => {
+        activeE2eeResolver = resolve;
+        modal.hidden = false;
+        setTimeout(() => input.focus(), 20);
+
+        input.oninput = () => {
+            updateE2eeCharCounter();
+            setInlineBanner('e2eeKeyModalStatus', '', '');
+        };
+
+        form.onsubmit = (e) => {
+            e.preventDefault();
+            const candidate = input.value;
+            if (candidate.length !== 32) {
+                setInlineBanner('e2eeKeyModalStatus', 'err', 'Secret key must be exactly 32 characters long.');
+                return;
+            }
+            localStorage.setItem('diario_llave_secreta', candidate);
+            updateE2eeKeyStatusUI();
+            showToast('ok', 'E2EE secret key saved in this browser.');
+            closeE2eeModal(candidate);
+        };
+
+        if (forgetBtn) {
+            forgetBtn.onclick = () => {
+                localStorage.removeItem('diario_llave_secreta');
+                input.value = '';
+                updateE2eeCharCounter();
+                updateE2eeKeyStatusUI();
+                showToast('info', 'Local E2EE key removed from this browser.');
+                closeE2eeModal(null);
+            };
+        }
+
+        const handleCancel = () => closeE2eeModal(null);
+        if (cancelBtn) cancelBtn.onclick = handleCancel;
+        if (closeBtn) closeBtn.onclick = handleCancel;
+        modal.onclick = (e) => {
+            if (e.target === modal) handleCancel();
+        };
+    });
+}
+
+function obtenerLlaveE2EE() {
+    const llaveTexto = localStorage.getItem('diario_llave_secreta') || '';
+    return llaveTexto.length === 32 ? llaveTexto : null;
 }
 
 function encriptarTextoE2EE(textoPlano, llaveTexto) {
@@ -251,6 +444,160 @@ function encriptarTextoE2EE(textoPlano, llaveTexto) {
     const iv = CryptoJS.lib.WordArray.random(16);
     const encrypted = CryptoJS.AES.encrypt(textoPlano, keyWords, { iv: iv });
     return iv.toString(CryptoJS.enc.Hex) + ':' + encrypted.toString();
+}
+
+// ==========================================
+// DEVICE-AWARE YOUTUBE HELPERS (PC YOUTUBE VS MOBILE YT MUSIC)
+// ==========================================
+const YT_PLATFORM_STORAGE_KEY = 'mt_yt_platform_mode';
+
+function isMobileYouTubeDevice() {
+    const ua = navigator.userAgent || '';
+    if (/Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini|Silk/i.test(ua)) {
+        return true;
+    }
+    if (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) {
+        return true;
+    }
+    return Boolean(window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth <= 900);
+}
+
+function getYouTubePlatformMode() {
+    const localOverride = String(localStorage.getItem(YT_PLATFORM_STORAGE_KEY) || '').trim().toLowerCase();
+    if (['auto', 'youtube', 'yt_music'].includes(localOverride)) {
+        return localOverride;
+    }
+    const serverPref = String(currentSettings?.youtubePlatformMode || '').trim().toLowerCase();
+    return ['auto', 'youtube', 'yt_music'].includes(serverPref) ? serverPref : 'auto';
+}
+
+function getEffectiveYouTubePlatform() {
+    const mode = getYouTubePlatformMode();
+    if (mode === 'youtube' || mode === 'yt_music') return mode;
+    return isMobileYouTubeDevice() ? 'yt_music' : 'youtube';
+}
+
+function buildClientStandardYouTubeUrl({ videoId = null, ytMusicUrl = null, youtubeUrl = null } = {}) {
+    if (youtubeUrl) return youtubeUrl;
+    const cleanId = String(videoId || '').trim();
+    if (/^[A-Za-z0-9_-]{11}$/.test(cleanId)) {
+        return `https://www.youtube.com/watch?v=${cleanId}`;
+    }
+    const raw = String(ytMusicUrl || '').trim();
+    if (!raw) return null;
+    try {
+        const parsed = new URL(raw);
+        const vParam = parsed.searchParams.get('v');
+        if (vParam && /^[A-Za-z0-9_-]{11}$/.test(vParam)) {
+            return `https://www.youtube.com/watch?v=${vParam}`;
+        }
+        const listParam = parsed.searchParams.get('list');
+        if (listParam && /^[A-Za-z0-9_-]{10,80}$/.test(listParam)) {
+            return `https://www.youtube.com/playlist?list=${encodeURIComponent(listParam)}`;
+        }
+        return raw;
+    } catch (_err) {
+        return raw;
+    }
+}
+
+function buildClientYtMusicUrl({ videoId = null, ytMusicUrl = null } = {}) {
+    if (ytMusicUrl) return ytMusicUrl;
+    const cleanId = String(videoId || '').trim();
+    if (/^[A-Za-z0-9_-]{11}$/.test(cleanId)) {
+        return `https://music.youtube.com/watch?v=${cleanId}`;
+    }
+    return null;
+}
+
+function getSongTargetPlaybackInfo(song = {}) {
+    const platform = getEffectiveYouTubePlatform();
+    const ytMusicUrl = buildClientYtMusicUrl({ videoId: song.yt_video_id || song.videoId, ytMusicUrl: song.yt_music_url || song.ytMusicUrl });
+    const youtubeUrl = buildClientStandardYouTubeUrl({
+        videoId: song.yt_video_id || song.videoId,
+        ytMusicUrl,
+        youtubeUrl: song.youtube_url || song.youtubeUrl
+    });
+
+    if (platform === 'youtube' && youtubeUrl) {
+        return { platform, url: youtubeUrl, shortLabel: 'YouTube', fullLabel: 'Open on YouTube (PC)' };
+    }
+    if (ytMusicUrl) {
+        return { platform: 'yt_music', url: ytMusicUrl, shortLabel: 'YT Music', fullLabel: 'Open in YT Music (Mobile)' };
+    }
+    return { platform, url: youtubeUrl || '', shortLabel: 'YouTube', fullLabel: 'Open on YouTube' };
+}
+
+function getYouTubeSearchUrl(queryText = '') {
+    const q = String(queryText || '').trim();
+    const platform = getEffectiveYouTubePlatform();
+    if (platform === 'youtube') {
+        return q ? `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` : 'https://www.youtube.com/';
+    }
+    return q ? `https://music.youtube.com/search?q=${encodeURIComponent(q)}` : 'https://music.youtube.com/';
+}
+
+function getYouTubeHomeUrl() {
+    return getEffectiveYouTubePlatform() === 'youtube'
+        ? 'https://www.youtube.com/'
+        : 'https://music.youtube.com/library';
+}
+
+function setYouTubePlatformMode(mode, { persistLocal = true } = {}) {
+    const safeMode = ['auto', 'youtube', 'yt_music'].includes(mode) ? mode : 'auto';
+    if (persistLocal) {
+        localStorage.setItem(YT_PLATFORM_STORAGE_KEY, safeMode);
+    }
+    const setSelect = document.getElementById('setYoutubePlatformMode');
+    if (setSelect) setSelect.value = safeMode;
+    updateYouTubePlatformUI();
+}
+
+function updateYouTubePlatformUI() {
+    const mode = getYouTubePlatformMode();
+    const effective = getEffectiveYouTubePlatform();
+    const isMobile = isMobileYouTubeDevice();
+    const isStandardYt = effective === 'youtube';
+
+    const badge = document.getElementById('ytPlatformDetectedBadge');
+    if (badge) {
+        const deviceStr = isMobile ? '📱 Mobile' : '🖥️ PC Browser';
+        const targetStr = isStandardYt ? 'Standard YouTube (youtube.com)' : 'YouTube Music (music.youtube.com)';
+        badge.textContent = `${deviceStr} → ${targetStr}`;
+    }
+
+    document.querySelectorAll('#ytPlatformModeGroup [data-yt-mode]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-yt-mode') === mode);
+    });
+
+    const heading = document.getElementById('musicFinderHeading');
+    if (heading) {
+        heading.textContent = isStandardYt ? 'YouTube Song Finder (PC Mode)' : 'YouTube Music Song Finder (Mobile Mode)';
+    }
+
+    const libBtn = document.getElementById('btnMusicOpenYtLibrary');
+    if (libBtn) {
+        libBtn.textContent = isStandardYt ? 'Open YouTube Home' : 'My YT Music Library';
+    }
+
+    const searchBtn = document.getElementById('btnMusicSearchYt');
+    if (searchBtn) {
+        searchBtn.textContent = isStandardYt ? 'Find on YouTube' : 'Find on YT Music';
+    }
+
+    const urlInput = document.getElementById('musicSongYtUrl');
+    if (urlInput) {
+        urlInput.placeholder = isStandardYt
+            ? 'https://www.youtube.com/watch?v=... or youtu.be/...'
+            : 'https://music.youtube.com/watch?v=...';
+    }
+
+    if (typeof actualizarBarraCancionEstudio === 'function') {
+        actualizarBarraCancionEstudio();
+    }
+    if (typeof renderMusicCatalog === 'function' && Array.isArray(musicState?.songs)) {
+        renderMusicCatalog();
+    }
 }
 
 // ==========================================
@@ -325,6 +672,14 @@ function showView(viewName, updateHash = true) {
         const momentoSelect = document.getElementById('momento');
         if (fechaInput) fechaInput.value = formatLocalDate(new Date());
         if (momentoSelect) momentoSelect.value = getMomentoInfo(new Date().getHours()).moodKey;
+        if (typeof cargarMoodsHoy === 'function') cargarMoodsHoy();
+    } else if (targetView === 'sueno') {
+        if (typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
+    } else if (targetView === 'journal') {
+        updateE2eeKeyStatusUI();
+    } else if (targetView === 'english') {
+        updateE2eeKeyStatusUI();
+        updateYouTubePlatformUI();
     } else if (targetView === 'resumen') {
         const selectSemana = document.getElementById('semanaSeleccionada');
         if (selectSemana) selectSemana.dispatchEvent(new Event('change'));
@@ -372,6 +727,8 @@ if (appShell) {
         if (e.key === 'Escape') {
             setMobileMenuOpen(false);
             cerrarAgendaModal();
+            closeE2eeModal(null);
+            closeConfirmDialog(false);
         }
     });
 
@@ -571,6 +928,75 @@ function cargarInicioResumen() {
 // ==========================================
 const formRegistro = document.getElementById('moodForm');
 
+function renderMoodChecklist(rows = []) {
+    const checklist = document.getElementById('moodTodayChecklist');
+    const dateLabel = document.getElementById('moodTodayDateLabel');
+    const targetDate = document.getElementById('fecha')?.value || formatLocalDate(new Date());
+    const momentoSelect = document.getElementById('momento');
+    if (dateLabel) dateLabel.textContent = targetDate;
+    if (!checklist) return;
+
+    const byMomento = new Map();
+    (Array.isArray(rows) ? rows : []).forEach(r => {
+        if (r && r.momento_dia) byMomento.set(r.momento_dia, r);
+    });
+
+    checklist.replaceChildren(...MOOD_BLOCK_ORDER.map(block => {
+        const entry = byMomento.get(block.key);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'today-check-item';
+        if (momentoSelect && momentoSelect.value === block.key) {
+            btn.classList.add('is-active');
+        }
+
+        const left = document.createElement('div');
+        left.className = 'today-check-left';
+        const title = document.createElement('strong');
+        title.textContent = block.label;
+        const sub = document.createElement('span');
+        sub.textContent = block.range;
+        left.append(title, sub);
+
+        const status = document.createElement('div');
+        status.className = 'today-check-status';
+        if (entry && entry.color_hex) {
+            const hex = String(entry.color_hex).toUpperCase();
+            const label = MOOD_COLOR_LABELS[hex] || 'Logged';
+            const dot = document.createElement('span');
+            dot.className = 'color-dot';
+            dot.style.backgroundColor = entry.color_hex;
+            dot.style.width = '14px';
+            dot.style.height = '14px';
+            const txt = document.createElement('span');
+            txt.textContent = label;
+            status.append(dot, txt);
+        } else {
+            const emptyTxt = document.createElement('span');
+            emptyTxt.className = 'muted-text';
+            emptyTxt.textContent = 'Not logged';
+            status.appendChild(emptyTxt);
+        }
+
+        btn.append(left, status);
+        btn.addEventListener('click', () => {
+            if (momentoSelect) momentoSelect.value = block.key;
+            checklist.querySelectorAll('.today-check-item').forEach(el => el.classList.remove('is-active'));
+            btn.classList.add('is-active');
+        });
+        return btn;
+    }));
+}
+
+function cargarMoodsHoy() {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    const targetDate = document.getElementById('fecha')?.value || formatLocalDate(new Date());
+    fetch(`/api/get-moods?begin=${encodeURIComponent(targetDate)}&end=${encodeURIComponent(targetDate)}`, { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : []))
+        .then(rows => renderMoodChecklist(rows))
+        .catch(() => renderMoodChecklist([]));
+}
+
 if (formRegistro) {
     const now = new Date();
     const year = now.getFullYear();
@@ -581,6 +1007,23 @@ if (formRegistro) {
     let estadoSeleccionado = '';
     let colorSeleccionado = '';
 
+    const updateMoodPreview = () => {
+        const preview = document.getElementById('moodSelectionPreview');
+        if (!preview) return;
+        if (!estadoSeleccionado || !colorSeleccionado) {
+            preview.classList.remove('has-mood');
+            preview.textContent = 'No mood selected yet';
+            return;
+        }
+        preview.classList.add('has-mood');
+        const dot = document.createElement('span');
+        dot.className = 'color-dot';
+        dot.style.backgroundColor = colorSeleccionado;
+        dot.style.width = '12px';
+        dot.style.height = '12px';
+        preview.replaceChildren(dot, document.createTextNode(estadoSeleccionado));
+    };
+
     const botones = document.querySelectorAll('.mood-btn');
     botones.forEach(btn => {
         btn.addEventListener('click', () => {
@@ -588,9 +1031,12 @@ if (formRegistro) {
             btn.classList.add('selected');
             estadoSeleccionado = btn.getAttribute('data-mood');
             colorSeleccionado = btn.getAttribute('data-color');
+            updateMoodPreview();
+            setInlineBanner('moodStatusBanner', '', '');
         });
     });
 
+    const fechaEl = document.getElementById('fecha');
     const momentoDia = document.getElementById('momento');
     const hora = new Date().getHours();
 
@@ -610,6 +1056,12 @@ if (formRegistro) {
     };
 
     obtenerMomentoDia(hora);
+    if (fechaEl) fechaEl.addEventListener('change', () => cargarMoodsHoy());
+    if (momentoDia) {
+        momentoDia.addEventListener('change', () => {
+            cargarMoodsHoy();
+        });
+    }
 
     let lastSavedMoodSignature = '';
 
@@ -620,7 +1072,7 @@ if (formRegistro) {
         if (!btnGuardarMood || busyActionElements.has(btnGuardarMood) || btnGuardarMood.disabled) return;
 
         if (!estadoSeleccionado) {
-            alert('Please select a mood first.');
+            setInlineBanner('moodStatusBanner', 'err', 'Please select a mood tile before saving.');
             return;
         }
 
@@ -632,15 +1084,17 @@ if (formRegistro) {
         };
 
         if (!datos.fecha || !datos.momento_dia) {
-            alert('Please select date and time of day.');
+            setInlineBanner('moodStatusBanner', 'err', 'Please select both date and time of day.');
             return;
         }
 
         const moodSignature = `${datos.fecha}|${datos.momento_dia}|${datos.estado_animo}`;
         if (moodSignature === lastSavedMoodSignature) {
-            alert('This exact mood is already saved for this date and time of day.');
+            setInlineBanner('moodStatusBanner', 'info', 'This exact mood is already saved for this date and time block.');
             return;
         }
+
+        setInlineBanner('moodStatusBanner', '', '');
 
         runWithButtonLock(btnGuardarMood, async () => {
             try {
@@ -652,14 +1106,19 @@ if (formRegistro) {
                     buildBody: () => datos
                 });
                 lastSavedMoodSignature = moodSignature;
-                alert(mensaje);
+                const cleanMsg = String(mensaje || 'Mood saved!').replace(/\n/g, ' · ');
+                setInlineBanner('moodStatusBanner', 'ok', cleanMsg);
+                showToast('ok', cleanMsg);
                 botones.forEach(b => b.classList.remove('selected'));
                 estadoSeleccionado = '';
                 colorSeleccionado = '';
+                updateMoodPreview();
                 document.getElementById('momento').value = '';
+                cargarMoodsHoy();
                 cargarRecordatoriosActivos();
             } catch (error) {
-                alert('Error: ' + error.message);
+                setInlineBanner('moodStatusBanner', 'err', 'Error: ' + error.message);
+                showToast('err', error.message);
             }
         }, { loadingText: 'Saving...' });
     });
@@ -731,7 +1190,14 @@ if (selectSemana) {
                     const celda = document.querySelector(`.mood-cell[data-day="${nombreDia}"][data-time="${registro.momento_dia}"]`);
 
                     if (celda) {
-                        celda.innerHTML = `<span class="color-dot" style="background-color: ${registro.color_hex};"></span>`;
+                        const hex = String(registro.color_hex || '').toUpperCase();
+                        const moodName = MOOD_COLOR_LABELS[hex] || 'Logged Mood';
+                        const dot = document.createElement('span');
+                        dot.className = 'color-dot';
+                        dot.style.backgroundColor = registro.color_hex;
+                        dot.title = `${nombreDia} (${registro.momento_dia === 'Madrugada' ? 'Late Night' : registro.momento_dia}): ${moodName}`;
+                        dot.setAttribute('aria-label', dot.title);
+                        celda.replaceChildren(dot);
                     }
                 });
             })
@@ -834,11 +1300,82 @@ if (selectSemana) {
 // ==========================================
 // SLEEP TRACKER FORM LOGIC
 // ==========================================
+function renderSleepTodaySummary(rows = []) {
+    const box = document.getElementById('sleepTodaySummary');
+    if (!box) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+        box.innerHTML = '<p class="muted-text">No sleep logged for today yet. Record your session on the left right after waking up.</p>';
+        return;
+    }
+
+    let totalHours = 0;
+    list.forEach(r => {
+        totalHours += parseFloat(r.horas) || 0;
+    });
+
+    const metric = document.createElement('div');
+    metric.className = 'sleep-today-metric';
+    const left = document.createElement('span');
+    left.textContent = `Today's accumulated sleep (${list.length} ${list.length === 1 ? 'session' : 'sessions'})`;
+    const strong = document.createElement('strong');
+    strong.textContent = `${totalHours.toFixed(1)} hrs`;
+    metric.append(left, strong);
+
+    const tags = document.createElement('div');
+    tags.className = 'home-mood-chips';
+    list.forEach((r, idx) => {
+        const chip = document.createElement('span');
+        chip.className = 'home-mood-chip';
+        const q = r.calidad === 'Good' ? '🟢 Good' : (r.calidad === 'Bad' ? '🔴 Bad' : '🟡 Fair');
+        chip.textContent = `#${idx + 1}: ${(parseFloat(r.horas) || 0).toFixed(1)}h · ${q}`;
+        tags.appendChild(chip);
+    });
+
+    box.replaceChildren(metric, tags);
+}
+
+function cargarSuenoHoy() {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    const todayStr = formatLocalDate(new Date());
+    fetch(`/api/get-sleep?begin=${encodeURIComponent(todayStr)}&end=${encodeURIComponent(todayStr)}`, { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : []))
+        .then(rows => renderSleepTodaySummary(rows))
+        .catch(() => renderSleepTodaySummary([]));
+}
+
 const formSleep = document.getElementById('sleepForm');
 if (formSleep) {
+    const badgeEl = document.getElementById('sleepDurationBadge');
+    const qualitySelect = document.getElementById('quality-sleep');
+    const qualityCards = document.querySelectorAll('#sleepQualityCards .sleep-quality-card');
+
+    function syncQualityCards(val) {
+        qualityCards.forEach(card => {
+            card.classList.toggle('active', card.getAttribute('data-quality') === val);
+        });
+    }
+
+    qualityCards.forEach(card => {
+        card.addEventListener('click', () => {
+            const q = card.getAttribute('data-quality') || '';
+            if (qualitySelect) qualitySelect.value = q;
+            syncQualityCards(q);
+            setInlineBanner('sleepStatusBanner', '', '');
+        });
+    });
+
+    if (qualitySelect) {
+        qualitySelect.addEventListener('change', () => {
+            syncQualityCards(qualitySelect.value);
+            setInlineBanner('sleepStatusBanner', '', '');
+        });
+    }
+
     function calcularHoras() {
         const sleepTime = document.getElementById('sleepTime').value;
         const wakeupTime = document.getElementById('wakeupTime').value;
+        const inputSleep = document.getElementById('sleepHours');
 
         if (sleepTime && wakeupTime) {
             const sleepDate = new Date(`2000-01-01T${sleepTime}`);
@@ -859,14 +1396,28 @@ if (formSleep) {
                 visualText += ` ${intMinutes} ${intMinutes === 1 ? 'min' : 'mins'}`;
             }
 
-            const inputSleep = document.getElementById('sleepHours');
             inputSleep.value = visualText;
             inputSleep.dataset.decimal = (totalMinutes / 60).toFixed(2);
+            if (badgeEl) badgeEl.textContent = visualText;
+        } else if (badgeEl) {
+            badgeEl.textContent = '-- hrs';
         }
     }
 
     document.getElementById('sleepTime').addEventListener('change', () => calcularHoras());
     document.getElementById('wakeupTime').addEventListener('change', () => calcularHoras());
+
+    const btnUseNow = document.getElementById('btnSleepUseNow');
+    if (btnUseNow) {
+        btnUseNow.addEventListener('click', () => {
+            const now = new Date();
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
+            const wakeInput = document.getElementById('wakeupTime');
+            if (wakeInput) wakeInput.value = `${hh}:${mm}`;
+            calcularHoras();
+        });
+    }
 
     let lastSavedSleepSignature = '';
 
@@ -877,26 +1428,27 @@ if (formSleep) {
 
         const sleepTime = document.getElementById('sleepTime').value;
         const wakeupTime = document.getElementById('wakeupTime').value;
-        const quality = document.getElementById('quality-sleep').value;
+        const quality = qualitySelect ? qualitySelect.value : '';
 
         if (!sleepTime || !wakeupTime || !quality) {
-            alert('Please fill in all fields (bedtime, wake-up time, and sleep quality).');
+            setInlineBanner('sleepStatusBanner', 'err', 'Please fill in bedtime, wake-up time, and rest quality.');
             return;
         }
 
         const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
         if (!Number.isFinite(horas) || horas <= 0) {
-            alert('Bedtime and wake-up time cannot result in 0 hours of sleep.');
+            setInlineBanner('sleepStatusBanner', 'err', 'Bedtime and wake-up time cannot result in 0 hours of sleep.');
             return;
         }
 
         const fecha = formatLocalDate(new Date());
         const sleepSignature = `${fecha}|${sleepTime}|${wakeupTime}|${horas}|${quality}`;
         if (sleepSignature === lastSavedSleepSignature) {
-            alert('This exact sleep session was already recorded.');
+            setInlineBanner('sleepStatusBanner', 'info', 'This exact sleep session was already logged.');
             return;
         }
 
+        setInlineBanner('sleepStatusBanner', '', '');
         const datos = { fecha, horas, calidad: quality };
 
         runWithButtonLock(btnGuardarSleep, async () => {
@@ -909,16 +1461,21 @@ if (formSleep) {
                     buildBody: () => datos
                 });
                 lastSavedSleepSignature = sleepSignature;
-                alert(mensaje);
+                setInlineBanner('sleepStatusBanner', 'ok', mensaje);
+                showToast('ok', mensaje);
                 document.getElementById('sleepTime').value = '';
                 document.getElementById('wakeupTime').value = '';
                 const hoursInput = document.getElementById('sleepHours');
                 hoursInput.value = '';
                 delete hoursInput.dataset.decimal;
-                document.getElementById('quality-sleep').value = '';
+                if (badgeEl) badgeEl.textContent = '-- hrs';
+                if (qualitySelect) qualitySelect.value = '';
+                syncQualityCards('');
+                cargarSuenoHoy();
                 cargarRecordatoriosActivos();
             } catch (error) {
-                alert('Error: ' + error.message);
+                setInlineBanner('sleepStatusBanner', 'err', 'Error: ' + error.message);
+                showToast('err', error.message);
             }
         }, { loadingText: 'Saving...' });
     });
@@ -927,28 +1484,92 @@ if (formSleep) {
 // ==========================================
 // JOURNAL NOTES (ENCRYPTED NOTES TO PC WORD)
 // ==========================================
+const JOURNAL_DRAFT_KEY = 'mt_journal_draft';
 const journalForm = document.getElementById('journalForm');
 
 if (journalForm) {
     let lastSentJournalText = '';
+    const textInput = document.getElementById('journalText');
+    const wordCountEl = document.getElementById('journalWordCount');
+    const draftStatusEl = document.getElementById('journalDraftStatus');
+    const clearDraftBtn = document.getElementById('btnJournalClearDraft');
+    const journalE2eeBtn = document.getElementById('journalE2eePill');
 
-    journalForm.addEventListener('submit', function (e) {
+    if (journalE2eeBtn) {
+        journalE2eeBtn.addEventListener('click', () => {
+            solicitarLlaveE2EEAsync({ forceEdit: true });
+        });
+    }
+
+    const refreshJournalEditorMeta = (saveDraft = false) => {
+        if (!textInput) return;
+        const val = textInput.value || '';
+        const words = val.trim() ? val.trim().split(/\s+/).length : 0;
+        if (wordCountEl) {
+            wordCountEl.textContent = `${words} ${words === 1 ? 'word' : 'words'} · ${val.length} chars`;
+        }
+        if (clearDraftBtn) {
+            clearDraftBtn.hidden = val.trim().length === 0;
+        }
+        if (saveDraft) {
+            if (val.trim()) {
+                localStorage.setItem(JOURNAL_DRAFT_KEY, val);
+                if (draftStatusEl) draftStatusEl.textContent = 'Draft saved locally';
+            } else {
+                localStorage.removeItem(JOURNAL_DRAFT_KEY);
+                if (draftStatusEl) draftStatusEl.textContent = '';
+            }
+        }
+    };
+
+    if (textInput) {
+        const savedDraft = localStorage.getItem(JOURNAL_DRAFT_KEY) || '';
+        if (savedDraft && !textInput.value) {
+            textInput.value = savedDraft;
+            if (draftStatusEl) draftStatusEl.textContent = 'Restored unsent draft';
+        }
+        refreshJournalEditorMeta(false);
+        textInput.addEventListener('input', () => {
+            setInlineBanner('journalStatusBanner', '', '');
+            refreshJournalEditorMeta(true);
+        });
+    }
+
+    if (clearDraftBtn) {
+        clearDraftBtn.addEventListener('click', async () => {
+            const ok = await openConfirmDialog({
+                title: 'Clear Draft?',
+                message: 'Erase your unsent text in the Journal box?',
+                confirmText: 'Clear Draft',
+                danger: true
+            });
+            if (!ok) return;
+            if (textInput) textInput.value = '';
+            refreshJournalEditorMeta(true);
+        });
+    }
+
+    journalForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         const btnEnviarWord = document.getElementById('btn-send-word');
         if (!btnEnviarWord || busyActionElements.has(btnEnviarWord) || btnEnviarWord.disabled) return;
 
-        const textInput = document.getElementById('journalText');
         const texto = textInput.value;
         const textoLimpio = texto.trim();
-        if (!textoLimpio) return;
-
-        if (textoLimpio === lastSentJournalText) {
-            alert('This exact note was already queued in this session. Edit the text before sending again.');
+        if (!textoLimpio) {
+            setInlineBanner('journalStatusBanner', 'err', 'Please write a short entry before sending.');
             return;
         }
 
-        const llaveTexto = obtenerLlaveE2EE();
+        if (textoLimpio === lastSentJournalText) {
+            setInlineBanner('journalStatusBanner', 'info', 'This exact note was already queued in this session. Edit the text before sending again.');
+            return;
+        }
+
+        const llaveTexto = await solicitarLlaveE2EEAsync();
         if (!llaveTexto) return;
+
+        setInlineBanner('journalStatusBanner', '', '');
 
         runWithButtonLock(btnEnviarWord, async () => {
             try {
@@ -960,10 +1581,14 @@ if (journalForm) {
                     buildBody: () => ({ texto: encriptarTextoE2EE(texto, llaveTexto) })
                 });
                 lastSentJournalText = textoLimpio;
-                alert('Note sent! Your Python sync script will save it to Word on the next scan.');
                 textInput.value = '';
+                refreshJournalEditorMeta(true);
+                const msg = 'Note encrypted & queued! Your PC sync will add it to Word on the next scan.';
+                setInlineBanner('journalStatusBanner', 'ok', msg);
+                showToast('ok', msg);
             } catch (error) {
-                alert('Failed to send note: ' + error.message);
+                setInlineBanner('journalStatusBanner', 'err', 'Failed to send note: ' + error.message);
+                showToast('err', error.message);
             }
         }, { loadingText: 'Sending...' });
     });
@@ -1135,7 +1760,14 @@ if (englishForm) {
         );
     }
 
-    englishForm.addEventListener('submit', (e) => {
+    const englishE2eeBtn = document.getElementById('englishE2eePill');
+    if (englishE2eeBtn) {
+        englishE2eeBtn.addEventListener('click', () => {
+            solicitarLlaveE2EEAsync({ forceEdit: true });
+        });
+    }
+
+    englishForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = document.getElementById('btnSendEnglish');
         if (!btn || busyActionElements.has(btn) || btn.disabled) return;
@@ -1162,7 +1794,7 @@ if (englishForm) {
             return;
         }
 
-        const llaveTexto = obtenerLlaveE2EE();
+        const llaveTexto = await solicitarLlaveE2EEAsync();
         if (!llaveTexto) return;
 
         if (statusBanner) statusBanner.hidden = true;
@@ -1179,12 +1811,12 @@ if (englishForm) {
                 sentEnglishSignatures.add(signature);
                 appendRecentEnglishItem(entry);
                 limpiarCamposEnglish(category);
-                mostrarEstadoEnglish(
-                    'ok',
-                    'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.'
-                );
+                const msg = 'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.';
+                mostrarEstadoEnglish('ok', msg);
+                showToast('ok', 'English note queued for Word (PC)!');
             } catch (err) {
                 mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
+                showToast('err', err.message);
             }
         }, { loadingText: 'Sending...' });
     });
@@ -1233,14 +1865,21 @@ async function cargarCatalogoMusical() {
     const container = document.getElementById('musicCatalogContainer');
     if (!container) return;
 
-    container.replaceChildren(createLoadingIndicator('Loading songs & artists...', 'sm'));
+    container.replaceChildren(createLoadingBanner('Loading songs & artists...', 'sm'));
     try {
         const res = await fetch('/api/english/music/catalog');
         if (!res.ok) throw new Error(await res.text() || 'Failed to load music catalog.');
         const data = await res.json();
         musicState.artists = Array.isArray(data.artists) ? data.artists : [];
         musicState.albums = Array.isArray(data.albums) ? data.albums : [];
-        musicState.songs = Array.isArray(data.songs) ? data.songs : [];
+        musicState.songs = (Array.isArray(data.songs) ? data.songs : []).map(song => ({
+            ...song,
+            youtube_url: buildClientStandardYouTubeUrl({
+                videoId: song.yt_video_id,
+                ytMusicUrl: song.yt_music_url,
+                youtubeUrl: song.youtube_url || song.youtubeUrl
+            })
+        }));
 
         poblarSelectoresMusica();
         renderMusicStats(data.stats);
@@ -1376,8 +2015,10 @@ function actualizarBarraCancionEstudio() {
     }
 
     if (openYtBtn) {
-        if (song.yt_music_url) {
-            openYtBtn.href = song.yt_music_url;
+        const targetPlayback = getSongTargetPlaybackInfo(song);
+        if (targetPlayback.url) {
+            openYtBtn.href = targetPlayback.url;
+            openYtBtn.textContent = targetPlayback.fullLabel;
             openYtBtn.hidden = false;
         } else {
             openYtBtn.hidden = true;
@@ -1682,13 +2323,15 @@ function renderMusicCatalog() {
                 const actions = document.createElement('div');
                 actions.className = 'music-song-actions';
 
-                if (song.yt_music_url) {
+                const playbackInfo = getSongTargetPlaybackInfo(song);
+                if (playbackInfo.url) {
                     const ytLink = document.createElement('a');
                     ytLink.className = 'btn-secondary btn-small';
-                    ytLink.href = song.yt_music_url;
+                    ytLink.href = playbackInfo.url;
                     ytLink.target = '_blank';
                     ytLink.rel = 'noopener noreferrer';
-                    ytLink.textContent = 'YT Music';
+                    ytLink.textContent = playbackInfo.shortLabel;
+                    ytLink.title = playbackInfo.fullLabel;
                     actions.appendChild(ytLink);
                 }
 
@@ -1710,17 +2353,24 @@ function renderMusicCatalog() {
                 delBtn.type = 'button';
                 delBtn.className = 'btn-secondary btn-small';
                 delBtn.textContent = 'Delete';
-                delBtn.addEventListener('click', () => {
-                    if (!window.confirm(`Remove "${song.titulo}" from your music catalog? (Local Word notes are kept safely on your PC.)`)) {
-                        return;
-                    }
+                delBtn.addEventListener('click', async () => {
+                    const ok = await openConfirmDialog({
+                        title: 'Remove Song?',
+                        message: `Remove "${song.titulo}" from your music catalog? Your local Word notes stay safely on your PC.`,
+                        confirmText: 'Remove Song',
+                        danger: true
+                    });
+                    if (!ok) return;
                     runWithButtonLock(delBtn, async () => {
                         const res = await fetch(`/api/english/music/songs/${song.id}`, { method: 'DELETE' });
                         if (res.ok) {
                             if (Number(musicState.selectedSongId) === Number(song.id)) {
                                 musicState.selectedSongId = null;
                             }
+                            showToast('ok', `Removed "${song.titulo}" from catalog.`);
                             await cargarCatalogoMusical();
+                        } else {
+                            showToast('err', 'Could not remove song.');
                         }
                     }, { loadingText: '...' });
                 });
@@ -1750,18 +2400,25 @@ if (englishMusicStudioRoot) {
     const songForm = document.getElementById('musicSongForm');
     const wordForm = document.getElementById('musicWordNotesForm');
 
+    document.querySelectorAll('#ytPlatformModeGroup [data-yt-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setYouTubePlatformMode(btn.getAttribute('data-yt-mode') || 'auto');
+            showToast('info', `Playback link mode set to: ${btn.textContent.trim()}`);
+        });
+    });
+
+    updateYouTubePlatformUI();
+
     if (btnOpenLib) {
         btnOpenLib.addEventListener('click', () => {
-            window.open('https://music.youtube.com/library', '_blank', 'noopener,noreferrer');
+            window.open(getYouTubeHomeUrl(), '_blank', 'noopener,noreferrer');
         });
     }
 
     if (btnSearchYt) {
         btnSearchYt.addEventListener('click', async () => {
             const q = (document.getElementById('musicYtSearchQuery')?.value || '').trim();
-            const directUrl = q
-                ? `https://music.youtube.com/search?q=${encodeURIComponent(q)}`
-                : 'https://music.youtube.com/';
+            const directUrl = getYouTubeSearchUrl(q);
             window.open(directUrl, '_blank', 'noopener,noreferrer');
 
             const resultsBox = document.getElementById('musicYtSearchResults');
@@ -1777,6 +2434,7 @@ if (englishMusicStudioRoot) {
                         resultsBox.hidden = true;
                         return;
                     }
+                    const effectivePlatform = getEffectiveYouTubePlatform();
                     resultsBox.replaceChildren(...items.map(item => {
                         const card = document.createElement('div');
                         card.className = 'music-yt-result-item';
@@ -1802,7 +2460,10 @@ if (englishMusicStudioRoot) {
                             const urlEl = document.getElementById('musicSongYtUrl');
                             const titleEl = document.getElementById('musicSongTitle');
                             const artistEl = document.getElementById('musicMainArtist');
-                            if (urlEl) urlEl.value = item.ytMusicUrl || '';
+                            const chosenUrl = effectivePlatform === 'youtube'
+                                ? (item.youtubeUrl || item.ytMusicUrl || '')
+                                : (item.ytMusicUrl || item.youtubeUrl || '');
+                            if (urlEl) urlEl.value = chosenUrl;
                             if (titleEl && !titleEl.value.trim()) titleEl.value = item.title || '';
                             if (artistEl && !artistEl.value.trim()) artistEl.value = item.channelTitle || '';
                         });
@@ -1835,7 +2496,11 @@ if (englishMusicStudioRoot) {
                         buildBody: () => ({ url: rawUrl }),
                         parseJson: true
                     });
-                    if (urlInput && data.ytMusicUrl) urlInput.value = data.ytMusicUrl;
+                    const effectivePlatform = getEffectiveYouTubePlatform();
+                    const resolvedUrl = effectivePlatform === 'youtube'
+                        ? (data.youtubeUrl || data.ytMusicUrl)
+                        : (data.ytMusicUrl || data.youtubeUrl);
+                    if (urlInput && resolvedUrl) urlInput.value = resolvedUrl;
                     const titleEl = document.getElementById('musicSongTitle');
                     const artistEl = document.getElementById('musicMainArtist');
                     if (titleEl && !titleEl.value.trim() && data.suggestedTitle) {
@@ -1844,7 +2509,7 @@ if (englishMusicStudioRoot) {
                     if (artistEl && !artistEl.value.trim() && data.suggestedArtist) {
                         artistEl.value = data.suggestedArtist;
                     }
-                    mostrarBannerMusica('musicSongFormBanner', 'ok', 'YouTube Music link verified and normalized.');
+                    mostrarBannerMusica('musicSongFormBanner', 'ok', 'Link verified and cleaned (single-track, playlist-safe).');
                 } catch (err) {
                     mostrarBannerMusica('musicSongFormBanner', 'err', err.message || 'Could not resolve link.');
                 }
@@ -1925,7 +2590,7 @@ if (englishMusicStudioRoot) {
     }
 
     if (wordForm) {
-        wordForm.addEventListener('submit', e => {
+        wordForm.addEventListener('submit', async e => {
             e.preventDefault();
             const btnSend = document.getElementById('btnSendMusicWord');
             const val = id => (document.getElementById(id)?.value || '').trim();
@@ -1948,7 +2613,7 @@ if (englishMusicStudioRoot) {
                 return;
             }
 
-            const llaveTexto = obtenerLlaveE2EE();
+            const llaveTexto = await solicitarLlaveE2EEAsync();
             if (!llaveTexto) return;
 
             const entry = selected
@@ -2016,8 +2681,10 @@ if (englishMusicStudioRoot) {
                         'ok',
                         'Encrypted E2EE & queued! Your PC sync will add this song study breakdown under Section 4 in English_Learning_Notebook.docx.'
                     );
+                    showToast('ok', 'Song study notes encrypted & queued for Word!');
                 } catch (err) {
                     mostrarBannerMusica('musicWordStatusBanner', 'err', 'Failed to send encrypted notes: ' + err.message);
+                    showToast('err', err.message);
                 }
             }, { loadingText: 'Encrypting...' });
         });
@@ -2517,17 +3184,25 @@ function toggleAgendaItem(item, ui = {}, targetEstado = null) {
             item.completada = nuevoCompletada;
             renderAgendaBoard();
             cargarRecordatoriosActivos();
+            showToast('ok', `Activity moved to ${nextEstado === 'done' ? 'Done' : (nextEstado === 'in_progress' ? 'In Progress' : 'To Do')}.`);
         } catch (err) {
             if (ui.statusSelect) ui.statusSelect.value = prevEstado;
-            alert('Failed to update activity status: ' + err.message);
+            showToast('err', 'Failed to update activity status: ' + err.message);
         }
     }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn, ui.delBtn] });
 }
 
-function eliminarAgendaItem(id, ui = {}) {
+async function eliminarAgendaItem(id, ui = {}) {
+    const ok = await openConfirmDialog({
+        title: 'Delete Activity?',
+        message: 'Remove this activity permanently from your Weekly Agenda?',
+        confirmText: 'Delete',
+        danger: true
+    });
+    if (!ok) return;
+
     const lockBtn = ui.delBtn || ui.row || document.createElement('button');
     runWithButtonLock(lockBtn, async () => {
-        if (!confirm('Delete this activity from your agenda?')) return;
         try {
             await submitMutationRequest({
                 url: `/api/delete-agenda/${id}`,
@@ -2539,8 +3214,9 @@ function eliminarAgendaItem(id, ui = {}) {
             agendaState.items = agendaState.items.filter(i => i.id !== id);
             renderAgendaBoard();
             cargarRecordatoriosActivos();
+            showToast('ok', 'Activity removed from Weekly Agenda.');
         } catch (err) {
-            alert('Failed to delete activity: ' + err.message);
+            showToast('err', 'Failed to delete activity: ' + err.message);
         }
     }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn] });
 }
@@ -2718,7 +3394,7 @@ if (agendaForm) {
         };
 
         if (!payload.fecha || !payload.bloque || !payload.hora || !payload.actividad) {
-            alert('Please fill in all activity fields.');
+            showToast('err', 'Please fill in all activity fields.');
             return;
         }
 
@@ -2748,7 +3424,7 @@ if (agendaForm) {
             String(item.actividad || '').trim().toLowerCase().replace(/\s+/g, ' ') === payload.actividad.toLowerCase()
         );
         if (duplicateExists) {
-            alert('This exact activity is already scheduled for that date, category, block, and time.');
+            showToast('err', 'This exact activity is already scheduled for that date, category, block, and time.');
             return;
         }
 
@@ -2770,8 +3446,9 @@ if (agendaForm) {
                 cerrarAgendaModal();
                 cargarAgendaSemana();
                 cargarRecordatoriosActivos();
+                showToast('ok', editId ? 'Activity updated!' : 'Activity added to your week!');
             } catch (err) {
-                alert('Error: ' + err.message);
+                showToast('err', 'Error: ' + err.message);
             }
         }, { loadingText: 'Saving...' });
     });
@@ -2808,6 +3485,7 @@ function showAuthForm(formId, subtitleText) {
     });
     const sub = document.getElementById('authSubtitle');
     if (sub && subtitleText) sub.textContent = subtitleText;
+    setInlineBanner('authStatusBanner', '', '');
     resetPasswordToggles();
 }
 
@@ -2857,8 +3535,8 @@ function programarExpiracionDomingo(expiraEnIso) {
             clearInterval(sundayWatcherInterval);
             sundayWatcherInterval = null;
             fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
-                alert('Your weekly session closed automatically (Sunday 00:00). Please sign in again.');
                 showAuthScreen('authLoginForm');
+                setInlineBanner('authStatusBanner', 'info', 'Your weekly session closed automatically (Sunday 00:00). Please sign in again.');
             });
         }
     }, 30000);
@@ -2971,10 +3649,16 @@ function cargarMedicos() {
                 statusBtn.type = 'button';
                 statusBtn.className = 'btn-status-medico';
                 statusBtn.textContent = estado === 'activo' ? 'Suspend' : 'Activate';
-                statusBtn.addEventListener('click', () => {
+                statusBtn.addEventListener('click', async () => {
+                    const verb = nextEstado === 'suspendido' ? 'Suspend' : 'Reactivate';
+                    const ok = await openConfirmDialog({
+                        title: `${verb} Account?`,
+                        message: `${verb} read-only access for ${m.nombre} (${m.email})?`,
+                        confirmText: verb,
+                        danger: nextEstado === 'suspendido'
+                    });
+                    if (!ok) return;
                     runWithButtonLock(statusBtn, async () => {
-                        const verb = nextEstado === 'suspendido' ? 'Suspend' : 'Reactivate';
-                        if (!confirm(`${verb} access for ${m.nombre} (${m.email})?`)) return;
                         try {
                             await submitMutationRequest({
                                 url: `/api/auth/medicos/${m.id}/estado`,
@@ -2984,9 +3668,11 @@ function cargarMedicos() {
                                 buildBody: () => ({ estado: nextEstado }),
                                 parseJson: true
                             });
+                            showToast('ok', `Account status updated for ${m.nombre}.`);
                             cargarMedicos();
                         } catch (err) {
-                            alert('Error: ' + err.message);
+                            setInlineBanner('medicoStatusBanner', 'err', err.message);
+                            showToast('err', err.message);
                         }
                     }, { loadingText: 'Updating...', extraDisable: [delBtn] });
                 });
@@ -2995,9 +3681,15 @@ function cargarMedicos() {
                 delBtn.type = 'button';
                 delBtn.className = 'btn-revoke-medico';
                 delBtn.textContent = 'Revoke access';
-                delBtn.addEventListener('click', () => {
+                delBtn.addEventListener('click', async () => {
+                    const ok = await openConfirmDialog({
+                        title: 'Revoke Access?',
+                        message: `Permanently revoke psychiatrist access for ${m.nombre} (${m.email})?`,
+                        confirmText: 'Revoke Access',
+                        danger: true
+                    });
+                    if (!ok) return;
                     runWithButtonLock(delBtn, async () => {
-                        if (!confirm(`Revoke access for ${m.nombre} (${m.email})?`)) return;
                         try {
                             await submitMutationRequest({
                                 url: `/api/auth/medicos/${m.id}`,
@@ -3006,9 +3698,11 @@ function cargarMedicos() {
                                 signature: String(m.id),
                                 parseJson: true
                             });
+                            showToast('ok', `Access revoked for ${m.nombre}.`);
                             cargarMedicos();
                         } catch (err) {
-                            alert('Error: ' + err.message);
+                            setInlineBanner('medicoStatusBanner', 'err', err.message);
+                            showToast('err', err.message);
                         }
                     }, { loadingText: 'Revoking...', extraDisable: [statusBtn] });
                 });
@@ -3101,9 +3795,10 @@ function initAuthHandlers() {
             if (busyActionElements.has(btnSendRegCode) || btnSendRegCode.disabled) return;
             const email = document.getElementById('regEmail').value.trim();
             if (!validateEmailClient(email)) {
-                alert('Please enter a valid email address above first.');
+                setInlineBanner('authStatusBanner', 'err', 'Please enter a valid email address above first.');
                 return;
             }
+            setInlineBanner('authStatusBanner', '', '');
 
             runWithButtonLock(btnSendRegCode, async () => {
                 try {
@@ -3115,21 +3810,22 @@ function initAuthHandlers() {
                         buildBody: () => ({ email }),
                         parseJson: true
                     });
-                    alert(data.message);
+                    setInlineBanner('authStatusBanner', 'ok', data.message);
                 } catch (err) {
-                    alert(err.message);
+                    setInlineBanner('authStatusBanner', 'err', err.message);
                 }
             }, { loadingText: 'Sending code...' });
         });
     }
 
-    function bindLockedFormSubmit({ formId, btnId, url, loadingText, scopeKey, getSubmission, onSuccess, errorPrefix = '' }) {
+    function bindLockedFormSubmit({ formId, btnId, url, loadingText, scopeKey, getSubmission, onSuccess, errorPrefix = '', bannerId = 'authStatusBanner' }) {
         const form = document.getElementById(formId);
         if (!form) return;
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             const btn = document.getElementById(btnId);
             if (!btn || busyActionElements.has(btn) || btn.disabled) return;
+            setInlineBanner(bannerId, '', '');
             const spec = getSubmission(form);
             if (!spec) return;
 
@@ -3145,7 +3841,7 @@ function initAuthHandlers() {
                     });
                     onSuccess(data, form, spec.payload);
                 } catch (err) {
-                    alert(`${errorPrefix}${err.message}`);
+                    setInlineBanner(bannerId, 'err', `${errorPrefix}${err.message}`);
                 }
             }, { loadingText });
         });
@@ -3161,7 +3857,7 @@ function initAuthHandlers() {
             const email = document.getElementById('loginEmail').value.trim();
             const password = document.getElementById('loginPassword').value;
             if (!validateEmailClient(email) || !password) {
-                alert('Please enter a valid email and password.');
+                setInlineBanner('authStatusBanner', 'err', 'Please enter a valid email and password.');
                 return null;
             }
             return { payload: { email, password }, signature: `${email.toLowerCase()}|${password}` };
@@ -3175,6 +3871,7 @@ function initAuthHandlers() {
                 const mfaEmailLabel = document.getElementById('mfaEmailLabel');
                 if (mfaEmailLabel) mfaEmailLabel.textContent = pendingMfaState.email || 'your email';
                 showAuthForm('authMfaForm', 'Two-step email verification');
+                setInlineBanner('authStatusBanner', 'info', 'Verification code sent! Check your inbox.');
                 return;
             }
             enterAppSession(data.user);
@@ -3190,12 +3887,12 @@ function initAuthHandlers() {
         getSubmission: () => {
             const code = document.getElementById('mfaCodeInput').value.trim();
             if (!pendingMfaState.token) {
-                alert('Your sign-in verification session expired. Please sign in again.');
                 showAuthForm('authLoginForm', 'Sign in to continue');
+                setInlineBanner('authStatusBanner', 'err', 'Your sign-in verification session expired. Please sign in again.');
                 return null;
             }
             if (!/^\d{6}$/.test(code)) {
-                alert('Enter the 6-digit verification code from your email.');
+                setInlineBanner('authStatusBanner', 'err', 'Enter the 6-digit verification code from your email.');
                 return null;
             }
             return {
@@ -3226,20 +3923,20 @@ function initAuthHandlers() {
                 codigoValidacion: document.getElementById('regCodigoValidacion').value.trim()
             };
             if (payload.nombre.length < 2 || payload.nombre.length > 80) {
-                alert('Name must be between 2 and 80 characters.');
+                setInlineBanner('authStatusBanner', 'err', 'Name must be between 2 and 80 characters.');
                 return null;
             }
             if (!validateEmailClient(payload.email)) {
-                alert('Please enter a valid email address.');
+                setInlineBanner('authStatusBanner', 'err', 'Please enter a valid email address.');
                 return null;
             }
             const pwErr = validatePasswordFormatClient(payload.password);
             if (pwErr) {
-                alert(pwErr);
+                setInlineBanner('authStatusBanner', 'err', pwErr);
                 return null;
             }
             if (!payload.codigoValidacion) {
-                alert('Please enter the verification code or your personal secret key.');
+                setInlineBanner('authStatusBanner', 'err', 'Please enter the verification code or your personal secret key.');
                 return null;
             }
             return { payload, signature: payload.email.toLowerCase() };
@@ -3248,7 +3945,7 @@ function initAuthHandlers() {
             pendingSubmissions.clear();
             form.reset();
             resetPasswordToggles();
-            alert(`Welcome, ${data.user.nombre}! Your session will remain active until Sunday at 00:00 or until you sign out.`);
+            showToast('ok', `Welcome, ${data.user.nombre}! Your session stays active until Sunday at 00:00.`);
             enterAppSession(data.user);
         }
     });
@@ -3263,14 +3960,14 @@ function initAuthHandlers() {
         getSubmission: () => {
             const email = document.getElementById('forgotEmail').value.trim();
             if (!validateEmailClient(email)) {
-                alert('Please enter a valid email address.');
+                setInlineBanner('authStatusBanner', 'err', 'Please enter a valid email address.');
                 return null;
             }
             return { payload: { email }, signature: email.toLowerCase() };
         },
         onSuccess: (data) => {
-            alert(data.message);
             showAuthForm('authLoginForm', 'Sign in to continue');
+            setInlineBanner('authStatusBanner', 'ok', data.message);
         }
     });
 
@@ -3289,11 +3986,11 @@ function initAuthHandlers() {
             const confirmPassword = document.getElementById('resetConfirmPassword').value;
             const pwErr = validatePasswordFormatClient(newPassword);
             if (pwErr) {
-                alert(pwErr);
+                setInlineBanner('authStatusBanner', 'err', pwErr);
                 return null;
             }
             if (newPassword !== confirmPassword) {
-                alert('Passwords do not match.');
+                setInlineBanner('authStatusBanner', 'err', 'Passwords do not match.');
                 return null;
             }
             return {
@@ -3302,11 +3999,11 @@ function initAuthHandlers() {
             };
         },
         onSuccess: (data, form) => {
-            alert(data.message);
             form.reset();
             resetPasswordToggles();
             history.replaceState(null, '', window.location.pathname);
             showAuthForm('authLoginForm', 'Sign in with your new password');
+            setInlineBanner('authStatusBanner', 'ok', data.message);
         }
     });
 
@@ -3340,6 +4037,7 @@ function initAuthHandlers() {
         url: '/api/auth/create-medico',
         loadingText: 'Saving...',
         scopeKey: 'medico',
+        bannerId: 'medicoStatusBanner',
         errorPrefix: 'Error: ',
         getSubmission: () => {
             const payload = {
@@ -3348,28 +4046,29 @@ function initAuthHandlers() {
                 password: document.getElementById('medicoPassword').value
             };
             if (payload.nombre.length < 2 || payload.nombre.length > 80) {
-                alert('Doctor name must be between 2 and 80 characters.');
+                setInlineBanner('medicoStatusBanner', 'err', 'Doctor name must be between 2 and 80 characters.');
                 return null;
             }
             if (!validateEmailClient(payload.email)) {
-                alert('Please enter a valid doctor email address.');
+                setInlineBanner('medicoStatusBanner', 'err', 'Please enter a valid doctor email address.');
                 return null;
             }
             const pwErr = validatePasswordFormatClient(payload.password);
             if (pwErr) {
-                alert(pwErr);
+                setInlineBanner('medicoStatusBanner', 'err', pwErr);
                 return null;
             }
             const sig = `${payload.nombre}|${payload.email.toLowerCase()}|${payload.password}`;
             if (sig === lastSavedMedicoSignature) {
-                alert('These exact psychiatrist credentials were already saved.');
+                setInlineBanner('medicoStatusBanner', 'info', 'These exact psychiatrist credentials were already saved.');
                 return null;
             }
             return { payload, signature: sig };
         },
         onSuccess: (data, form, payload) => {
             lastSavedMedicoSignature = `${payload.nombre}|${payload.email.toLowerCase()}|${payload.password}`;
-            alert(data.message);
+            setInlineBanner('medicoStatusBanner', 'ok', data.message);
+            showToast('ok', data.message);
             form.reset();
             resetPasswordToggles();
             cargarMedicos();
@@ -3572,7 +4271,7 @@ function snoozeOrDismissReminder(reminder, action, minutes, triggerBtn) {
             });
             cargarRecordatoriosActivos();
         } catch (err) {
-            alert('Error updating reminder: ' + err.message);
+            showToast('err', 'Error updating reminder: ' + err.message);
         }
     }, { loadingText: action === 'dismiss' ? 'Dismissing...' : 'Postponing...' });
 }
@@ -3596,8 +4295,9 @@ function completeReminderAgendaItem(reminder, triggerBtn) {
                 renderAgendaBoard();
             }
             cargarRecordatoriosActivos();
+            showToast('ok', 'Task marked as Done.');
         } catch (err) {
-            alert('Error marking task as Done: ' + err.message);
+            showToast('err', 'Error marking task as Done: ' + err.message);
         }
     }, { loadingText: 'Completing...' });
 }
@@ -3624,6 +4324,10 @@ function aplicarSettingsEnEstado(settings, { syncAgendaDefaults = false } = {}) 
     if (!settings) return;
     currentSettings = settings;
 
+    if (typeof updateYouTubePlatformUI === 'function') {
+        updateYouTubePlatformUI();
+    }
+
     if (syncAgendaDefaults) {
         if (settings.defaultAgendaCategory) {
             agendaState.filterCategory = settings.defaultAgendaCategory;
@@ -3641,14 +4345,23 @@ function aplicarSettingsEnEstado(settings, { syncAgendaDefaults = false } = {}) 
 }
 
 function updateE2eeKeyStatusUI() {
-    const statusEl = document.getElementById('settingsE2eeStatus');
-    if (!statusEl) return;
     const keyVal = localStorage.getItem('diario_llave_secreta') || '';
-    if (keyVal.length === 32) {
-        statusEl.textContent = 'Configured on this browser (32-character AES key active).';
-    } else {
-        statusEl.textContent = 'Not set on this browser yet (will be requested when writing Journal or English notes).';
+    const isReady = keyVal.length === 32;
+
+    const statusEl = document.getElementById('settingsE2eeStatus');
+    if (statusEl) {
+        statusEl.textContent = isReady
+            ? 'Configured on this browser (32-character AES key active).'
+            : 'Not set on this browser yet (will be requested when writing Journal or English notes).';
     }
+
+    ['journalE2eePill', 'englishE2eePill'].forEach(pillId => {
+        const pill = document.getElementById(pillId);
+        if (!pill) return;
+        pill.classList.toggle('is-ready', isReady);
+        pill.classList.toggle('is-missing', !isReady);
+        pill.textContent = isReady ? '🔐 E2EE Key Ready' : '🔑 Set 32-char Key';
+    });
 }
 
 function setSettingsBanner(type, message) {
@@ -3706,6 +4419,7 @@ function populateSettingsForm(settings = {}) {
 
     setVal('setDefaultCat', settings.defaultAgendaCategory || 'all');
     setVal('setDefaultLayout', settings.defaultAgendaLayout || 'auto');
+    setVal('setYoutubePlatformMode', getYouTubePlatformMode());
     setVal('setTimezone', settings.timezone || 'America/Monterrey');
     setCheck('setShowWeekend', settings.agendaShowWeekend !== false);
 
@@ -3744,6 +4458,7 @@ function collectSettingsFormPayload() {
 
         defaultAgendaCategory: document.getElementById('setDefaultCat')?.value || 'all',
         defaultAgendaLayout: document.getElementById('setDefaultLayout')?.value || 'auto',
+        youtubePlatformMode: document.getElementById('setYoutubePlatformMode')?.value || 'auto',
         timezone: String(document.getElementById('setTimezone')?.value || 'America/Monterrey').trim(),
         agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked)
     };
@@ -3820,7 +4535,8 @@ function initSettingsHandlers() {
 
     if (btnCopyTopic) {
         btnCopyTopic.addEventListener('click', () => {
-            const topic = String(document.getElementById('setNtfyTopic')?.value || '').trim();
+            const topicInput = document.getElementById('setNtfyTopic');
+            const topic = String(topicInput?.value || '').trim();
             if (!topic) {
                 setSettingsBanner('err', 'Enter or generate a topic first before copying.');
                 return;
@@ -3829,12 +4545,15 @@ function initSettingsHandlers() {
                 navigator.clipboard.writeText(topic).then(() => {
                     const prev = btnCopyTopic.textContent;
                     btnCopyTopic.textContent = 'Copied!';
+                    showToast('ok', 'Private ntfy topic copied to clipboard.');
                     setTimeout(() => { btnCopyTopic.textContent = prev; }, 1400);
                 }).catch(() => {
-                    prompt('Copy your private ntfy topic:', topic);
+                    if (topicInput) topicInput.select();
+                    setSettingsBanner('info', `Copy your topic manually from the field above: ${topic}`);
                 });
             } else {
-                prompt('Copy your private ntfy topic:', topic);
+                if (topicInput) topicInput.select();
+                setSettingsBanner('info', `Copy your topic manually from the field above: ${topic}`);
             }
         });
     }
@@ -3881,6 +4600,7 @@ function initSettingsHandlers() {
                         parseJson: true
                     });
                     setSettingsBanner('ok', resData.message || 'Test push notification sent to your phone!');
+                    showToast('ok', 'Test notification sent to your phone!');
                 } catch (err) {
                     setSettingsBanner('err', 'Failed to send test push: ' + err.message);
                 }
@@ -3889,25 +4609,27 @@ function initSettingsHandlers() {
     }
 
     if (btnSetE2ee) {
-        btnSetE2ee.addEventListener('click', () => {
-            const newKey = prompt('🔒 Enter your 32-character E2EE secret key (stored only in this browser):');
-            if (newKey === null) return;
-            if (newKey.length !== 32) {
-                setSettingsBanner('err', 'Canceled: Key must be exactly 32 characters long.');
-                return;
+        btnSetE2ee.addEventListener('click', async () => {
+            const updatedKey = await solicitarLlaveE2EEAsync({ forceEdit: true });
+            if (updatedKey) {
+                setSettingsBanner('ok', 'E2EE secret key updated on this browser.');
             }
-            localStorage.setItem('diario_llave_secreta', newKey);
-            updateE2eeKeyStatusUI();
-            setSettingsBanner('ok', 'E2EE secret key updated on this browser.');
         });
     }
 
     if (btnClearE2ee) {
-        btnClearE2ee.addEventListener('click', () => {
-            if (!confirm('Remove the local 32-character E2EE key from this browser?')) return;
+        btnClearE2ee.addEventListener('click', async () => {
+            const ok = await openConfirmDialog({
+                title: 'Clear Local E2EE Key?',
+                message: 'Remove the 32-character E2EE key from this browser? You can re-enter it later when writing encrypted notes.',
+                confirmText: 'Clear Key',
+                danger: true
+            });
+            if (!ok) return;
             localStorage.removeItem('diario_llave_secreta');
             updateE2eeKeyStatusUI();
             setSettingsBanner('ok', 'Local E2EE key cleared from this browser.');
+            showToast('info', 'Local E2EE key removed from this browser.');
         });
     }
 
@@ -3915,6 +4637,7 @@ function initSettingsHandlers() {
         e.preventDefault();
         if (!btnSaveSettings) return;
         const payload = collectSettingsFormPayload();
+        setYouTubePlatformMode(payload.youtubePlatformMode || 'auto', { persistLocal: true });
 
         runWithButtonLock(btnSaveSettings, async () => {
             try {
@@ -3930,10 +4653,13 @@ function initSettingsHandlers() {
                     aplicarSettingsEnEstado(resData.settings, { syncAgendaDefaults: true });
                     populateSettingsForm(resData.settings);
                 }
-                setSettingsBanner('ok', resData.message || 'Settings saved successfully.');
+                const okMsg = resData.message || 'Settings saved successfully.';
+                setSettingsBanner('ok', okMsg);
+                showToast('ok', okMsg);
                 cargarRecordatoriosActivos();
             } catch (err) {
                 setSettingsBanner('err', 'Error saving settings: ' + err.message);
+                showToast('err', err.message);
             }
         }, { loadingText: 'Saving...' });
     });

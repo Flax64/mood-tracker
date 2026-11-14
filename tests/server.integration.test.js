@@ -1360,6 +1360,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     englishReminderDays: [0, 1, 2, 3, 4, 5, 6],
                     englishReminderTopic: 'Practice 5 phrasal verbs',
                     defaultAgendaCategory: 'universidad',
+                    youtubePlatformMode: 'auto',
                     timezone: chosenTz.tz
                 }
             });
@@ -1367,6 +1368,16 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             const savedSettings = JSON.parse(saveSettingsRes.body).settings;
             assert.strictEqual(savedSettings.englishReminderEnabled, true);
             assert.strictEqual(savedSettings.defaultAgendaCategory, 'universidad');
+            assert.strictEqual(savedSettings.youtubePlatformMode, 'auto');
+
+            const badYtModeRes = await request({
+                port,
+                method: 'PUT',
+                reqPath: '/api/settings',
+                headers: { Cookie: adminCookie },
+                body: { youtubePlatformMode: 'invalid_mode' }
+            });
+            assert.strictEqual(badYtModeRes.status, 400);
 
             // 5. Recordatorios activos + Snooze (posponer) + seguridad de token de acción
             const activeRes = await request({ port, reqPath: '/api/reminders/active', headers: { Cookie: adminCookie } });
@@ -1438,6 +1449,21 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         const searchJson = JSON.parse(searchRes.body);
         assert.strictEqual(searchJson.ytMusicSearchUrl, 'https://music.youtube.com/search?q=BABYMONSTER%20DRIP');
         assert.strictEqual(searchJson.ytMusicLibraryUrl, 'https://music.youtube.com/library');
+        assert.strictEqual(searchJson.youtubeSearchUrl, 'https://www.youtube.com/results?search_query=BABYMONSTER%20DRIP');
+        assert.strictEqual(searchJson.youtubeHomeUrl, 'https://www.youtube.com/');
+
+        // 2b. Despojar &list=... de un track para nunca alterar playlists personales y devolver ambas URLs (PC vs Móvil)
+        const trackWithListRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/resolve',
+            headers: { Cookie: adminCookie },
+            body: { url: 'https://music.youtube.com/watch?v=ekr2nIex040&list=PL_user_personal_playlist_123' }
+        });
+        assert.strictEqual(trackWithListRes.status, 200);
+        const trackWithList = JSON.parse(trackWithListRes.body);
+        assert.strictEqual(trackWithList.ytMusicUrl, 'https://music.youtube.com/watch?v=ekr2nIex040');
+        assert.strictEqual(trackWithList.youtubeUrl, 'https://www.youtube.com/watch?v=ekr2nIex040');
 
         const ssrfResolveRes = await request({
             port,
@@ -1502,6 +1528,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(createCollabRes.status, 201);
         const createdCollab = JSON.parse(createCollabRes.body);
         assert.strictEqual(createdCollab.ytMusicUrl, 'https://music.youtube.com/watch?v=ekr2nIex040');
+        assert.strictEqual(createdCollab.youtubeUrl, 'https://www.youtube.com/watch?v=ekr2nIex040');
 
         const createMiniAlbumRes = await request({
             port,
@@ -1532,6 +1559,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         const aptSong = catalog.songs.find((s) => s.titulo === 'APT.');
         assert.ok(aptSong);
         assert.strictEqual(aptSong.yt_music_url, 'https://music.youtube.com/watch?v=ekr2nIex040');
+        assert.strictEqual(aptSong.youtube_url, 'https://www.youtube.com/watch?v=ekr2nIex040');
         assert.strictEqual(aptSong.artists.length, 2);
         assert.ok(aptSong.artists.some((a) => a.nombre === 'ROSÉ' && a.rol === 'main'));
         assert.ok(aptSong.artists.some((a) => a.nombre === 'Bruno Mars' && a.rol === 'collab'));

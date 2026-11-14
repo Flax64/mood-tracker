@@ -8,6 +8,7 @@
 
 | Tarea | Sección |
 | :--- | :--- |
+| Usar paso a paso cada pantalla (Mood, Sueño, Diario, Música PC/Celular, Agenda, ntfy) | [Manual de Usuario](./MANUAL_DE_USUARIO.md) |
 | Ver estado de `.env` / `.env.enc` en mi PC | [1.1 Ver estado actual](#11-ver-estado-actual-de-la-bóveda) |
 | Consultar una variable local sin crear `.env` en disco | [1.2 Consultar variables solo en RAM](#12-consultar-variables-sin-escribir-env-en-disco) |
 | Ver completo o editar `.env` y volver a cifrarlo | [1.3 Ver completo, editar y re-sellar](#13-ver-completo-editar-y-re-sellar) |
