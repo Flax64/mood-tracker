@@ -9,7 +9,7 @@ Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles 
 La aplicación cuenta con una **interfaz principal (`Inicio`)** al abrirla y una **barra lateral fija en el lado izquierdo**, desplegable tanto en PC (plegable a barra compacta de iconos) como en celular (menú tipo *drawer*), con cada función separada en su propia vista:
 
 1. **🏠 Inicio (Interfaz Principal):** Resumen rápido del día actual (estados de ánimo registrados hoy, horas de sueño y actividades pendientes/completadas en la agenda) más accesos directos a todos los módulos.
-2. **😊 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (`Morning`, `Noon`, `Afternoon`, `Night`) con 16 estados y colores, validando la ventana de tiempo modificable desde el servidor.
+2. **😊 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo modificable desde el servidor.
 3. **😴 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, con registro de calidad (`Good`, `Regular`, `Bad`).
 4. **📝 Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia el script local de Python (`sincronitation/sincronizador.py`) para escribir en Word.
 5. **📅 Agenda Semanal (`Organiza tu Semana`):** Calendario/agenda visual por semana con diseño en tonos pastel por día y dividido en los 4 bloques del día:
@@ -18,17 +18,23 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)** al abrirla y una
    - ☀️ **Por la tarde** (`tarde`)
    - 🌙 **Por la noche** (`noche`)
    Permite registrar actividad y hora, marcar actividades completadas, editar/eliminar, alternar vista `Lun - Vie` / `Lun - Dom` y cambiar entre **Vista Día** (optimizada para celular) y **Vista Cuadrícula** (estilo plantilla semanal).
-6. **📊 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
+6. **📊 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
+7. **🔐 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
+   - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos y gestión de la cuenta del psiquiatra (`#view-medico`).
+   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado al dashboard semanal de **Estado de Ánimo y Horas de Sueño** (`#view-resumen`); sin acceso a notas del Journal, Agenda ni formularios de edición.
+   - **Sesión persistente:** Permanece activa aunque cierres la pestaña o el navegador (`HttpOnly` cookie + tabla `SesionesAuth`) y solo se cierra cuando presionas **Cerrar Sesión** en el menú lateral o automáticamente **cada domingo a las `00:00`**.
+   - **Seguridad:** Contraseñas encriptadas con `bcrypt` (`bcryptjs`, 12 rondas), tokens de sesión hasheados con SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), *rate-limiting* contra fuerza bruta y recuperación de contraseña por correo (`nodemailer` con Gmail SMTP).
+8. **🌙 Tema Oscuro y Modo Claro:** Interfaz adaptada con **Tema Oscuro** por defecto y botón para alternar entre modo oscuro y claro desde el login, menú móvil y barra lateral.
 
 ---
 
 ## 🛠️ Tecnologías Utilizadas
 
-* **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, diseño móvil *touch-friendly* y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
-* **Backend:** Node.js, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `cors`, `dotenv`.
-* **Base de Datos:** MySQL 8.0 (`RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`).
+* **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, **Tema Oscuro**, diseño móvil *touch-friendly* y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
+* **Backend:** Node.js, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `bcryptjs`, `nodemailer`, `cors`, `dotenv`.
+* **Base de Datos:** MySQL 8.0 (`RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`).
 * **Sincronización PC (Journal):** Python (`sincronitation/sincronizador.py`) con `pycryptodome` y `pywin32`.
-* **DevOps y Respaldos:** Docker, Docker Compose, GitHub Actions (`.github/workflows/deploy.yml`) en AWS EC2 y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
+* **DevOps y Respaldos:** Docker, Docker Compose, GitHub Actions (`.github/workflows/deploy.yml`) en AWS EC2, bóveda `.env.enc` (`scripts/env-vault.sh`) y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
 
 ---
 
@@ -44,10 +50,11 @@ mood-tracker/
 ├── public/                         # Archivos estáticos servidos por Express
 │   ├── index.html                  # Shell principal, barra lateral y todas las vistas
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
-│   ├── style.css                   # Estilos responsivos (PC, OPPO A79 y agenda pastel)
-│   └── frontend.js                 # Navegación, formularios, resumen semanal y agenda
+│   ├── style.css                   # Estilos responsivos + Tema Oscuro (PC y OPPO A79)
+│   └── frontend.js                 # Navegación, formularios, auth, tema y agenda
 ├── scripts/
 │   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
+│   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor
 │   └── restore.sh                  # Script de restauración automática desde Google Drive
 ├── sincronitation/
 │   ├── sincronizador.py            # Cliente local en Windows (lee configuración desde .env)
@@ -69,9 +76,12 @@ mood-tracker/
 
 El archivo `init.sql` define tres tablas principales:
 
-* **`RegistrosMood`**: `id`, `fecha`, `momento_dia`, `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
+* **`RegistrosMood`**: `id`, `fecha`, `momento_dia` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`), `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
 * **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `fecha_registro`.
 * **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `completada`, `fecha_registro`.
+* **`Usuarios`**: `id`, `nombre`, `email`, `password_hash` (bcrypt), `rol` (`admin` o `psiquiatra`), `fecha_registro`.
+* **`SesionesAuth`**: `id`, `usuario_id`, `token_hash` (SHA-256), `expira_en` (próximo domingo `00:00`), `creado_en`.
+* **`CodigosSeguridad`**: `id`, `email`, `tipo` (`registro` o `reset`), `token_hash` (SHA-256), `expira_en`, `usado`, `creado_en`.
 
 ### Crear la tabla `RegistrosAgenda` en una instancia AWS EC2 ya existente
 
@@ -198,6 +208,10 @@ El pipeline [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) está
 **En la pestaña `Secrets`:**
 * `EC2_SSH_KEY`: llave privada SSH (`.pem`) para conectarse a tu instancia EC2.
 * `DB_PASS`: contraseña de MySQL.
+* `ADMIN_EMAIL` *(opcional, por defecto `flavio.flax1234@gmail.com`)*: correo que recibe permisos de Administrador (`admin`) y los códigos de verificación.
+* `ADMIN_SECRET`: clave secreta personal que solo tú conoces para validar tu registro por primera vez.
+* `SMTP_USER`: cuenta de Gmail que enviará los correos (ej. `farmacia4850@gmail.com`). Si se omite, usa `ADMIN_EMAIL`.
+* `SMTP_PASS`: Contraseña de aplicación de Gmail (16 caracteres, generada en la cuenta configurada en `SMTP_USER` → Seguridad → Verificación en 2 pasos → Contraseñas de aplicaciones).
 * `DB_USER` *(opcional)*: usuario de MySQL (por defecto `root`).
 * `DB_NAME` *(opcional)*: nombre de la base de datos (por defecto `MoodTrackerLocal`).
 * `DB_HOST` *(opcional)*: host de MySQL en Docker (por defecto `db`).
@@ -214,3 +228,28 @@ El pipeline [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) está
 5. Levanta los contenedores (`docker compose up -d --build`).
 6. Ejecuta [`scripts/restore.sh --if-empty`](scripts/restore.sh): si es una instancia nueva (base de datos vacía), descarga automáticamente `respaldo_mood_tracker.sql.gz` desde Google Drive y restaura todos tus datos previos; si ya tenía datos, los conserva intactos.
 7. Registra el `cron` diario de respaldos hacia Google Drive.
+8. *(Opcional)* Si defines `SEAL_ENV_AFTER_DEPLOY=true` en GitHub Variables, elimina `.env` en texto plano al finalizar el despliegue.
+
+---
+
+## 🔒 Encriptar `.env` en el servidor con contraseña maestra (`scripts/env-vault.sh`)
+
+Para no dejar credenciales en texto plano dentro del archivo `.env` en tu instancia AWS EC2, utiliza [`scripts/env-vault.sh`](scripts/env-vault.sh), que cifra `.env` → `.env.enc` con **AES-256-CBC + PBKDF2 (600,000 iteraciones, SHA-256)** usando una contraseña que solo tú sabes:
+
+```bash
+cd ~/projects/mood-tracker
+chmod +x scripts/env-vault.sh
+
+# 1. Cifrar .env en .env.enc y destruir de forma segura el .env en texto plano:
+./scripts/env-vault.sh encrypt
+
+# 2. Cuando necesites reiniciar/reconstruir contenedores sin dejar .env en disco
+#    (descifra temporalmente solo en memoria RAM /dev/shm y limpia al terminar):
+./scripts/env-vault.sh up
+
+# 3. Ejecutar un respaldo a Google Drive manteniendo .env sellado:
+./scripts/env-vault.sh backup
+
+# 4. Ver estado actual (.env vs .env.enc):
+./scripts/env-vault.sh status
+```

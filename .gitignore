@@ -1,4 +1,6 @@
 .env
+.env.enc
+.env.*.tmp
 .ssh/
 base_datos/
 test/

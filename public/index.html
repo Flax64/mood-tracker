@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 
 <head>
     <meta charset="UTF-8">
@@ -13,7 +13,124 @@
 </head>
 
 <body>
-    <div class="app-shell" id="appShell">
+    <!-- ==========================================
+         PANTALLA DE AUTENTICACIÓN (LOGIN / REGISTRO / RECUPERACIÓN)
+    ========================================== -->
+    <div class="auth-screen" id="authOverlay">
+        <div class="auth-card">
+            <div class="auth-top-bar">
+                <button type="button" class="theme-toggle-pill" id="btnThemeToggleAuth"
+                    aria-label="Cambiar tema claro u oscuro">☀️ Modo Claro</button>
+            </div>
+            <div class="auth-brand">
+                <span class="auth-logo" aria-hidden="true">🌈</span>
+                <h1>Personal Mood Tracker</h1>
+                <p id="authSubtitle">Inicia sesión para acceder a tu espacio</p>
+            </div>
+
+            <!-- 1. FORMULARIO DE LOGIN -->
+            <form id="authLoginForm" class="auth-form">
+                <div class="form-group">
+                    <label for="loginEmail">Correo electrónico:</label>
+                    <input type="email" id="loginEmail" autocomplete="email" placeholder="ejemplo@correo.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Contraseña:</label>
+                    <input type="password" id="loginPassword" autocomplete="current-password"
+                        placeholder="Tu contraseña" required>
+                </div>
+                <button type="submit" class="btn-submit" id="btnLoginSubmit">Iniciar Sesión</button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link-btn" id="linkGoForgot">¿Olvidaste tu contraseña?</button>
+                    <button type="button" class="auth-link-btn" id="linkGoRegister">Registro por primera vez</button>
+                </div>
+            </form>
+
+            <!-- 2. FORMULARIO DE REGISTRO POR PRIMERA VEZ -->
+            <form id="authRegisterForm" class="auth-form" hidden>
+                <div class="form-group">
+                    <label for="regNombre">Nombre:</label>
+                    <input type="text" id="regNombre" maxlength="80" placeholder="Ej. Flavio / Dr. Psiquiatra" required>
+                </div>
+                <div class="form-group">
+                    <label for="regEmail">Correo electrónico:</label>
+                    <input type="email" id="regEmail" autocomplete="email" placeholder="correo@gmail.com"
+                        required>
+                    <small class="form-hint">
+                        El correo configurado como propietario (<strong>ADMIN_EMAIL</strong>) recibe permisos totales. Cualquier otro correo autorizado se registra como <strong>Psiquiatra (solo lectura)</strong>.
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label for="regPassword">Crear contraseña (mín. 8 caracteres):</label>
+                    <input type="password" id="regPassword" minlength="8" autocomplete="new-password"
+                        placeholder="Mínimo 8 caracteres" required>
+                </div>
+                <div class="form-group">
+                    <label for="regCodigoValidacion">Validación de identidad (propietario):</label>
+                    <div class="code-send-row">
+                        <button type="button" class="btn-send-code" id="btnSendRegCode">
+                            📧 Enviar código al correo del propietario
+                        </button>
+                    </div>
+                    <input type="password" id="regCodigoValidacion"
+                        placeholder="Código de 6 dígitos del correo o tu clave secreta personal" required>
+                    <small class="form-hint">
+                        Ingresa el código enviado a tu correo propietario (<strong>ADMIN_EMAIL</strong>) o tu clave secreta personal (<strong>ADMIN_SECRET</strong> / Word).
+                    </small>
+                </div>
+                <button type="submit" class="btn-submit" id="btnRegSubmit">Validar y Crear Cuenta</button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromReg">⬅ Volver a Iniciar
+                        Sesión</button>
+                </div>
+            </form>
+
+            <!-- 3. FORMULARIO OLVIDÉ MI CONTRASEÑA -->
+            <form id="authForgotForm" class="auth-form" hidden>
+                <div class="form-group">
+                    <label for="forgotEmail">Tu correo registrado:</label>
+                    <input type="email" id="forgotEmail" autocomplete="email" placeholder="tu_correo@gmail.com"
+                        required>
+                    <small class="form-hint">
+                        Te enviaremos un enlace seguro válido por 30 minutos para restablecer tu contraseña.
+                    </small>
+                </div>
+                <button type="submit" class="btn-submit" id="btnForgotSubmit">Enviar enlace a mi correo</button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromForgot">⬅ Volver a Iniciar
+                        Sesión</button>
+                </div>
+            </form>
+
+            <!-- 4. FORMULARIO RESTABLECER CONTRASEÑA (DESDE ENLACE DE CORREO) -->
+            <form id="authResetForm" class="auth-form" hidden>
+                <input type="hidden" id="resetTokenInput">
+                <div class="form-group">
+                    <label for="resetEmail">Correo:</label>
+                    <input type="email" id="resetEmail" readonly>
+                </div>
+                <div class="form-group">
+                    <label for="resetNewPassword">Nueva contraseña (mín. 8 caracteres):</label>
+                    <input type="password" id="resetNewPassword" minlength="8" autocomplete="new-password"
+                        placeholder="Nueva contraseña" required>
+                </div>
+                <div class="form-group">
+                    <label for="resetConfirmPassword">Confirmar nueva contraseña:</label>
+                    <input type="password" id="resetConfirmPassword" minlength="8" autocomplete="new-password"
+                        placeholder="Repite la contraseña" required>
+                </div>
+                <button type="submit" class="btn-submit" id="btnResetSubmit">Guardar Nueva Contraseña</button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromReset">⬅ Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         APLICACIÓN PRINCIPAL (PROTEGIDA POR SESIÓN)
+    ========================================== -->
+    <div class="app-shell" id="appShell" hidden>
         <!-- Barra superior móvil (visible en celular / tablet) -->
         <header class="mobile-topbar">
             <button type="button" class="icon-btn" id="mobileMenuBtn" aria-label="Abrir menú" aria-expanded="false"
@@ -21,7 +138,11 @@
                 <span class="hamburger-lines" aria-hidden="true">☰</span>
             </button>
             <div class="mobile-topbar-title" id="mobileViewTitle">Inicio</div>
-            <span class="moment-pill" id="mobileMomentBadge">--</span>
+            <div class="mobile-topbar-right">
+                <button type="button" class="icon-btn theme-icon-btn" id="btnThemeToggleMobile"
+                    title="Cambiar tema claro u oscuro" aria-label="Cambiar tema">☀️</button>
+                <span class="moment-pill" id="mobileMomentBadge">--</span>
+            </div>
         </header>
 
         <!-- Fondo oscuro al desplegar menú en celular -->
@@ -34,7 +155,7 @@
                     <span class="brand-logo" aria-hidden="true">🌈</span>
                     <div class="sidebar-brand-text">
                         <span class="brand-name">Mood Tracker</span>
-                        <span class="brand-sub">Espacio Personal</span>
+                        <span class="brand-sub" id="sidebarRoleLabel">Espacio Personal</span>
                     </div>
                 </div>
                 <button type="button" class="sidebar-toggle-btn desktop-only" id="desktopSidebarToggle"
@@ -48,12 +169,12 @@
             </div>
 
             <nav class="sidebar-nav">
-                <button type="button" class="nav-item active" data-view="inicio" title="Inicio">
+                <button type="button" class="nav-item active admin-only-nav" data-view="inicio" title="Inicio">
                     <span class="nav-icon" aria-hidden="true">🏠</span>
                     <span class="nav-label">Inicio</span>
                 </button>
 
-                <div class="nav-group open">
+                <div class="nav-group open admin-only-nav">
                     <button type="button" class="nav-group-toggle" aria-expanded="true">
                         <span class="nav-group-title">Registros Diarios</span>
                         <span class="nav-group-arrow" aria-hidden="true">▾</span>
@@ -80,7 +201,7 @@
                         <span class="nav-group-arrow" aria-hidden="true">▾</span>
                     </button>
                     <div class="nav-group-items">
-                        <button type="button" class="nav-item" data-view="agenda" title="Agenda Semanal">
+                        <button type="button" class="nav-item admin-only-nav" data-view="agenda" title="Agenda Semanal">
                             <span class="nav-icon" aria-hidden="true">📅</span>
                             <span class="nav-label">Agenda Semanal</span>
                         </button>
@@ -88,16 +209,33 @@
                             <span class="nav-icon" aria-hidden="true">📊</span>
                             <span class="nav-label">Resumen Semanal</span>
                         </button>
+                        <button type="button" class="nav-item admin-only-nav" data-view="medico"
+                            title="Acceso Psiquiatra">
+                            <span class="nav-icon" aria-hidden="true">👨‍⚕️</span>
+                            <span class="nav-label">Acceso Psiquiatra</span>
+                        </button>
                     </div>
                 </div>
             </nav>
 
             <div class="sidebar-footer">
+                <div class="sidebar-user-box">
+                    <strong class="sidebar-user-name" id="sidebarUserName">Usuario</strong>
+                    <span class="sidebar-user-role" id="sidebarUserEmail">--</span>
+                </div>
                 <div class="sidebar-status-row">
                     <span class="status-dot"></span>
                     <span class="sidebar-status-text" id="sidebarMomentoActual">Momento: --</span>
                 </div>
                 <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
+                <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Cambiar tema">
+                    <span class="theme-icon" aria-hidden="true">☀️</span>
+                    <span class="theme-label">Tema Claro</span>
+                </button>
+                <button type="button" class="btn-logout-sidebar" id="btnLogout" title="Cerrar Sesión">
+                    <span aria-hidden="true">🚪</span>
+                    <span class="logout-text">Cerrar Sesión</span>
+                </button>
             </div>
         </aside>
 
@@ -163,7 +301,7 @@
                             <span class="shortcut-emoji">😊</span>
                             <div>
                                 <strong>Estado de Ánimo</strong>
-                                <p>Registra cómo te sientes en cada momento del día.</p>
+                                <p>Registra cómo te sientes en cada momento del día (incluyendo madrugada).</p>
                             </div>
                         </button>
 
@@ -198,6 +336,14 @@
                                 <p>Visualiza tu matriz de colores de ánimo y descanso.</p>
                             </div>
                         </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="medico">
+                            <span class="shortcut-emoji">👨‍⚕️</span>
+                            <div>
+                                <strong>Acceso Psiquiatra</strong>
+                                <p>Administra la cuenta de solo lectura para tu médico.</p>
+                            </div>
+                        </button>
                     </div>
                 </div>
             </section>
@@ -218,16 +364,16 @@
                             <label for="momento">Momento del día:</label>
                             <select id="momento" required>
                                 <option value="" disabled selected>Selecciona un momento...</option>
-                                <option value="Morning">Mañana</option>
-                                <option value="Noon">Mediodía</option>
-                                <option value="Afternoon">Tarde</option>
-                                <option value="Night">Noche</option>
+                                <option value="Madrugada">Madrugada (00:00 - 05:59)</option>
+                                <option value="Morning">Mañana (06:00 - 11:59)</option>
+                                <option value="Noon">Mediodía (12:00 - 13:59)</option>
+                                <option value="Afternoon">Tarde (14:00 - 19:59)</option>
+                                <option value="Night">Noche (20:00 - 23:59)</option>
                             </select>
                         </div>
 
                         <label>Mi estado de ánimo:</label>
                         <div class="mood-grid" id="moodOptions">
-                            <!-- Colores extraídos de la imagen -->
                             <div class="mood-btn" data-mood="Happy" data-color="#FDE047">
                                 <div class="color-dot" style="background: #FDE047;"></div>Feliz
                             </div>
@@ -332,7 +478,6 @@
                     <h2>📝 Journal Notes</h2>
                     <form id="journalForm">
                         <div class="form-group">
-                            <!-- El atributo lang="en" es la magia para el corrector ortográfico en inglés -->
                             <textarea id="journalText" lang="en" spellcheck="true"
                                 placeholder="Write your thoughts here in English..." required></textarea>
                         </div>
@@ -374,13 +519,9 @@
                         </div>
                     </div>
 
-                    <!-- Pestañas por día (ideal en celular OPPO A79 o vista enfocada) -->
                     <div class="agenda-day-tabs" id="agendaDayTabs" hidden></div>
-
-                    <!-- Vista por día (tarjetas claras para pantalla táctil) -->
                     <div class="agenda-day-board" id="agendaDayBoard" hidden></div>
 
-                    <!-- Vista semanal tipo plantilla pastel de la imagen -->
                     <div class="agenda-table-scroll" id="agendaTableScroll">
                         <div class="agenda-week-board" id="agendaWeekBoard"></div>
                     </div>
@@ -392,7 +533,12 @@
             ========================================== -->
             <section class="app-view" id="view-resumen" data-title="Resumen Semanal">
                 <div class="tracker-container">
-                    <button type="button" class="btn-back" data-go-view="inicio">⬅ Volver al inicio</button>
+                    <button type="button" class="btn-back admin-only-nav" id="btnBackToHome" data-go-view="inicio">⬅
+                        Volver al inicio</button>
+
+                    <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
+                        👨‍⚕️ <strong>Vista Clínica (Solo Lectura):</strong> Visualización autorizada de Estado de Ánimo y Horas de Sueño.
+                    </div>
 
                     <h1 class="tracker-title">MI MOOD TRACKER SEMANAL</h1>
 
@@ -404,7 +550,6 @@
                     <hr class="title-divider">
 
                     <div class="tracker-layout">
-                        <!-- Contenedor Responsivo para deslizar en celular -->
                         <div class="table-responsive">
                             <table class="mood-table">
                                 <thead>
@@ -420,6 +565,16 @@
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    <tr>
+                                        <td class="row-label">Madrugada</td>
+                                        <td class="mood-cell" data-day="Sunday" data-time="Madrugada"></td>
+                                        <td class="mood-cell" data-day="Monday" data-time="Madrugada"></td>
+                                        <td class="mood-cell" data-day="Tuesday" data-time="Madrugada"></td>
+                                        <td class="mood-cell" data-day="Wednesday" data-time="Madrugada"></td>
+                                        <td class="mood-cell" data-day="Thursday" data-time="Madrugada"></td>
+                                        <td class="mood-cell" data-day="Friday" data-time="Madrugada"></td>
+                                        <td class="mood-cell" data-day="Saturday" data-time="Madrugada"></td>
+                                    </tr>
                                     <tr>
                                         <td class="row-label">Mañana</td>
                                         <td class="mood-cell" data-day="Sunday" data-time="Morning"></td>
@@ -464,7 +619,6 @@
                             </table>
                         </div>
 
-                        <!-- Leyenda Lateral -->
                         <aside class="mood-legend">
                             <h3 class="legend-title">MI ESTADO DE ÁNIMO</h3>
                             <hr class="legend-divider">
@@ -488,11 +642,45 @@
                             </ul>
                         </aside>
 
-                        <!-- VISUALIZADOR DE SUEÑO -->
                         <div class="sleep-container">
                             <h3>😴Resumen de Sueño</h3>
                             <div class="sleep-grid" id="sleepGrid"></div>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VISTA 7: GESTIÓN DE ACCESO PARA PSIQUIATRA (SOLO ADMIN)
+            ========================================== -->
+            <section class="app-view" id="view-medico" data-title="Acceso Psiquiatra">
+                <div class="card">
+                    <h2>👨‍⚕️ Acceso para Psiquiatra</h2>
+                    <p class="muted-text" style="margin-bottom: 20px; text-align: center;">
+                        Crea o actualiza una cuenta de <strong>solo lectura</strong> para tu psiquiatra. Esta cuenta únicamente puede ver el Resumen Semanal de Estado de Ánimo y Sueño (sin acceso a notas, agenda ni edición).
+                    </p>
+                    <form id="medicoForm">
+                        <div class="form-group">
+                            <label for="medicoNombre">Nombre del médico:</label>
+                            <input type="text" id="medicoNombre" maxlength="80" placeholder="Ej. Dr. García" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="medicoEmail">Correo electrónico del médico:</label>
+                            <input type="email" id="medicoEmail" placeholder="medico@correo.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="medicoPassword">Contraseña asignada (mín. 8 caracteres):</label>
+                            <input type="password" id="medicoPassword" minlength="8"
+                                placeholder="Mínimo 8 caracteres" required>
+                        </div>
+                        <button type="submit" class="btn-submit" id="btnSaveMedico">Guardar Cuenta de
+                            Psiquiatra</button>
+                    </form>
+
+                    <hr class="section-divider">
+                    <h3 class="medicos-heading">Cuentas de psiquiatra activas</h3>
+                    <div id="medicosList" class="medicos-list">
+                        <p class="muted-text">Cargando...</p>
                     </div>
                 </div>
             </section>
