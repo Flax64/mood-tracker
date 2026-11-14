@@ -170,6 +170,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
 
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-py-vault-'));
         const tmpEnc = path.join(tmpDir, '.env.enc');
+        const tmpDpapi = path.join(tmpDir, 'vault.dpapi');
 
         try {
             const password = 'ClavePythonInterop!2026';
@@ -183,36 +184,49 @@ describe('Bóveda local (.env / .env.enc)', () => {
             fs.writeFileSync(tmpEnc, vault.encryptText(sample, password));
 
             const pyCode = [
-                'import ast, hashlib, json, os, sys',
-                'from Crypto.Cipher import AES',
+                'import ctypes, json, os, sys',
+                'from ctypes import wintypes',
                 '',
-                'py_path, enc_path, password = sys.argv[1:4]',
-                'with open(py_path, "r", encoding="utf-8") as fh:',
-                '    src = fh.read()',
-                'tree = ast.parse(src, filename=py_path)',
-                'needed = {"_descifrar_vault_bytes", "_parsear_y_cargar_env"}',
-                'fn_nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in needed]',
-                'assert len(fn_nodes) == 2, f"Faltan helpers en sincronizador.py: {[n.name for n in fn_nodes]}"',
-                'ns = {"hashlib": hashlib, "os": os, "AES": AES}',
-                'exec(compile(ast.Module(body=fn_nodes, type_ignores=[]), py_path, "exec"), ns)',
+                'sys.dont_write_bytecode = True',
+                'sync_dir, enc_path, password, dpapi_path = sys.argv[1:5]',
+                'sys.path.insert(0, sync_dir)',
+                'os.environ["MOOD_DPAPI_VAULT_PATH"] = dpapi_path',
+                'import sincronizador',
+                '',
                 'with open(enc_path, "rb") as fh:',
                 '    raw = fh.read()',
-                'plain = ns["_descifrar_vault_bytes"](raw, password)',
-                'parsed = ns["_parsear_y_cargar_env"](plain)',
+                'plain = sincronizador._descifrar_vault_bytes(raw, password)',
+                'parsed = sincronizador._parsear_y_cargar_env(plain)',
                 'bad_rejected = False',
                 'try:',
-                '    ns["_descifrar_vault_bytes"](raw, "clave-equivocada")',
+                '    sincronizador._descifrar_vault_bytes(raw, "clave-equivocada")',
                 'except RuntimeError:',
                 '    bad_rejected = True',
-                'print(json.dumps({"parsed": parsed, "bad_rejected": bad_rejected}))'
+                '',
+                'dpapi_ok = True',
+                'if sys.platform == "win32":',
+                '    saved_path = sincronizador._guardar_dpapi_password(password)',
+                '    assert saved_path == dpapi_path',
+                '    raw_dpapi = open(dpapi_path, "rb").read()',
+                '    assert password.encode("utf-8") not in raw_dpapi, "DPAPI no debe guardar clave en claro"',
+                '    unprotected = sincronizador._leer_dpapi_password()',
+                '    assert unprotected == password',
+                '    plain_dpapi = sincronizador._descifrar_vault_bytes(raw, unprotected)',
+                '    assert plain_dpapi == plain',
+                '    removed, _ = sincronizador._eliminar_dpapi_password()',
+                '    assert removed and not os.path.exists(dpapi_path)',
+                '    dpapi_ok = True',
+                '',
+                'print(json.dumps({"parsed": parsed, "bad_rejected": bad_rejected, "dpapi_ok": dpapi_ok}))'
             ].join('\n');
 
             const pyEnv = { ...process.env };
             delete pyEnv.WORD_FILE_PATH;
             delete pyEnv.JOURNAL_SECRET_KEY;
             delete pyEnv.EC2_API_URL;
+            delete pyEnv.MOOD_ENV_PASS;
 
-            const res = spawnSync('python', ['-c', pyCode, PY_SYNC, tmpEnc, password], {
+            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpEnc, password, tmpDpapi], {
                 cwd: ROOT_DIR,
                 env: pyEnv,
                 encoding: 'utf8'
@@ -221,6 +235,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
 
             const out = JSON.parse(res.stdout.trim());
             assert.equal(out.bad_rejected, true, 'Python debe rechazar contraseña incorrecta');
+            assert.equal(out.dpapi_ok, true, 'DPAPI debe proteger y desproteger la clave sin texto plano');
             assert.equal(out.parsed.WORD_FILE_PATH, 'C:\\Users\\flavi\\OneDrive\\Documentos\\DIARIO.docx');
             assert.equal(out.parsed.JOURNAL_SECRET_KEY, 'mi_token_secreto_123');
             assert.equal(out.parsed.EC2_API_URL, 'http://3.149.248.153:3000');
