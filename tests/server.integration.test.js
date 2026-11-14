@@ -277,7 +277,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             { method: 'POST', reqPath: '/api/insert-sleep', body: { fecha: '2026-11-14', horas: 7.5, calidad: 'Good' } },
             { method: 'GET', reqPath: '/api/get-agenda?begin=2026-11-01&end=2026-11-14' },
             { method: 'POST', reqPath: '/api/insert-agenda', body: { fecha: '2026-11-14', bloque: 'manana', hora: '08:00', actividad: 'Leer' } },
-            { method: 'POST', reqPath: '/api/send-to-pc', body: { texto: 'cifrado' } }
+            { method: 'POST', reqPath: '/api/send-to-pc', body: { texto: 'cifrado' } },
+            { method: 'POST', reqPath: '/api/send-english', body: { texto: 'cifrado-english' } }
         ]) {
             const res = await request({ port, headers: { Cookie: medicoCookie }, ...reqOpts });
             assert.strictEqual(res.status, 403, `${reqOpts.reqPath} debe responder 403 para psiquiatra`);
@@ -404,6 +405,61 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             body: { texto: 'after-drain' }
         });
         assert.strictEqual(afterDrain.status, 200);
+    });
+
+    it('acota la cola /api/send-english a 100 elementos, aísla del journal y drena en /api/pull-english', async () => {
+        const unauth = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            body: { texto: 'unauth' }
+        });
+        assert.strictEqual(unauth.status, 401);
+
+        const emptyPayload = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            headers: { Cookie: adminCookie },
+            body: {}
+        });
+        assert.strictEqual(emptyPayload.status, 400);
+
+        for (let i = 1; i <= 100; i++) {
+            const res = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-english',
+                headers: { Cookie: adminCookie },
+                body: { texto: `english-cipher-${i}` }
+            });
+            assert.strictEqual(res.status, 200, `Item inglés ${i} debe aceptarse`);
+        }
+
+        const overflow = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            headers: { Cookie: adminCookie },
+            body: { texto: 'english-cipher-101' }
+        });
+        assert.strictEqual(overflow.status, 429);
+
+        // La cola /api/pull-english NO debe mezclarse con /api/pull-text (solo tiene 'after-drain')
+        const journalPull = await request({ port, reqPath: '/api/pull-text' });
+        assert.strictEqual(journalPull.status, 200);
+        assert.deepStrictEqual(JSON.parse(journalPull.body), ['after-drain']);
+
+        const pull1 = await request({ port, reqPath: '/api/pull-english' });
+        assert.strictEqual(pull1.status, 200);
+        const list1 = JSON.parse(pull1.body);
+        assert.strictEqual(Array.isArray(list1), true);
+        assert.strictEqual(list1.length, 100);
+        assert.strictEqual(list1[0], 'english-cipher-1');
+
+        const pull2 = await request({ port, reqPath: '/api/pull-english' });
+        assert.strictEqual(pull2.status, 200);
+        assert.deepStrictEqual(JSON.parse(pull2.body), []);
 
         // Cierre de sesión limpia la cookie y elimina sesión
         const logout = await request({ port, method: 'POST', reqPath: '/api/auth/logout', headers: { Cookie: adminCookie } });

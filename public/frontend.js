@@ -1,5 +1,5 @@
 // ==========================================
-// UTILIDADES GENERALES DE FECHA Y ESTADO
+// GENERAL DATE & MOOD STATE UTILITIES
 // ==========================================
 function formatLocalDate(date) {
     const year = date.getFullYear();
@@ -10,51 +10,61 @@ function formatLocalDate(date) {
 
 function getMomentoInfo(hour) {
     if (hour >= 0 && hour < 6) {
-        return { moodKey: 'Madrugada', moodLabel: 'Madrugada', saludo: '¡Buenas madrugadas!', agendaBloque: 'noche' };
+        return { moodKey: 'Madrugada', moodLabel: 'Late Night', saludo: 'Good early morning!', agendaBloque: 'noche' };
     }
     if (hour >= 6 && hour < 12) {
-        return { moodKey: 'Morning', moodLabel: 'Mañana', saludo: '¡Buenos días!', agendaBloque: hour < 9 ? 'manana' : 'cole' };
+        return { moodKey: 'Morning', moodLabel: 'Morning', saludo: 'Good morning!', agendaBloque: hour < 9 ? 'manana' : 'cole' };
     }
     if (hour >= 12 && hour < 14) {
-        return { moodKey: 'Noon', moodLabel: 'Mediodía', saludo: '¡Buenas tardes!', agendaBloque: 'cole' };
+        return { moodKey: 'Noon', moodLabel: 'Noon', saludo: 'Good afternoon!', agendaBloque: 'cole' };
     }
     if (hour >= 14 && hour < 20) {
-        return { moodKey: 'Afternoon', moodLabel: 'Tarde', saludo: '¡Buenas tardes!', agendaBloque: 'tarde' };
+        return { moodKey: 'Afternoon', moodLabel: 'Afternoon', saludo: 'Good afternoon!', agendaBloque: 'tarde' };
     }
-    return { moodKey: 'Night', moodLabel: 'Noche', saludo: '¡Buenas noches!', agendaBloque: 'noche' };
+    return { moodKey: 'Night', moodLabel: 'Night', saludo: 'Good evening!', agendaBloque: 'noche' };
 }
 
-const MOMENTOS_ES = {
-    Madrugada: 'Madrugada',
-    Morning: 'Mañana',
-    Noon: 'Mediodía',
-    Afternoon: 'Tarde',
-    Night: 'Noche'
-};
-
-const ESTADOS_ES = {
-    Happy: 'Feliz',
-    Calm: 'Tranquilo',
-    Excited: 'Emocionado',
-    Tired: 'Cansado',
-    Sad: 'Triste',
-    Angry: 'Enojado',
-    Worried: 'Preocupado',
-    Scared: 'Asustado',
-    Focused: 'Enfocado',
-    Motivated: 'Motivado',
-    Stressed: 'Estresado',
-    Frustrated: 'Frustrado',
-    Bored: 'Aburrido',
-    Anxious: 'Ansioso',
-    Distracted: 'Distraído',
-    Desperation: 'Desesperado'
+const MOMENTOS_LABELS = {
+    Madrugada: 'Late Night',
+    Morning: 'Morning',
+    Noon: 'Noon',
+    Afternoon: 'Afternoon',
+    Night: 'Night'
 };
 
 // ==========================================
-// NAVEGACIÓN PRINCIPAL Y BARRA LATERAL FIJA
+// E2EE CLIENT CRYPTO HELPERS (SHARED BY JOURNAL & ENGLISH NOTEBOOK)
 // ==========================================
-const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'agenda', 'resumen', 'medico']);
+function obtenerLlaveE2EE() {
+    let llaveTexto = localStorage.getItem('diario_llave_secreta');
+
+    if (!llaveTexto || llaveTexto.length !== 32) {
+        llaveTexto = prompt(
+            '🔒 E2EE Security:\nEnter your 32-character secret key.\nIt will only be requested once on this device:'
+        );
+
+        if (llaveTexto && llaveTexto.length === 32) {
+            localStorage.setItem('diario_llave_secreta', llaveTexto);
+        } else {
+            alert('Canceled: Your secret key must be exactly 32 characters long.');
+            return null;
+        }
+    }
+
+    return llaveTexto;
+}
+
+function encriptarTextoE2EE(textoPlano, llaveTexto) {
+    const keyWords = CryptoJS.enc.Utf8.parse(llaveTexto);
+    const iv = CryptoJS.lib.WordArray.random(16);
+    const encrypted = CryptoJS.AES.encrypt(textoPlano, keyWords, { iv: iv });
+    return iv.toString(CryptoJS.enc.Hex) + ':' + encrypted.toString();
+}
+
+// ==========================================
+// MAIN NAVIGATION & FIXED SIDEBAR
+// ==========================================
+const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'english', 'agenda', 'resumen', 'medico']);
 let currentUser = null;
 let sundayWatcherInterval = null;
 const authOverlay = document.getElementById('authOverlay');
@@ -87,7 +97,7 @@ function updateDesktopSidebarState(collapsed) {
 function showView(viewName, updateHash = true) {
     let targetView = VALID_VIEWS.has(viewName) ? viewName : 'inicio';
 
-    // Si es el psiquiatra (solo lectura), bloquear acceso a cualquier otra vista
+    // Read-only psychiatrist accounts can only view Weekly Summary
     if (currentUser && currentUser.rol === 'psiquiatra') {
         targetView = 'resumen';
     }
@@ -129,7 +139,7 @@ function showView(viewName, updateHash = true) {
 }
 
 if (appShell) {
-    // Estado guardado de barra lateral en PC
+    // Saved desktop sidebar state
     if (localStorage.getItem('sidebar_collapsed') === '1') {
         updateDesktopSidebarState(true);
     }
@@ -163,7 +173,7 @@ if (appShell) {
         }
     });
 
-    // Grupos desplegables dentro de la barra lateral
+    // Collapsible nav groups inside sidebar
     document.querySelectorAll('.nav-group-toggle').forEach(toggle => {
         toggle.addEventListener('click', () => {
             const group = toggle.closest('.nav-group');
@@ -174,21 +184,21 @@ if (appShell) {
         });
     });
 
-    // Botones del menú lateral
+    // Sidebar menu items
     document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
         btn.addEventListener('click', () => {
             showView(btn.getAttribute('data-view'));
         });
     });
 
-    // Accesos directos dentro de las vistas
+    // In-view shortcut buttons
     document.querySelectorAll('[data-go-view]').forEach(btn => {
         btn.addEventListener('click', () => {
             showView(btn.getAttribute('data-go-view'));
         });
     });
 
-    // Soporte de navegación por hash
+    // URL hash navigation support
     window.addEventListener('hashchange', () => {
         const hashView = window.location.hash.replace('#', '');
         if (VALID_VIEWS.has(hashView)) {
@@ -198,18 +208,18 @@ if (appShell) {
 }
 
 // ==========================================
-// LÓGICA DE INICIO (INTERFAZ PRINCIPAL)
+// HOME DASHBOARD LOGIC
 // ==========================================
 function actualizarCabecerasDeFecha() {
     const now = new Date();
     const info = getMomentoInfo(now.getHours());
-    const fechaLarga = now.toLocaleDateString('es-ES', {
+    const fechaLarga = now.toLocaleDateString('en-US', {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
         year: 'numeric'
     });
-    const fechaCorta = now.toLocaleDateString('es-ES', {
+    const fechaCorta = now.toLocaleDateString('en-US', {
         weekday: 'short',
         day: 'numeric',
         month: 'short'
@@ -224,8 +234,8 @@ function actualizarCabecerasDeFecha() {
 
     if (homeGreeting) homeGreeting.textContent = info.saludo;
     if (homeDate) homeDate.textContent = fechaLarga;
-    if (homeMomentBadge) homeMomentBadge.textContent = `Momento actual: ${info.moodLabel}`;
-    if (sidebarMomentoActual) sidebarMomentoActual.textContent = `Momento: ${info.moodLabel}`;
+    if (homeMomentBadge) homeMomentBadge.textContent = `Current moment: ${info.moodLabel}`;
+    if (sidebarMomentoActual) sidebarMomentoActual.textContent = `Moment: ${info.moodLabel}`;
     if (sidebarFechaHoy) sidebarFechaHoy.textContent = fechaCorta;
     if (mobileMomentBadge) mobileMomentBadge.textContent = info.moodLabel;
 }
@@ -239,15 +249,15 @@ function cargarInicioResumen() {
     const agendaBox = document.getElementById('homeAgendaSummary');
     if (!moodBox || !sleepBox || !agendaBox) return;
 
-    // 1. Mood de hoy
+    // 1. Today's mood
     fetch(`/api/get-moods?begin=${hoyStr}&end=${hoyStr}`)
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('Error al consultar ánimo')))
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch mood logs')))
         .then(registros => {
             moodBox.innerHTML = '';
             if (!registros.length) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'Aún no registras tu estado de ánimo hoy.';
+                p.textContent = 'No mood entries logged yet today.';
                 moodBox.appendChild(p);
                 return;
             }
@@ -260,25 +270,25 @@ function cargarInicioResumen() {
                 dot.className = 'mini-dot';
                 dot.style.backgroundColor = r.color_hex;
                 const txt = document.createElement('span');
-                txt.textContent = MOMENTOS_ES[r.momento_dia] || r.momento_dia;
+                txt.textContent = MOMENTOS_LABELS[r.momento_dia] || r.momento_dia;
                 chip.append(dot, txt);
                 wrap.appendChild(chip);
             });
             moodBox.appendChild(wrap);
         })
         .catch(() => {
-            moodBox.innerHTML = '<p class="muted-text">No se pudo cargar el estado de ánimo.</p>';
+            moodBox.innerHTML = '<p class="muted-text">Could not load today\'s mood entries.</p>';
         });
 
-    // 2. Sueño de hoy
+    // 2. Today's sleep
     fetch(`/api/get-sleep?begin=${hoyStr}&end=${hoyStr}`)
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('Error al consultar sueño')))
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch sleep logs')))
         .then(registros => {
             sleepBox.innerHTML = '';
             if (!registros.length) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'Sin registro de descanso el día de hoy.';
+                p.textContent = 'No sleep log recorded today.';
                 sleepBox.appendChild(p);
                 return;
             }
@@ -287,29 +297,30 @@ function cargarInicioResumen() {
             const minutosRest = Math.round((totalH - horasEnteras) * 60);
             const p = document.createElement('p');
             p.style.margin = '0';
-            p.innerHTML = `<strong>${horasEnteras}:${String(minutosRest).padStart(2, '0')} h</strong> registradas en ${registros.length} sesión(es).`;
+            const plural = registros.length === 1 ? 'session' : 'sessions';
+            p.innerHTML = `<strong>${horasEnteras}:${String(minutosRest).padStart(2, '0')} hrs</strong> logged across ${registros.length} ${plural}.`;
             sleepBox.appendChild(p);
         })
         .catch(() => {
-            sleepBox.innerHTML = '<p class="muted-text">No se pudo cargar el resumen de sueño.</p>';
+            sleepBox.innerHTML = '<p class="muted-text">Could not load sleep summary.</p>';
         });
 
-    // 3. Agenda de hoy
+    // 3. Today's agenda
     fetch(`/api/get-agenda?begin=${hoyStr}&end=${hoyStr}`)
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('Error al consultar agenda')))
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch agenda')))
         .then(items => {
             agendaBox.innerHTML = '';
             if (!items.length) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'No tienes actividades programadas para hoy.';
+                p.textContent = 'No activities scheduled for today.';
                 agendaBox.appendChild(p);
                 return;
             }
             const completadas = items.filter(i => Number(i.completada) === 1).length;
             const summary = document.createElement('p');
             summary.style.margin = '0';
-            summary.innerHTML = `<strong>${completadas} de ${items.length}</strong> actividades completadas hoy.`;
+            summary.innerHTML = `<strong>${completadas} of ${items.length}</strong> activities completed today.`;
             agendaBox.appendChild(summary);
 
             const ul = document.createElement('ul');
@@ -327,19 +338,18 @@ function cargarInicioResumen() {
             agendaBox.appendChild(ul);
         })
         .catch(() => {
-            agendaBox.innerHTML = '<p class="muted-text">Agenda pendiente de sincronizar o sin tabla en BD.</p>';
+            agendaBox.innerHTML = '<p class="muted-text">Agenda unavailable or missing table in DB.</p>';
         });
 }
 
 // ==========================================
-// LÓGICA PARA MOOD TRACKER (REGISTRO)
+// MOOD TRACKER FORM LOGIC
 // ==========================================
 const formRegistro = document.getElementById('moodForm');
 
 if (formRegistro) {
     const now = new Date();
     const year = now.getFullYear();
-    // Sumamos 1 al mes porque en JavaScript enero es 0
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     document.getElementById('fecha').value = `${year}-${month}-${day}`;
@@ -357,11 +367,10 @@ if (formRegistro) {
         });
     });
 
-    // 1. Declarar las variables necesarias
     const momentoDia = document.getElementById('momento');
     const hora = new Date().getHours();
 
-    // 2. Definir la función (incluyendo Madrugada 00:00 - 05:59)
+    // Preserves DB enum 'Madrugada' for 00:00-05:59
     const obtenerMomentoDia = (horaActual) => {
         if (horaActual >= 0 && horaActual < 6) {
             momentoDia.value = 'Madrugada';
@@ -381,18 +390,17 @@ if (formRegistro) {
     formRegistro.addEventListener('submit', (e) => {
         e.preventDefault();
 
-        // Prevenir el click fantasma o doble click
         const btnGuardarMood = document.getElementById('btn-save-mood');
         if (btnGuardarMood.disabled) return;
 
         if (!estadoSeleccionado) {
-            alert('Por favor, selecciona un estado de ánimo.');
+            alert('Please select a mood first.');
             return;
         }
 
         const textoBtnMood = btnGuardarMood.textContent;
         btnGuardarMood.disabled = true;
-        btnGuardarMood.textContent = "Guardando...";
+        btnGuardarMood.textContent = 'Saving...';
 
         const datos = {
             fecha: document.getElementById('fecha').value,
@@ -401,7 +409,7 @@ if (formRegistro) {
             color_hex: colorSeleccionado
         };
 
-        fetch(`/api/insert-mood`, {
+        fetch('/api/insert-mood', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
@@ -417,7 +425,7 @@ if (formRegistro) {
                 botones.forEach(b => b.classList.remove('selected'));
                 estadoSeleccionado = '';
                 colorSeleccionado = '';
-                document.getElementById('momento').value = "";
+                document.getElementById('momento').value = '';
             })
             .catch(error => alert('Error: ' + error.message))
             .finally(() => {
@@ -428,50 +436,43 @@ if (formRegistro) {
 }
 
 // ==========================================
-// LÓGICA PARA RESUMEN SEMANAL (TABLA MOOD & SUEÑO)
+// WEEKLY SUMMARY LOGIC (MOOD & SLEEP TABLE)
 // ==========================================
 const selectSemana = document.getElementById('semanaSeleccionada');
 
 if (selectSemana) {
-    // 1. Llenar el menú con semanas estrictas de Domingo a Sábado
+    // 1. Populate Sunday-to-Saturday weeks
     const now = new Date();
-    // Encontrar el domingo de la semana actual
     const domingoActual = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
 
-    // Generar 5 semanas hacia atrás y 5 hacia adelante
     for (let i = -5; i <= 5; i++) {
         const dom = new Date(domingoActual);
         dom.setDate(dom.getDate() + (i * 7));
         const sab = new Date(dom);
         sab.setDate(sab.getDate() + 6);
 
-        // Formatear las fechas para enviar al backend (YYYY-MM-DD)
         const domStr = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
         const sabStr = `${sab.getFullYear()}-${String(sab.getMonth() + 1).padStart(2, '0')}-${String(sab.getDate()).padStart(2, '0')}`;
 
-        // Crear el texto visual amigable en español
         const opcMes = { day: 'numeric', month: 'short' };
-        const textoVisual = `${dom.toLocaleDateString('es-ES', opcMes)} - ${sab.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+        const textoVisual = `${dom.toLocaleDateString('en-US', opcMes)} - ${sab.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
         const option = document.createElement('option');
-        option.value = `${domStr}|${sabStr}`; // Guardamos inicio y fin unidos por un |
-        option.textContent = `Semana: ${textoVisual}`;
+        option.value = `${domStr}|${sabStr}`;
+        option.textContent = `Week: ${textoVisual}`;
 
-        // Seleccionar automáticamente la semana actual
         if (i === 0) option.selected = true;
 
         selectSemana.appendChild(option);
     }
 
-    // 2. Escuchar cuando eliges una semana distinta
+    // 2. Fetch week data when changed
     selectSemana.addEventListener('change', () => {
-        // Extraer el inicio y fin del value elegido
         const [begin, end] = selectSemana.value.split('|');
 
-        // Limpiar todos los cuadros de la tabla
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
         const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        // Solicitar datos al backend
+
         fetch(`/api/get-moods?begin=${begin}&end=${end}`)
             .then(response => response.json())
             .then(registros => {
@@ -485,27 +486,25 @@ if (selectSemana) {
                     }
                 });
             })
-            .catch(error => console.error('Error cargando mood:', error));
+            .catch(error => console.error('Error loading moods:', error));
 
         const sleepGrid = document.getElementById('sleepGrid');
-        sleepGrid.innerHTML = ''; // Limpiar tarjetas anteriores
+        sleepGrid.innerHTML = '';
 
-        // Preparamos un objeto vacío para sumar las horas de los 7 días
-        const diasNombres = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-        let sumatoriaSueno = {
-            'Sunday': { horas: 0, calidades: [], sesiones: [] },
-            'Monday': { horas: 0, calidades: [], sesiones: [] },
-            'Tuesday': { horas: 0, calidades: [], sesiones: [] },
-            'Wednesday': { horas: 0, calidades: [], sesiones: [] },
-            'Thursday': { horas: 0, calidades: [], sesiones: [] },
-            'Friday': { horas: 0, calidades: [], sesiones: [] },
-            'Saturday': { horas: 0, calidades: [], sesiones: [] }
+        const diasNombres = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const sumatoriaSueno = {
+            Sunday: { horas: 0, calidades: [], sesiones: [] },
+            Monday: { horas: 0, calidades: [], sesiones: [] },
+            Tuesday: { horas: 0, calidades: [], sesiones: [] },
+            Wednesday: { horas: 0, calidades: [], sesiones: [] },
+            Thursday: { horas: 0, calidades: [], sesiones: [] },
+            Friday: { horas: 0, calidades: [], sesiones: [] },
+            Saturday: { horas: 0, calidades: [], sesiones: [] }
         };
 
         fetch(`/api/get-sleep?begin=${begin}&end=${end}`)
             .then(response => response.json())
             .then(registros => {
-                // 1. Sumamos las horas de todos los registros que lleguen
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
                     const nombreDia = diasSemana[fechaObj.getUTCDay()];
@@ -513,30 +512,25 @@ if (selectSemana) {
                     const horasRegistro = parseFloat(registro.horas);
                     sumatoriaSueno[nombreDia].horas += horasRegistro;
                     sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
-
-                    // Guardamos el fragmento exacto para saber si es intermitente
                     sumatoriaSueno[nombreDia].sesiones.push(horasRegistro);
                 });
 
-                // 2. Dibujamos las 7 tarjetas
                 diasSemana.forEach((dia, index) => {
                     const datosDia = sumatoriaSueno[dia];
                     let emoji = '➖';
                     let colorBorde = '';
                     let textoHoras = '--';
-                    let textoIntervalos = ''; // Para mostrar (5h + 2h)
+                    let textoIntervalos = '';
 
                     if (datosDia.horas > 0) {
                         const totalH = datosDia.horas;
                         const cantidadSesiones = datosDia.sesiones.length;
-                        const intermitente = cantidadSesiones > 1; // Si hay más de un registro, es interrumpido
+                        const intermitente = cantidadSesiones > 1;
 
-                        // Formato de reloj para el Total (Ej. 7:30 h)
                         const horasEnteras = Math.floor(totalH);
                         const minutosRestantes = Math.round((totalH - horasEnteras) * 60);
                         textoHoras = `${horasEnteras}:${String(minutosRestantes).padStart(2, '0')} h`;
 
-                        // Si es intermitente, creamos el sub-texto con los fragmentos
                         if (intermitente) {
                             const listaIntervalos = datosDia.sesiones.map(sesionH => {
                                 const hE = Math.floor(sesionH);
@@ -546,7 +540,6 @@ if (selectSemana) {
                             textoIntervalos = `<div class="sleep-intervals">(${listaIntervalos.join(' + ')})</div>`;
                         }
 
-                        // === LÓGICA DE CALIDAD INTELIGENTE ===
                         if (totalH < 4 || (totalH < 6 && intermitente)) {
                             emoji = '🔴';
                             colorBorde = '#EF4444';
@@ -559,7 +552,6 @@ if (selectSemana) {
                         }
                     }
 
-                    // Crear el bloque HTML de la tarjeta
                     const card = document.createElement('div');
                     card.className = 'sleep-card';
                     if (colorBorde) card.style.borderColor = colorBorde;
@@ -575,12 +567,12 @@ if (selectSemana) {
                     sleepGrid.appendChild(card);
                 });
             })
-            .catch(error => console.error('Error cargando el sueño:', error));
+            .catch(error => console.error('Error loading sleep logs:', error));
     });
 }
 
 // ==========================================
-// LÓGICA PARA SLEEP TRACKER
+// SLEEP TRACKER FORM LOGIC
 // ==========================================
 const formSleep = document.getElementById('sleepForm');
 if (formSleep) {
@@ -592,31 +584,23 @@ if (formSleep) {
             const sleepDate = new Date(`2000-01-01T${sleepTime}`);
             const wakeupDate = new Date(`2000-01-01T${wakeupTime}`);
 
-            // Si es otro dia
             if (wakeupDate < sleepDate) {
                 wakeupDate.setDate(wakeupDate.getDate() + 1);
             }
 
-            // Convertimos a minutos totales primero
             const diferenciaMilisegundos = wakeupDate - sleepDate;
             const totalMinutes = Math.floor(diferenciaMilisegundos / (1000 * 60));
 
-            // Extraemos las horas y los minutos sobrantes
             const intHours = Math.floor(totalMinutes / 60);
             const intMinutes = totalMinutes % 60;
 
-            let visualText = `${intHours} horas`;
-            if (intMinutes > 0 && intMinutes <= 1) {
-                visualText += ` y ${intMinutes} minuto`;
-            } else if (intMinutes > 1) {
-                visualText += ` y ${intMinutes} minutos`;
+            let visualText = `${intHours} ${intHours === 1 ? 'hr' : 'hrs'}`;
+            if (intMinutes > 0) {
+                visualText += ` ${intMinutes} ${intMinutes === 1 ? 'min' : 'mins'}`;
             }
 
-            // Mostramos el texto en la pantalla
             const inputSleep = document.getElementById('sleepHours');
             inputSleep.value = visualText;
-
-            // Escondemos el valor decimal exacto (ej. 5.5) en el HTML para la base de datos
             inputSleep.dataset.decimal = (totalMinutes / 60).toFixed(2);
         }
     }
@@ -633,15 +617,14 @@ if (formSleep) {
         const wakeupTime = document.getElementById('wakeupTime').value;
         const quality = document.getElementById('quality-sleep').value;
 
-        // 2. VALIDACIÓN ESTRICTA
         if (!sleepTime || !wakeupTime || !quality) {
-            alert('Por favor, llena todos los campos (hora de dormir, despertar y calidad de sueño).');
+            alert('Please fill in all fields (bedtime, wake-up time, and sleep quality).');
             return;
         }
 
         const textoBtnSleep = btnGuardarSleep.textContent;
         btnGuardarSleep.disabled = true;
-        btnGuardarSleep.textContent = "Guardando...";
+        btnGuardarSleep.textContent = 'Saving...';
 
         const now = new Date();
         const year = now.getFullYear();
@@ -652,22 +635,18 @@ if (formSleep) {
         const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
         const calidad = document.getElementById('quality-sleep').value;
 
-        const datos = {
-            fecha: fecha,
-            horas: horas,
-            calidad: calidad
-        };
+        const datos = { fecha, horas, calidad };
 
         fetch('/api/insert-sleep', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(datos)
         })
-            .then(resopnse => {
-                if (!resopnse.ok) {
-                    return resopnse.text().then(text => { throw new Error(text); });
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text); });
                 }
-                return resopnse.text();
+                return response.text();
             })
             .then(mensaje => {
                 alert(mensaje);
@@ -685,49 +664,29 @@ if (formSleep) {
 }
 
 // ==========================================
-// LÓGICA PARA EL JOURNAL (NOTAS A WORD)
+// JOURNAL NOTES (ENCRYPTED NOTES TO PC WORD)
 // ==========================================
 const journalForm = document.getElementById('journalForm');
 
 if (journalForm) {
     journalForm.addEventListener('submit', function (e) {
-        e.preventDefault(); // Evita que la página se recargue
+        e.preventDefault();
         const btnEnviarWord = document.getElementById('btn-send-word');
         if (btnEnviarWord.disabled) return;
 
         const textInput = document.getElementById('journalText');
         const texto = textInput.value;
-
-        // Evitar envíos vacíos
         if (!texto.trim()) return;
 
-        // 1. Buscar la llave en la bóveda del navegador
-        let llaveTexto = localStorage.getItem('diario_llave_secreta');
-
-        // 2. Si no existe, pedírsela al usuario por única vez
-        if (!llaveTexto || llaveTexto.length !== 32) {
-            llaveTexto = prompt("🔒 Seguridad E2EE:\nIngresa tu clave secreta de 32 caracteres.\nSolo se te pedirá esta vez en este dispositivo:");
-
-            if (llaveTexto && llaveTexto.length === 32) {
-                // Guardarla permanentemente en el navegador
-                localStorage.setItem('diario_llave_secreta', llaveTexto);
-            } else {
-                alert("Operación cancelada: La clave debe tener exactamente 32 caracteres.");
-                return; // Detener el envío
-            }
-        }
+        const llaveTexto = obtenerLlaveE2EE();
+        if (!llaveTexto) return;
 
         const textoBtnWord = btnEnviarWord.textContent;
         btnEnviarWord.disabled = true;
-        btnEnviarWord.textContent = "Enviando...";
+        btnEnviarWord.textContent = 'Sending...';
 
-        // 3. Usar la llave guardada para encriptar
-        const LLAVE_SECRETA = CryptoJS.enc.Utf8.parse(llaveTexto);
-        const iv = CryptoJS.lib.WordArray.random(16);
-        const encriptado = CryptoJS.AES.encrypt(texto, LLAVE_SECRETA, { iv: iv });
-        const textoSeguro = iv.toString(CryptoJS.enc.Hex) + ":" + encriptado.toString();
+        const textoSeguro = encriptarTextoE2EE(texto, llaveTexto);
 
-        // 4. Enviar el texto ENCRIPTADO al backend
         fetch('/api/send-to-pc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -740,10 +699,10 @@ if (journalForm) {
                 return response.text();
             })
             .then(() => {
-                alert('¡Nota enviada! Tu script de Python la guardará en el Word en el próximo escaneo.');
+                alert('Note sent! Your Python sync script will save it to Word on the next scan.');
                 textInput.value = '';
             })
-            .catch(error => alert('Error al enviar la nota: ' + error.message))
+            .catch(error => alert('Failed to send note: ' + error.message))
             .finally(() => {
                 btnEnviarWord.disabled = false;
                 btnEnviarWord.textContent = textoBtnWord;
@@ -752,12 +711,215 @@ if (journalForm) {
 }
 
 // ==========================================
-// LÓGICA PARA AGENDA PERSONAL SEMANAL
+// ENGLISH LEARNING NOTEBOOK (WORD DOCX IN english-notes/)
+// ==========================================
+const englishForm = document.getElementById('englishForm');
+
+if (englishForm) {
+    const categoryInput = document.getElementById('englishCategoryInput');
+    const tabButtons = document.querySelectorAll('.english-tab-btn[data-english-cat]');
+    const statusBanner = document.getElementById('englishStatusBanner');
+    const recentList = document.getElementById('englishRecentList');
+
+    const sectionConfig = {
+        vocabulary: {
+            fieldsetId: 'englishFieldsVocabulary',
+            requiredIds: ['engWord', 'engSpanish'],
+            focusId: 'engWord',
+            badgeLabel: 'Glossary'
+        },
+        grammar: {
+            fieldsetId: 'englishFieldsGrammar',
+            requiredIds: ['engGrammarTitle', 'engGrammarNotes'],
+            focusId: 'engGrammarTitle',
+            badgeLabel: 'Grammar'
+        },
+        phrasal_verb: {
+            fieldsetId: 'englishFieldsPhrasal',
+            requiredIds: ['engPvVerb', 'engPvMeaningEs'],
+            focusId: 'engPvVerb',
+            badgeLabel: 'Phrasal Verb'
+        }
+    };
+
+    function mostrarEstadoEnglish(tipo, mensaje) {
+        if (!statusBanner) return;
+        statusBanner.className = `english-status-banner ${tipo}`;
+        statusBanner.textContent = mensaje;
+        statusBanner.hidden = false;
+    }
+
+    function cambiarCategoriaEnglish(cat) {
+        const safeCat = sectionConfig[cat] ? cat : 'vocabulary';
+        if (categoryInput) categoryInput.value = safeCat;
+
+        tabButtons.forEach(btn => {
+            const active = btn.getAttribute('data-english-cat') === safeCat;
+            btn.classList.toggle('active', active);
+            btn.setAttribute('aria-selected', String(active));
+        });
+
+        Object.entries(sectionConfig).forEach(([key, cfg]) => {
+            const isTarget = key === safeCat;
+            const fs = document.getElementById(cfg.fieldsetId);
+            if (fs) fs.hidden = !isTarget;
+            cfg.requiredIds.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.required = isTarget;
+            });
+        });
+
+        if (statusBanner) statusBanner.hidden = true;
+    }
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            cambiarCategoriaEnglish(btn.getAttribute('data-english-cat'));
+        });
+    });
+
+    function buildEnglishEntryPayload(category) {
+        const val = (id) => (document.getElementById(id)?.value || '').trim();
+
+        if (category === 'vocabulary') {
+            return {
+                category: 'vocabulary',
+                word: val('engWord'),
+                part_of_speech: val('engPos'),
+                spanish: val('engSpanish'),
+                example: val('engVocabExample'),
+                notes: val('engVocabNotes')
+            };
+        }
+
+        if (category === 'grammar') {
+            return {
+                category: 'grammar',
+                title: val('engGrammarTitle'),
+                notes: val('engGrammarNotes'),
+                example: val('engGrammarExample')
+            };
+        }
+
+        return {
+            category: 'phrasal_verb',
+            verb: val('engPvVerb'),
+            grammar_type: val('engPvType'),
+            meaning_es: val('engPvMeaningEs'),
+            meaning_en: val('engPvMeaningEn'),
+            example: val('engPvExample'),
+            notes: val('engPvNotes')
+        };
+    }
+
+    function appendRecentEnglishItem(entry) {
+        if (!recentList) return;
+        const placeholder = recentList.querySelector('.muted-text');
+        if (placeholder) placeholder.remove();
+
+        const row = document.createElement('div');
+        row.className = 'english-recent-item';
+
+        const titleSpan = document.createElement('span');
+        if (entry.category === 'vocabulary') {
+            titleSpan.textContent = `${entry.word} — ${entry.spanish}`;
+        } else if (entry.category === 'grammar') {
+            titleSpan.textContent = entry.title;
+        } else {
+            titleSpan.textContent = `${entry.verb} — ${entry.meaning_es}`;
+        }
+
+        const badge = document.createElement('span');
+        badge.className = 'english-badge';
+        badge.textContent = sectionConfig[entry.category]?.badgeLabel || entry.category;
+
+        row.append(titleSpan, badge);
+        recentList.prepend(row);
+    }
+
+    function limpiarCamposEnglish(category) {
+        const idsByCategory = {
+            vocabulary: ['engWord', 'engPos', 'engSpanish', 'engVocabExample', 'engVocabNotes'],
+            grammar: ['engGrammarTitle', 'engGrammarNotes', 'engGrammarExample'],
+            phrasal_verb: ['engPvVerb', 'engPvType', 'engPvMeaningEs', 'engPvMeaningEn', 'engPvExample', 'engPvNotes']
+        };
+        (idsByCategory[category] || []).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        const focusEl = document.getElementById(sectionConfig[category]?.focusId || 'engWord');
+        if (focusEl) focusEl.focus();
+    }
+
+    englishForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btnSendEnglish');
+        if (!btn || btn.disabled) return;
+
+        const category = categoryInput ? categoryInput.value : 'vocabulary';
+        const entry = buildEnglishEntryPayload(category);
+
+        if (category === 'vocabulary' && (!entry.word || !entry.spanish)) {
+            mostrarEstadoEnglish('err', 'Please enter both the English word and its Spanish meaning.');
+            return;
+        }
+        if (category === 'grammar' && (!entry.title || !entry.notes)) {
+            mostrarEstadoEnglish('err', 'Please enter a topic title and your grammar/usage notes.');
+            return;
+        }
+        if (category === 'phrasal_verb' && (!entry.verb || !entry.meaning_es)) {
+            mostrarEstadoEnglish('err', 'Please enter the phrasal verb and its Spanish meaning.');
+            return;
+        }
+
+        const llaveTexto = obtenerLlaveE2EE();
+        if (!llaveTexto) return;
+
+        const origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        if (statusBanner) statusBanner.hidden = true;
+
+        const textoSeguro = encriptarTextoE2EE(JSON.stringify(entry), llaveTexto);
+
+        fetch('/api/send-english', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ texto: textoSeguro })
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text); });
+                }
+                return response.text();
+            })
+            .then(() => {
+                appendRecentEnglishItem(entry);
+                limpiarCamposEnglish(category);
+                mostrarEstadoEnglish(
+                    'ok',
+                    'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.'
+                );
+            })
+            .catch(err => {
+                mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = origText;
+            });
+    });
+
+    cambiarCategoriaEnglish('vocabulary');
+}
+
+// ==========================================
+// WEEKLY PERSONAL AGENDA LOGIC
 // ==========================================
 const AGENDA_BLOQUES = [
     {
         id: 'manana',
-        label: 'Por la mañana',
+        label: 'Morning',
         defaultHora: '08:00',
         svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M5 9h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9z"/>
@@ -767,7 +929,7 @@ const AGENDA_BLOQUES = [
     },
     {
         id: 'cole',
-        label: 'En el cole',
+        label: 'At School / Classes',
         defaultHora: '10:00',
         svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M3 10l9-5 9 5"/>
@@ -777,7 +939,7 @@ const AGENDA_BLOQUES = [
     },
     {
         id: 'tarde',
-        label: 'Por la tarde',
+        label: 'Afternoon',
         defaultHora: '16:00',
         svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="12" r="4"/>
@@ -786,7 +948,7 @@ const AGENDA_BLOQUES = [
     },
     {
         id: 'noche',
-        label: 'Por la noche',
+        label: 'Night',
         defaultHora: '21:00',
         svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M15.5 5.5a4.5 4.5 0 0 0 4 5.5 5 5 0 1 1-4-5.5z"/>
@@ -796,13 +958,13 @@ const AGENDA_BLOQUES = [
 ];
 
 const AGENDA_DIAS = [
-    { key: 'lun', nombre: 'Lunes', corto: 'Lun', offset: 0 },
-    { key: 'mar', nombre: 'Martes', corto: 'Mar', offset: 1 },
-    { key: 'mie', nombre: 'Miércoles', corto: 'Mié', offset: 2 },
-    { key: 'jue', nombre: 'Jueves', corto: 'Jue', offset: 3 },
-    { key: 'vie', nombre: 'Viernes', corto: 'Vie', offset: 4 },
-    { key: 'sab', nombre: 'Sábado', corto: 'Sáb', offset: 5 },
-    { key: 'dom', nombre: 'Domingo', corto: 'Dom', offset: 6 }
+    { key: 'lun', nombre: 'Monday', corto: 'Mon', offset: 0 },
+    { key: 'mar', nombre: 'Tuesday', corto: 'Tue', offset: 1 },
+    { key: 'mie', nombre: 'Wednesday', corto: 'Wed', offset: 2 },
+    { key: 'jue', nombre: 'Thursday', corto: 'Thu', offset: 3 },
+    { key: 'vie', nombre: 'Friday', corto: 'Fri', offset: 4 },
+    { key: 'sab', nombre: 'Saturday', corto: 'Sat', offset: 5 },
+    { key: 'dom', nombre: 'Sunday', corto: 'Sun', offset: 6 }
 ];
 
 const agendaState = {
@@ -840,7 +1002,7 @@ function crearElementoActividad(item) {
     const checkBtn = document.createElement('button');
     checkBtn.type = 'button';
     checkBtn.className = 'agenda-check-circle';
-    checkBtn.setAttribute('aria-label', Number(item.completada) === 1 ? 'Marcar como pendiente' : 'Marcar como completada');
+    checkBtn.setAttribute('aria-label', Number(item.completada) === 1 ? 'Mark as pending' : 'Mark as completed');
     checkBtn.textContent = Number(item.completada) === 1 ? '✓' : '';
     checkBtn.addEventListener('click', () => toggleAgendaItem(item));
 
@@ -863,16 +1025,16 @@ function crearElementoActividad(item) {
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'agenda-mini-btn';
-    editBtn.title = 'Editar actividad';
-    editBtn.setAttribute('aria-label', 'Editar actividad');
+    editBtn.title = 'Edit activity';
+    editBtn.setAttribute('aria-label', 'Edit activity');
     editBtn.textContent = '✏️';
     editBtn.addEventListener('click', () => abrirAgendaModal(item));
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'agenda-mini-btn';
-    delBtn.title = 'Eliminar actividad';
-    delBtn.setAttribute('aria-label', 'Eliminar actividad');
+    delBtn.title = 'Delete activity';
+    delBtn.setAttribute('aria-label', 'Delete activity');
     delBtn.textContent = '🗑️';
     delBtn.addEventListener('click', () => eliminarAgendaItem(item.id));
 
@@ -896,38 +1058,35 @@ function renderAgendaBoard() {
     const diasVisibles = getVisibleAgendaDays();
     const hoyStr = formatLocalDate(new Date());
 
-    // Asegurar que selectedDate pertenezca a la semana visible
     if (!diasVisibles.some(d => d.fecha === agendaState.selectedDate)) {
         const todayInWeek = diasVisibles.find(d => d.fecha === hoyStr);
         agendaState.selectedDate = todayInWeek ? todayInWeek.fecha : diasVisibles[0].fecha;
     }
 
-    // Etiqueta de semana
     const firstDate = diasVisibles[0].dateObj;
     const lastDate = diasVisibles[diasVisibles.length - 1].dateObj;
     if (weekLabel) {
-        const f1 = firstDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-        const f2 = lastDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+        const f1 = firstDate.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+        const f2 = lastDate.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
         weekLabel.textContent = `${f1} - ${f2}`;
     }
 
-    // Estadísticas
     const visibleDatesSet = new Set(diasVisibles.map(d => d.fecha));
     const visibleItems = agendaState.items.filter(i => visibleDatesSet.has(i.fecha));
     const completadas = visibleItems.filter(i => Number(i.completada) === 1).length;
     if (weekStats) {
         weekStats.textContent = visibleItems.length
-            ? `Progreso semanal: ${completadas} de ${visibleItems.length} actividades completadas`
-            : 'Registra tus actividades y horarios por momento del día';
+            ? `Weekly progress: ${completadas} of ${visibleItems.length} activities completed`
+            : 'Organize your activities and schedule by time of day';
     }
 
     if (btnToggleWeekend) {
-        btnToggleWeekend.textContent = agendaState.showWeekend ? 'Solo Lun - Vie' : 'Ver Lun - Dom';
+        btnToggleWeekend.textContent = agendaState.showWeekend ? 'Mon - Fri Only' : 'Show Mon - Sun';
         btnToggleWeekend.classList.toggle('active', !agendaState.showWeekend);
     }
 
     if (btnToggleLayout) {
-        btnToggleLayout.textContent = agendaState.layoutMode === 'day' ? 'Vista Cuadrícula' : 'Vista Día';
+        btnToggleLayout.textContent = agendaState.layoutMode === 'day' ? 'Grid View' : 'Day View';
     }
 
     const isDayLayout = agendaState.layoutMode === 'day';
@@ -935,7 +1094,7 @@ function renderAgendaBoard() {
     dayBoard.hidden = !isDayLayout;
     tableScroll.hidden = isDayLayout;
 
-    // 1. Renderizar Vista Día (OPPO A79 / móvil / modo enfoque)
+    // 1. Day View (mobile / focus mode)
     if (isDayLayout) {
         dayTabs.innerHTML = '';
         diasVisibles.forEach(dia => {
@@ -945,7 +1104,7 @@ function renderAgendaBoard() {
             tab.className = `agenda-day-tab day-${dia.key}${dia.fecha === agendaState.selectedDate ? ' active' : ''}`;
             tab.innerHTML = `
                 <span class="tab-day">${dia.corto}${dia.fecha === hoyStr ? ' •' : ''}</span>
-                <span class="tab-date">${dia.dateObj.getDate()} ${dia.dateObj.toLocaleDateString('es-ES', { month: 'short' })}</span>
+                <span class="tab-date">${dia.dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                 <span class="tab-count">${count}</span>
             `;
             tab.addEventListener('click', () => {
@@ -982,7 +1141,7 @@ function renderAgendaBoard() {
             if (!blockItems.length) {
                 const empty = document.createElement('p');
                 empty.className = 'agenda-empty-block';
-                empty.textContent = 'Sin actividades registradas';
+                empty.textContent = 'No activities scheduled';
                 body.appendChild(empty);
             } else {
                 blockItems.forEach(item => body.appendChild(crearElementoActividad(item)));
@@ -991,7 +1150,7 @@ function renderAgendaBoard() {
             const addBtn = document.createElement('button');
             addBtn.type = 'button';
             addBtn.className = 'agenda-cell-add';
-            addBtn.textContent = `+ Agregar en ${bloque.label.toLowerCase()}`;
+            addBtn.textContent = `+ Add to ${bloque.label.toLowerCase()}`;
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: activeDay.fecha,
                 bloque: bloque.id,
@@ -1005,23 +1164,23 @@ function renderAgendaBoard() {
         return;
     }
 
-    // 2. Renderizar Vista Cuadrícula Semanal Pastel (estilo plantilla imagen)
+    // 2. Pastel Weekly Grid View
     weekBoard.innerHTML = '';
     weekBoard.style.setProperty('--agenda-cols', String(diasVisibles.length));
     weekBoard.classList.toggle('cols-5', diasVisibles.length === 5);
 
     const corner = document.createElement('div');
     corner.className = 'agenda-corner-cell';
-    corner.textContent = 'Bloque / Día';
+    corner.textContent = 'Block / Day';
     weekBoard.appendChild(corner);
 
     diasVisibles.forEach(dia => {
         const header = document.createElement('div');
         header.className = `agenda-day-header day-${dia.key}${dia.fecha === hoyStr ? ' is-today' : ''}`;
-        const dateLabel = `${dia.dateObj.getDate()} ${dia.dateObj.toLocaleDateString('es-ES', { month: 'short' })}`;
+        const dateLabel = dia.dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         header.innerHTML = `
             <span class="agenda-day-name">${dia.nombre}</span>
-            <span class="agenda-day-date">${dateLabel}${dia.fecha === hoyStr ? ' · Hoy' : ''}</span>
+            <span class="agenda-day-date">${dateLabel}${dia.fecha === hoyStr ? ' · Today' : ''}</span>
         `;
         weekBoard.appendChild(header);
     });
@@ -1051,7 +1210,7 @@ function renderAgendaBoard() {
             const addBtn = document.createElement('button');
             addBtn.type = 'button';
             addBtn.className = 'agenda-cell-add';
-            addBtn.textContent = '+ Agregar';
+            addBtn.textContent = '+ Add';
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: dia.fecha,
                 bloque: bloque.id,
@@ -1080,12 +1239,12 @@ function cargarAgendaSemana() {
             renderAgendaBoard();
         })
         .catch(err => {
-            console.error('Error al cargar agenda:', err);
+            console.error('Error loading agenda:', err);
             agendaState.items = [];
             renderAgendaBoard();
             const weekStats = document.getElementById('agendaWeekStats');
             if (weekStats) {
-                weekStats.textContent = 'No se pudo cargar la agenda (verifica la tabla RegistrosAgenda en la BD).';
+                weekStats.textContent = 'Could not load agenda (check RegistrosAgenda table in DB).';
             }
         });
 }
@@ -1105,11 +1264,11 @@ function toggleAgendaItem(item) {
             item.completada = nuevoEstado;
             renderAgendaBoard();
         })
-        .catch(err => alert('Error al actualizar estado: ' + err.message));
+        .catch(err => alert('Failed to update activity status: ' + err.message));
 }
 
 function eliminarAgendaItem(id) {
-    if (!confirm('¿Eliminar esta actividad de tu agenda?')) return;
+    if (!confirm('Delete this activity from your agenda?')) return;
 
     fetch(`/api/delete-agenda/${id}`, {
         method: 'DELETE'
@@ -1122,7 +1281,7 @@ function eliminarAgendaItem(id) {
             agendaState.items = agendaState.items.filter(i => i.id !== id);
             renderAgendaBoard();
         })
-        .catch(err => alert('Error al eliminar actividad: ' + err.message));
+        .catch(err => alert('Failed to delete activity: ' + err.message));
 }
 
 const agendaModal = document.getElementById('agendaModal');
@@ -1139,7 +1298,7 @@ function abrirAgendaModal(prefill = {}) {
         : formatLocalDate(now);
     const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-    document.getElementById('agendaModalTitle').textContent = isEdit ? 'Editar Actividad' : 'Nueva Actividad';
+    document.getElementById('agendaModalTitle').textContent = isEdit ? 'Edit Activity' : 'New Activity';
     document.getElementById('agendaEditId').value = isEdit ? String(prefill.id) : '';
     document.getElementById('agendaFecha').value = prefill.fecha || defaultDate;
     document.getElementById('agendaBloque').value = prefill.bloque || info.agendaBloque;
@@ -1234,13 +1393,13 @@ if (agendaForm) {
         };
 
         if (!payload.fecha || !payload.bloque || !payload.hora || !payload.actividad) {
-            alert('Por favor completa todos los campos de la actividad.');
+            alert('Please fill in all activity fields.');
             return;
         }
 
         const originalText = btnSave.textContent;
         btnSave.disabled = true;
-        btnSave.textContent = 'Guardando...';
+        btnSave.textContent = 'Saving...';
 
         const url = editId ? `/api/update-agenda/${editId}` : '/api/insert-agenda';
         const method = editId ? 'PUT' : 'POST';
@@ -1268,7 +1427,7 @@ if (agendaForm) {
 }
 
 // ==========================================
-// AUTENTICACIÓN, ROLES, SESIÓN Y ACCESO PSIQUIATRA
+// AUTHENTICATION, ROLES, SESSION & PSYCHIATRIST ACCESS
 // ==========================================
 function showAuthForm(formId, subtitleText) {
     ['authLoginForm', 'authRegisterForm', 'authForgotForm', 'authResetForm'].forEach(id => {
@@ -1289,10 +1448,10 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
     if (authOverlay) authOverlay.hidden = false;
 
     const subtitles = {
-        authLoginForm: 'Inicia sesión para continuar',
-        authRegisterForm: 'Registro de cuenta verificada',
-        authForgotForm: 'Recuperación de contraseña por correo',
-        authResetForm: 'Crea tu nueva contraseña segura'
+        authLoginForm: 'Sign in to continue',
+        authRegisterForm: 'Verified account registration',
+        authForgotForm: 'Email password recovery',
+        authResetForm: 'Create your new secure password'
     };
     showAuthForm(defaultForm, subtitles[defaultForm]);
 }
@@ -1310,7 +1469,7 @@ function programarExpiracionDomingo(expiraEnIso) {
             clearInterval(sundayWatcherInterval);
             sundayWatcherInterval = null;
             fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
-                alert('Tu sesión semanal se cerró automáticamente (Domingo 00:00). Por favor inicia sesión nuevamente.');
+                alert('Your weekly session closed automatically (Sunday 00:00). Please sign in again.');
                 showAuthScreen('authLoginForm');
             });
         }
@@ -1324,7 +1483,6 @@ function enterAppSession(user) {
 
     const isPsiquiatra = user.rol === 'psiquiatra';
 
-    // Actualizar datos del usuario en la barra lateral
     const userNameEl = document.getElementById('sidebarUserName');
     const userEmailEl = document.getElementById('sidebarUserEmail');
     const roleLabelEl = document.getElementById('sidebarRoleLabel');
@@ -1333,10 +1491,9 @@ function enterAppSession(user) {
     if (userNameEl) userNameEl.textContent = user.nombre;
     if (userEmailEl) userEmailEl.textContent = user.email;
     if (roleLabelEl) {
-        roleLabelEl.textContent = isPsiquiatra ? 'Modo Psiquiatra (Lectura)' : 'Propietario (Admin)';
+        roleLabelEl.textContent = isPsiquiatra ? 'Psychiatrist Mode (Read-Only)' : 'Owner (Admin)';
     }
 
-    // Mostrar u ocultar secciones exclusivas del propietario
     document.querySelectorAll('.admin-only-nav').forEach(el => {
         el.hidden = isPsiquiatra;
     });
@@ -1356,17 +1513,16 @@ function enterAppSession(user) {
     }
 }
 
-// Gestión de cuentas de psiquiatra (vista #view-medico)
 function cargarMedicos() {
     const container = document.getElementById('medicosList');
     if (!container || !currentUser || currentUser.rol !== 'admin') return;
 
     fetch('/api/auth/medicos')
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('No se pudo consultar')))
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Could not fetch accounts')))
         .then(medicos => {
             container.innerHTML = '';
             if (!Array.isArray(medicos) || medicos.length === 0) {
-                container.innerHTML = '<p class="muted-text">Aún no has creado una cuenta para tu psiquiatra.</p>';
+                container.innerHTML = '<p class="muted-text">You have not created a psychiatrist account yet.</p>';
                 return;
             }
             medicos.forEach(m => {
@@ -1378,15 +1534,15 @@ function cargarMedicos() {
                 const nameStrong = document.createElement('strong');
                 nameStrong.textContent = m.nombre;
                 const emailSpan = document.createElement('span');
-                emailSpan.textContent = `${m.email} · Solo lectura ( Sueño y Estado de Ánimo )`;
+                emailSpan.textContent = `${m.email} · Read-only (Sleep & Mood Summary)`;
                 info.append(nameStrong, emailSpan);
 
                 const delBtn = document.createElement('button');
                 delBtn.type = 'button';
                 delBtn.className = 'btn-revoke-medico';
-                delBtn.textContent = 'Revocar acceso';
+                delBtn.textContent = 'Revoke access';
                 delBtn.addEventListener('click', () => {
-                    if (!confirm(`¿Revocar el acceso de ${m.nombre} (${m.email})?`)) return;
+                    if (!confirm(`Revoke access for ${m.nombre} (${m.email})?`)) return;
                     fetch(`/api/auth/medicos/${m.id}`, { method: 'DELETE' })
                         .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
                         .then(() => cargarMedicos())
@@ -1398,7 +1554,7 @@ function cargarMedicos() {
             });
         })
         .catch(() => {
-            container.innerHTML = '<p class="muted-text">Error al cargar cuentas de psiquiatra.</p>';
+            container.innerHTML = '<p class="muted-text">Error loading psychiatrist accounts.</p>';
         });
 }
 
@@ -1412,35 +1568,34 @@ function initAuthHandlers() {
     const btnLogout = document.getElementById('btnLogout');
 
     if (btnGoRegister) {
-        btnGoRegister.addEventListener('click', () => showAuthForm('authRegisterForm', 'Registro por primera vez y verificación'));
+        btnGoRegister.addEventListener('click', () => showAuthForm('authRegisterForm', 'First-time registration and verification'));
     }
     if (btnGoForgot) {
-        btnGoForgot.addEventListener('click', () => showAuthForm('authForgotForm', 'Te enviaremos un enlace a tu correo'));
+        btnGoForgot.addEventListener('click', () => showAuthForm('authForgotForm', 'We will email you a password reset link'));
     }
     if (btnBackFromRegister) {
-        btnBackFromRegister.addEventListener('click', () => showAuthForm('authLoginForm', 'Inicia sesión para continuar'));
+        btnBackFromRegister.addEventListener('click', () => showAuthForm('authLoginForm', 'Sign in to continue'));
     }
     if (btnBackFromForgot) {
-        btnBackFromForgot.addEventListener('click', () => showAuthForm('authLoginForm', 'Inicia sesión para continuar'));
+        btnBackFromForgot.addEventListener('click', () => showAuthForm('authLoginForm', 'Sign in to continue'));
     }
     if (btnBackFromReset) {
         btnBackFromReset.addEventListener('click', () => {
             history.replaceState(null, '', window.location.pathname);
-            showAuthForm('authLoginForm', 'Inicia sesión para continuar');
+            showAuthForm('authLoginForm', 'Sign in to continue');
         });
     }
 
-    // Enviar código de verificación por correo
     if (btnSendRegCode) {
         btnSendRegCode.addEventListener('click', () => {
             const email = document.getElementById('regEmail').value.trim();
             if (!email) {
-                alert('Primero escribe tu correo electrónico arriba.');
+                alert('Please enter your email address above first.');
                 return;
             }
             const origText = btnSendRegCode.textContent;
             btnSendRegCode.disabled = true;
-            btnSendRegCode.textContent = 'Enviando código...';
+            btnSendRegCode.textContent = 'Sending code...';
 
             fetch('/api/auth/send-register-code', {
                 method: 'POST',
@@ -1457,7 +1612,6 @@ function initAuthHandlers() {
         });
     }
 
-    // Formulario de Login
     const loginForm = document.getElementById('authLoginForm');
     if (loginForm) {
         loginForm.addEventListener('submit', (e) => {
@@ -1470,7 +1624,7 @@ function initAuthHandlers() {
 
             const origText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = 'Verificando...';
+            btn.textContent = 'Verifying...';
 
             fetch('/api/auth/login', {
                 method: 'POST',
@@ -1490,7 +1644,6 @@ function initAuthHandlers() {
         });
     }
 
-    // Formulario de Registro por primera vez
     const registerForm = document.getElementById('authRegisterForm');
     if (registerForm) {
         registerForm.addEventListener('submit', (e) => {
@@ -1507,7 +1660,7 @@ function initAuthHandlers() {
 
             const origText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = 'Validando y registrando...';
+            btn.textContent = 'Validating & creating...';
 
             fetch('/api/auth/register', {
                 method: 'POST',
@@ -1517,7 +1670,7 @@ function initAuthHandlers() {
                 .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
                 .then(data => {
                     registerForm.reset();
-                    alert(`¡Bienvenido, ${data.user.nombre}! Tu sesión permanecerá activa hasta el domingo a las 00:00 o hasta que cierres sesión.`);
+                    alert(`Welcome, ${data.user.nombre}! Your session will remain active until Sunday at 00:00 or until you sign out.`);
                     enterAppSession(data.user);
                 })
                 .catch(err => alert(err.message))
@@ -1528,7 +1681,6 @@ function initAuthHandlers() {
         });
     }
 
-    // Formulario de Olvidé mi contraseña
     const forgotForm = document.getElementById('authForgotForm');
     if (forgotForm) {
         forgotForm.addEventListener('submit', (e) => {
@@ -1539,7 +1691,7 @@ function initAuthHandlers() {
             const email = document.getElementById('forgotEmail').value.trim();
             const origText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = 'Enviando enlace...';
+            btn.textContent = 'Sending link...';
 
             fetch('/api/auth/forgot-password', {
                 method: 'POST',
@@ -1549,7 +1701,7 @@ function initAuthHandlers() {
                 .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
                 .then(data => {
                     alert(data.message);
-                    showAuthForm('authLoginForm', 'Inicia sesión para continuar');
+                    showAuthForm('authLoginForm', 'Sign in to continue');
                 })
                 .catch(err => alert('Error: ' + err.message))
                 .finally(() => {
@@ -1559,7 +1711,6 @@ function initAuthHandlers() {
         });
     }
 
-    // Formulario para restablecer contraseña desde el enlace del correo
     const resetForm = document.getElementById('authResetForm');
     if (resetForm) {
         resetForm.addEventListener('submit', (e) => {
@@ -1574,13 +1725,13 @@ function initAuthHandlers() {
             const confirmPassword = document.getElementById('resetConfirmPassword').value;
 
             if (newPassword !== confirmPassword) {
-                alert('Las contraseñas no coinciden.');
+                alert('Passwords do not match.');
                 return;
             }
 
             const origText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = 'Actualizando...';
+            btn.textContent = 'Updating...';
 
             fetch('/api/auth/reset-password', {
                 method: 'POST',
@@ -1592,7 +1743,7 @@ function initAuthHandlers() {
                     alert(data.message);
                     resetForm.reset();
                     history.replaceState(null, '', window.location.pathname);
-                    showAuthForm('authLoginForm', 'Inicia sesión con tu nueva contraseña');
+                    showAuthForm('authLoginForm', 'Sign in with your new password');
                 })
                 .catch(err => alert('Error: ' + err.message))
                 .finally(() => {
@@ -1602,7 +1753,6 @@ function initAuthHandlers() {
         });
     }
 
-    // Botón Cerrar Sesión en el menú lateral
     if (btnLogout) {
         btnLogout.addEventListener('click', () => {
             fetch('/api/auth/logout', { method: 'POST' })
@@ -1613,7 +1763,6 @@ function initAuthHandlers() {
         });
     }
 
-    // Formulario de creación de cuenta del psiquiatra (#view-medico)
     const medicoForm = document.getElementById('medicoForm');
     if (medicoForm) {
         medicoForm.addEventListener('submit', (e) => {
@@ -1629,7 +1778,7 @@ function initAuthHandlers() {
 
             const origText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = 'Guardando...';
+            btn.textContent = 'Saving...';
 
             fetch('/api/auth/create-medico', {
                 method: 'POST',
@@ -1652,7 +1801,7 @@ function initAuthHandlers() {
 }
 
 // ==========================================
-// TEMA OSCURO / CLARO
+// DARK / LIGHT THEME
 // ==========================================
 function applyTheme(theme) {
     const resolved = theme === 'light' ? 'light' : 'dark';
@@ -1665,17 +1814,17 @@ function applyTheme(theme) {
     const sidebarBtn = document.getElementById('btnThemeToggleSidebar');
 
     if (authBtn) {
-        authBtn.textContent = isDark ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+        authBtn.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
     }
     if (mobileBtn) {
         mobileBtn.textContent = isDark ? '☀️' : '🌙';
-        mobileBtn.title = isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro';
+        mobileBtn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
     }
     if (sidebarBtn) {
         const iconEl = sidebarBtn.querySelector('.theme-icon');
         const labelEl = sidebarBtn.querySelector('.theme-label');
         if (iconEl) iconEl.textContent = isDark ? '☀️' : '🌙';
-        if (labelEl) labelEl.textContent = isDark ? 'Tema Claro' : 'Tema Oscuro';
+        if (labelEl) labelEl.textContent = isDark ? 'Light Theme' : 'Dark Theme';
     }
 }
 
@@ -1695,13 +1844,12 @@ function initTheme() {
 }
 
 // ==========================================
-// INICIALIZACIÓN AL CARGAR LA APLICACIÓN
+// APP INITIALIZATION
 // ==========================================
 function initApp() {
     initTheme();
     initAuthHandlers();
 
-    // Si el usuario abrió el enlace de recuperación enviado a su correo (?resetToken=...&email=...)
     const params = new URLSearchParams(window.location.search);
     if (params.get('resetToken') && params.get('email')) {
         const resetEmailEl = document.getElementById('resetEmail');
@@ -1712,10 +1860,9 @@ function initApp() {
         return;
     }
 
-    // Verificar si existe una sesión activa (persistente hasta el domingo 00:00)
     fetch('/api/auth/me')
         .then(res => {
-            if (!res.ok) throw new Error('No autenticado');
+            if (!res.ok) throw new Error('Not authenticated');
             return res.json();
         })
         .then(data => {
