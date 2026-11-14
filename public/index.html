@@ -4,9 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Personal Mood Tracker</title>
+    <title>Personal Daily Hub</title>
+    <script src="theme-init.js"></script>
     <link rel="stylesheet" href="style.css">
-    <meta property="og:title" content="Mood Tracker">
+    <meta property="og:title" content="Personal Daily Hub">
     <meta property="og:type" content="website">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" defer></script>
     <script src="frontend.js" defer></script>
@@ -14,9 +15,23 @@
 
 <body>
     <!-- ==========================================
+         INITIAL SESSION CHECK LOADER (NO LOGIN FLASH)
+    ========================================== -->
+    <div class="boot-screen" id="appBootScreen" role="status" aria-live="polite">
+        <div class="boot-card">
+            <span class="auth-logo" aria-hidden="true">🌈</span>
+            <h1>Personal Daily Hub</h1>
+            <div class="boot-status-row">
+                <span class="spinner-circle spinner-lg" aria-hidden="true"></span>
+                <span id="bootStatusText">Checking session...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
          AUTHENTICATION SCREEN (LOGIN / REGISTER / RECOVERY)
     ========================================== -->
-    <div class="auth-screen" id="authOverlay">
+    <div class="auth-screen" id="authOverlay" hidden>
         <div class="auth-card">
             <div class="auth-top-bar">
                 <button type="button" class="theme-toggle-pill" id="btnThemeToggleAuth"
@@ -24,7 +39,7 @@
             </div>
             <div class="auth-brand">
                 <span class="auth-logo" aria-hidden="true">🌈</span>
-                <h1>Personal Mood Tracker</h1>
+                <h1>Personal Daily Hub</h1>
                 <p id="authSubtitle">Sign in to access your workspace</p>
             </div>
 
@@ -172,7 +187,7 @@
                 <div class="sidebar-brand">
                     <span class="brand-logo" aria-hidden="true">🌈</span>
                     <div class="sidebar-brand-text">
-                        <span class="brand-name">Mood Tracker</span>
+                        <span class="brand-name">Daily Hub</span>
                         <span class="brand-sub" id="sidebarRoleLabel">Personal Space</span>
                     </div>
                 </div>
@@ -187,7 +202,7 @@
             </div>
 
             <nav class="sidebar-nav">
-                <button type="button" class="nav-item active admin-only-nav" data-view="inicio" title="Home">
+                <button type="button" class="nav-item admin-only-nav" data-view="inicio" title="Home">
                     <span class="nav-icon" aria-hidden="true">🏠</span>
                     <span class="nav-label">Home</span>
                 </button>
@@ -267,7 +282,7 @@
             <!-- ==========================================
                  VIEW 1: HOME DASHBOARD
             ========================================== -->
-            <section class="app-view active" id="view-inicio" data-title="Home">
+            <section class="app-view" id="view-inicio" data-title="Home">
                 <div class="home-container">
                     <div class="home-hero">
                         <div class="home-hero-info">
@@ -693,6 +708,7 @@
                         </div>
                     </div>
 
+                    <div id="agendaLoadingBanner" class="section-loading-banner" hidden></div>
                     <div class="agenda-day-tabs" id="agendaDayTabs" hidden></div>
                     <div class="agenda-day-board" id="agendaDayBoard" hidden></div>
 
@@ -714,13 +730,14 @@
                         👨‍⚕️ <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker &amp; Sleep Hours.
                     </div>
 
-                    <h1 class="tracker-title">MY WEEKLY MOOD TRACKER</h1>
+                    <h1 class="tracker-title">WEEKLY MOOD &amp; SLEEP SUMMARY</h1>
 
                     <div class="controls">
                         <label for="semanaSeleccionada">Select a week:</label>
                         <select id="semanaSeleccionada"></select>
                     </div>
 
+                    <div id="resumenLoadingBanner" class="section-loading-banner" hidden></div>
                     <hr class="title-divider">
 
                     <div class="tracker-layout">

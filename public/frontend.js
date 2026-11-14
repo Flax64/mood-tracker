@@ -94,6 +94,24 @@ function clearIdempotentSubmission(scopeKey) {
     if (scopeKey) pendingSubmissions.delete(scopeKey);
 }
 
+function createLoadingBanner(message = 'Loading...', size = 'md') {
+    const wrap = document.createElement('div');
+    wrap.className = 'loading-indicator';
+    wrap.setAttribute('role', 'status');
+    wrap.setAttribute('aria-live', 'polite');
+
+    const spinner = document.createElement('span');
+    spinner.className = `spinner-circle spinner-${size}`;
+    spinner.setAttribute('aria-hidden', 'true');
+
+    const label = document.createElement('span');
+    label.className = 'loading-indicator-text';
+    label.textContent = message;
+
+    wrap.append(spinner, label);
+    return wrap;
+}
+
 async function runWithButtonLock(btn, asyncFn, options = {}) {
     const { loadingText = '', extraDisable = [] } = options;
     if (!btn || busyActionElements.has(btn) || btn.disabled) {
@@ -111,7 +129,7 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
         disabled: Boolean(el.disabled),
         ariaBusy: el.getAttribute('aria-busy')
     }));
-    const origText = loadingText ? btn.textContent : null;
+    const origChildNodes = loadingText ? Array.from(btn.childNodes) : null;
 
     targets.forEach(el => {
         busyActionElements.add(el);
@@ -120,7 +138,15 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
         el.classList.add('is-busy');
     });
     if (loadingText) {
-        btn.textContent = loadingText;
+        const loadingWrap = document.createElement('span');
+        loadingWrap.className = 'btn-loading-content';
+        const spinner = document.createElement('span');
+        spinner.className = 'spinner-circle spinner-sm';
+        spinner.setAttribute('aria-hidden', 'true');
+        const label = document.createElement('span');
+        label.textContent = loadingText;
+        loadingWrap.append(spinner, label);
+        btn.replaceChildren(loadingWrap);
     }
 
     try {
@@ -135,8 +161,8 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
             if (ariaBusy === null) el.removeAttribute('aria-busy');
             else el.setAttribute('aria-busy', ariaBusy);
         });
-        if (origText !== null) {
-            btn.textContent = origText;
+        if (origChildNodes !== null) {
+            btn.replaceChildren(...origChildNodes);
         }
     }
 }
@@ -254,11 +280,13 @@ function showView(viewName, updateHash = true) {
         targetView = 'resumen';
     }
 
+    actualizarCabecerasDeFecha();
+
     document.querySelectorAll('.app-view').forEach(section => {
         const isTarget = section.id === `view-${targetView}`;
         section.classList.toggle('active', isTarget);
         if (isTarget && mobileViewTitle) {
-            mobileViewTitle.textContent = section.getAttribute('data-title') || 'Mood Tracker';
+            mobileViewTitle.textContent = section.getAttribute('data-title') || 'Daily Hub';
         }
     });
 
@@ -352,6 +380,7 @@ if (appShell) {
 
     // URL hash navigation support
     window.addEventListener('hashchange', () => {
+        if (!currentUser) return;
         const hashView = window.location.hash.replace('#', '');
         if (VALID_VIEWS.has(hashView)) {
             showView(hashView, false);
@@ -400,6 +429,10 @@ function cargarInicioResumen() {
     const sleepBox = document.getElementById('homeSleepSummary');
     const agendaBox = document.getElementById('homeAgendaSummary');
     if (!moodBox || !sleepBox || !agendaBox) return;
+
+    moodBox.replaceChildren(createLoadingBanner('Loading...', 'sm'));
+    sleepBox.replaceChildren(createLoadingBanner('Loading...', 'sm'));
+    agendaBox.replaceChildren(createLoadingBanner('Loading...', 'sm'));
 
     const reqToken = homeSummaryTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
@@ -638,6 +671,21 @@ if (selectSemana) {
         const reqToken = resumenTracker.begin();
         const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
+        const resumenBanner = document.getElementById('resumenLoadingBanner');
+        if (resumenBanner) {
+            resumenBanner.replaceChildren(createLoadingBanner('Loading weekly data...', 'sm'));
+            resumenBanner.hidden = false;
+        }
+        let pendingRequests = 2;
+        const markOneSettled = () => {
+            if (!resumenTracker.isCurrent(reqToken.seq)) return;
+            pendingRequests -= 1;
+            if (pendingRequests <= 0 && resumenBanner) {
+                resumenBanner.hidden = true;
+                resumenBanner.innerHTML = '';
+            }
+        };
+
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
         const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -658,10 +706,11 @@ if (selectSemana) {
             })
             .catch(error => {
                 if (!isAbortError(error)) console.error('Error loading moods:', error);
-            });
+            })
+            .finally(markOneSettled);
 
         const sleepGrid = document.getElementById('sleepGrid');
-        sleepGrid.innerHTML = '';
+        sleepGrid.replaceChildren(createLoadingBanner('Loading sleep logs...', 'sm'));
 
         const diasNombres = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const sumatoriaSueno = {
@@ -742,8 +791,12 @@ if (selectSemana) {
                 });
             })
             .catch(error => {
-                if (!isAbortError(error)) console.error('Error loading sleep logs:', error);
-            });
+                if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq)) {
+                    console.error('Error loading sleep logs:', error);
+                    sleepGrid.innerHTML = '<p class="muted-text">Could not load sleep logs.</p>';
+                }
+            })
+            .finally(markOneSettled);
     });
 }
 
@@ -1415,6 +1468,25 @@ function cargarAgendaSemana() {
     const reqToken = agendaLoadTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
+    const diasVisibles = getVisibleAgendaDays();
+    const weekLabel = document.getElementById('agendaWeekLabel');
+    if (weekLabel && diasVisibles.length > 0) {
+        const f1 = diasVisibles[0].dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+        const f2 = diasVisibles[diasVisibles.length - 1].dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        weekLabel.textContent = `${f1} - ${f2}`;
+    }
+
+    const weekStats = document.getElementById('agendaWeekStats');
+    if (weekStats) {
+        weekStats.textContent = 'Loading activities...';
+    }
+
+    const loadingBanner = document.getElementById('agendaLoadingBanner');
+    if (loadingBanner) {
+        loadingBanner.replaceChildren(createLoadingBanner('Loading agenda...', 'sm'));
+        loadingBanner.hidden = false;
+    }
+
     fetch(`/api/get-agenda?begin=${begin}&end=${end}`, fetchOpts)
         .then(res => {
             if (!res.ok) return res.text().then(t => { throw new Error(t); });
@@ -1422,15 +1494,22 @@ function cargarAgendaSemana() {
         })
         .then(items => {
             if (!agendaLoadTracker.isCurrent(reqToken.seq)) return;
+            if (loadingBanner) {
+                loadingBanner.hidden = true;
+                loadingBanner.innerHTML = '';
+            }
             agendaState.items = Array.isArray(items) ? items : [];
             renderAgendaBoard();
         })
         .catch(err => {
             if (isAbortError(err) || !agendaLoadTracker.isCurrent(reqToken.seq)) return;
             console.error('Error loading agenda:', err);
+            if (loadingBanner) {
+                loadingBanner.hidden = true;
+                loadingBanner.innerHTML = '';
+            }
             agendaState.items = [];
             renderAgendaBoard();
-            const weekStats = document.getElementById('agendaWeekStats');
             if (weekStats) {
                 weekStats.textContent = 'Could not load agenda (check RegistrosAgenda table in DB).';
             }
@@ -1654,6 +1733,11 @@ if (agendaForm) {
 // ==========================================
 // AUTHENTICATION, ROLES, SESSION & PSYCHIATRIST ACCESS
 // ==========================================
+function hideBootScreen() {
+    const bootScreen = document.getElementById('appBootScreen');
+    if (bootScreen) bootScreen.hidden = true;
+}
+
 function showAuthForm(formId, subtitleText) {
     ['authLoginForm', 'authRegisterForm', 'authForgotForm', 'authResetForm'].forEach(id => {
         const el = document.getElementById(id);
@@ -1670,8 +1754,6 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
         clearInterval(sundayWatcherInterval);
         sundayWatcherInterval = null;
     }
-    if (appShell) appShell.hidden = true;
-    if (authOverlay) authOverlay.hidden = false;
 
     const subtitles = {
         authLoginForm: 'Sign in to continue',
@@ -1680,6 +1762,10 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
         authResetForm: 'Create your new secure password'
     };
     showAuthForm(defaultForm, subtitles[defaultForm]);
+
+    if (appShell) appShell.hidden = true;
+    hideBootScreen();
+    if (authOverlay) authOverlay.hidden = false;
 }
 
 function programarExpiracionDomingo(expiraEnIso) {
@@ -1705,8 +1791,6 @@ function programarExpiracionDomingo(expiraEnIso) {
 function enterAppSession(user) {
     currentUser = user;
     resetPasswordToggles();
-    if (authOverlay) authOverlay.hidden = true;
-    if (appShell) appShell.hidden = false;
 
     const isPsiquiatra = user.rol === 'psiquiatra';
 
@@ -1738,11 +1822,17 @@ function enterAppSession(user) {
         const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
         showView(startView, false);
     }
+
+    hideBootScreen();
+    if (authOverlay) authOverlay.hidden = true;
+    if (appShell) appShell.hidden = false;
 }
 
 function cargarMedicos() {
     const container = document.getElementById('medicosList');
     if (!container || !currentUser || currentUser.rol !== 'admin') return;
+
+    container.replaceChildren(createLoadingBanner('Loading psychiatrist accounts...', 'sm'));
 
     const reqToken = medicosTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
@@ -2111,6 +2201,7 @@ function initTheme() {
 // ==========================================
 function initApp() {
     initTheme();
+    actualizarCabecerasDeFecha();
     initPasswordToggles();
     initAuthHandlers();
 
@@ -2124,7 +2215,7 @@ function initApp() {
         return;
     }
 
-    fetch('/api/auth/me')
+    fetch('/api/auth/me', { cache: 'no-store' })
         .then(res => {
             if (!res.ok) throw new Error('Not authenticated');
             return res.json();

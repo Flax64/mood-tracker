@@ -267,7 +267,7 @@ async function enviarCorreo({ to, subject, html }) {
     const fromUser = (process.env.SMTP_USER || ADMIN_EMAIL).trim();
     try {
         await transporter.sendMail({
-            from: `"Personal Mood Tracker" <${fromUser}>`,
+            from: `"Personal Daily Hub" <${fromUser}>`,
             to,
             subject,
             html
@@ -530,7 +530,7 @@ app.post('/api/auth/send-register-code', preventDuplicateSubmit({ dedupeWindowMs
                 const rolSolicitado = emailSolicitante === ADMIN_EMAIL ? 'Administrator (Owner)' : 'Psychiatrist (Read-only)';
                 await enviarCorreo({
                     to: ADMIN_EMAIL,
-                    subject: 'Verification Code - Personal Mood Tracker',
+                    subject: 'Verification Code - Personal Daily Hub',
                     html: `
                         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
                             <h2 style="color: #1e2430; margin-top: 0;">Registration Verification</h2>
@@ -796,12 +796,12 @@ app.post('/api/auth/forgot-password', preventDuplicateSubmit({ dedupeWindowMs: 1
                 try {
                     await enviarCorreo({
                         to: user.email,
-                        subject: 'Password Recovery - Personal Mood Tracker',
+                        subject: 'Password Recovery - Personal Daily Hub',
                         html: `
                             <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 22px; border: 1px solid #e5e7eb; border-radius: 12px;">
                                 <h2 style="color: #1e2430; margin-top: 0;">Reset Password</h2>
                                 <p>Hello <strong>${escapeHtml(user.nombre)}</strong>,</p>
-                                <p>You requested a password reset on Personal Mood Tracker. Click the button below (valid for 30 minutes):</p>
+                                <p>You requested a password reset on Personal Daily Hub. Click the button below (valid for 30 minutes):</p>
                                 <p style="text-align: center; margin: 26px 0;">
                                     <a href="${resetUrl}" style="background: #1e2430; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: bold; display: inline-block;">
                                         Reset My Password

@@ -38,6 +38,7 @@ jobs:
         id: syntax_checks
         run: |
           node --check server.js
+          node --check public/theme-init.js
           node --check public/frontend.js
           node --check tests/ci-summary.js
           bash -n scripts/*.sh
