@@ -1912,6 +1912,7 @@ function getDefaultUserSettings() {
         agendaShowWeekend: true,
         timezone: process.env.TZ || 'America/Monterrey',
         publicBaseUrl: '',
+        youtubePlatformMode: 'auto',
         phoneNotificationsEnabled: false,
         ntfyServerUrl: 'https://ntfy.sh',
         ntfyTopic: '',
@@ -2001,6 +2002,13 @@ function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()
             return { error: 'Invalid default agenda layout.' };
         }
         next.defaultAgendaLayout = val;
+    }
+    if (input.youtubePlatformMode !== undefined) {
+        const val = String(input.youtubePlatformMode).trim().toLowerCase();
+        if (!['auto', 'youtube', 'yt_music'].includes(val)) {
+            return { error: 'Invalid YouTube platform mode.' };
+        }
+        next.youtubePlatformMode = val;
     }
 
     const boolKeys = [
@@ -2767,10 +2775,41 @@ function normalizarTextoCatalogo(valor) {
     return String(valor || '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function buildStandardYouTubeUrl({ videoId, ytMusicUrl }) {
+    const cleanId = String(videoId || '').trim();
+    if (/^[A-Za-z0-9_-]{11}$/.test(cleanId)) {
+        return `https://www.youtube.com/watch?v=${cleanId}`;
+    }
+
+    const rawUrl = String(ytMusicUrl || '').trim();
+    if (!rawUrl) return null;
+
+    try {
+        const parsed = new URL(rawUrl);
+        const vParam = parsed.searchParams.get('v');
+        if (vParam && /^[A-Za-z0-9_-]{11}$/.test(vParam)) {
+            return `https://www.youtube.com/watch?v=${vParam}`;
+        }
+        const listParam = parsed.searchParams.get('list');
+        if (listParam && /^[A-Za-z0-9_-]{10,80}$/.test(listParam)) {
+            return `https://www.youtube.com/playlist?list=${encodeURIComponent(listParam)}`;
+        }
+        if (parsed.pathname === '/search' && parsed.searchParams.get('q')) {
+            return `https://www.youtube.com/results?search_query=${encodeURIComponent(parsed.searchParams.get('q').slice(0, 120))}`;
+        }
+        if (parsed.pathname === '/' || parsed.pathname === '') {
+            return 'https://www.youtube.com/';
+        }
+        return rawUrl;
+    } catch (_err) {
+        return null;
+    }
+}
+
 function parseYouTubeMusicInput(rawInput) {
     const trimmed = String(rawInput || '').trim();
     if (!trimmed) {
-        return { valid: true, videoId: null, ytMusicUrl: null, thumbnailUrl: null };
+        return { valid: true, videoId: null, ytMusicUrl: null, youtubeUrl: null, thumbnailUrl: null };
     }
 
     // Permitir ingresar únicamente el ID de 11 caracteres si el usuario lo prefiere
@@ -2779,6 +2818,7 @@ function parseYouTubeMusicInput(rawInput) {
             valid: true,
             videoId: trimmed,
             ytMusicUrl: `https://music.youtube.com/watch?v=${trimmed}`,
+            youtubeUrl: `https://www.youtube.com/watch?v=${trimmed}`,
             thumbnailUrl: `https://i.ytimg.com/vi/${trimmed}/hqdefault.jpg`
         };
     }
@@ -2822,6 +2862,7 @@ function parseYouTubeMusicInput(rawInput) {
             valid: true,
             videoId,
             ytMusicUrl: `https://music.youtube.com/watch?v=${videoId}`,
+            youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
             thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
         };
     }
@@ -2832,6 +2873,7 @@ function parseYouTubeMusicInput(rawInput) {
             valid: true,
             videoId: null,
             ytMusicUrl: `https://music.youtube.com/playlist?list=${encodeURIComponent(listParam)}`,
+            youtubeUrl: `https://www.youtube.com/playlist?list=${encodeURIComponent(listParam)}`,
             thumbnailUrl: null
         };
     }
@@ -2842,10 +2884,12 @@ function parseYouTubeMusicInput(rawInput) {
             cleanParams.set('q', parsed.searchParams.get('q').slice(0, 120));
         }
         const suffix = cleanParams.toString() ? `?${cleanParams.toString()}` : '';
+        const ytMusicUrl = `https://music.youtube.com${parsed.pathname}${suffix}`.slice(0, 490);
         return {
             valid: true,
             videoId: null,
-            ytMusicUrl: `https://music.youtube.com${parsed.pathname}${suffix}`.slice(0, 490),
+            ytMusicUrl,
+            youtubeUrl: buildStandardYouTubeUrl({ videoId: null, ytMusicUrl }),
             thumbnailUrl: null
         };
     }
@@ -3002,6 +3046,7 @@ function validateAndExtractSongPayload(body) {
             numeroPista,
             idioma,
             ytMusicUrl: ytParsed.ytMusicUrl,
+            youtubeUrl: ytParsed.youtubeUrl,
             ytVideoId: ytParsed.videoId,
             thumbnailUrl: ytParsed.thumbnailUrl,
             estadoEstudio,
@@ -3062,11 +3107,19 @@ app.get('/api/english/music/catalog', apiReadLimiter.middleware, requireAdmin, a
             });
         }
 
-        const enrichedSongs = songs.map(song => ({
-            ...song,
-            word_sincronizado: Boolean(song.word_sincronizado),
-            artists: artistsBySong.get(song.id) || []
-        }));
+        const enrichedSongs = songs.map(song => {
+            const youtubeUrl = buildStandardYouTubeUrl({
+                videoId: song.yt_video_id || song.youtube_video_id,
+                ytMusicUrl: song.yt_music_url
+            });
+            return {
+                ...song,
+                word_sincronizado: Boolean(song.word_sincronizado),
+                youtube_url: youtubeUrl,
+                youtubeUrl,
+                artists: artistsBySong.get(song.id) || []
+            };
+        });
 
         const stats = {
             totalSongs: enrichedSongs.length,
@@ -3091,6 +3144,10 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
         ? `https://music.youtube.com/search?q=${encodeURIComponent(queryText)}`
         : 'https://music.youtube.com/';
     const ytMusicLibraryUrl = 'https://music.youtube.com/library';
+    const youtubeSearchUrl = queryText
+        ? `https://www.youtube.com/results?search_query=${encodeURIComponent(queryText)}`
+        : 'https://www.youtube.com/';
+    const youtubeHomeUrl = 'https://www.youtube.com/';
 
     const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
     if (!apiKey || !queryText) {
@@ -3098,6 +3155,8 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
             configured: Boolean(apiKey),
             ytMusicSearchUrl,
             ytMusicLibraryUrl,
+            youtubeSearchUrl,
+            youtubeHomeUrl,
             results: []
         });
     }
@@ -3122,6 +3181,8 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
                 apiUnavailable: true,
                 ytMusicSearchUrl,
                 ytMusicLibraryUrl,
+                youtubeSearchUrl,
+                youtubeHomeUrl,
                 results: []
             });
         }
@@ -3137,6 +3198,7 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
                     title: String(snippet.title || '').slice(0, 180),
                     channelTitle: String(snippet.channelTitle || '').replace(/\s*-\s*Topic$/i, '').slice(0, 140),
                     ytMusicUrl: `https://music.youtube.com/watch?v=${videoId}`,
+                    youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
                     thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
                 };
             })
@@ -3146,6 +3208,8 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
             configured: true,
             ytMusicSearchUrl,
             ytMusicLibraryUrl,
+            youtubeSearchUrl,
+            youtubeHomeUrl,
             results
         });
     } catch (_err) {
@@ -3154,6 +3218,8 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
             apiUnavailable: true,
             ytMusicSearchUrl,
             ytMusicLibraryUrl,
+            youtubeSearchUrl,
+            youtubeHomeUrl,
             results: []
         });
     }
@@ -3190,6 +3256,7 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
     res.json({
         videoId: parsed.videoId,
         ytMusicUrl: parsed.ytMusicUrl,
+        youtubeUrl: parsed.youtubeUrl,
         thumbnailUrl: parsed.thumbnailUrl,
         suggestedTitle,
         suggestedArtist
@@ -3257,7 +3324,8 @@ app.post('/api/english/music/songs', apiWriteLimiter.middleware, requireAdmin, r
         res.status(201).json({
             message: 'Song registered in your English Music catalog.',
             songId,
-            ytMusicUrl: d.ytMusicUrl
+            ytMusicUrl: d.ytMusicUrl,
+            youtubeUrl: d.youtubeUrl
         });
     } catch (err) {
         console.error(err);

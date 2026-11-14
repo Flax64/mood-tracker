@@ -180,12 +180,24 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
     });
 
     it('reemplaza el arcoíris, expone controles de Settings/Jira/Recordatorios/Música y agrega índices a las guías', () => {
-        for (const relPath of ['public/index.html', 'public/dashboard.html', 'README.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+        for (const relPath of [
+            'public/index.html',
+            'public/dashboard.html',
+            'README.md',
+            'guides/MANUAL_DE_USUARIO.md',
+            'guides/GUIA_TECNICA_ARQUITECTURA.md',
+            'guides/GUIA_OPERACION_Y_MIGRACION.md'
+        ]) {
             const content = readText(relPath);
             assert.equal(content.includes('🌈'), false, `${relPath} no debe contener el emoji arcoíris`);
         }
 
-        for (const docPath of ['README.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+        for (const docPath of [
+            'README.md',
+            'guides/MANUAL_DE_USUARIO.md',
+            'guides/GUIA_TECNICA_ARQUITECTURA.md',
+            'guides/GUIA_OPERACION_Y_MIGRACION.md'
+        ]) {
             const top = readText(docPath).slice(0, 1200);
             assert.match(top, /## .*[ÍI]ndice/i, `${docPath} debe incluir un índice al inicio`);
         }
@@ -204,14 +216,34 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="setNtfyTopic"',
             'id="setEnglishEnabled"',
             'id="setMoodLateNight"',
+            'id="setYoutubePlatformMode"',
             'data-english-cat="music"',
             'id="englishMusicStudio"',
+            'id="ytPlatformBar"',
+            'id="ytPlatformModeGroup"',
             'id="musicSongForm"',
             'id="musicCatalogContainer"',
             'id="musicWordNotesForm"',
-            'id="btnMusicSearchYt"'
+            'id="btnMusicSearchYt"',
+            'id="e2eeKeyModal"',
+            'id="confirmActionModal"',
+            'id="appToastContainer"',
+            'id="moodTodayChecklist"',
+            'id="sleepTodaySummary"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
+        }
+
+        const styleCss = readText('public/style.css');
+        for (const requiredClass of [
+            '.view-shell',
+            '.view-header-card',
+            '.yt-platform-bar',
+            '.app-toast-container',
+            '.english-row-2',
+            '.select-input'
+        ]) {
+            assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }
     });
 
@@ -226,7 +258,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
         }
 
-        for (const guidePath of ['guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+        for (const guidePath of ['guides/MANUAL_DE_USUARIO.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
             const guide = readText(guidePath);
             assert.equal(guide.includes('file:///'), false, `${guidePath} no debe contener enlaces locales file:///`);
             assert.equal(guide.includes('docs-privados'), false, `${guidePath} no debe referenciar docs-privados`);

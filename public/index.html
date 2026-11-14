@@ -56,6 +56,8 @@
                 <p id="authSubtitle">Sign in to access your workspace</p>
             </div>
 
+            <div id="authStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+
             <!-- 1. LOGIN FORM -->
             <form id="authLoginForm" class="auth-form">
                 <div class="form-group">
@@ -450,81 +452,116 @@
                  VIEW 2: MY MOOD TRACKER
             ========================================== -->
             <section class="app-view" id="view-mood" data-title="Mood Tracker">
-                <div class="card">
-                    <h2>My Mood Tracker</h2>
-                    <form id="moodForm">
-                        <div class="form-group">
-                            <label for="fecha">Date:</label>
-                            <input type="date" id="fecha" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="momento">Time of day:</label>
-                            <select id="momento" required>
-                                <option value="" disabled selected>Select a time of day...</option>
-                                <option value="Madrugada">Late Night (00:00 - 05:59)</option>
-                                <option value="Morning">Morning (06:00 - 11:59)</option>
-                                <option value="Noon">Noon (12:00 - 13:59)</option>
-                                <option value="Afternoon">Afternoon (14:00 - 19:59)</option>
-                                <option value="Night">Night (20:00 - 23:59)</option>
-                            </select>
-                        </div>
-
-                        <label>My current mood:</label>
-                        <div class="mood-grid" id="moodOptions">
-                            <div class="mood-btn" data-mood="Happy" data-color="#FDE047">
-                                <div class="color-dot" style="background: #FDE047;"></div>Happy
-                            </div>
-                            <div class="mood-btn" data-mood="Calm" data-color="#4ADE80">
-                                <div class="color-dot" style="background: #4ADE80;"></div>Calm
-                            </div>
-                            <div class="mood-btn" data-mood="Excited" data-color="#7DD3FC">
-                                <div class="color-dot" style="background: #7DD3FC;"></div>Excited
-                            </div>
-                            <div class="mood-btn" data-mood="Tired" data-color="#D8B4FE">
-                                <div class="color-dot" style="background: #D8B4FE;"></div>Tired
-                            </div>
-                            <div class="mood-btn" data-mood="Sad" data-color="#3B82F6">
-                                <div class="color-dot" style="background: #3B82F6;"></div>Sad
-                            </div>
-                            <div class="mood-btn" data-mood="Angry" data-color="#EF4444">
-                                <div class="color-dot" style="background: #EF4444;"></div>Angry
-                            </div>
-                            <div class="mood-btn" data-mood="Worried" data-color="#F97316">
-                                <div class="color-dot" style="background: #F97316;"></div>Worried
-                            </div>
-                            <div class="mood-btn" data-mood="Scared" data-color="#9CA3AF">
-                                <div class="color-dot" style="background: #9CA3AF;"></div>Scared
-                            </div>
-                            <div class="mood-btn" data-mood="Focused" data-color="#14B8A6">
-                                <div class="color-dot" style="background-color: #14B8A6;"></div>Focused
-                            </div>
-                            <div class="mood-btn" data-mood="Motivated" data-color="#F59E0B">
-                                <div class="color-dot" style="background-color: #F59E0B;"></div>Motivated
-                            </div>
-                            <div class="mood-btn" data-mood="Stressed" data-color="#991B1B">
-                                <div class="color-dot" style="background-color: #991B1B;"></div>Stressed
-                            </div>
-                            <div class="mood-btn" data-mood="Frustrated" data-color="#D946EF">
-                                <div class="color-dot" style="background-color: #D946EF;"></div>Frustrated
-                            </div>
-                            <div class="mood-btn" data-mood="Bored" data-color="#D1D5DB">
-                                <div class="color-dot" style="background-color: #D1D5DB;"></div>Bored
-                            </div>
-                            <div class="mood-btn" data-mood="Anxious" data-color="#A3E635">
-                                <div class="color-dot" style="background-color: #A3E635;"></div>Anxious
-                            </div>
-                            <div class="mood-btn" data-mood="Distracted" data-color="#F9A8D4">
-                                <div class="color-dot" style="background-color: #F9A8D4;"></div>Distracted
-                            </div>
-                            <div class="mood-btn" data-mood="Desperation" data-color="#6B21A8">
-                                <div class="color-dot" style="background-color: #6B21A8;"></div>Desperate
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">🧠</span>
+                            <div>
+                                <h2>My Mood Tracker</h2>
+                                <p class="view-header-subtitle">Pick your time block and current emotion. You can update today's current entry while its edit window stays open.</p>
                             </div>
                         </div>
+                        <div class="view-header-actions">
+                            <button type="button" class="btn-secondary-pill" data-go-view="resumen">📈 Weekly Summary</button>
+                        </div>
+                    </div>
 
-                        <button type="submit" class="btn-submit" id="btn-save-mood">Save Entry</button>
-                        <button type="button" class="btn-view" data-go-view="resumen">View Weekly Summary</button>
-                    </form>
+                    <div class="view-grid-2">
+                        <div class="card view-main-card">
+                            <form id="moodForm">
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="fecha">Date:</label>
+                                        <input type="date" id="fecha" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="momento">Time of day:</label>
+                                        <select id="momento" required>
+                                            <option value="" disabled selected>Select a time of day...</option>
+                                            <option value="Madrugada">Late Night (00:00 - 05:59)</option>
+                                            <option value="Morning">Morning (06:00 - 11:59)</option>
+                                            <option value="Noon">Noon (12:00 - 13:59)</option>
+                                            <option value="Afternoon">Afternoon (14:00 - 19:59)</option>
+                                            <option value="Night">Night (20:00 - 23:59)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="mood-selection-bar">
+                                    <label>How are you feeling right now? *</label>
+                                    <span id="moodSelectionPreview" class="selection-preview-pill">No mood selected yet</span>
+                                </div>
+                                <div class="mood-grid" id="moodOptions">
+                                    <div class="mood-btn" data-mood="Happy" data-color="#FDE047">
+                                        <div class="color-dot" style="background: #FDE047;"></div>Happy
+                                    </div>
+                                    <div class="mood-btn" data-mood="Calm" data-color="#4ADE80">
+                                        <div class="color-dot" style="background: #4ADE80;"></div>Calm
+                                    </div>
+                                    <div class="mood-btn" data-mood="Excited" data-color="#7DD3FC">
+                                        <div class="color-dot" style="background: #7DD3FC;"></div>Excited
+                                    </div>
+                                    <div class="mood-btn" data-mood="Tired" data-color="#D8B4FE">
+                                        <div class="color-dot" style="background: #D8B4FE;"></div>Tired
+                                    </div>
+                                    <div class="mood-btn" data-mood="Sad" data-color="#3B82F6">
+                                        <div class="color-dot" style="background: #3B82F6;"></div>Sad
+                                    </div>
+                                    <div class="mood-btn" data-mood="Angry" data-color="#EF4444">
+                                        <div class="color-dot" style="background: #EF4444;"></div>Angry
+                                    </div>
+                                    <div class="mood-btn" data-mood="Worried" data-color="#F97316">
+                                        <div class="color-dot" style="background: #F97316;"></div>Worried
+                                    </div>
+                                    <div class="mood-btn" data-mood="Scared" data-color="#9CA3AF">
+                                        <div class="color-dot" style="background: #9CA3AF;"></div>Scared
+                                    </div>
+                                    <div class="mood-btn" data-mood="Focused" data-color="#14B8A6">
+                                        <div class="color-dot" style="background-color: #14B8A6;"></div>Focused
+                                    </div>
+                                    <div class="mood-btn" data-mood="Motivated" data-color="#F59E0B">
+                                        <div class="color-dot" style="background-color: #F59E0B;"></div>Motivated
+                                    </div>
+                                    <div class="mood-btn" data-mood="Stressed" data-color="#991B1B">
+                                        <div class="color-dot" style="background-color: #991B1B;"></div>Stressed
+                                    </div>
+                                    <div class="mood-btn" data-mood="Frustrated" data-color="#D946EF">
+                                        <div class="color-dot" style="background-color: #D946EF;"></div>Frustrated
+                                    </div>
+                                    <div class="mood-btn" data-mood="Bored" data-color="#D1D5DB">
+                                        <div class="color-dot" style="background-color: #D1D5DB;"></div>Bored
+                                    </div>
+                                    <div class="mood-btn" data-mood="Anxious" data-color="#A3E635">
+                                        <div class="color-dot" style="background-color: #A3E635;"></div>Anxious
+                                    </div>
+                                    <div class="mood-btn" data-mood="Distracted" data-color="#F9A8D4">
+                                        <div class="color-dot" style="background-color: #F9A8D4;"></div>Distracted
+                                    </div>
+                                    <div class="mood-btn" data-mood="Desperation" data-color="#6B21A8">
+                                        <div class="color-dot" style="background-color: #6B21A8;"></div>Desperate
+                                    </div>
+                                </div>
+
+                                <div id="moodStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+
+                                <div class="form-action-stack">
+                                    <button type="submit" class="btn-submit" id="btn-save-mood">Save Mood Entry</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <aside class="card side-insight-card">
+                            <div class="side-insight-head">
+                                <h3>Today's Check-ins</h3>
+                                <span class="muted-text" id="moodTodayDateLabel">--</span>
+                            </div>
+                            <p class="side-insight-hint">Tap any block below to select that time of day in the form.</p>
+                            <div id="moodTodayChecklist" class="today-checklist">
+                                <p class="muted-text">Loading today's mood entries...</p>
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
@@ -532,39 +569,82 @@
                  VIEW 3: SLEEP TRACKER
             ========================================== -->
             <section class="app-view" id="view-sueno" data-title="Sleep Tracker">
-                <div class="card">
-                    <form id="sleepForm">
-                        <h3>Best logged right after waking up</h3>
-                        <h2>🌙 Sleep Tracker</h2>
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">🌙</span>
+                            <div>
+                                <h2>Sleep Tracker</h2>
+                                <p class="view-header-subtitle">Log bedtime and wake-up time. Split sleep or naps logged on the same day add together automatically.</p>
+                            </div>
+                        </div>
+                        <div class="view-header-actions">
+                            <button type="button" class="btn-secondary-pill" data-go-view="resumen">📈 Weekly Summary</button>
+                        </div>
+                    </div>
 
-                        <div class="form-group">
-                            <label for="sleepTime">What time did you fall asleep?</label>
-                            <input type="time" id="sleepTime" class="hour-picker" required>
+                    <div class="view-grid-2">
+                        <div class="card view-main-card">
+                            <form id="sleepForm">
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="sleepTime">Fell asleep at:</label>
+                                        <input type="time" id="sleepTime" class="hour-picker" required>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <div class="label-with-helper">
+                                            <label for="wakeupTime">Woke up at:</label>
+                                            <button type="button" class="text-link-btn" id="btnSleepUseNow">Use current time</button>
+                                        </div>
+                                        <input type="time" id="wakeupTime" class="hour-picker" required>
+                                    </div>
+                                </div>
+
+                                <div class="sleep-duration-preview">
+                                    <div>
+                                        <span class="muted-text">Calculated sleep duration</span>
+                                        <strong id="sleepDurationBadge">-- hrs</strong>
+                                    </div>
+                                    <input type="text" id="sleepHours" step="0.1" readonly aria-label="Total hours of sleep">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="quality-sleep">How did this rest feel? *</label>
+                                    <div class="sleep-quality-cards" id="sleepQualityCards" role="group" aria-label="Sleep quality quick choices">
+                                        <button type="button" class="sleep-quality-card" data-quality="Good">🟢 Restorative</button>
+                                        <button type="button" class="sleep-quality-card" data-quality="Regular">🟡 Fair / Light</button>
+                                        <button type="button" class="sleep-quality-card" data-quality="Bad">🔴 Poor / Heavy</button>
+                                    </div>
+                                    <select id="quality-sleep" required>
+                                        <option value="" disabled selected>Select an option...</option>
+                                        <option value="Good">🟢 Good / Restorative</option>
+                                        <option value="Regular">🟡 Fair / Light</option>
+                                        <option value="Bad">🔴 Poor / Heavy</option>
+                                    </select>
+                                </div>
+
+                                <div id="sleepStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+
+                                <div class="form-action-stack">
+                                    <button type="submit" class="btn-submit" id="btn-save-sleep">Log Sleep Session</button>
+                                </div>
+                            </form>
                         </div>
 
-                        <div class="form-group">
-                            <label for="wakeupTime">What time did you wake up?</label>
-                            <input type="time" id="wakeupTime" class="hour-picker" required>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="sleepHours">Total hours of sleep:</label>
-                            <input type="text" id="sleepHours" step="0.1" readonly>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="quality-sleep">How did this sleep feel?</label>
-                            <select id="quality-sleep" required>
-                                <option value="" disabled selected>Select an option...</option>
-                                <option value="Good">🟢 Good / Restorative</option>
-                                <option value="Regular">🟡 Fair / Light</option>
-                                <option value="Bad">🔴 Poor / Heavy</option>
-                            </select>
-                        </div>
-
-                        <button type="submit" class="btn-submit" id="btn-save-sleep">Log Sleep</button>
-                        <button type="button" class="btn-view" data-go-view="resumen">View Weekly Summary</button>
-                    </form>
+                        <aside class="card side-insight-card">
+                            <div class="side-insight-head">
+                                <h3>Today's Sleep Summary</h3>
+                                <span class="muted-text">Intermittent friendly</span>
+                            </div>
+                            <div id="sleepTodaySummary" class="sleep-today-box">
+                                <p class="muted-text">Loading today's sleep log...</p>
+                            </div>
+                            <div class="side-tip-box">
+                                <strong>Tip:</strong> Best recorded right after waking up. Multiple sleep sessions on the same day accumulate cleanly without overwriting earlier rest.
+                            </div>
+                        </aside>
+                    </div>
                 </div>
             </section>
 
@@ -572,15 +652,38 @@
                  VIEW 4: JOURNAL NOTES
             ========================================== -->
             <section class="app-view" id="view-journal" data-title="Journal Notes">
-                <div class="card">
-                    <h2>🖋️ Journal Notes</h2>
-                    <form id="journalForm">
-                        <div class="form-group">
-                            <textarea id="journalText" lang="en" spellcheck="true"
-                                placeholder="Write your thoughts here in English..." required></textarea>
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">🖋️</span>
+                            <div>
+                                <h2>Journal Notes</h2>
+                                <p class="view-header-subtitle">Write freely in English. Your note is encrypted end-to-end (E2EE) in this browser before queuing for Word on your PC.</p>
+                            </div>
                         </div>
-                        <button type="submit" class="btn-submit" id="btn-send-word">Send to Word (PC)</button>
-                    </form>
+                        <div class="view-header-actions">
+                            <button type="button" class="e2ee-key-pill" id="journalE2eePill">🔑 E2EE Key</button>
+                        </div>
+                    </div>
+
+                    <div class="card view-main-card">
+                        <form id="journalForm">
+                            <div class="journal-editor-bar">
+                                <span id="journalWordCount" class="muted-text">0 words · 0 chars</span>
+                                <div class="journal-editor-actions">
+                                    <span id="journalDraftStatus" class="muted-text"></span>
+                                    <button type="button" class="text-link-btn" id="btnJournalClearDraft" hidden>Clear draft</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="journalText" class="sr-only">Journal entry text</label>
+                                <textarea id="journalText" lang="en" spellcheck="true"
+                                    placeholder="Write your thoughts here in English... Your unfinished draft stays safe in this browser until you send it." required></textarea>
+                            </div>
+                            <div id="journalStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+                            <button type="submit" class="btn-submit" id="btn-send-word">Encrypt E2EE &amp; Send to Word (PC)</button>
+                        </form>
+                    </div>
                 </div>
             </section>
 
@@ -588,11 +691,21 @@
                  VIEW 4B: ENGLISH LEARNING NOTEBOOK
             ========================================== -->
             <section class="app-view" id="view-english" data-title="English Notebook">
-                <div class="card english-card">
-                    <h2>📖 English Learning Notebook</h2>
-                    <p class="english-subtitle">
-                        Save new vocabulary, grammar rules, and phrasal verbs directly to your local Word notebook (<code>english-notes/</code>) without storing them in MySQL. Every entry updates the Table of Contents automatically.
-                    </p>
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">📖</span>
+                            <div>
+                                <h2>English Learning Notebook</h2>
+                                <p class="view-header-subtitle">Save vocabulary, grammar rules, phrasal verbs, and song studies directly to your encrypted local Word notebook (<code>english-notes/</code>).</p>
+                            </div>
+                        </div>
+                        <div class="view-header-actions">
+                            <button type="button" class="e2ee-key-pill" id="englishE2eePill">🔑 E2EE Key</button>
+                        </div>
+                    </div>
+
+                    <div class="card english-card">
 
                     <div class="english-tabs" role="tablist" aria-label="Notebook section">
                         <button type="button" class="english-tab-btn active" data-english-cat="vocabulary" role="tab"
@@ -729,9 +842,26 @@
                     </div>
 
                     <div id="englishMusicStudio" class="english-music-studio" hidden>
+                        <div class="yt-platform-bar" id="ytPlatformBar">
+                            <div class="yt-platform-info">
+                                <div class="yt-platform-title-row">
+                                    <strong>Playback Platform: <span id="ytPlatformDetectedBadge">Detecting device...</span></strong>
+                                    <span class="yt-safe-badge">🛡️ Playlist-Safe (Read-Only Single Links)</span>
+                                </div>
+                                <p class="muted-text" id="ytPlatformSafetyHint">
+                                    Auto mode uses <strong>standard YouTube</strong> on PC and <strong>YouTube Music</strong> on mobile, opening individual tracks (<code>watch?v=...</code>) without OAuth or credentials so your personal playlists are never modified.
+                                </p>
+                            </div>
+                            <div class="yt-mode-pills" id="ytPlatformModeGroup" role="group" aria-label="Preferred YouTube platform">
+                                <button type="button" class="yt-mode-pill active" data-yt-mode="auto">Auto (PC / Mobile)</button>
+                                <button type="button" class="yt-mode-pill" data-yt-mode="youtube">📺 YouTube (PC)</button>
+                                <button type="button" class="yt-mode-pill" data-yt-mode="yt_music">🎵 YT Music (Mobile)</button>
+                            </div>
+                        </div>
+
                         <div class="music-privacy-callout">
                             <strong>Personal Copyright &amp; Privacy Guard:</strong> Artist, collaboration, album / mini
-                            album, and YouTube Music links stay organized in MySQL metadata. Your full lyrics breakdown,
+                            album, and track links stay organized in MySQL metadata. Your full lyrics breakdown,
                             meanings, and long study notes are <strong>encrypted E2EE</strong> directly into
                             <code>English_Learning_Notebook.docx</code> on your PC—never stored or published on the server.
                         </div>
@@ -739,15 +869,15 @@
                         <div class="music-yt-finder-card">
                             <div class="music-yt-finder-head">
                                 <div>
-                                    <h3>YouTube Music Song Finder</h3>
-                                    <p class="muted-text">Search using your logged-in YouTube Music account, then copy and paste the song link below to auto-fill title and artist.</p>
+                                    <h3 id="musicFinderHeading">Song Finder (Auto: Standard YouTube / YT Music)</h3>
+                                    <p class="muted-text" id="musicFinderDesc">Search cleanly in a new tab without altering your account playlists, then paste the track link below to auto-fill title and artist.</p>
                                 </div>
-                                <button type="button" class="btn-secondary btn-small" id="btnMusicOpenYtLibrary">My YouTube Music Library</button>
+                                <button type="button" class="btn-secondary btn-small" id="btnMusicOpenYtLibrary">Open YouTube Home</button>
                             </div>
                             <div class="music-yt-finder-bar">
                                 <input type="text" id="musicYtSearchQuery" maxlength="120"
                                     placeholder="e.g. BABYMONSTER DRIP, BLACKPINK Tally, ROSÉ &amp; Bruno Mars APT.">
-                                <button type="button" class="btn-primary btn-small" id="btnMusicSearchYt">Find in YouTube Music</button>
+                                <button type="button" class="btn-primary btn-small" id="btnMusicSearchYt">Find Song</button>
                             </div>
                             <div id="musicYtSearchResults" class="music-yt-results" hidden></div>
                         </div>
@@ -939,6 +1069,7 @@
                             </form>
                         </div>
                     </div>
+                    </div>
                 </div>
             </section>
 
@@ -946,12 +1077,12 @@
                  VIEW 5: WEEKLY PERSONAL AGENDA
             ========================================== -->
             <section class="app-view" id="view-agenda" data-title="Weekly Agenda">
-                <div class="agenda-wrapper">
-                    <div class="agenda-header">
+                <div class="agenda-wrapper view-shell">
+                    <div class="agenda-header view-header-card">
                         <div class="agenda-title-block">
-                            <span class="agenda-calendar-icon" aria-hidden="true">🗓️</span>
+                            <span class="view-header-icon agenda-calendar-icon" aria-hidden="true">🗓️</span>
                             <div>
-                                <h1 class="agenda-title">ORGANIZE YOUR WEEK</h1>
+                                <h1 class="agenda-title">Weekly Agenda</h1>
                                 <p class="agenda-subtitle" id="agendaWeekStats">Loading activities...</p>
                             </div>
                         </div>
@@ -1002,23 +1133,32 @@
                  VIEW 6: WEEKLY SUMMARY (MOOD + SLEEP)
             ========================================== -->
             <section class="app-view" id="view-resumen" data-title="Weekly Summary">
-                <div class="tracker-container">
-                    <button type="button" class="btn-back admin-only-nav" id="btnBackToHome" data-go-view="inicio">⬅
-                        Back to Home</button>
-
+                <div class="tracker-container view-shell">
                     <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
                         🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker &amp; Sleep Hours.
                     </div>
 
-                    <h1 class="tracker-title">WEEKLY MOOD &amp; SLEEP SUMMARY</h1>
-
-                    <div class="controls">
-                        <label for="semanaSeleccionada">Select a week:</label>
-                        <select id="semanaSeleccionada"></select>
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">📈</span>
+                            <div>
+                                <h1 class="tracker-title">Weekly Mood &amp; Sleep Summary</h1>
+                                <p class="view-header-subtitle">Review emotional patterns across all five daily time blocks alongside restorative sleep metrics.</p>
+                            </div>
+                        </div>
+                        <div class="view-header-actions">
+                            <button type="button" class="btn-back admin-only-nav" id="btnBackToHome" data-go-view="inicio">⬅ Back to Home</button>
+                        </div>
                     </div>
 
-                    <div id="resumenLoadingBanner" class="section-loading-banner" hidden></div>
-                    <hr class="title-divider">
+                    <div class="card resumen-filter-card">
+                        <div class="controls">
+                            <label for="semanaSeleccionada">Select a week:</label>
+                            <select id="semanaSeleccionada"></select>
+                        </div>
+
+                        <div id="resumenLoadingBanner" class="section-loading-banner" hidden></div>
+                    </div>
 
                     <div class="tracker-layout">
                         <div class="table-responsive">
@@ -1125,36 +1265,47 @@
                  VIEW 7: PSYCHIATRIST ACCESS MANAGEMENT (ADMIN ONLY)
             ========================================== -->
             <section class="app-view" id="view-medico" data-title="Psychiatrist Access">
-                <div class="card">
-                    <h2>🩺 Psychiatrist Access</h2>
-                    <p class="muted-text" style="margin-bottom: 20px; text-align: center;">
-                        Create or update a <strong>read-only</strong> account for your psychiatrist. This account can only view the Weekly Mood &amp; Sleep Summary (no access to notes, agenda, or editing).
-                    </p>
-                    <form id="medicoForm">
-                        <div class="form-group">
-                            <label for="medicoNombre">Doctor's name:</label>
-                            <input type="text" id="medicoNombre" minlength="2" maxlength="80" placeholder="e.g. Dr. Garcia" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="medicoEmail">Doctor's email address:</label>
-                            <input type="email" id="medicoEmail" maxlength="150" placeholder="doctor@email.com" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="medicoPassword">Assigned password (8–128 chars, letters &amp; numbers):</label>
-                            <div class="password-input-wrap">
-                                <input type="password" id="medicoPassword" minlength="8" maxlength="128"
-                                    placeholder="At least 8 characters with letters and numbers" required>
-                                <button type="button" class="password-toggle-btn" data-toggle-password="medicoPassword"
-                                    aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">🩺</span>
+                            <div>
+                                <h2>Psychiatrist Access</h2>
+                                <p class="view-header-subtitle">Create or manage a <strong>read-only</strong> clinician account. Doctors can view Weekly Mood &amp; Sleep Summary only — never notes, agenda, or editing.</p>
                             </div>
                         </div>
-                        <button type="submit" class="btn-submit" id="btnSaveMedico">Save Psychiatrist Account</button>
-                    </form>
+                    </div>
 
-                    <hr class="section-divider">
-                    <h3 class="medicos-heading">Psychiatrist accounts</h3>
-                    <div id="medicosList" class="medicos-list">
-                        <p class="muted-text">Loading...</p>
+                    <div class="card view-main-card">
+                        <form id="medicoForm">
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="medicoNombre">Doctor's name:</label>
+                                    <input type="text" id="medicoNombre" minlength="2" maxlength="80" placeholder="e.g. Dr. Garcia" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="medicoEmail">Doctor's email address:</label>
+                                    <input type="email" id="medicoEmail" maxlength="150" placeholder="doctor@email.com" required>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="medicoPassword">Assigned password (8–128 chars, letters &amp; numbers):</label>
+                                <div class="password-input-wrap">
+                                    <input type="password" id="medicoPassword" minlength="8" maxlength="128"
+                                        placeholder="At least 8 characters with letters and numbers" required>
+                                    <button type="button" class="password-toggle-btn" data-toggle-password="medicoPassword"
+                                        aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                                </div>
+                            </div>
+                            <div id="medicoStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+                            <button type="submit" class="btn-submit" id="btnSaveMedico">Save Psychiatrist Account</button>
+                        </form>
+
+                        <hr class="section-divider">
+                        <h3 class="medicos-heading">Psychiatrist accounts</h3>
+                        <div id="medicosList" class="medicos-list">
+                            <p class="muted-text">Loading...</p>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1163,11 +1314,14 @@
                  VIEW 8: SETTINGS & PHONE REMINDERS (ADMIN ONLY)
             ========================================== -->
             <section class="app-view" id="view-settings" data-title="Settings & Reminders">
-                <div class="settings-container">
-                    <div class="settings-header-card">
-                        <div>
-                            <h2>⚙️ Settings &amp; Reminders</h2>
-                            <p class="muted-text">Manage mobile notification bar alerts, automated reminders, agenda defaults, appearance, and local E2EE key settings.</p>
+                <div class="settings-container view-shell">
+                    <div class="settings-header-card view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">⚙️</span>
+                            <div>
+                                <h2>Settings &amp; Reminders</h2>
+                                <p class="view-header-subtitle">Manage mobile notification bar alerts, automated reminders, workspace defaults, YouTube playback mode, appearance, and your local E2EE key.</p>
+                            </div>
                         </div>
                         <div class="settings-header-actions">
                             <button type="button" class="btn-secondary-pill" id="btnSettingsThemeToggle">☀️ Switch Theme</button>
@@ -1324,7 +1478,7 @@
                         <!-- Card C: Workspace, Agenda Defaults & Security Shortcuts -->
                         <section class="card settings-card settings-card-wide">
                             <h3>🎛️ Workspace Defaults &amp; Security</h3>
-                            <div class="form-row-3">
+                            <div class="form-row-2">
                                 <div class="form-group">
                                     <label for="setDefaultCat">Default Agenda Category:</label>
                                     <select id="setDefaultCat">
@@ -1340,6 +1494,18 @@
                                         <option value="grid">Weekly Grid View</option>
                                         <option value="day">Day Focus View</option>
                                     </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="setYoutubePlatformMode">Learn with Music YouTube Platform:</label>
+                                    <select id="setYoutubePlatformMode">
+                                        <option value="auto">Auto (YouTube on PC · YT Music on Mobile)</option>
+                                        <option value="youtube">Always Standard YouTube (youtube.com)</option>
+                                        <option value="yt_music">Always YouTube Music (music.youtube.com)</option>
+                                    </select>
+                                    <small class="form-hint">Auto keeps normal YouTube on PC and read-only single-track YouTube Music on mobile without altering playlists.</small>
                                 </div>
                                 <div class="form-group">
                                     <label for="setTimezone">Timezone (IANA):</label>
@@ -1466,6 +1632,59 @@
             </form>
         </div>
     </div>
+
+    <!-- In-app Modal: E2EE Local Secret Key (32-char) -->
+    <div class="modal-overlay" id="e2eeKeyModal" hidden aria-modal="true" role="dialog" aria-labelledby="e2eeKeyModalTitle">
+        <div class="modal-card modal-card-compact">
+            <div class="modal-header">
+                <h2 id="e2eeKeyModalTitle">🔐 Local E2EE Secret Key</h2>
+                <button type="button" class="modal-close-btn" id="btnCloseE2eeModal" aria-label="Close modal">✕</button>
+            </div>
+            <form id="e2eeKeyForm" autocomplete="off">
+                <p class="modal-subtitle">
+                    Your Journal and English Notebook entries are encrypted in your browser before leaving this device. Enter your exact <strong>32-character AES key</strong> (stored only in this browser, never sent to the server).
+                </p>
+                <div class="form-group">
+                    <div class="label-with-helper">
+                        <label for="e2eeKeyInput">32-character secret key:</label>
+                        <span id="e2eeKeyCharCount" class="muted-text">0 / 32 characters</span>
+                    </div>
+                    <div class="password-input-wrap">
+                        <input type="password" id="e2eeKeyInput" minlength="32" maxlength="32"
+                            placeholder="Exact 32 characters matching your PC sync key" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="e2eeKeyInput"
+                            aria-label="Show key" aria-pressed="false" title="Show key"></button>
+                    </div>
+                </div>
+                <div id="e2eeKeyModalStatus" class="inline-status-banner" hidden aria-live="polite"></div>
+                <div class="modal-actions modal-actions-split">
+                    <button type="button" class="btn-danger-ghost" id="btnForgetE2eeModal" hidden>Clear Key</button>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-cancel" id="btnCancelE2eeModal">Cancel</button>
+                        <button type="submit" class="btn-submit btn-modal-save" id="btnSaveE2eeModal">Save Key</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- In-app Modal: Confirm Destructive / Critical Action -->
+    <div class="modal-overlay" id="confirmActionModal" hidden aria-modal="true" role="dialog" aria-labelledby="confirmActionTitle">
+        <div class="modal-card modal-card-compact">
+            <div class="modal-header">
+                <h2 id="confirmActionTitle">Confirm Action</h2>
+                <button type="button" class="modal-close-btn" id="btnCloseConfirmModal" aria-label="Close dialog">✕</button>
+            </div>
+            <p id="confirmActionMessage" class="modal-subtitle">Are you sure you want to proceed?</p>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="btnConfirmCancel">Cancel</button>
+                <button type="button" class="btn-submit btn-modal-save" id="btnConfirmAccept">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Toast Feedback Stack -->
+    <div id="appToastContainer" class="app-toast-container" aria-live="polite" aria-atomic="true"></div>
 </body>
 
 </html>

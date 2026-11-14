@@ -68,7 +68,8 @@ mood-tracker/
 │   └── Diseño Base Datos.xml       # Modelo visual de base de datos
 ├── english-notes/                  # Cuaderno Word de inglés autogenerado (ignorado en Git/Docker)
 │   └── English_Learning_Notebook.docx
-├── guides/                         # Documentación técnica y operativa (con índice rápido)
+├── guides/                         # Documentación funcional, técnica y operativa (con índice rápido)
+│   ├── MANUAL_DE_USUARIO.md
 │   ├── GUIA_OPERACION_Y_MIGRACION.md
 │   └── GUIA_TECNICA_ARQUITECTURA.md
 ├── public/                         # Archivos estáticos servidos por Express
@@ -108,6 +109,7 @@ mood-tracker/
 
 ## 📚 Guías del Proyecto
 
+* [Manual de Usuario (Paso a Paso)](guides/MANUAL_DE_USUARIO.md): guía práctica de cada pantalla (`Home`, `Mood`, `Sleep`, `Journal E2EE`, `English Notebook`, `Learn with Music` con YouTube en PC vs YouTube Music en celular sin alterar playlists, `Weekly Agenda`, `Weekly Summary`, acceso médico y notificaciones `ntfy`).
 * [Guía Técnica de Arquitectura e Implementación](guides/GUIA_TECNICA_ARQUITECTURA.md): diseño por capas, esquema MySQL, seguridad E2EE/RBAC, optimizaciones para `t3.micro` y flujo CI/CD.
 * [Guía de Operación, Bóveda Local y Migración EC2](guides/GUIA_OPERACION_Y_MIGRACION.md): gestión de `.env.enc`, sincronizador de Word en Windows (`sincronizador.py`), respaldos con `rclone` y migración de instancia AWS EC2.
 
