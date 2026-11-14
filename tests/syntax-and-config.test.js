@@ -12,8 +12,8 @@ function readText(relPath) {
 }
 
 describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
-    it('valida sintaxis de server.js, public/frontend.js y tests/ci-summary.js con node --check', () => {
-        for (const rel of ['server.js', 'public/frontend.js', 'tests/ci-summary.js']) {
+    it('valida sintaxis de server.js, public/theme-init.js, public/frontend.js y tests/ci-summary.js con node --check', () => {
+        for (const rel of ['server.js', 'public/theme-init.js', 'public/frontend.js', 'tests/ci-summary.js']) {
             execFileSync(process.execPath, ['--check', path.join(ROOT, rel)], { stdio: 'pipe' });
         }
     });
@@ -21,9 +21,16 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
     it('valida sintaxis de scripts embebidos y estructura básica de HTML', () => {
         const indexHtml = readText('public/index.html');
         assert.match(indexHtml, /<html\s+lang=["']en["']/i);
+        assert.match(indexHtml, /<script[^>]+src=["']theme-init\.js["']/i);
         assert.match(indexHtml, /<script[^>]+src=["']frontend\.js["']/i);
         assert.match(indexHtml, /href=["']style\.css["']/i);
         assert.match(indexHtml, /id=["']themeToggleBtn["']|data-theme/i);
+        assert.match(indexHtml, /id=["']appBootScreen["']/i);
+        assert.match(indexHtml, /id=["']authOverlay["'][^>]*\bhidden\b/i);
+        assert.match(indexHtml, /Personal Daily Hub/);
+        assert.match(indexHtml, /Daily Hub/);
+        assert.match(indexHtml, /id=["']agendaLoadingBanner["']/i);
+        assert.match(indexHtml, /id=["']resumenLoadingBanner["']/i);
         assert.match(indexHtml, /id=["']view-english["']/i);
         assert.match(indexHtml, /id=["']englishForm["']/i);
         for (const fieldId of [
@@ -45,16 +52,20 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'runWithButtonLock',
             'createIdempotencyKey',
             'createRequestTracker',
-            'submitMutationRequest'
+            'submitMutationRequest',
+            'createLoadingBanner',
+            'hideBootScreen'
         ]) {
             assert.match(frontendJs, new RegExp(`function\\s+${fnName}\\s*\\(`), `Falta helper ${fnName} en frontend.js`);
         }
 
         const serverJs = readText('server.js');
         assert.match(serverJs, /function\s+preventDuplicateSubmit\s*\(/);
+        assert.match(serverJs, /Personal Daily Hub/);
 
         const dashHtml = readText('public/dashboard.html');
         assert.match(dashHtml, /<html\s+lang=["']en["']/i);
+        assert.match(dashHtml, /Daily Hub/);
         const scriptMatches = [...dashHtml.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
         assert.ok(scriptMatches.length > 0, 'dashboard.html debe incluir script de redirección');
         for (const m of scriptMatches) {
@@ -62,9 +73,11 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         }
     });
 
-    it('verifica llaves balanceadas y tema oscuro en public/style.css', () => {
+    it('verifica llaves balanceadas, spinners y tema oscuro en public/style.css', () => {
         const css = readText('public/style.css');
         assert.match(css, /\[data-theme=["']dark["']\]/);
+        assert.match(css, /\.spinner-circle\b/);
+        assert.match(css, /\.boot-screen\b/);
 
         const stripped = css
             .replace(/\/\*[\s\S]*?\*\//g, '')

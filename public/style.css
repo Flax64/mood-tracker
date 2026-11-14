@@ -34,9 +34,10 @@ body {
 }
 
 /* =========================================
-   PANTALLA DE LOGIN, REGISTRO Y RECUPERACIÓN
+   PANTALLA DE LOGIN, REGISTRO, BOOT Y RECUPERACIÓN
 ========================================= */
-.auth-screen {
+.auth-screen,
+.boot-screen {
     min-height: 100dvh;
     width: 100%;
     display: flex;
@@ -46,13 +47,36 @@ body {
     background: linear-gradient(135deg, #1e2430 0%, #2b3548 55%, #3b4c6b 100%);
 }
 
-.auth-card {
+.auth-card,
+.boot-card {
     background: #ffffff;
     width: 100%;
     max-width: 450px;
     border-radius: 18px;
     padding: 24px 26px 30px;
     box-shadow: 0 22px 50px rgba(0, 0, 0, 0.32);
+}
+
+.boot-card {
+    max-width: 380px;
+    padding: 36px 28px;
+    text-align: center;
+}
+
+.boot-card h1 {
+    margin: 4px 0 18px 0;
+    font-size: 1.45rem;
+    color: #1f2937;
+}
+
+.boot-status-row {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-muted);
+    font-size: 0.94rem;
+    font-weight: 600;
 }
 
 .auth-top-bar {
@@ -1071,6 +1095,85 @@ select {
 
 .agenda-item.is-busy {
     opacity: 0.65;
+}
+
+/* =========================================
+   LOADING SPINNERS (RED LENTA / PETICIONES)
+========================================= */
+@keyframes mtSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spinner-circle {
+    display: inline-block;
+    border-radius: 50%;
+    border: 2.5px solid rgba(100, 116, 139, 0.28);
+    border-top-color: #4f7df3;
+    animation: mtSpin 0.72s linear infinite;
+    flex-shrink: 0;
+}
+
+.spinner-sm {
+    width: 15px;
+    height: 15px;
+    border-width: 2px;
+}
+
+.spinner-md {
+    width: 22px;
+    height: 22px;
+    border-width: 2.5px;
+}
+
+.spinner-lg {
+    width: 38px;
+    height: 38px;
+    border-width: 3.5px;
+}
+
+.btn-loading-content {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-loading-content .spinner-circle {
+    border-color: rgba(148, 163, 184, 0.35);
+    border-top-color: currentColor;
+}
+
+.loading-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 6px 2px;
+}
+
+.section-loading-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 6px auto 14px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: rgba(79, 125, 243, 0.08);
+    border: 1px solid rgba(79, 125, 243, 0.22);
+    width: fit-content;
+}
+
+.agenda-check-circle.is-busy {
+    border-color: rgba(79, 125, 243, 0.3) !important;
+    border-top-color: #4f7df3 !important;
+    background: transparent !important;
+    color: transparent !important;
+    animation: mtSpin 0.7s linear infinite;
 }
 
 .btn-view {
@@ -2282,11 +2385,13 @@ select {
     --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 
-:root[data-theme="dark"] .auth-screen {
+:root[data-theme="dark"] .auth-screen,
+:root[data-theme="dark"] .boot-screen {
     background: linear-gradient(135deg, #060913 0%, #0f172a 55%, #1e293b 100%);
 }
 
-:root[data-theme="dark"] .auth-card {
+:root[data-theme="dark"] .auth-card,
+:root[data-theme="dark"] .boot-card {
     background: #162032;
     border: 1px solid #293548;
 }
@@ -2296,6 +2401,7 @@ select {
 }
 
 :root[data-theme="dark"] .auth-brand h1,
+:root[data-theme="dark"] .boot-card h1,
 :root[data-theme="dark"] h2,
 :root[data-theme="dark"] .section-heading,
 :root[data-theme="dark"] .home-hero h1,

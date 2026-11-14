@@ -1,6 +1,6 @@
-# Personal Mood Tracker & Agenda Personal
+# Personal Daily Hub
 
-Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles como OPPO A79) para el seguimiento diario del estado de ánimo, control de sueño, notas privadas cifradas E2EE y planificación semanal personal.
+Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles como OPPO A79) para el seguimiento diario del estado de ánimo (`Mood Tracker`), control de sueño, diario privado cifrado E2EE, cuaderno de aprendizaje de inglés, planificación semanal personal (`Weekly Agenda`) y seguimiento psiquiátrico de solo lectura.
 
 ---
 
@@ -12,19 +12,20 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)** al abrirla y una
 2. **😊 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo modificable desde el servidor.
 3. **😴 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, con registro de calidad (`Good`, `Regular`, `Bad`).
 4. **📝 Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia el script local de Python (`sincronitation/sincronizador.py`) para escribir en Word.
-5. **📅 Agenda Semanal (`Organiza tu Semana`):** Calendario/agenda visual por semana con diseño en tonos pastel por día y dividido en los 4 bloques del día:
-   - ☕ **Por la mañana** (`manana`)
-   - 📖 **En el cole** (`cole`)
-   - ☀️ **Por la tarde** (`tarde`)
-   - 🌙 **Por la noche** (`noche`)
-   Permite registrar actividad y hora, marcar actividades completadas, editar/eliminar, alternar vista `Lun - Vie` / `Lun - Dom` y cambiar entre **Vista Día** (optimizada para celular) y **Vista Cuadrícula** (estilo plantilla semanal).
-6. **📊 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
-7. **🔐 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
+5. **📚 English Notebook:** Registro de vocabulario, notas de gramática y *phrasal verbs* cifrados E2EE en tránsito y guardados automáticamente en un documento Word local sin contraseña (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada.
+6. **📅 Agenda Semanal (`Organize Your Week`):** Calendario/agenda visual por semana con diseño en tonos pastel por día y dividido en los 4 bloques del día:
+   - ☕ **Morning** (`manana`)
+   - 📖 **School / Classes** (`cole`)
+   - ☀️ **Afternoon** (`tarde`)
+   - 🌙 **Night** (`noche`)
+   Permite registrar actividad y hora, marcar actividades completadas, editar/eliminar, alternar vista `Mon - Fri` / `Mon - Sun` y cambiar entre **Day View** (optimizada para celular) y **Grid View** (estilo plantilla semanal).
+7. **📊 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
+8. **🔐 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
    - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos y gestión de la cuenta del psiquiatra (`#view-medico`).
-   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado al dashboard semanal de **Estado de Ánimo y Horas de Sueño** (`#view-resumen`); sin acceso a notas del Journal, Agenda ni formularios de edición.
-   - **Sesión persistente:** Permanece activa aunque cierres la pestaña o el navegador (`HttpOnly` cookie + tabla `SesionesAuth`) y solo se cierra cuando presionas **Cerrar Sesión** en el menú lateral o automáticamente **cada domingo a las `00:00`**.
-   - **Seguridad:** Contraseñas encriptadas con `bcrypt` (`bcryptjs`, 12 rondas), tokens de sesión hasheados con SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), *rate-limiting* contra fuerza bruta y recuperación de contraseña por correo (`nodemailer` con Gmail SMTP).
-8. **🌙 Tema Oscuro y Modo Claro:** Interfaz adaptada con **Tema Oscuro** por defecto y botón para alternar entre modo oscuro y claro desde el login, menú móvil y barra lateral.
+   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado al dashboard semanal de **Estado de Ánimo y Horas de Sueño** (`#view-resumen`); sin acceso a notas del Journal, English Notebook, Agenda ni formularios de edición.
+   - **Sesión persistente:** Permanece activa aunque cierres la pestaña o el navegador (`HttpOnly` cookie + tabla `SesionesAuth`) y solo se cierra cuando presionas **Sign Out** en el menú lateral o automáticamente **cada domingo a las `00:00`**.
+   - **Seguridad:** Contraseñas encriptadas con `bcrypt` (`bcryptjs`, 12 rondas), tokens de sesión hasheados con SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), *rate-limiting* contra fuerza bruta, protección anti-duplicado (`X-Idempotency-Key` + bloqueos de envío) y recuperación de contraseña por correo (`nodemailer` con Gmail SMTP).
+9. **🌙 Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y botón para alternar entre modo oscuro y claro.
 
 ---
 
@@ -48,10 +49,11 @@ mood-tracker/
 ├── base_datos/
 │   └── Diseño Base Datos.xml       # Modelo visual de base de datos
 ├── public/                         # Archivos estáticos servidos por Express
-│   ├── index.html                  # Shell principal, barra lateral y todas las vistas
+│   ├── index.html                  # Shell principal, pantalla de arranque, barra lateral y vistas
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
-│   ├── style.css                   # Estilos responsivos + Tema Oscuro (PC y OPPO A79)
-│   └── frontend.js                 # Navegación, formularios, auth, tema y agenda
+│   ├── theme-init.js               # Inicialización temprana de tema antes del primer pintado (CSP)
+│   ├── style.css                   # Estilos responsivos, spinners de carga + Tema Oscuro
+│   └── frontend.js                 # Navegación, formularios, auth, idempotencia, tema y agenda
 ├── scripts/
 │   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
 │   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor
