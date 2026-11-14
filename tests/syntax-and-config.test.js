@@ -153,7 +153,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
     });
 
-    it('define las 6 tablas requeridas en init.sql', () => {
+    it('define las 8 tablas requeridas y columnas de agenda/recordatorios en init.sql', () => {
         const sql = readText('init.sql');
         for (const table of [
             'RegistrosMood',
@@ -161,12 +161,47 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'RegistrosAgenda',
             'Usuarios',
             'SesionesAuth',
-            'CodigosSeguridad'
+            'CodigosSeguridad',
+            'ConfiguracionUsuario',
+            'RecordatoriosEstado'
         ]) {
             assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`), `Falta tabla ${table}`);
         }
         assert.match(sql, /estado\s+ENUM\('activo',\s*'inactivo',\s*'suspendido'\)/);
         assert.match(sql, /tipo\s+ENUM\('registro',\s*'reset',\s*'mfa'\)/);
+        assert.match(sql, /tipo\s+ENUM\('evento',\s*'tarea'\)/);
+        assert.match(sql, /categoria\s+ENUM\('universidad',\s*'personal'\)/);
+        assert.match(sql, /estado\s+ENUM\('todo',\s*'in_progress',\s*'done'\)/);
+    });
+
+    it('reemplaza el arcoíris, expone controles de Settings/Jira/Recordatorios y agrega índices a las guías', () => {
+        for (const relPath of ['public/index.html', 'public/dashboard.html', 'README.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+            const content = readText(relPath);
+            assert.equal(content.includes('🌈'), false, `${relPath} no debe contener el emoji arcoíris`);
+        }
+
+        for (const docPath of ['README.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+            const top = readText(docPath).slice(0, 1200);
+            assert.match(top, /## .*[ÍI]ndice/i, `${docPath} debe incluir un índice al inicio`);
+        }
+
+        const indexHtml = readText('public/index.html');
+        for (const requiredId of [
+            'id="reminderTray"',
+            'id="agendaCategoryFilters"',
+            'id="agendaTypeFilters"',
+            'id="agendaTipo"',
+            'id="agendaCategoria"',
+            'id="agendaEstado"',
+            'id="view-settings"',
+            'id="settingsForm"',
+            'id="setPhoneEnabled"',
+            'id="setNtfyTopic"',
+            'id="setEnglishEnabled"',
+            'id="setMoodLateNight"'
+        ]) {
+            assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
+        }
     });
 
     it('protege archivos secretos y optimiza Dockerfile / docker-compose.yml para t3.micro', () => {

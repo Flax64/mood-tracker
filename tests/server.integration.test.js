@@ -51,6 +51,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
     const moodInserts = [];
     const sleepInserts = [];
     const agendaInserts = [];
+    const userSettingsMap = new Map();
+    const reminderStatesMap = new Map();
 
     const testHash = bcrypt.hashSync('ClavePrueba2026!', 4);
     const users = [
@@ -69,6 +71,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         process.env.ADMIN_SECRET = 'secreto-test';
         process.env.SMTP_USER = 'smtp@example.com';
         process.env.SMTP_PASS = 'abcdefghijklmnop';
+        process.env.DISABLE_REMINDER_SCHEDULER = 'true';
 
         const mockDb = {
             query(sql, paramsOrCb, maybeCb) {
@@ -118,6 +121,26 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: 1 });
                 }
 
+                if (normalized.startsWith('SHOW COLUMNS FROM RegistrosAgenda')) {
+                    return finish(null, [
+                        { Field: 'tipo' },
+                        { Field: 'categoria' },
+                        { Field: 'estado' },
+                        { Field: 'recordatorio_min' }
+                    ]);
+                }
+
+                if (normalized.startsWith('SELECT id, rol, estado FROM Usuarios WHERE id = ?')) {
+                    const targetId = Number(params[0]);
+                    const u = users.find((x) => x.id === targetId);
+                    return finish(null, u ? [u] : []);
+                }
+
+                if (normalized.includes('FROM Usuarios') && normalized.includes("rol = 'admin'")) {
+                    const admins = users.filter((x) => x.rol === 'admin' && (x.estado || 'activo') === 'activo');
+                    return finish(null, admins);
+                }
+
                 if (normalized.includes('FROM Usuarios') && normalized.includes('WHERE')) {
                     const email = String(params[0] || '').toLowerCase();
                     const u = users.find((x) => x.email === email);
@@ -150,13 +173,23 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, existing);
                 }
 
+                if (normalized.startsWith('SELECT momento_dia FROM RegistrosMood WHERE fecha = ?')) {
+                    const existing = moodInserts.filter((m) => m.fecha === params[0]);
+                    return finish(null, existing);
+                }
+
                 if (normalized.startsWith('SELECT fecha, momento_dia, color_hex FROM RegistrosMood')) {
                     return finish(null, moodInserts);
                 }
 
                 if (normalized.startsWith('INSERT INTO RegistrosSleep')) {
-                    sleepInserts.push({ fecha: params[0], horas: params[1], calidad: params[2] });
+                    sleepInserts.push({ id: sleepInserts.length + 1, fecha: params[0], horas: params[1], calidad: params[2] });
                     return finish(null, { insertId: sleepInserts.length });
+                }
+
+                if (normalized.startsWith('SELECT id FROM RegistrosSleep WHERE fecha = ?')) {
+                    const existing = sleepInserts.filter((s) => s.fecha === params[0]);
+                    return finish(null, existing);
                 }
 
                 if (normalized.includes('FROM RegistrosSleep')) {
@@ -164,8 +197,127 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('INSERT INTO RegistrosAgenda')) {
-                    agendaInserts.push({ fecha: params[0], bloque: params[1], hora: params[2], actividad: params[3] });
-                    return finish(null, { insertId: agendaInserts.length });
+                    const newItem = {
+                        id: agendaInserts.length + 1,
+                        fecha: params[0],
+                        bloque: params[1],
+                        hora: params[2],
+                        actividad: params[3],
+                        tipo: params[4] || 'evento',
+                        categoria: params[5] || 'personal',
+                        estado: params[6] || 'todo',
+                        completada: params[7] ?? 0,
+                        recordatorio_min: params[8] ?? null
+                    };
+                    agendaInserts.push(newItem);
+                    return finish(null, { insertId: newItem.id });
+                }
+
+                if (normalized.includes('FROM RegistrosAgenda') && normalized.includes('WHERE fecha BETWEEN ? AND ?')) {
+                    const [begin, end] = params;
+                    return finish(null, agendaInserts.filter((a) => a.fecha >= begin && a.fecha <= end));
+                }
+
+                if (normalized.includes('FROM RegistrosAgenda') && normalized.includes('WHERE fecha = ?')) {
+                    return finish(null, agendaInserts.filter((a) => a.fecha === params[0]));
+                }
+
+                if (normalized.startsWith('UPDATE RegistrosAgenda SET fecha = ?')) {
+                    const id = Number(params[9]);
+                    const item = agendaInserts.find((a) => a.id === id);
+                    if (!item) return finish(null, { affectedRows: 0 });
+                    item.fecha = params[0];
+                    item.bloque = params[1];
+                    item.hora = params[2];
+                    item.actividad = params[3];
+                    item.tipo = params[4];
+                    item.categoria = params[5];
+                    item.estado = params[6];
+                    item.completada = params[7];
+                    item.recordatorio_min = params[8];
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('UPDATE RegistrosAgenda SET estado = ?, completada = ? WHERE id = ?')) {
+                    const id = Number(params[2]);
+                    const item = agendaInserts.find((a) => a.id === id);
+                    if (!item) return finish(null, { affectedRows: 0 });
+                    item.estado = params[0];
+                    item.completada = params[1];
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('UPDATE RegistrosAgenda SET completada = NOT completada')) {
+                    const id = Number(params[0]);
+                    const item = agendaInserts.find((a) => a.id === id);
+                    if (!item) return finish(null, { affectedRows: 0 });
+                    item.completada = item.completada ? 0 : 1;
+                    item.estado = item.completada ? 'done' : 'todo';
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('DELETE FROM RegistrosAgenda WHERE id = ?')) {
+                    const idx = agendaInserts.findIndex((a) => a.id === Number(params[0]));
+                    if (idx === -1) return finish(null, { affectedRows: 0 });
+                    agendaInserts.splice(idx, 1);
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('SELECT config_json FROM ConfiguracionUsuario WHERE usuario_id = ?')) {
+                    const cfg = userSettingsMap.get(Number(params[0]));
+                    return finish(null, cfg ? [{ config_json: cfg }] : []);
+                }
+
+                if (normalized.startsWith('INSERT INTO ConfiguracionUsuario')) {
+                    userSettingsMap.set(Number(params[0]), params[1]);
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('SELECT clave_unica, tipo, titulo, mensaje, estado, snooze_hasta, enviado_push_en FROM RecordatoriosEstado')) {
+                    const uid = Number(params[0]);
+                    const rows = [...reminderStatesMap.values()].filter((r) => r.usuario_id === uid);
+                    return finish(null, rows);
+                }
+
+                if (normalized.startsWith('INSERT INTO RecordatoriosEstado')) {
+                    const [uid, key, tipo, refId, titulo, mensaje] = params;
+                    const isDismiss = normalized.includes("'dismissed'");
+                    const isSnooze = normalized.includes("'snoozed'");
+                    const estado = isDismiss ? 'dismissed' : (isSnooze ? 'snoozed' : 'active');
+                    const snoozeHasta = isSnooze ? params[6] : null;
+                    const pushAt = !isDismiss && !isSnooze ? params[6] : null;
+                    reminderStatesMap.set(`${uid}:${key}`, {
+                        usuario_id: Number(uid),
+                        clave_unica: key,
+                        tipo,
+                        ref_id: refId,
+                        titulo,
+                        mensaje,
+                        estado,
+                        snooze_hasta: snoozeHasta,
+                        enviado_push_en: pushAt
+                    });
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ?")) {
+                    const targetRefId = Number(params[0]);
+                    for (const val of reminderStatesMap.values()) {
+                        if (Number(val.ref_id) === targetRefId && val.tipo === 'agenda') {
+                            val.estado = 'dismissed';
+                        }
+                    }
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('DELETE FROM RecordatoriosEstado WHERE ref_id = ?')) {
+                    const targetRefId = Number(params[0]);
+                    for (const [k, val] of reminderStatesMap.entries()) {
+                        if (Number(val.ref_id) === targetRefId && val.tipo === 'agenda') {
+                            reminderStatesMap.delete(k);
+                        }
+                    }
+                    return finish(null, { affectedRows: 1 });
                 }
 
                 return finish(null, []);
@@ -792,6 +944,261 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             body: { email: 'medico@example.com', password: 'ClavePrueba2026!' }
         });
         assert.strictEqual(medicoLoginAfterReactivate.status, 200);
+    });
+
+    it('soporta Agenda Event/Task, categorías University/Personal, estados Jira (To Do/In Progress/Done), Configuración y Recordatorios con Snooze', async () => {
+        // Re-iniciar sesión de admin limpio para pruebas de agenda/settings/reminders
+        const reLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'admin@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(reLogin.status, 200);
+        const tokenMatch = (reLogin.headers['set-cookie'] || []).join('; ').match(/mt_session=([^;]+)/);
+        assert.ok(tokenMatch);
+        adminCookie = `mt_session=${tokenMatch[1]}`;
+
+        const medicoReLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'medico@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(medicoReLogin.status, 200);
+        const medTokenMatch = (medicoReLogin.headers['set-cookie'] || []).join('; ').match(/mt_session=([^;]+)/);
+        assert.ok(medTokenMatch);
+        medicoCookie = `mt_session=${medTokenMatch[1]}`;
+
+        // 1. Psiquiatra no debe acceder a settings ni reminders (RBAC 403)
+        for (const restrictedPath of ['/api/settings', '/api/reminders/active']) {
+            const forb = await request({ port, reqPath: restrictedPath, headers: { Cookie: medicoCookie } });
+            assert.strictEqual(forb.status, 403, `${restrictedPath} debe bloquear a psiquiatra`);
+        }
+
+        // 2. Agenda: rechaza tipo/categoria/estado inválidos
+        const badCat = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-16',
+                bloque: 'cole',
+                hora: '09:00',
+                actividad: 'Test clase',
+                tipo: 'evento',
+                categoria: 'trabajo'
+            }
+        });
+        assert.strictEqual(badCat.status, 400);
+
+        const badJira = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-16',
+                bloque: 'cole',
+                hora: '09:00',
+                actividad: 'Test tarea',
+                tipo: 'tarea',
+                categoria: 'universidad',
+                estado: 'blocked'
+            }
+        });
+        assert.strictEqual(badJira.status, 400);
+
+        // 3. Crear tarea de Universidad (To Do) y transicionar Jira: todo -> in_progress -> done -> todo
+        const createdTask = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'agenda-task-jira-1' },
+            body: {
+                fecha: '2026-11-16',
+                bloque: 'cole',
+                hora: '10:30',
+                actividad: 'Finish Cloud Architecture Lab',
+                tipo: 'tarea',
+                categoria: 'universidad',
+                estado: 'todo',
+                recordatorio_min: 15
+            }
+        });
+        assert.strictEqual(createdTask.status, 201);
+        const taskJson = JSON.parse(createdTask.body);
+        assert.strictEqual(taskJson.item.tipo, 'tarea');
+        assert.strictEqual(taskJson.item.categoria, 'universidad');
+        assert.strictEqual(taskJson.item.estado, 'todo');
+        assert.strictEqual(taskJson.item.completada, 0);
+        const taskId = taskJson.item.id;
+
+        const toInProgress = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/toggle-agenda/${taskId}`,
+            headers: { Cookie: adminCookie },
+            body: { estado: 'in_progress' }
+        });
+        assert.strictEqual(toInProgress.status, 200);
+        assert.strictEqual(JSON.parse(toInProgress.body).estado, 'in_progress');
+        assert.strictEqual(JSON.parse(toInProgress.body).completada, 0);
+
+        const toDone = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/toggle-agenda/${taskId}`,
+            headers: { Cookie: adminCookie },
+            body: { estado: 'done' }
+        });
+        assert.strictEqual(toDone.status, 200);
+        assert.strictEqual(JSON.parse(toDone.body).estado, 'done');
+        assert.strictEqual(JSON.parse(toDone.body).completada, 1);
+
+        const weekRead = await request({
+            port,
+            reqPath: '/api/get-agenda?begin=2026-11-16&end=2026-11-16',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(weekRead.status, 200);
+        const itemsList = JSON.parse(weekRead.body);
+        const savedTask = itemsList.find((i) => i.id === taskId);
+        assert.ok(savedTask);
+        assert.strictEqual(savedTask.tipo, 'tarea');
+        assert.strictEqual(savedTask.categoria, 'universidad');
+        assert.strictEqual(savedTask.estado, 'done');
+
+        // 4. Configuración: verifica valores por defecto (English OFF, Madrugada OFF, Desktop OFF)
+        const getDefaults = await request({ port, reqPath: '/api/settings', headers: { Cookie: adminCookie } });
+        assert.strictEqual(getDefaults.status, 200);
+        const defSettings = JSON.parse(getDefaults.body).settings;
+        assert.strictEqual(defSettings.englishReminderEnabled, false);
+        assert.strictEqual(defSettings.moodIncludeLateNight, false);
+        assert.strictEqual(defSettings.desktopNotificationsEnabled, false);
+        assert.strictEqual(defSettings.moodRemindersEnabled, true);
+        assert.strictEqual(defSettings.sleepReminderEnabled, true);
+        assert.strictEqual(defSettings.wordEodReminderEnabled, true);
+
+        // Rechaza URLs SSRF / locales o habilitar ntfy sin tópico
+        for (const badSettings of [
+            { phoneNotificationsEnabled: true, ntfyTopic: '' },
+            { ntfyServerUrl: 'http://ntfy.sh' },
+            { ntfyServerUrl: 'https://127.0.0.1/topic' },
+            { ntfyServerUrl: 'https://localhost/topic' },
+            { timezone: 'Mars/Olympus_Mons' }
+        ]) {
+            const badRes = await request({
+                port,
+                method: 'PUT',
+                reqPath: '/api/settings',
+                headers: { Cookie: adminCookie },
+                body: badSettings
+            });
+            assert.strictEqual(badRes.status, 400);
+        }
+
+        // Elegir dinámicamente una zona horaria IANA cuya hora local actual esté entre 08:00 y 12:59
+        const candidateTzs = [
+            'UTC', 'America/Mexico_City', 'America/Los_Angeles', 'Pacific/Honolulu',
+            'America/Sao_Paulo', 'Asia/Dubai', 'Asia/Bangkok', 'Asia/Tokyo', 'Pacific/Auckland'
+        ];
+        const getTzHourAndDate = (tz) => {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: tz,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23'
+            }).formatToParts(new Date());
+            const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+            return {
+                tz,
+                hour: Number(map.hour),
+                dateStr: `${map.year}-${map.month}-${map.day}`
+            };
+        };
+        const chosenTz = candidateTzs.map(getTzHourAndDate).find((x) => x.hour >= 8 && x.hour <= 12) || getTzHourAndDate('UTC');
+        const dynamicEnglishTime = `${String(chosenTz.hour).padStart(2, '0')}:00`;
+        const backupSleeps = sleepInserts.splice(0, sleepInserts.length);
+
+        try {
+            // Guardar configuración válida (activando English configurable en la hora local actual para prueba determinista)
+            const saveSettingsRes = await request({
+                port,
+                method: 'PUT',
+                reqPath: '/api/settings',
+                headers: { Cookie: adminCookie },
+                body: {
+                    phoneNotificationsEnabled: false,
+                    ntfyTopic: 'hub_flavio_test_99',
+                    desktopNotificationsEnabled: false,
+                    moodRemindersEnabled: true,
+                    moodIncludeLateNight: false,
+                    sleepReminderEnabled: true,
+                    sleepReminderTime: '00:00',
+                    wordEodReminderEnabled: true,
+                    wordEodReminderTime: '00:00',
+                    englishReminderEnabled: true,
+                    englishReminderTime: dynamicEnglishTime,
+                    englishReminderDays: [0, 1, 2, 3, 4, 5, 6],
+                    englishReminderTopic: 'Practice 5 phrasal verbs',
+                    defaultAgendaCategory: 'universidad',
+                    timezone: chosenTz.tz
+                }
+            });
+            assert.strictEqual(saveSettingsRes.status, 200);
+            const savedSettings = JSON.parse(saveSettingsRes.body).settings;
+            assert.strictEqual(savedSettings.englishReminderEnabled, true);
+            assert.strictEqual(savedSettings.defaultAgendaCategory, 'universidad');
+
+            // 5. Recordatorios activos + Snooze (posponer) + seguridad de token de acción
+            const activeRes = await request({ port, reqPath: '/api/reminders/active', headers: { Cookie: adminCookie } });
+            assert.strictEqual(activeRes.status, 200);
+            const remData = JSON.parse(activeRes.body);
+            assert.ok(Array.isArray(remData.active));
+            assert.ok(Array.isArray(remData.snoozed));
+            const sleepRem = remData.active.find((r) => r.type === 'sleep');
+            const wordRem = remData.active.find((r) => r.type === 'word');
+            const engRem = remData.active.find((r) => r.type === 'english');
+            assert.ok(sleepRem, `Debe aparecer recordatorio de sueño configurable (tz=${chosenTz.tz}, hour=${chosenTz.hour})`);
+            assert.ok(wordRem, 'Debe aparecer recordatorio de cierre del día para notas Word');
+            assert.ok(engRem, 'Debe aparecer recordatorio personalizado de inglés al activarlo');
+
+            const snoozeRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/reminders/snooze',
+                headers: { Cookie: adminCookie },
+                body: {
+                    key: sleepRem.key,
+                    action: 'snooze',
+                    minutes: 30,
+                    type: sleepRem.type,
+                    title: sleepRem.title,
+                    message: sleepRem.message
+                }
+            });
+            assert.strictEqual(snoozeRes.status, 200);
+
+            const afterSnoozeRes = await request({ port, reqPath: '/api/reminders/active', headers: { Cookie: adminCookie } });
+            assert.strictEqual(afterSnoozeRes.status, 200);
+            const afterSnooze = JSON.parse(afterSnoozeRes.body);
+            assert.ok(afterSnooze.snoozed.some((s) => s.key === sleepRem.key), 'El recordatorio pospuesto debe pasar a snoozed');
+            assert.equal(afterSnooze.active.some((a) => a.key === sleepRem.key), false, 'El recordatorio pospuesto no debe seguir activo');
+
+            const badActionToken = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/reminders/action?token=forged-token-123'
+            });
+            assert.strictEqual(badActionToken.status, 401);
+        } finally {
+            sleepInserts.push(...backupSleeps);
+        }
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {

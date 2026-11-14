@@ -23,9 +23,14 @@ CREATE TABLE IF NOT EXISTS RegistrosAgenda (
     bloque VARCHAR(30) NOT NULL,
     hora TIME NOT NULL,
     actividad VARCHAR(255) NOT NULL,
+    tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento',
+    categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
+    estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
     completada TINYINT(1) NOT NULL DEFAULT 0,
+    recordatorio_min SMALLINT NULL DEFAULT NULL,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_agenda_fecha (fecha)
+    INDEX idx_agenda_fecha (fecha),
+    INDEX idx_agenda_categoria_estado (categoria, estado)
 );
 
 CREATE TABLE IF NOT EXISTS Usuarios (
@@ -58,4 +63,28 @@ CREATE TABLE IF NOT EXISTS CodigosSeguridad (
     usado TINYINT(1) NOT NULL DEFAULT 0,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_codigo_email_tipo (email, tipo)
+);
+
+CREATE TABLE IF NOT EXISTS ConfiguracionUsuario (
+    usuario_id INT PRIMARY KEY,
+    config_json LONGTEXT NOT NULL,
+    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS RecordatoriosEstado (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    clave_unica VARCHAR(120) NOT NULL,
+    tipo VARCHAR(30) NOT NULL,
+    ref_id INT NULL,
+    titulo VARCHAR(140) NOT NULL,
+    mensaje VARCHAR(320) NOT NULL,
+    estado ENUM('active', 'snoozed', 'sent', 'dismissed') NOT NULL DEFAULT 'active',
+    snooze_hasta DATETIME NULL,
+    enviado_push_en DATETIME NULL,
+    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_usuario_clave (usuario_id, clave_unica),
+    INDEX idx_rec_estado (usuario_id, estado),
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
 );
