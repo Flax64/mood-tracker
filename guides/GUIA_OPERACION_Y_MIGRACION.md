@@ -89,7 +89,8 @@ python sincronitation/sincronizador.py --configurar-autoinicio   # Actualiza tam
 
 El script `sincronitation/sincronizador.py` detecta automáticamente `.env` o `.env.enc` (descifrándolo solo en RAM) y sincroniza **dos documentos Word** en tu PC:
 1. **Journal diario (cifrado con contraseña):** usa `WORD_FILE_PATH` + `WORD_PASSWORD` desde `/api/pull-text`.
-2. **English Learning Notebook (`english-notes/English_Learning_Notebook.docx`, sin contraseña):** carpeta ignorada por Git; ordena tus registros en **3 apartados** (*Glossary & New Words*, *Grammar & Usage Notes* y *Phrasal Verbs*) y regenera automáticamente la **Tabla de Contenidos** al inicio del archivo en cada registro desde `/api/pull-english`. Su ruta es **relativa al proyecto**, por lo que **no requiere modificar `.env`, `.env.enc` ni rutas al migrar de instancia EC2**.
+2. **English Learning Notebook (`english-notes/English_Learning_Notebook.docx`, sin contraseña):** carpeta ignorada por Git; ordena tus registros en **4 apartados** (*Glossary & New Words*, *Grammar & Usage Notes*, *Phrasal Verbs* y *Songs & Music Study* para **Learn with Music**) y regenera automáticamente la **Tabla de Contenidos** al inicio del archivo en cada registro desde `/api/pull-english`. Su ruta es **relativa al proyecto**, por lo que **no requiere modificar `.env`, `.env.enc` ni rutas al migrar de instancia EC2**.
+   *(En **Learn with Music**, el botón **Find in YouTube Music** abre la búsqueda en tu propia sesión iniciada de YouTube Music y al pegar la URL de la canción se autocompletan título y artista. Si algún día quieres resultados embebidos dentro de la app, puedes añadir opcionalmente la variable `YOUTUBE_API_KEY` en tu entorno del servidor, sin ser obligatoria).*
 
 ### Variables que utiliza tu `.env` / `.env.enc` local
 | Variable | Obligatoria | Para qué sirve |
@@ -255,7 +256,7 @@ En la carpeta `.ssh/` del proyecto (ignorada por `.gitignore`) tienes:
 4. **Par de llaves (Key pair):** elige `clave-pmt` (la misma que `.ssh/clave-pmt.pem`). *(Si eliges otro `.pem` nuevo, guárdalo en `.ssh/` y úsalo en los comandos de abajo en vez de `clave-pmt.pem`.)*
 5. **Security Group:** abre TCP `22` (SSH) y TCP `3000` (o el puerto configurado en tu variable `PORT`).
 
-### 6.4 Paso 3 — Autorizar llave de GitHub Actions y crear Swap (1 GB)
+### 6.4 Paso 3 — Autorizar llave SSH de GitHub Actions (Swap 1 GB ya es automático)
 
 Reemplaza `NUEVA_IP` (y `ubuntu` por `ec2-user` si usas Amazon Linux):
 
@@ -272,9 +273,6 @@ ssh -i .ssh/clave-pmt.pem ubuntu@NUEVA_IP "mkdir -p ~/.ssh && chmod 700 ~/.ssh &
 
 # 3. Probar desde ya que GitHub Actions podrá conectarse con github_deploy_key
 ssh -i .ssh/github_deploy_key ubuntu@NUEVA_IP "whoami && echo SSH_DEPLOY_OK"
-
-# 4. Conectarte manualmente para crear la memoria Swap
-ssh -i .ssh/clave-pmt.pem ubuntu@NUEVA_IP
 ```
 
 #### Opción B: Equivalente rápido en **PowerShell** (si `ssh` de Windows pide ACL estrictas)
@@ -285,26 +283,16 @@ icacls ".\.ssh\github_deploy_key" /inheritance:r /grant:r "$($env:USERNAME):(R)"
 $pub = (Get-Content ".\.ssh\github_deploy_key.pub" -Raw).Trim()
 ssh -i ".\.ssh\clave-pmt.pem" ubuntu@NUEVA_IP "mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && grep -qxF '$pub' ~/.ssh/authorized_keys || printf '%s\n' '$pub' >> ~/.ssh/authorized_keys"
 ssh -i ".\.ssh\github_deploy_key" ubuntu@NUEVA_IP "whoami && echo SSH_DEPLOY_OK"
-ssh -i ".\.ssh\clave-pmt.pem" ubuntu@NUEVA_IP
 ```
 
-Una vez dentro de la nueva instancia por SSH, crea la **Swap de 1 GB**:
-```bash
-sudo fallocate -l 1G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-free -h
-exit
-```
+> **Swap automática desde el primer segundo:** Ya no necesitas entrar manualmente a crear Swap antes del primer despliegue. En cuanto ejecutes el workflow de deploy, `.github/workflows/deploy.yml` ejecuta como **Paso `# 0` (lo primero al entrar por SSH antes de instalar paquetes o compilar)** la creación y activación idempotente de **`/swapfile` (1 GB)** en `/etc/fstab`.
 
 ### 6.5 Paso 4 — Actualizar `EC2_HOST` y desplegar desde GitHub
 1. En GitHub → **Settings → Secrets and variables → Actions → Variables**:
    * Actualiza **`EC2_HOST`** con `NUEVA_IP`.
    * Si cambiaste de sistema (ej. de Ubuntu a Amazon Linux), actualiza también **`EC2_USER`**.
 2. Ve a **Actions → Deploy to AWS EC2 → Run workflow** (rama `main`).
-3. El workflow instalará paquetes (`git`, `curl`, `rclone`, `cron`, `openssl`, `docker`), clonará el repo, levantará Docker leyendo secretos solo desde RAM (`/dev/shm`), restaurará tu base de datos desde Drive, ajustará hora y cron `30 3 * * *`, y no dejará `.env` en disco.
+3. El workflow activará **1 GB de Swap como primer paso (`# 0`)**, instalará paquetes (`git`, `curl`, `rclone`, `cron`, `openssl`, `docker`), clonará el repo, levantará Docker leyendo secretos solo desde RAM (`/dev/shm`), restaurará tu base de datos desde Drive, ajustará hora y cron `30 3 * * *`, y no dejará `.env` en disco.
 
 ### 6.6 Paso 5 — Verificación final y rotación opcional de llave
 * Abre `http://NUEVA_IP:3000` e inicia sesión para validar que ánimo, sueño, agenda y cuentas están restaurados.

@@ -601,6 +601,8 @@
                             aria-selected="false">✍️ Grammar &amp; Usage Note</button>
                         <button type="button" class="english-tab-btn" data-english-cat="phrasal_verb" role="tab"
                             aria-selected="false">🔗 Phrasal Verb</button>
+                        <button type="button" class="english-tab-btn" data-english-cat="music" role="tab"
+                            aria-selected="false">🎵 Learn with Music</button>
                     </div>
 
                     <form id="englishForm">
@@ -719,10 +721,222 @@
                         <button type="submit" class="btn-submit" id="btnSendEnglish">Save to English Word Notebook (PC)</button>
                     </form>
 
-                    <div class="english-recent-box">
+                    <div class="english-recent-box" id="englishRecentBox">
                         <h3>Sent in this session</h3>
                         <div id="englishRecentList" class="english-recent-list">
                             <p class="muted-text">No entries queued in this session yet.</p>
+                        </div>
+                    </div>
+
+                    <div id="englishMusicStudio" class="english-music-studio" hidden>
+                        <div class="music-privacy-callout">
+                            <strong>Personal Copyright &amp; Privacy Guard:</strong> Artist, collaboration, album / mini
+                            album, and YouTube Music links stay organized in MySQL metadata. Your full lyrics breakdown,
+                            meanings, and long study notes are <strong>encrypted E2EE</strong> directly into
+                            <code>English_Learning_Notebook.docx</code> on your PC—never stored or published on the server.
+                        </div>
+
+                        <div class="music-yt-finder-card">
+                            <div class="music-yt-finder-head">
+                                <div>
+                                    <h3>YouTube Music Song Finder</h3>
+                                    <p class="muted-text">Search using your logged-in YouTube Music account, then copy and paste the song link below to auto-fill title and artist.</p>
+                                </div>
+                                <button type="button" class="btn-secondary btn-small" id="btnMusicOpenYtLibrary">My YouTube Music Library</button>
+                            </div>
+                            <div class="music-yt-finder-bar">
+                                <input type="text" id="musicYtSearchQuery" maxlength="120"
+                                    placeholder="e.g. BABYMONSTER DRIP, BLACKPINK Tally, ROSÉ &amp; Bruno Mars APT.">
+                                <button type="button" class="btn-primary btn-small" id="btnMusicSearchYt">Find in YouTube Music</button>
+                            </div>
+                            <div id="musicYtSearchResults" class="music-yt-results" hidden></div>
+                        </div>
+
+                        <div class="music-studio-grid">
+                            <form id="musicSongForm" class="music-panel-card" autocomplete="off">
+                                <div class="music-panel-head">
+                                    <h3 id="musicSongFormTitle">Register or Link Song</h3>
+                                    <button type="button" class="btn-secondary btn-small" id="btnMusicCancelEdit" hidden>Cancel Edit</button>
+                                </div>
+                                <input type="hidden" id="musicSongEditId" value="">
+
+                                <div class="form-group">
+                                    <label for="musicSongYtUrl">YouTube Music / YouTube URL or 11-char ID (optional)</label>
+                                    <div class="music-inline-input">
+                                        <input type="text" id="musicSongYtUrl" maxlength="500"
+                                            placeholder="https://music.youtube.com/watch?v=...">
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicResolveYt">Auto-fill</button>
+                                    </div>
+                                </div>
+
+                                <div class="english-row-2">
+                                    <div class="form-group">
+                                        <label for="musicSongTitle">Song Title *</label>
+                                        <input type="text" id="musicSongTitle" maxlength="180" required placeholder="e.g. DRIP">
+                                    </div>
+                                    <div class="english-row-2">
+                                        <div class="form-group">
+                                            <label for="musicSongTrackNumber">Track #</label>
+                                            <input type="number" id="musicSongTrackNumber" min="1" max="999" placeholder="e.g. 2">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="musicSongLanguage">Language</label>
+                                            <input type="text" id="musicSongLanguage" maxlength="40" value="English" placeholder="English / EN-KR">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="english-row-2">
+                                    <div class="form-group">
+                                        <label for="musicMainArtist">Main Artist / Group *</label>
+                                        <input type="text" id="musicMainArtist" list="musicArtistsDatalist" maxlength="140" required
+                                            placeholder="e.g. BABYMONSTER, BLACKPINK, ROSÉ">
+                                        <datalist id="musicArtistsDatalist"></datalist>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="musicMainArtistType">Artist Format</label>
+                                        <select id="musicMainArtistType" class="select-input">
+                                            <option value="group">Group</option>
+                                            <option value="solo">Solo Artist</option>
+                                            <option value="duo">Duo</option>
+                                            <option value="collab_project">Collab Unit</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="musicCollaborators">Collaborators / Featured Artists (optional)</label>
+                                    <input type="text" id="musicCollaborators" maxlength="300"
+                                        placeholder="Comma-separated, e.g. Bruno Mars, feat. Cardi B">
+                                    <small class="muted-text">Songs appear under every collaborating artist too.</small>
+                                </div>
+
+                                <div class="english-row-2">
+                                    <div class="form-group">
+                                        <label for="musicAlbumTitle">Album / Mini Album Title (optional)</label>
+                                        <input type="text" id="musicAlbumTitle" list="musicAlbumsDatalist" maxlength="180"
+                                            placeholder="e.g. BABYMONS7ER, BORN PINK">
+                                        <datalist id="musicAlbumsDatalist"></datalist>
+                                    </div>
+                                    <div class="english-row-2">
+                                        <div class="form-group">
+                                            <label for="musicAlbumType">Release Type</label>
+                                            <select id="musicAlbumType" class="select-input">
+                                                <option value="album">Album</option>
+                                                <option value="mini_album">Mini Album</option>
+                                                <option value="ep">EP</option>
+                                                <option value="single">Single</option>
+                                                <option value="collab_single">Collab Single</option>
+                                                <option value="ost">OST / Soundtrack</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="musicAlbumYear">Year</label>
+                                            <input type="number" id="musicAlbumYear" min="1950" max="2100" placeholder="2024">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="english-row-2">
+                                    <div class="form-group">
+                                        <label for="musicStudyStatus">Study Progress</label>
+                                        <select id="musicStudyStatus" class="select-input">
+                                            <option value="to_study">To Study</option>
+                                            <option value="in_progress">In Progress</option>
+                                            <option value="mastered">Mastered</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="musicFocusSummary">Short Study Focus (max 255 chars, no lyrics)</label>
+                                        <input type="text" id="musicFocusSummary" maxlength="255"
+                                            placeholder="e.g. Connected speech &amp; slang idioms in chorus">
+                                    </div>
+                                </div>
+
+                                <div id="musicSongFormBanner" class="english-status-banner" hidden></div>
+
+                                <button type="submit" class="btn-submit" id="btnMusicSaveSong">Save Song Metadata</button>
+                            </form>
+
+                            <div class="music-panel-card music-catalog-panel">
+                                <div class="music-panel-head">
+                                    <h3>Artists, Collaborations &amp; Albums</h3>
+                                    <button type="button" class="btn-secondary btn-small" id="btnMusicRefreshCatalog">Refresh</button>
+                                </div>
+
+                                <div id="musicCatalogStats" class="music-stats-row"></div>
+
+                                <div class="music-filter-bar">
+                                    <input type="search" id="musicFilterSearch" placeholder="Filter song, album, or artist...">
+                                    <select id="musicFilterArtist" class="select-input" aria-label="Filter by artist">
+                                        <option value="">All Artists</option>
+                                    </select>
+                                    <select id="musicFilterReleaseType" class="select-input" aria-label="Filter by release type">
+                                        <option value="">All Releases</option>
+                                        <option value="album">Album</option>
+                                        <option value="mini_album">Mini Album</option>
+                                        <option value="ep">EP</option>
+                                        <option value="single">Single</option>
+                                        <option value="collab_single">Collab Single</option>
+                                        <option value="ost">OST</option>
+                                    </select>
+                                    <select id="musicFilterStatus" class="select-input" aria-label="Filter by status">
+                                        <option value="">All Statuses</option>
+                                        <option value="to_study">To Study</option>
+                                        <option value="in_progress">In Progress</option>
+                                        <option value="mastered">Mastered</option>
+                                    </select>
+                                </div>
+
+                                <div id="musicCatalogContainer" class="music-catalog-container">
+                                    <p class="muted-text">Loading music catalog...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="musicWordStudyCard" class="music-panel-card music-word-study-card">
+                            <div class="music-panel-head">
+                                <div>
+                                    <h3>Song Study Notes -&gt; Encrypted Word (PC)</h3>
+                                    <p id="musicStudySelectedBar" class="muted-text">Select a song from the catalog (or fill song details above) to record meanings, expressions, and pronunciation privately in Word.</p>
+                                </div>
+                                <div class="music-study-yt-actions">
+                                    <a id="btnMusicStudyOpenYt" class="btn-secondary btn-small" href="https://music.youtube.com/" target="_blank" rel="noopener noreferrer" hidden>Open in YT Music</a>
+                                    <button type="button" class="btn-secondary btn-small" id="btnMusicToggleEmbed" hidden>Mini Player</button>
+                                </div>
+                            </div>
+
+                            <div id="musicEmbedPlayerBox" class="music-embed-box" hidden></div>
+
+                            <form id="musicWordNotesForm">
+                                <input type="hidden" id="musicWordSongId" value="">
+                                <div class="form-group">
+                                    <label for="musicStudyLyrics">Lyrics Breakdown, Meanings &amp; Explanations (E2EE -&gt; PC Word only)</label>
+                                    <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
+                                        placeholder="Paste personal study lines and your translations/meaning breakdowns here (encrypted end-to-end before leaving your browser)..."></textarea>
+                                </div>
+                                <div class="english-row-2">
+                                    <div class="form-group">
+                                        <label for="musicStudyVocab">Vocabulary &amp; Expressions (optional)</label>
+                                        <textarea id="musicStudyVocab" class="english-textarea" rows="3" maxlength="4000"
+                                            placeholder="e.g. walk the talk, vibe check, hit different..."></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="musicStudyPronunciation">Pronunciation &amp; Connected Speech (optional)</label>
+                                        <textarea id="musicStudyPronunciation" class="english-textarea" rows="3" maxlength="3000"
+                                            placeholder="e.g. wanna = want to, gotta = got to, linking sounds..."></textarea>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="musicStudyExtraNotes">Additional Personal Notes (optional)</label>
+                                    <textarea id="musicStudyExtraNotes" class="english-textarea" rows="2" maxlength="3000"
+                                        placeholder="Context, cultural references, or things to review next time..."></textarea>
+                                </div>
+
+                                <div id="musicWordStatusBanner" class="english-status-banner" hidden></div>
+
+                                <button type="submit" class="btn-submit" id="btnSendMusicWord">Encrypt E2EE &amp; Save Study Notes to Word (PC)</button>
+                            </form>
                         </div>
                     </div>
                 </div>

@@ -53,6 +53,10 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
     const agendaInserts = [];
     const userSettingsMap = new Map();
     const reminderStatesMap = new Map();
+    const musicArtists = [];
+    const musicAlbums = [];
+    const musicSongs = [];
+    const musicSongArtists = [];
 
     const testHash = bcrypt.hashSync('ClavePrueba2026!', 4);
     const users = [
@@ -316,6 +320,215 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         if (Number(val.ref_id) === targetRefId && val.tipo === 'agenda') {
                             reminderStatesMap.delete(k);
                         }
+                    }
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('SELECT id FROM MusicaArtistas WHERE usuario_id = ? AND nombre_normalizado = ?')) {
+                    const [uid, norm] = params;
+                    const match = musicArtists.find((a) => a.usuario_id === Number(uid) && a.nombre_normalizado === norm);
+                    return finish(null, match ? [{ id: match.id }] : []);
+                }
+
+                if (normalized.startsWith('INSERT INTO MusicaArtistas')) {
+                    const [uid, nombre, norm, tipo] = params;
+                    const id = musicArtists.length + 1;
+                    musicArtists.push({
+                        id,
+                        usuario_id: Number(uid),
+                        nombre,
+                        nombre_normalizado: norm,
+                        tipo_artista: tipo || 'solo',
+                        notas_cortas: null,
+                        creado_en: '2026-11-14 16:00:00'
+                    });
+                    return finish(null, { insertId: id });
+                }
+
+                if (normalized.startsWith('SELECT id FROM MusicaAlbumes WHERE usuario_id = ? AND titulo_normalizado = ?')) {
+                    const [uid, norm, mainId] = params;
+                    const match = musicAlbums.find(
+                        (al) =>
+                            al.usuario_id === Number(uid) &&
+                            al.titulo_normalizado === norm &&
+                            Number(al.artista_principal_id || 0) === Number(mainId || 0)
+                    );
+                    return finish(null, match ? [{ id: match.id }] : []);
+                }
+
+                if (normalized.startsWith('UPDATE MusicaAlbumes SET tipo_lanzamiento = ?')) {
+                    const [tipo, anio, albumId, uid] = params;
+                    const alb = musicAlbums.find((a) => a.id === Number(albumId) && a.usuario_id === Number(uid));
+                    if (alb) {
+                        alb.tipo_lanzamiento = tipo;
+                        if (anio !== null && anio !== undefined) alb.anio = anio;
+                    }
+                    return finish(null, { affectedRows: alb ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('INSERT INTO MusicaAlbumes')) {
+                    const [uid, mainArtistId, titulo, norm, tipo, anio] = params;
+                    const id = musicAlbums.length + 1;
+                    musicAlbums.push({
+                        id,
+                        usuario_id: Number(uid),
+                        artista_principal_id: mainArtistId || null,
+                        titulo,
+                        titulo_normalizado: norm,
+                        tipo_lanzamiento: tipo || 'album',
+                        anio: anio || null,
+                        notas_cortas: null,
+                        creado_en: '2026-11-14 16:00:00'
+                    });
+                    return finish(null, { insertId: id });
+                }
+
+                if (normalized.startsWith('INSERT INTO MusicaCanciones')) {
+                    const [uid, albumId, titulo, numPista, idioma, ytUrl, ytId, thumb, estado, enfoque] = params;
+                    const id = musicSongs.length + 1;
+                    musicSongs.push({
+                        id,
+                        usuario_id: Number(uid),
+                        album_id: albumId || null,
+                        titulo,
+                        numero_pista: numPista,
+                        idioma,
+                        yt_music_url: ytUrl,
+                        yt_video_id: ytId,
+                        thumbnail_url: thumb,
+                        estado_estudio: estado,
+                        enfoque_corto: enfoque,
+                        word_sincronizado: 0,
+                        ultimo_estudio_en: null,
+                        creado_en: '2026-11-14 16:00:00',
+                        actualizado_en: '2026-11-14 16:00:00'
+                    });
+                    return finish(null, { insertId: id });
+                }
+
+                if (normalized.startsWith('DELETE FROM MusicaCancionArtistas WHERE cancion_id = ?')) {
+                    const songId = Number(params[0]);
+                    for (let i = musicSongArtists.length - 1; i >= 0; i--) {
+                        if (musicSongArtists[i].cancion_id === songId) musicSongArtists.splice(i, 1);
+                    }
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('INSERT INTO MusicaCancionArtistas')) {
+                    const [songId, artistId, rol, orden] = params;
+                    musicSongArtists.push({
+                        cancion_id: Number(songId),
+                        artista_id: Number(artistId),
+                        rol,
+                        orden
+                    });
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('SELECT id, nombre, tipo_artista, notas_cortas, creado_en FROM MusicaArtistas')) {
+                    const uid = Number(params[0]);
+                    return finish(
+                        null,
+                        musicArtists
+                            .filter((a) => a.usuario_id === uid)
+                            .sort((a, b) => a.nombre.localeCompare(b.nombre))
+                    );
+                }
+
+                if (normalized.startsWith('SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre')) {
+                    const uid = Number(params[0]);
+                    return finish(
+                        null,
+                        musicAlbums
+                            .filter((al) => al.usuario_id === uid)
+                            .map((al) => {
+                                const artist = musicArtists.find((a) => a.id === al.artista_principal_id);
+                                return { ...al, artista_principal_nombre: artist ? artist.nombre : null };
+                            })
+                    );
+                }
+
+                if (normalized.startsWith('SELECT c.id, c.album_id, al.titulo AS album_titulo')) {
+                    const uid = Number(params[0]);
+                    return finish(
+                        null,
+                        musicSongs
+                            .filter((c) => c.usuario_id === uid)
+                            .map((c) => {
+                                const al = musicAlbums.find((a) => a.id === c.album_id);
+                                return {
+                                    ...c,
+                                    album_titulo: al ? al.titulo : null,
+                                    album_tipo: al ? al.tipo_lanzamiento : null,
+                                    album_anio: al ? al.anio : null
+                                };
+                            })
+                    );
+                }
+
+                if (normalized.startsWith('SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre FROM MusicaCancionArtistas')) {
+                    const uid = Number(params[0]);
+                    const ownedSongIds = new Set(musicSongs.filter((c) => c.usuario_id === uid).map((c) => c.id));
+                    return finish(
+                        null,
+                        musicSongArtists
+                            .filter((l) => ownedSongIds.has(l.cancion_id))
+                            .map((l) => {
+                                const artist = musicArtists.find((a) => a.id === l.artista_id);
+                                return { ...l, nombre: artist ? artist.nombre : '' };
+                            })
+                    );
+                }
+
+                if (normalized.startsWith('SELECT id FROM MusicaCanciones WHERE id = ? AND usuario_id = ?')) {
+                    const [songId, uid] = params;
+                    const match = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    return finish(null, match ? [{ id: match.id }] : []);
+                }
+
+                if (normalized.startsWith('SELECT id, estado_estudio, word_sincronizado FROM MusicaCanciones WHERE id = ? AND usuario_id = ?')) {
+                    const [songId, uid] = params;
+                    const match = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    return finish(null, match ? [{ id: match.id, estado_estudio: match.estado_estudio, word_sincronizado: match.word_sincronizado }] : []);
+                }
+
+                if (normalized.startsWith('UPDATE MusicaCanciones SET album_id = ?')) {
+                    const [albumId, titulo, numPista, idioma, ytUrl, ytId, thumb, estado, enfoque, songId, uid] = params;
+                    const song = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    if (song) {
+                        Object.assign(song, {
+                            album_id: albumId || null,
+                            titulo,
+                            numero_pista: numPista,
+                            idioma,
+                            yt_music_url: ytUrl,
+                            yt_video_id: ytId,
+                            thumbnail_url: thumb,
+                            estado_estudio: estado,
+                            enfoque_corto: enfoque
+                        });
+                    }
+                    return finish(null, { affectedRows: song ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('UPDATE MusicaCanciones SET estado_estudio = ?')) {
+                    const [estado, wordSynced, ultimoEstudio, songId, uid] = params;
+                    const song = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    if (song) {
+                        song.estado_estudio = estado;
+                        song.word_sincronizado = wordSynced;
+                        song.ultimo_estudio_en = ultimoEstudio;
+                    }
+                    return finish(null, { affectedRows: song ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('DELETE FROM MusicaCanciones WHERE id = ? AND usuario_id = ?')) {
+                    const [songId, uid] = params;
+                    const idx = musicSongs.findIndex((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    if (idx === -1) return finish(null, { affectedRows: 0 });
+                    musicSongs.splice(idx, 1);
+                    for (let i = musicSongArtists.length - 1; i >= 0; i--) {
+                        if (musicSongArtists[i].cancion_id === Number(songId)) musicSongArtists.splice(i, 1);
                     }
                     return finish(null, { affectedRows: 1 });
                 }
@@ -1199,6 +1412,171 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         } finally {
             sleepInserts.push(...backupSleeps);
         }
+    });
+
+    it('gestiona catálogo Learn with Music por artistas/colaboraciones/mini álbumes, valida YouTube Music y aísla notas en Word E2EE', async () => {
+        // 1. RBAC: psiquiatra no puede acceder al módulo personal de English Music
+        const psychCatalogRes = await request({ port, reqPath: '/api/english/music/catalog', headers: { Cookie: medicoCookie } });
+        assert.strictEqual(psychCatalogRes.status, 403);
+
+        const psychCreateRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: medicoCookie },
+            body: { titulo: 'DRIP', mainArtist: 'BABYMONSTER' }
+        });
+        assert.strictEqual(psychCreateRes.status, 403);
+
+        // 2. Búsqueda asistida hacia la cuenta del usuario en YouTube Music + bloqueo SSRF en resolve
+        const searchRes = await request({
+            port,
+            reqPath: '/api/english/music/search?q=BABYMONSTER%20DRIP',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(searchRes.status, 200);
+        const searchJson = JSON.parse(searchRes.body);
+        assert.strictEqual(searchJson.ytMusicSearchUrl, 'https://music.youtube.com/search?q=BABYMONSTER%20DRIP');
+        assert.strictEqual(searchJson.ytMusicLibraryUrl, 'https://music.youtube.com/library');
+
+        const ssrfResolveRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/resolve',
+            headers: { Cookie: adminCookie },
+            body: { url: 'https://evil.example.com/watch?v=ekr2nIex040' }
+        });
+        assert.strictEqual(ssrfResolveRes.status, 400);
+
+        // 3. Guardrail anti-letras en MySQL (>255 chars o >4 líneas rechazado en metadatos)
+        const lyricsInDbAttempt = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'Test Lyrics Guard',
+                mainArtist: 'BLACKPINK',
+                enfoqueCorto: 'A'.repeat(260)
+            }
+        });
+        assert.strictEqual(lyricsInDbAttempt.status, 400);
+
+        // 4. Registrar colaboración (ROSÉ x Bruno Mars) y Mini Álbum (BABYMONSTER - BABYMONS7ER)
+        const createCollabRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'APT.',
+                mainArtist: 'ROSÉ',
+                artistType: 'solo',
+                collaborators: 'Bruno Mars',
+                albumTitle: 'APT.',
+                albumType: 'collab_single',
+                albumYear: 2024,
+                ytMusicUrl: 'https://youtu.be/ekr2nIex040',
+                enfoqueCorto: 'Slang & casual phrases in fast conversation'
+            }
+        });
+        assert.strictEqual(createCollabRes.status, 201);
+        const createdCollab = JSON.parse(createCollabRes.body);
+        assert.strictEqual(createdCollab.ytMusicUrl, 'https://music.youtube.com/watch?v=ekr2nIex040');
+
+        const createMiniAlbumRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'SHEESH',
+                mainArtist: 'BABYMONSTER',
+                artistType: 'group',
+                albumTitle: 'BABYMONS7ER',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                trackNumber: 2,
+                ytMusicUrl: 'https://www.youtube.com/watch?v=2wA_b6YHjqQ',
+                enfoqueCorto: 'Expressions of surprise & confident idioms'
+            }
+        });
+        assert.strictEqual(createMiniAlbumRes.status, 201);
+        const miniSongId = JSON.parse(createMiniAlbumRes.body).songId;
+
+        // 5. Consultar catálogo y verificar artistas, colaboraciones y mini álbum
+        const catalogRes = await request({ port, reqPath: '/api/english/music/catalog', headers: { Cookie: adminCookie } });
+        assert.strictEqual(catalogRes.status, 200);
+        const catalog = JSON.parse(catalogRes.body);
+        assert.strictEqual(catalog.stats.totalSongs, 2);
+        assert.strictEqual(catalog.stats.totalArtists, 3);
+        const aptSong = catalog.songs.find((s) => s.titulo === 'APT.');
+        assert.ok(aptSong);
+        assert.strictEqual(aptSong.yt_music_url, 'https://music.youtube.com/watch?v=ekr2nIex040');
+        assert.strictEqual(aptSong.artists.length, 2);
+        assert.ok(aptSong.artists.some((a) => a.nombre === 'ROSÉ' && a.rol === 'main'));
+        assert.ok(aptSong.artists.some((a) => a.nombre === 'Bruno Mars' && a.rol === 'collab'));
+        const sheeshSong = catalog.songs.find((s) => s.id === miniSongId);
+        assert.ok(sheeshSong);
+        assert.strictEqual(sheeshSong.album_tipo, 'mini_album');
+
+        // 6. Actualizar estado + Word synced y enviar notas largas cifradas E2EE solo a cola Word (no MySQL)
+        const patchRes = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/english/music/songs/${miniSongId}/status`,
+            headers: { Cookie: adminCookie },
+            body: { estadoEstudio: 'mastered', wordSynced: true }
+        });
+        assert.strictEqual(patchRes.status, 200);
+        const patched = JSON.parse(patchRes.body);
+        assert.strictEqual(patched.estado_estudio, 'mastered');
+        assert.strictEqual(patched.word_sincronizado, true);
+
+        const e2eeCipher = 'ivhex123:encrypted-song-lyrics-and-meaning-notes';
+        const queueRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            headers: { Cookie: adminCookie },
+            body: { texto: e2eeCipher }
+        });
+        assert.strictEqual(queueRes.status, 200);
+
+        const pullRes = await request({ port, reqPath: '/api/pull-english' });
+        assert.strictEqual(pullRes.status, 200);
+        const pulled = JSON.parse(pullRes.body);
+        assert.ok(pulled.includes(e2eeCipher));
+
+        // 7. Editar metadatos y eliminar canción del catálogo
+        const updateRes = await request({
+            port,
+            method: 'PUT',
+            reqPath: `/api/english/music/songs/${miniSongId}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'SHEESH (Live Encore)',
+                mainArtist: 'BABYMONSTER',
+                artistType: 'group',
+                collaborators: 'feat. Rami',
+                albumTitle: 'BABYMONS7ER',
+                albumType: 'mini_album',
+                albumYear: 2024
+            }
+        });
+        assert.strictEqual(updateRes.status, 200);
+
+        const delRes = await request({
+            port,
+            method: 'DELETE',
+            reqPath: `/api/english/music/songs/${miniSongId}`,
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(delRes.status, 200);
+
+        const afterDelRes = await request({ port, reqPath: '/api/english/music/catalog', headers: { Cookie: adminCookie } });
+        const afterDel = JSON.parse(afterDelRes.body);
+        assert.strictEqual(afterDel.stats.totalSongs, 1);
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {

@@ -975,6 +975,9 @@ if (journalForm) {
 const englishForm = document.getElementById('englishForm');
 
 if (englishForm) {
+    const englishCard = document.querySelector('#view-english .english-card');
+    const englishRecentBox = document.getElementById('englishRecentBox');
+    const englishMusicStudio = document.getElementById('englishMusicStudio');
     const categoryInput = document.getElementById('englishCategoryInput');
     const tabButtons = document.querySelectorAll('.english-tab-btn[data-english-cat]');
     const statusBanner = document.getElementById('englishStatusBanner');
@@ -1009,7 +1012,8 @@ if (englishForm) {
     }
 
     function cambiarCategoriaEnglish(cat) {
-        const safeCat = sectionConfig[cat] ? cat : 'vocabulary';
+        const isMusic = cat === 'music' && Boolean(englishMusicStudio);
+        const safeCat = isMusic ? 'music' : (sectionConfig[cat] ? cat : 'vocabulary');
         if (categoryInput) categoryInput.value = safeCat;
 
         tabButtons.forEach(btn => {
@@ -1018,8 +1022,13 @@ if (englishForm) {
             btn.setAttribute('aria-selected', String(active));
         });
 
+        englishForm.hidden = isMusic;
+        if (englishRecentBox) englishRecentBox.hidden = isMusic;
+        if (englishMusicStudio) englishMusicStudio.hidden = !isMusic;
+        if (englishCard) englishCard.classList.toggle('music-wide', isMusic);
+
         Object.entries(sectionConfig).forEach(([key, cfg]) => {
-            const isTarget = key === safeCat;
+            const isTarget = !isMusic && key === safeCat;
             const fs = document.getElementById(cfg.fieldsetId);
             if (fs) fs.hidden = !isTarget;
             cfg.requiredIds.forEach(id => {
@@ -1029,6 +1038,9 @@ if (englishForm) {
         });
 
         if (statusBanner) statusBanner.hidden = true;
+        if (isMusic && typeof ensureEnglishMusicCatalogLoaded === 'function') {
+            ensureEnglishMusicCatalogLoaded();
+        }
     }
 
     tabButtons.forEach(btn => {
@@ -1178,6 +1190,838 @@ if (englishForm) {
     });
 
     cambiarCategoriaEnglish('vocabulary');
+}
+
+// ==========================================
+// ENGLISH LEARN WITH MUSIC STUDIO (MYSQL METADATA + E2EE WORD NOTES)
+// ==========================================
+let musicCatalogLoadRequested = false;
+
+function ensureEnglishMusicCatalogLoaded() {
+    if (!musicCatalogLoadRequested && typeof cargarCatalogoMusical === 'function') {
+        musicCatalogLoadRequested = true;
+        cargarCatalogoMusical();
+    }
+}
+
+const RELEASE_TYPE_LABELS = {
+    album: 'Album',
+    mini_album: 'Mini Album',
+    ep: 'EP',
+    single: 'Single',
+    collab_single: 'Collab Single',
+    ost: 'OST'
+};
+
+const MUSIC_STATUS_META = {
+    to_study: { label: 'To Study', next: 'in_progress' },
+    in_progress: { label: 'In Progress', next: 'mastered' },
+    mastered: { label: 'Mastered', next: 'to_study' }
+};
+
+const englishMusicStudioRoot = document.getElementById('englishMusicStudio');
+const musicState = {
+    artists: [],
+    albums: [],
+    songs: [],
+    selectedSongId: null,
+    editingSongId: null,
+    embedOpen: false
+};
+
+async function cargarCatalogoMusical() {
+    const container = document.getElementById('musicCatalogContainer');
+    if (!container) return;
+
+    container.replaceChildren(createLoadingIndicator('Loading songs & artists...', 'sm'));
+    try {
+        const res = await fetch('/api/english/music/catalog');
+        if (!res.ok) throw new Error(await res.text() || 'Failed to load music catalog.');
+        const data = await res.json();
+        musicState.artists = Array.isArray(data.artists) ? data.artists : [];
+        musicState.albums = Array.isArray(data.albums) ? data.albums : [];
+        musicState.songs = Array.isArray(data.songs) ? data.songs : [];
+
+        poblarSelectoresMusica();
+        renderMusicStats(data.stats);
+        renderMusicCatalog();
+        actualizarBarraCancionEstudio();
+    } catch (err) {
+        musicCatalogLoadRequested = false;
+        const p = document.createElement('p');
+        p.className = 'muted-text';
+        p.textContent = 'Could not load music catalog: ' + err.message;
+        container.replaceChildren(p);
+    }
+}
+
+function poblarSelectoresMusica() {
+    const artistSelect = document.getElementById('musicFilterArtist');
+    const artistDatalist = document.getElementById('musicArtistsDatalist');
+    const albumDatalist = document.getElementById('musicAlbumsDatalist');
+
+    if (artistSelect) {
+        const prev = artistSelect.value;
+        const firstOpt = document.createElement('option');
+        firstOpt.value = '';
+        firstOpt.textContent = 'All Artists';
+        artistSelect.replaceChildren(firstOpt);
+
+        musicState.artists.forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = String(a.id);
+            opt.textContent = a.nombre;
+            artistSelect.appendChild(opt);
+        });
+        if (prev && musicState.artists.some(a => String(a.id) === prev)) {
+            artistSelect.value = prev;
+        }
+    }
+
+    if (artistDatalist) {
+        artistDatalist.replaceChildren();
+        musicState.artists.forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.nombre;
+            artistDatalist.appendChild(opt);
+        });
+    }
+
+    if (albumDatalist) {
+        albumDatalist.replaceChildren();
+        const seenAlbums = new Set();
+        musicState.albums.forEach(al => {
+            const key = al.titulo.toLowerCase();
+            if (seenAlbums.has(key)) return;
+            seenAlbums.add(key);
+            const opt = document.createElement('option');
+            opt.value = al.titulo;
+            albumDatalist.appendChild(opt);
+        });
+    }
+}
+
+function renderMusicStats(stats) {
+    const statsEl = document.getElementById('musicCatalogStats');
+    if (!statsEl) return;
+    const s = stats || {};
+    const items = [
+        `${s.totalSongs || 0} songs`,
+        `${s.totalArtists || 0} artists`,
+        `${s.totalAlbums || 0} releases`,
+        `${s.mastered || 0} mastered`,
+        `${s.wordSynced || 0} synced to Word`
+    ];
+    statsEl.replaceChildren(...items.map(label => {
+        const span = document.createElement('span');
+        span.className = 'music-stat-pill';
+        span.textContent = label;
+        return span;
+    }));
+}
+
+function formatSongArtistsSummary(song) {
+    const list = Array.isArray(song.artists) ? song.artists : [];
+    const main = list.filter(a => a.rol === 'main').map(a => a.nombre);
+    const collabs = list.filter(a => a.rol !== 'main').map(a => (a.rol === 'feat' ? `feat. ${a.nombre}` : a.nombre));
+    const head = main.join(', ') || 'Unknown Artist';
+    return collabs.length ? `${head} (${collabs.join(', ')})` : head;
+}
+
+function mostrarBannerMusica(id, tipo, msg) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!msg) {
+        el.hidden = true;
+        return;
+    }
+    el.className = `english-status-banner ${tipo}`;
+    el.textContent = msg;
+    el.hidden = false;
+}
+
+function getCancionSeleccionada() {
+    if (!musicState.selectedSongId) return null;
+    return musicState.songs.find(s => Number(s.id) === Number(musicState.selectedSongId)) || null;
+}
+
+function actualizarBarraCancionEstudio() {
+    const bar = document.getElementById('musicStudySelectedBar');
+    const songIdInput = document.getElementById('musicWordSongId');
+    const openYtBtn = document.getElementById('btnMusicStudyOpenYt');
+    const toggleEmbedBtn = document.getElementById('btnMusicToggleEmbed');
+    const embedBox = document.getElementById('musicEmbedPlayerBox');
+    const song = getCancionSeleccionada();
+
+    if (songIdInput) songIdInput.value = song ? String(song.id) : '';
+
+    if (!song) {
+        if (bar) {
+            bar.textContent = 'Select any registered song from the catalog (or fill Song Title + Main Artist above) to save private notes encrypted into Word.';
+        }
+        if (openYtBtn) openYtBtn.hidden = true;
+        if (toggleEmbedBtn) toggleEmbedBtn.hidden = true;
+        if (embedBox) {
+            embedBox.hidden = true;
+            embedBox.replaceChildren();
+        }
+        musicState.embedOpen = false;
+        return;
+    }
+
+    const artistsText = formatSongArtistsSummary(song);
+    const albumText = song.album_titulo ? ` · ${song.album_titulo}` : '';
+    if (bar) {
+        bar.textContent = `Studying: ${artistsText} — ${song.titulo}${albumText}`;
+    }
+
+    if (openYtBtn) {
+        if (song.yt_music_url) {
+            openYtBtn.href = song.yt_music_url;
+            openYtBtn.hidden = false;
+        } else {
+            openYtBtn.hidden = true;
+        }
+    }
+
+    if (toggleEmbedBtn) {
+        if (song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id)) {
+            toggleEmbedBtn.hidden = false;
+            toggleEmbedBtn.textContent = musicState.embedOpen ? 'Hide Mini Player' : 'Mini Player';
+        } else {
+            toggleEmbedBtn.hidden = true;
+            musicState.embedOpen = false;
+        }
+    }
+
+    if (embedBox) {
+        if (musicState.embedOpen && song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id)) {
+            const iframe = document.createElement('iframe');
+            iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(song.yt_video_id)}?rel=0`;
+            iframe.title = `${song.titulo} - Audio / Video Study Player`;
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+            iframe.allowFullscreen = true;
+            embedBox.replaceChildren(iframe);
+            embedBox.hidden = false;
+        } else {
+            embedBox.hidden = true;
+            embedBox.replaceChildren();
+        }
+    }
+}
+
+function seleccionarCancionParaEstudio(song) {
+    musicState.selectedSongId = song ? Number(song.id) : null;
+    musicState.embedOpen = false;
+    actualizarBarraCancionEstudio();
+    renderMusicCatalog();
+    const card = document.getElementById('musicWordStudyCard');
+    if (card && typeof card.scrollIntoView === 'function') {
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+function cargarCancionEnFormularioEdicion(song) {
+    if (!song) return;
+    musicState.editingSongId = song.id;
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val ?? '';
+    };
+
+    const mainArtistObj = (song.artists || []).find(a => a.rol === 'main') || (song.artists || [])[0];
+    const collabs = (song.artists || [])
+        .filter(a => !mainArtistObj || a.id !== mainArtistObj.id)
+        .map(a => (a.rol === 'feat' ? `feat. ${a.nombre}` : a.nombre))
+        .join(', ');
+
+    setVal('musicSongEditId', String(song.id));
+    setVal('musicSongYtUrl', song.yt_music_url || '');
+    setVal('musicSongTitle', song.titulo || '');
+    setVal('musicSongTrackNumber', song.numero_pista || '');
+    setVal('musicSongLanguage', song.idioma || 'English');
+    setVal('musicMainArtist', mainArtistObj ? mainArtistObj.nombre : '');
+    setVal('musicCollaborators', collabs);
+    setVal('musicAlbumTitle', song.album_titulo || '');
+    setVal('musicAlbumType', song.album_tipo || 'album');
+    setVal('musicAlbumYear', song.album_anio || '');
+    setVal('musicStudyStatus', song.estado_estudio || 'to_study');
+    setVal('musicFocusSummary', song.enfoque_corto || '');
+
+    const titleEl = document.getElementById('musicSongFormTitle');
+    const cancelBtn = document.getElementById('btnMusicCancelEdit');
+    const saveBtn = document.getElementById('btnMusicSaveSong');
+    if (titleEl) titleEl.textContent = `Edit Song: ${song.titulo}`;
+    if (cancelBtn) cancelBtn.hidden = false;
+    if (saveBtn) saveBtn.textContent = 'Update Song Metadata';
+    mostrarBannerMusica('musicSongFormBanner', '', '');
+}
+
+function cancelarEdicionCancionMusica() {
+    musicState.editingSongId = null;
+    const form = document.getElementById('musicSongForm');
+    if (form) form.reset();
+    const langInput = document.getElementById('musicSongLanguage');
+    if (langInput) langInput.value = 'English';
+    const editId = document.getElementById('musicSongEditId');
+    if (editId) editId.value = '';
+    const titleEl = document.getElementById('musicSongFormTitle');
+    const cancelBtn = document.getElementById('btnMusicCancelEdit');
+    const saveBtn = document.getElementById('btnMusicSaveSong');
+    if (titleEl) titleEl.textContent = 'Register or Link Song';
+    if (cancelBtn) cancelBtn.hidden = true;
+    if (saveBtn) saveBtn.textContent = 'Save Song Metadata';
+}
+
+function renderMusicCatalog() {
+    const container = document.getElementById('musicCatalogContainer');
+    if (!container) return;
+
+    const search = (document.getElementById('musicFilterSearch')?.value || '').trim().toLowerCase();
+    const artistFilter = document.getElementById('musicFilterArtist')?.value || '';
+    const releaseFilter = document.getElementById('musicFilterReleaseType')?.value || '';
+    const statusFilter = document.getElementById('musicFilterStatus')?.value || '';
+
+    const filteredSongs = musicState.songs.filter(song => {
+        if (artistFilter) {
+            const hasArtist = (song.artists || []).some(a => String(a.id) === String(artistFilter));
+            if (!hasArtist) return false;
+        }
+        if (releaseFilter && (song.album_tipo || 'single') !== releaseFilter) return false;
+        if (statusFilter && song.estado_estudio !== statusFilter) return false;
+        if (search) {
+            const haystack = [
+                song.titulo,
+                song.album_titulo,
+                song.enfoque_corto,
+                ...(song.artists || []).map(a => a.nombre)
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!haystack.includes(search)) return false;
+        }
+        return true;
+    });
+
+    if (!filteredSongs.length) {
+        const emptyP = document.createElement('p');
+        emptyP.className = 'muted-text';
+        emptyP.textContent = musicState.songs.length
+            ? 'No songs match your current filters.'
+            : 'No songs registered yet. Search in YouTube Music above or add your first song on the left!';
+        container.replaceChildren(emptyP);
+        return;
+    }
+
+    // Agrupar por Artista (las colaboraciones aparecen también bajo cada artista colaborador)
+    const artistBuckets = new Map();
+    filteredSongs.forEach(song => {
+        const artists = Array.isArray(song.artists) && song.artists.length
+            ? song.artists
+            : [{ id: 0, nombre: 'Unknown Artist', rol: 'main' }];
+
+        artists.forEach(art => {
+            if (artistFilter && String(art.id) !== String(artistFilter)) return;
+            if (!artistBuckets.has(art.id)) {
+                artistBuckets.set(art.id, {
+                    id: art.id,
+                    nombre: art.nombre,
+                    albums: new Map()
+                });
+            }
+            const bucket = artistBuckets.get(art.id);
+            const albumKey = song.album_id ? `alb_${song.album_id}` : `single_none`;
+            if (!bucket.albums.has(albumKey)) {
+                bucket.albums.set(albumKey, {
+                    titulo: song.album_titulo || 'Standalone Singles & Tracks',
+                    tipo: song.album_titulo ? (song.album_tipo || 'album') : 'single',
+                    anio: song.album_anio || null,
+                    songs: []
+                });
+            }
+            bucket.albums.get(albumKey).songs.push({ song, artistRole: art.rol });
+        });
+    });
+
+    const sortedArtists = Array.from(artistBuckets.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const fragment = document.createDocumentFragment();
+
+    sortedArtists.forEach(artistGroup => {
+        const groupCard = document.createElement('div');
+        groupCard.className = 'music-artist-group';
+
+        const header = document.createElement('div');
+        header.className = 'music-artist-header';
+        const nameEl = document.createElement('span');
+        nameEl.className = 'music-artist-name';
+        nameEl.textContent = `🎤 ${artistGroup.nombre}`;
+        const countEl = document.createElement('span');
+        countEl.className = 'muted-text';
+        const totalInArtist = Array.from(artistGroup.albums.values()).reduce((sum, al) => sum + al.songs.length, 0);
+        countEl.textContent = `${totalInArtist} song(s)`;
+        header.append(nameEl, countEl);
+        groupCard.appendChild(header);
+
+        const sortedAlbums = Array.from(artistGroup.albums.values()).sort((a, b) => {
+            if (a.titulo === 'Standalone Singles & Tracks') return 1;
+            if (b.titulo === 'Standalone Singles & Tracks') return -1;
+            const yearDiff = (b.anio || 0) - (a.anio || 0);
+            if (yearDiff !== 0) return yearDiff;
+            return a.titulo.localeCompare(b.titulo);
+        });
+
+        sortedAlbums.forEach(album => {
+            const albumBlock = document.createElement('div');
+            albumBlock.className = 'music-album-block';
+
+            const albumHeader = document.createElement('div');
+            albumHeader.className = 'music-album-header';
+
+            const albumTitleEl = document.createElement('span');
+            albumTitleEl.className = 'music-album-title';
+            albumTitleEl.textContent = album.anio ? `${album.titulo} (${album.anio})` : album.titulo;
+
+            const typeBadge = document.createElement('span');
+            typeBadge.className = 'music-release-badge';
+            typeBadge.textContent = RELEASE_TYPE_LABELS[album.tipo] || album.tipo;
+
+            albumHeader.append(albumTitleEl, typeBadge);
+            albumBlock.appendChild(albumHeader);
+
+            const songList = document.createElement('div');
+            songList.className = 'music-song-list';
+
+            album.songs.sort((a, b) => {
+                const ta = a.song.numero_pista || 9999;
+                const tb = b.song.numero_pista || 9999;
+                if (ta !== tb) return ta - tb;
+                return a.song.titulo.localeCompare(b.song.titulo);
+            });
+
+            album.songs.forEach(({ song, artistRole }) => {
+                const row = document.createElement('div');
+                row.className = 'music-song-row';
+                if (Number(musicState.selectedSongId) === Number(song.id)) {
+                    row.classList.add('selected');
+                }
+
+                const main = document.createElement('div');
+                main.className = 'music-song-main';
+                if (song.thumbnail_url && /^https:\/\/i\.ytimg\.com\//i.test(song.thumbnail_url)) {
+                    const img = document.createElement('img');
+                    img.className = 'music-song-thumb';
+                    img.src = song.thumbnail_url;
+                    img.alt = song.titulo;
+                    img.loading = 'lazy';
+                    main.appendChild(img);
+                }
+
+                const info = document.createElement('div');
+                info.className = 'music-song-info';
+
+                const titleLine = document.createElement('div');
+                titleLine.className = 'music-song-title-line';
+                const prefix = song.numero_pista ? `${song.numero_pista}. ` : '';
+                const titleSpan = document.createElement('span');
+                titleSpan.textContent = `${prefix}${song.titulo}`;
+                titleLine.appendChild(titleSpan);
+
+                if (artistRole !== 'main') {
+                    const collabRole = document.createElement('span');
+                    collabRole.className = 'music-release-badge';
+                    collabRole.textContent = artistRole === 'feat' ? 'Featured' : 'Collab';
+                    titleLine.appendChild(collabRole);
+                }
+                info.appendChild(titleLine);
+
+                const collabs = (song.artists || []).filter(a => Number(a.id) !== Number(artistGroup.id));
+                if (collabs.length) {
+                    const collabLine = document.createElement('div');
+                    collabLine.className = 'music-song-collabs';
+                    collabLine.textContent = `With: ${collabs.map(c => (c.rol === 'feat' ? `feat. ${c.nombre}` : c.nombre)).join(', ')}`;
+                    info.appendChild(collabLine);
+                }
+
+                if (song.enfoque_corto) {
+                    const focusLine = document.createElement('div');
+                    focusLine.className = 'music-song-focus';
+                    focusLine.textContent = song.enfoque_corto;
+                    info.appendChild(focusLine);
+                }
+
+                const badgeRow = document.createElement('div');
+                badgeRow.className = 'music-badge-row';
+
+                const stMeta = MUSIC_STATUS_META[song.estado_estudio] || MUSIC_STATUS_META.to_study;
+                const statusBtn = document.createElement('button');
+                statusBtn.type = 'button';
+                statusBtn.className = `music-status-pill state-${song.estado_estudio}`;
+                statusBtn.textContent = stMeta.label;
+                statusBtn.title = 'Click to advance study status';
+                statusBtn.addEventListener('click', () => {
+                    runWithButtonLock(statusBtn, async () => {
+                        const res = await fetch(`/api/english/music/songs/${song.id}/status`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ estadoEstudio: stMeta.next })
+                        });
+                        if (res.ok) await cargarCatalogoMusical();
+                    });
+                });
+                badgeRow.appendChild(statusBtn);
+
+                if (song.word_sincronizado) {
+                    const wordBadge = document.createElement('span');
+                    wordBadge.className = 'music-word-badge';
+                    wordBadge.textContent = 'Word Notes Queued';
+                    badgeRow.appendChild(wordBadge);
+                }
+
+                info.appendChild(badgeRow);
+                main.appendChild(info);
+
+                const actions = document.createElement('div');
+                actions.className = 'music-song-actions';
+
+                if (song.yt_music_url) {
+                    const ytLink = document.createElement('a');
+                    ytLink.className = 'btn-secondary btn-small';
+                    ytLink.href = song.yt_music_url;
+                    ytLink.target = '_blank';
+                    ytLink.rel = 'noopener noreferrer';
+                    ytLink.textContent = 'YT Music';
+                    actions.appendChild(ytLink);
+                }
+
+                const studyBtn = document.createElement('button');
+                studyBtn.type = 'button';
+                studyBtn.className = 'btn-primary btn-small';
+                studyBtn.textContent = 'Study -> Word';
+                studyBtn.addEventListener('click', () => seleccionarCancionParaEstudio(song));
+                actions.appendChild(studyBtn);
+
+                const editBtn = document.createElement('button');
+                editBtn.type = 'button';
+                editBtn.className = 'btn-secondary btn-small';
+                editBtn.textContent = 'Edit';
+                editBtn.addEventListener('click', () => cargarCancionEnFormularioEdicion(song));
+                actions.appendChild(editBtn);
+
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'btn-secondary btn-small';
+                delBtn.textContent = 'Delete';
+                delBtn.addEventListener('click', () => {
+                    if (!window.confirm(`Remove "${song.titulo}" from your music catalog? (Local Word notes are kept safely on your PC.)`)) {
+                        return;
+                    }
+                    runWithButtonLock(delBtn, async () => {
+                        const res = await fetch(`/api/english/music/songs/${song.id}`, { method: 'DELETE' });
+                        if (res.ok) {
+                            if (Number(musicState.selectedSongId) === Number(song.id)) {
+                                musicState.selectedSongId = null;
+                            }
+                            await cargarCatalogoMusical();
+                        }
+                    }, { loadingText: '...' });
+                });
+                actions.appendChild(delBtn);
+
+                row.append(main, actions);
+                songList.appendChild(row);
+            });
+
+            albumBlock.appendChild(songList);
+            groupCard.appendChild(albumBlock);
+        });
+
+        fragment.appendChild(groupCard);
+    });
+
+    container.replaceChildren(fragment);
+}
+
+if (englishMusicStudioRoot) {
+    const btnOpenLib = document.getElementById('btnMusicOpenYtLibrary');
+    const btnSearchYt = document.getElementById('btnMusicSearchYt');
+    const btnResolveYt = document.getElementById('btnMusicResolveYt');
+    const btnRefreshCatalog = document.getElementById('btnMusicRefreshCatalog');
+    const btnCancelEdit = document.getElementById('btnMusicCancelEdit');
+    const btnToggleEmbed = document.getElementById('btnMusicToggleEmbed');
+    const songForm = document.getElementById('musicSongForm');
+    const wordForm = document.getElementById('musicWordNotesForm');
+
+    if (btnOpenLib) {
+        btnOpenLib.addEventListener('click', () => {
+            window.open('https://music.youtube.com/library', '_blank', 'noopener,noreferrer');
+        });
+    }
+
+    if (btnSearchYt) {
+        btnSearchYt.addEventListener('click', async () => {
+            const q = (document.getElementById('musicYtSearchQuery')?.value || '').trim();
+            const directUrl = q
+                ? `https://music.youtube.com/search?q=${encodeURIComponent(q)}`
+                : 'https://music.youtube.com/';
+            window.open(directUrl, '_blank', 'noopener,noreferrer');
+
+            const resultsBox = document.getElementById('musicYtSearchResults');
+            if (!q || !resultsBox) return;
+
+            runWithButtonLock(btnSearchYt, async () => {
+                try {
+                    const res = await fetch(`/api/english/music/search?q=${encodeURIComponent(q)}`);
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const items = Array.isArray(data.results) ? data.results : [];
+                    if (!items.length) {
+                        resultsBox.hidden = true;
+                        return;
+                    }
+                    resultsBox.replaceChildren(...items.map(item => {
+                        const card = document.createElement('div');
+                        card.className = 'music-yt-result-item';
+                        if (item.thumbnailUrl && /^https:\/\/i\.ytimg\.com\//i.test(item.thumbnailUrl)) {
+                            const img = document.createElement('img');
+                            img.src = item.thumbnailUrl;
+                            img.alt = item.title;
+                            card.appendChild(img);
+                        }
+                        const meta = document.createElement('div');
+                        meta.className = 'music-yt-result-meta';
+                        const t = document.createElement('div');
+                        t.className = 'music-yt-result-title';
+                        t.textContent = item.title;
+                        const ch = document.createElement('div');
+                        ch.className = 'music-yt-result-channel';
+                        ch.textContent = item.channelTitle;
+                        const useBtn = document.createElement('button');
+                        useBtn.type = 'button';
+                        useBtn.className = 'btn-primary btn-small';
+                        useBtn.textContent = 'Select Song';
+                        useBtn.addEventListener('click', () => {
+                            const urlEl = document.getElementById('musicSongYtUrl');
+                            const titleEl = document.getElementById('musicSongTitle');
+                            const artistEl = document.getElementById('musicMainArtist');
+                            if (urlEl) urlEl.value = item.ytMusicUrl || '';
+                            if (titleEl && !titleEl.value.trim()) titleEl.value = item.title || '';
+                            if (artistEl && !artistEl.value.trim()) artistEl.value = item.channelTitle || '';
+                        });
+                        meta.append(t, ch, useBtn);
+                        card.appendChild(meta);
+                        return card;
+                    }));
+                    resultsBox.hidden = false;
+                } catch (_err) {
+                    resultsBox.hidden = true;
+                }
+            }, { loadingText: 'Searching...' });
+        });
+    }
+
+    if (btnResolveYt) {
+        btnResolveYt.addEventListener('click', () => {
+            const urlInput = document.getElementById('musicSongYtUrl');
+            const rawUrl = (urlInput?.value || '').trim();
+            if (!rawUrl) {
+                mostrarBannerMusica('musicSongFormBanner', 'err', 'Paste a YouTube or YouTube Music song link first.');
+                return;
+            }
+            mostrarBannerMusica('musicSongFormBanner', '', '');
+            runWithButtonLock(btnResolveYt, async () => {
+                try {
+                    const data = await submitMutationRequest({
+                        url: '/api/english/music/resolve',
+                        method: 'POST',
+                        buildBody: () => ({ url: rawUrl }),
+                        parseJson: true
+                    });
+                    if (urlInput && data.ytMusicUrl) urlInput.value = data.ytMusicUrl;
+                    const titleEl = document.getElementById('musicSongTitle');
+                    const artistEl = document.getElementById('musicMainArtist');
+                    if (titleEl && !titleEl.value.trim() && data.suggestedTitle) {
+                        titleEl.value = data.suggestedTitle;
+                    }
+                    if (artistEl && !artistEl.value.trim() && data.suggestedArtist) {
+                        artistEl.value = data.suggestedArtist;
+                    }
+                    mostrarBannerMusica('musicSongFormBanner', 'ok', 'YouTube Music link verified and normalized.');
+                } catch (err) {
+                    mostrarBannerMusica('musicSongFormBanner', 'err', err.message || 'Could not resolve link.');
+                }
+            }, { loadingText: 'Checking...' });
+        });
+    }
+
+    if (btnCancelEdit) btnCancelEdit.addEventListener('click', cancelarEdicionCancionMusica);
+    if (btnRefreshCatalog) btnRefreshCatalog.addEventListener('click', cargarCatalogoMusical);
+
+    if (btnToggleEmbed) {
+        btnToggleEmbed.addEventListener('click', () => {
+            musicState.embedOpen = !musicState.embedOpen;
+            actualizarBarraCancionEstudio();
+        });
+    }
+
+    ['musicFilterSearch', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterStatus'].forEach(fid => {
+        const el = document.getElementById(fid);
+        if (el) {
+            el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', renderMusicCatalog);
+        }
+    });
+
+    if (songForm) {
+        songForm.addEventListener('submit', e => {
+            e.preventDefault();
+            const btnSave = document.getElementById('btnMusicSaveSong');
+            const val = id => (document.getElementById(id)?.value || '').trim();
+
+            const editId = val('musicSongEditId');
+            const payload = {
+                titulo: val('musicSongTitle'),
+                mainArtist: val('musicMainArtist'),
+                artistType: val('musicMainArtistType') || 'group',
+                collaborators: val('musicCollaborators'),
+                albumTitle: val('musicAlbumTitle'),
+                albumType: val('musicAlbumType') || 'album',
+                albumYear: val('musicAlbumYear'),
+                trackNumber: val('musicSongTrackNumber'),
+                idioma: val('musicSongLanguage') || 'English',
+                ytMusicUrl: val('musicSongYtUrl'),
+                estadoEstudio: val('musicStudyStatus') || 'to_study',
+                enfoqueCorto: val('musicFocusSummary')
+            };
+
+            if (!payload.titulo || !payload.mainArtist) {
+                mostrarBannerMusica('musicSongFormBanner', 'err', 'Song title and main artist are required.');
+                return;
+            }
+
+            mostrarBannerMusica('musicSongFormBanner', '', '');
+            const targetUrl = editId ? `/api/english/music/songs/${editId}` : '/api/english/music/songs';
+            const method = editId ? 'PUT' : 'POST';
+
+            runWithButtonLock(btnSave, async () => {
+                try {
+                    const data = await submitMutationRequest({
+                        url: targetUrl,
+                        method,
+                        scopeKey: `english-music:${method}:${editId || 'new'}`,
+                        signature: JSON.stringify(payload),
+                        buildBody: () => payload,
+                        parseJson: true
+                    });
+
+                    cancelarEdicionCancionMusica();
+                    mostrarBannerMusica('musicSongFormBanner', 'ok', data.message || 'Song metadata saved.');
+                    if (data && data.songId) {
+                        musicState.selectedSongId = Number(data.songId);
+                    }
+                    await cargarCatalogoMusical();
+                } catch (err) {
+                    mostrarBannerMusica('musicSongFormBanner', 'err', err.message || 'Failed to save song.');
+                }
+            }, { loadingText: editId ? 'Updating...' : 'Saving...' });
+        });
+    }
+
+    if (wordForm) {
+        wordForm.addEventListener('submit', e => {
+            e.preventDefault();
+            const btnSend = document.getElementById('btnSendMusicWord');
+            const val = id => (document.getElementById(id)?.value || '').trim();
+            const lyricsStudy = val('musicStudyLyrics');
+            if (!lyricsStudy) {
+                mostrarBannerMusica('musicWordStatusBanner', 'err', 'Write your personal song meanings or study lines first.');
+                return;
+            }
+
+            const selected = getCancionSeleccionada();
+            const fallbackTitle = val('musicSongTitle');
+            const fallbackArtist = val('musicMainArtist');
+
+            if (!selected && (!fallbackTitle || !fallbackArtist)) {
+                mostrarBannerMusica(
+                    'musicWordStatusBanner',
+                    'err',
+                    'Select a song from the catalog (click "Study -> Word") or fill Song Title + Main Artist above.'
+                );
+                return;
+            }
+
+            const llaveTexto = obtenerLlaveE2EE();
+            if (!llaveTexto) return;
+
+            const entry = selected
+                ? {
+                    category: 'music',
+                    song_title: selected.titulo,
+                    artists_display: formatSongArtistsSummary(selected),
+                    album_title: selected.album_titulo || '',
+                    album_type: RELEASE_TYPE_LABELS[selected.album_tipo] || selected.album_tipo || '',
+                    release_year: selected.album_anio ? String(selected.album_anio) : '',
+                    yt_music_url: selected.yt_music_url || '',
+                    focus_summary: selected.enfoque_corto || '',
+                    lyrics_study: lyricsStudy,
+                    vocabulary_list: val('musicStudyVocab'),
+                    pronunciation_notes: val('musicStudyPronunciation'),
+                    notes: val('musicStudyExtraNotes')
+                }
+                : {
+                    category: 'music',
+                    song_title: fallbackTitle,
+                    artists_display: val('musicCollaborators')
+                        ? `${fallbackArtist} (${val('musicCollaborators')})`
+                        : fallbackArtist,
+                    album_title: val('musicAlbumTitle'),
+                    album_type: RELEASE_TYPE_LABELS[val('musicAlbumType')] || val('musicAlbumType'),
+                    release_year: val('musicAlbumYear'),
+                    yt_music_url: val('musicSongYtUrl'),
+                    focus_summary: val('musicFocusSummary'),
+                    lyrics_study: lyricsStudy,
+                    vocabulary_list: val('musicStudyVocab'),
+                    pronunciation_notes: val('musicStudyPronunciation'),
+                    notes: val('musicStudyExtraNotes')
+                };
+
+            mostrarBannerMusica('musicWordStatusBanner', '', '');
+
+            runWithButtonLock(btnSend, async () => {
+                try {
+                    const signature = `${entry.song_title}|${entry.artists_display}|${entry.lyrics_study}`;
+                    await submitMutationRequest({
+                        url: '/api/send-english',
+                        method: 'POST',
+                        scopeKey: 'english:music-word',
+                        signature,
+                        buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
+                    });
+
+                    if (selected) {
+                        const nextStatus = selected.estado_estudio === 'to_study' ? 'in_progress' : selected.estado_estudio;
+                        await fetch(`/api/english/music/songs/${selected.id}/status`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
+                        });
+                        await cargarCatalogoMusical();
+                    }
+
+                    ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = '';
+                    });
+
+                    mostrarBannerMusica(
+                        'musicWordStatusBanner',
+                        'ok',
+                        'Encrypted E2EE & queued! Your PC sync will add this song study breakdown under Section 4 in English_Learning_Notebook.docx.'
+                    );
+                } catch (err) {
+                    mostrarBannerMusica('musicWordStatusBanner', 'err', 'Failed to send encrypted notes: ' + err.message);
+                }
+            }, { loadingText: 'Encrypting...' });
+        });
+    }
 }
 
 // ==========================================
