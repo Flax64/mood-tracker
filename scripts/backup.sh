@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# 1. Cargar las credenciales desde el archivo .env del proyecto
+# 1. Cargar las credenciales desde el archivo .env del proyecto sin expandir caracteres especiales
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$PROJECT_DIR/.env"
@@ -17,9 +17,22 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-set -a
-source "$ENV_FILE"
-set +a
+load_env_file() {
+    local env_file="$1"
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+        local key="${line%%=*}"
+        local val="${line#*=}"
+        key="${key//[[:space:]]/}"
+        if [[ "$val" == \"*\" && "$val" == *\" ]] || [[ "$val" == \'*\' && "$val" == *\' ]]; then
+            val="${val:1:${#val}-2}"
+        fi
+        export "$key=$val"
+    done < "$env_file"
+}
+
+load_env_file "$ENV_FILE"
 
 # 2. Variables de configuración (personalizables desde .env)
 CONTENEDOR="${DB_CONTAINER:-mood_db}"
@@ -43,9 +56,15 @@ if [ -z "$RCLONE_BIN" ] || [ ! -x "$RCLONE_BIN" ]; then
 fi
 
 # 3. Extraer TODAS las tablas de la base de datos
-$DOCKER_CMD exec "$CONTENEDOR" /usr/bin/mysqldump \
-    --single-transaction --routines --triggers --no-tablespaces \
-    -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" | gzip > "$ARCHIVO_TMP"
+if [ -n "${DB_PASS:-}" ]; then
+    $DOCKER_CMD exec -e MYSQL_PWD="$DB_PASS" "$CONTENEDOR" mysqldump \
+        --single-transaction --routines --triggers --no-tablespaces \
+        -u "$DB_USER" "$DB_NAME" | gzip > "$ARCHIVO_TMP"
+else
+    $DOCKER_CMD exec "$CONTENEDOR" mysqldump \
+        --single-transaction --routines --triggers --no-tablespaces \
+        -u "$DB_USER" "$DB_NAME" | gzip > "$ARCHIVO_TMP"
+fi
 
 if [ ! -s "$ARCHIVO_TMP" ]; then
     echo "Error: El respaldo generado está vacío." >&2
