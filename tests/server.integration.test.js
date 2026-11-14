@@ -233,6 +233,17 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.ok(String(res.headers['content-security-policy'] || '').includes("default-src 'self'"));
         assert.ok(res.headers.etag);
         assert.ok(String(res.headers['cache-control'] || '').includes('max-age=600'));
+
+        for (const assetPath of ['/frontend.js', '/style.css']) {
+            const assetRes = await request({ port, reqPath: assetPath });
+            assert.strictEqual(assetRes.status, 200);
+            assert.ok(assetRes.headers.etag, `${assetPath} debe enviar ETag`);
+            assert.match(
+                String(assetRes.headers['cache-control'] || ''),
+                /max-age=0,\s*must-revalidate/,
+                `${assetPath} debe revalidar caché tras despliegues`
+            );
+        }
     });
 
     it('bloquea rutas protegidas sin sesión, valida bcrypt y limpia registros vencidos al hacer login', async () => {

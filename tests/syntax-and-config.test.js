@@ -26,6 +26,20 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         assert.match(indexHtml, /id=["']themeToggleBtn["']|data-theme/i);
         assert.match(indexHtml, /id=["']view-english["']/i);
         assert.match(indexHtml, /id=["']englishForm["']/i);
+        for (const fieldId of [
+            'loginPassword',
+            'regPassword',
+            'regCodigoValidacion',
+            'resetNewPassword',
+            'resetConfirmPassword',
+            'medicoPassword'
+        ]) {
+            assert.ok(
+                indexHtml.includes(`data-toggle-password="${fieldId}"`),
+                `Falta botón ojito data-toggle-password="${fieldId}" en index.html`
+            );
+        }
+        assert.match(readText('public/frontend.js'), /function\s+initPasswordToggles\s*\(/);
 
         const dashHtml = readText('public/dashboard.html');
         assert.match(dashHtml, /<html\s+lang=["']en["']/i);

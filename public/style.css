@@ -224,6 +224,52 @@ body {
     cursor: not-allowed;
 }
 
+.password-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.password-input-wrap input {
+    width: 100%;
+    padding-right: 44px;
+}
+
+.password-input-wrap input::-ms-reveal,
+.password-input-wrap input::-ms-clear {
+    display: none;
+}
+
+.password-toggle-btn {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s, background-color 0.15s;
+}
+
+.password-toggle-btn:hover {
+    color: #1e293b;
+    background: rgba(15, 23, 42, 0.06);
+}
+
+.password-toggle-btn:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 1px;
+}
+
 /* Usuario y botón de cerrar sesión en el sidebar */
 .sidebar-user-box {
     display: flex;
@@ -2609,4 +2655,13 @@ select {
 :root[data-theme="dark"] .english-badge {
     background: rgba(59, 130, 246, 0.25);
     color: #93c5fd;
+}
+
+:root[data-theme="dark"] .password-toggle-btn {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .password-toggle-btn:hover {
+    color: #f1f5f9;
+    background: rgba(148, 163, 184, 0.14);
 }

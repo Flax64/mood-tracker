@@ -25,7 +25,15 @@ app.use((req, res, next) => {
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '64kb' }));
-app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '10m' }));
+app.use(express.static(path.join(__dirname, 'public'), {
+    etag: true,
+    maxAge: '10m',
+    setHeaders(res, filePath) {
+        if (/\.(js|css)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+        }
+    }
+}));
 
 // Configuración de MySQL optimizada para poca RAM (t3.micro)
 const db = mysql.createPool({
