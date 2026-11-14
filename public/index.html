@@ -36,8 +36,12 @@
                 </div>
                 <div class="form-group">
                     <label for="loginPassword">Password:</label>
-                    <input type="password" id="loginPassword" autocomplete="current-password"
-                        placeholder="Your password" required>
+                    <div class="password-input-wrap">
+                        <input type="password" id="loginPassword" autocomplete="current-password"
+                            placeholder="Your password" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="loginPassword"
+                            aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                    </div>
                 </div>
                 <button type="submit" class="btn-submit" id="btnLoginSubmit">Sign In</button>
                 <div class="auth-links">
@@ -62,8 +66,12 @@
                 </div>
                 <div class="form-group">
                     <label for="regPassword">Create password (min. 8 characters):</label>
-                    <input type="password" id="regPassword" minlength="8" autocomplete="new-password"
-                        placeholder="Minimum 8 characters" required>
+                    <div class="password-input-wrap">
+                        <input type="password" id="regPassword" minlength="8" autocomplete="new-password"
+                            placeholder="Minimum 8 characters" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="regPassword"
+                            aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="regCodigoValidacion">Identity verification (owner):</label>
@@ -72,8 +80,12 @@
                             📧 Send code to owner email
                         </button>
                     </div>
-                    <input type="password" id="regCodigoValidacion"
-                        placeholder="6-digit email code or your personal secret key" required>
+                    <div class="password-input-wrap">
+                        <input type="password" id="regCodigoValidacion"
+                            placeholder="6-digit email code or your personal secret key" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="regCodigoValidacion"
+                            aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                    </div>
                     <small class="form-hint">
                         Enter the code sent to your owner email (<strong>ADMIN_EMAIL</strong>) or your personal secret key (<strong>ADMIN_SECRET</strong> / Word key).
                     </small>
@@ -109,13 +121,21 @@
                 </div>
                 <div class="form-group">
                     <label for="resetNewPassword">New password (min. 8 characters):</label>
-                    <input type="password" id="resetNewPassword" minlength="8" autocomplete="new-password"
-                        placeholder="New password" required>
+                    <div class="password-input-wrap">
+                        <input type="password" id="resetNewPassword" minlength="8" autocomplete="new-password"
+                            placeholder="New password" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="resetNewPassword"
+                            aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="resetConfirmPassword">Confirm new password:</label>
-                    <input type="password" id="resetConfirmPassword" minlength="8" autocomplete="new-password"
-                        placeholder="Repeat password" required>
+                    <div class="password-input-wrap">
+                        <input type="password" id="resetConfirmPassword" minlength="8" autocomplete="new-password"
+                            placeholder="Repeat password" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="resetConfirmPassword"
+                            aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                    </div>
                 </div>
                 <button type="submit" class="btn-submit" id="btnResetSubmit">Save New Password</button>
                 <div class="auth-links">
@@ -824,8 +844,12 @@
                         </div>
                         <div class="form-group">
                             <label for="medicoPassword">Assigned password (min. 8 characters):</label>
-                            <input type="password" id="medicoPassword" minlength="8"
-                                placeholder="Minimum 8 characters" required>
+                            <div class="password-input-wrap">
+                                <input type="password" id="medicoPassword" minlength="8"
+                                    placeholder="Minimum 8 characters" required>
+                                <button type="button" class="password-toggle-btn" data-toggle-password="medicoPassword"
+                                    aria-label="Show password" aria-pressed="false" title="Show password"></button>
+                            </div>
                         </div>
                         <button type="submit" class="btn-submit" id="btnSaveMedico">Save Psychiatrist Account</button>
                     </form>
