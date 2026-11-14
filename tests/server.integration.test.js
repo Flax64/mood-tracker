@@ -1448,6 +1448,25 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         });
         assert.strictEqual(ssrfResolveRes.status, 400);
 
+        const credUrlRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/resolve',
+            headers: { Cookie: adminCookie },
+            body: { url: 'https://user:pass@music.youtube.com/watch?v=ekr2nIex040' }
+        });
+        assert.strictEqual(credUrlRes.status, 400);
+
+        const strippedBrowseRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/resolve',
+            headers: { Cookie: adminCookie },
+            body: { url: 'https://music.youtube.com/browse/MPREb_test?authuser=0&si=secrettracking' }
+        });
+        assert.strictEqual(strippedBrowseRes.status, 200);
+        assert.strictEqual(JSON.parse(strippedBrowseRes.body).ytMusicUrl, 'https://music.youtube.com/browse/MPREb_test');
+
         // 3. Guardrail anti-letras en MySQL (>255 chars o >4 líneas rechazado en metadatos)
         const lyricsInDbAttempt = await request({
             port,

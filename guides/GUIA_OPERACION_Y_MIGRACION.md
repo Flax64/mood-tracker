@@ -19,6 +19,8 @@
 | Cambiar de instancia AWS EC2 usando `.ssh/` | [6. Migración a nueva instancia EC2](#6-migración-a-otra-instancia-aws-ec2-usando-ssh) |
 | Resolver errores típicos (`winpty`, permisos SSH, `main`) | [7. Solución rápida de problemas](#7-solución-rápida-de-problemas) |
 | Activar notificaciones en celular (`ntfy`), Jira y recordatorios | [8. Notificaciones Móviles, Agenda Jira y Settings](#8-notificaciones-móviles-agenda-jira-y-settings) |
+| Confirmar seguridad de cuenta YouTube Music (cero contraseñas/tokens) | [9. Seguridad en YouTube Music (Cero Credenciales)](#9-seguridad-en-youtube-music-cero-credenciales) |
+| Cambiar nombre del repo en GitHub/PC y reiniciar Python local | [10. Renombrar Repositorio y Reiniciar Python Local](#10-renombrar-repositorio-y-reiniciar-python-local) |
 
 ---
 
@@ -347,3 +349,62 @@ No necesitas agregar nuevos *Secrets* ni *Variables* en GitHub para usar los rec
 Cuando hagas merge de tu rama hacia `main`, GitHub Actions reconstruye automáticamente Docker en tu EC2 y al arrancar `server.js`:
 * Se crean automáticamente `ConfiguracionUsuario` y `RecordatoriosEstado` (si no existían).
 * Se añaden las columnas `tipo`, `categoria`, `estado` y `recordatorio_min` a `RegistrosAgenda` sin borrar ni afectar ningún dato anterior.
+
+---
+
+## 9. Seguridad en YouTube Music (Cero Credenciales)
+
+El módulo **🎵 Learn with Music** fue diseñado bajo arquitectura **Zero-Credential**:
+
+1. **Ni GitHub ni la instancia EC2 ven tu contraseña o sesión de Google:**
+   * Nunca guardes tu contraseña de Google, cookies de navegador (`SAPISID`, `__Secure-*`) ni tokens OAuth privados en `.env`, Secrets de GitHub o MySQL.
+   * Cuando presionas **Find in YouTube Music** o **My YouTube Music Library**, la búsqueda se abre directamente en **tu propio navegador** contra `https://music.youtube.com` usando la sesión que ya tienes iniciada directamente con Google (protegida con tu 2FA / Passkey).
+   * Incluso si un atacante comprometiera por completo el servidor EC2 o los archivos del repositorio en GitHub, **no existe ninguna contraseña, cookie ni token personal de tu cuenta de Google/YouTube Music que pueda robar**.
+2. **Saneamiento estricto de enlaces antes de guardar metadatos:**
+   * `parseYouTubeMusicInput()` en `server.js` rechaza cualquier URL fuera de `music.youtube.com`, `youtube.com` o `youtu.be` (bloqueo SSRF), bloquea URLs con credenciales embebidas (`usuario:clave@`), elimina parámetros de sesión/rastreo (`si`, `authuser`, tokens) y normaliza las pistas a `https://music.youtube.com/watch?v=<ID>`.
+3. **¿Y `YOUTUBE_API_KEY`?** Es completamente **opcional** y está desactivada por defecto. De configurarse algún día en tu entorno, solo sirve para consultar títulos públicos en YouTube Data API v3 y **no** otorga acceso a cuentas personales ni listas privadas.
+
+---
+
+## 10. Renombrar Repositorio y Reiniciar Python Local
+
+El pipeline [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) obtiene el nombre del repositorio dinámicamente desde `${{ github.repository }}` y actualiza automáticamente el `origin` remoto dentro de EC2 (`git remote set-url origin ...`), manteniendo intacto el directorio interno `~/projects/mood-tracker` en el servidor para **no perder ni duplicar** tu volumen de base de datos MySQL en Docker ni romper el `cron` de respaldos.
+
+Sigue este orden exacto en **Git Bash** para renombrar tanto en GitHub como en tu PC sin interrumpir el pipeline ni dejar ejecutándose una versión vieja de Python:
+
+1. **Detener el proceso Python local activo** (evita que Windows bloquee la carpeta al renombrarla):
+   ```bash
+   powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; "Detenido PID: $($_.ProcessId)" }'
+   ```
+2. **Renombrar el repositorio en GitHub:**
+   * En GitHub → **Settings → General → Repository name**, escribe el nuevo nombre (por ejemplo `personal-daily-hub`) y haz clic en **Rename**. *(Todos los Secrets, Variables y reglas de `main` se conservan automáticamente).*
+3. **Actualizar tu carpeta local, remoto Git y bóveda `.env.enc` en Windows (Git Bash):**
+   ```bash
+   # Suponiendo nuevo nombre: personal-daily-hub y usuario GitHub: Flax64
+   cd ".."
+   mv mood-tracker personal-daily-hub
+   cd personal-daily-hub
+
+   # Apuntar el remoto local al nuevo nombre en GitHub
+   git remote set-url origin https://github.com/Flax64/personal-daily-hub.git
+   git remote -v
+
+   # Descifrar brevemente .env.enc para actualizar GITHUB_REPO=Flax64/personal-daily-hub
+   node scripts/local-vault.js decrypt
+   grep -q '^GITHUB_REPO=' .env && sed -i 's|^GITHUB_REPO=.*|GITHUB_REPO=Flax64/personal-daily-hub|' .env || printf '\nGITHUB_REPO=Flax64/personal-daily-hub\n' >> .env
+   node scripts/local-vault.js encrypt
+   node scripts/local-vault.js status
+   ```
+4. **Actualizar el autoinicio en Windows (si tenías tarea o acceso directo apuntando a la ruta anterior):**
+   * Si usabas un acceso directo en `shell:startup` o el **Programador de tareas** de Windows apuntando a `...\mood-tracker\sincronitation\sincronizador.py`, actualiza la ruta y carpeta de inicio (*Start in*) hacia `...\personal-daily-hub`.
+   * Verifica que el descifrado DPAPI sigue funcionando en la carpeta renombrada:
+     ```bash
+     python sincronitation/sincronizador.py --probar-autoinicio
+     ```
+5. **Reiniciar el sincronizador Python local en segundo plano** (para cargar el nuevo código, la sección `4. Songs & Music Study` y el nuevo `GITHUB_REPO`):
+   ```bash
+   powershell.exe -NoProfile -Command 'Start-Process -FilePath pythonw -WorkingDirectory (Get-Location).Path -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden'
+   tail -n 15 sincronitation/historial.log
+   ```
+
+> **Tip:** Cada vez que hagas `git pull` con mejoras nuevas en `sincronitation/sincronizador.py`, repite el **Paso 1** (detener `pythonw` anterior) y el **Paso 5** (volver a iniciar `pythonw` oculto) para asegurarte de que tu Word en PC esté usando la versión más reciente.
