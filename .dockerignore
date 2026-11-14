@@ -12,6 +12,8 @@ respaldos
 sincronitation
 scripts
 test
+tests
+docs-privados
 README.md
 *.sql.gz
 *.log
