@@ -39,7 +39,19 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
                 `Falta botón ojito data-toggle-password="${fieldId}" en index.html`
             );
         }
-        assert.match(readText('public/frontend.js'), /function\s+initPasswordToggles\s*\(/);
+        const frontendJs = readText('public/frontend.js');
+        assert.match(frontendJs, /function\s+initPasswordToggles\s*\(/);
+        for (const fnName of [
+            'runWithButtonLock',
+            'createIdempotencyKey',
+            'createRequestTracker',
+            'submitMutationRequest'
+        ]) {
+            assert.match(frontendJs, new RegExp(`function\\s+${fnName}\\s*\\(`), `Falta helper ${fnName} en frontend.js`);
+        }
+
+        const serverJs = readText('server.js');
+        assert.match(serverJs, /function\s+preventDuplicateSubmit\s*\(/);
 
         const dashHtml = readText('public/dashboard.html');
         assert.match(dashHtml, /<html\s+lang=["']en["']/i);

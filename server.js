@@ -331,6 +331,167 @@ function requireAdmin(req, res, next) {
 }
 
 // ==========================================
+// PROTECCIÓN CONTRA DOBLE ENVÍO, CONCURRENCIA E IDEMPOTENCIA
+// ==========================================
+const MAX_IDEMPOTENCY_ENTRIES = 300;
+const IN_FLIGHT_MAX_AGE_MS = 60 * 1000;
+const DEFAULT_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
+const IDEMPOTENCY_KEY_REGEX = /^[a-zA-Z0-9._:-]{1,128}$/;
+
+const inFlightMutations = new Map();
+const idempotencyReplayCache = new Map();
+const recentSubmissionCache = new Map();
+
+function pruneTimedMap(map, now = Date.now(), maxAgeMs = 0) {
+    for (const [key, entry] of map.entries()) {
+        if (maxAgeMs > 0) {
+            if (now - entry > maxAgeMs) map.delete(key);
+        } else if (now > entry.expiresAt) {
+            map.delete(key);
+        }
+    }
+}
+
+function setBoundedMapEntry(map, key, value, maxEntries = MAX_IDEMPOTENCY_ENTRIES) {
+    if (map.size >= maxEntries && !map.has(key)) {
+        const now = Date.now();
+        pruneTimedMap(map, now);
+        while (map.size >= maxEntries) {
+            const oldestKey = map.keys().next().value;
+            if (oldestKey === undefined) break;
+            map.delete(oldestKey);
+        }
+    }
+    map.set(key, value);
+}
+
+setInterval(() => {
+    const now = Date.now();
+    pruneTimedMap(inFlightMutations, now, IN_FLIGHT_MAX_AGE_MS);
+    pruneTimedMap(idempotencyReplayCache, now);
+    pruneTimedMap(recentSubmissionCache, now);
+}, 5 * 60 * 1000).unref();
+
+function canonicalPayloadString(val) {
+    if (val === null || val === undefined) return '';
+    if (Array.isArray(val)) {
+        return `[${val.map(canonicalPayloadString).join(',')}]`;
+    }
+    if (typeof val === 'object') {
+        const keys = Object.keys(val).sort();
+        return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalPayloadString(val[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(val);
+}
+
+function preventDuplicateSubmit(options = {}) {
+    const {
+        dedupeWindowMs = 0,
+        ttlMs = DEFAULT_IDEMPOTENCY_TTL_MS,
+        cacheReplay = true
+    } = options;
+
+    return (req, res, next) => {
+        const rawKey = req.get('x-idempotency-key');
+        const idemKey = typeof rawKey === 'string' ? rawKey.trim() : '';
+        if (idemKey && !IDEMPOTENCY_KEY_REGEX.test(idemKey)) {
+            return res.status(400).send('Invalid X-Idempotency-Key header.');
+        }
+
+        const now = Date.now();
+        const actorId = req.user && req.user.id ? `u:${req.user.id}` : `ip:${req.ip || 'unknown'}`;
+        const routePath = (req.originalUrl || req.url || '').split('?')[0];
+        const routeKey = `${req.method}:${routePath}`;
+        const payloadHash = sha256Hex(canonicalPayloadString(req.body || {}));
+        const payloadKey = `${actorId}|${routeKey}|${payloadHash}`;
+        const scopedIdemKey = idemKey ? `${actorId}|${routeKey}|k:${idemKey}` : '';
+
+        if (cacheReplay && scopedIdemKey) {
+            const cached = idempotencyReplayCache.get(scopedIdemKey);
+            if (cached) {
+                if (now <= cached.expiresAt) {
+                    if (cached.payloadHash !== payloadHash) {
+                        return res.status(409).send('Idempotency key cannot be reused with different data.');
+                    }
+                    res.setHeader('X-Idempotent-Replay', 'true');
+                    if (cached.contentType) {
+                        res.setHeader('Content-Type', cached.contentType);
+                    }
+                    return res.status(cached.status).send(cached.body);
+                }
+                idempotencyReplayCache.delete(scopedIdemKey);
+            }
+        }
+
+        const existingPayloadFlight = inFlightMutations.get(payloadKey);
+        const existingKeyFlight = scopedIdemKey ? inFlightMutations.get(scopedIdemKey) : undefined;
+        if (
+            (existingPayloadFlight && now - existingPayloadFlight < IN_FLIGHT_MAX_AGE_MS) ||
+            (existingKeyFlight && now - existingKeyFlight < IN_FLIGHT_MAX_AGE_MS)
+        ) {
+            return res.status(409).send('Request is already being processed. Please wait.');
+        }
+
+        if (dedupeWindowMs > 0) {
+            const recent = recentSubmissionCache.get(payloadKey);
+            if (recent) {
+                if (now <= recent.expiresAt) {
+                    return res.status(409).send('Duplicate submission detected. Avoid sending identical data repeatedly.');
+                }
+                recentSubmissionCache.delete(payloadKey);
+            }
+        }
+
+        inFlightMutations.set(payloadKey, now);
+        if (scopedIdemKey) {
+            inFlightMutations.set(scopedIdemKey, now);
+        }
+
+        let released = false;
+        const releaseInFlight = () => {
+            if (released) return;
+            released = true;
+            inFlightMutations.delete(payloadKey);
+            if (scopedIdemKey) inFlightMutations.delete(scopedIdemKey);
+        };
+        res.on('finish', releaseInFlight);
+        res.on('close', releaseInFlight);
+
+        const originalSend = res.send.bind(res);
+        let captured = false;
+        res.send = function patchedSend(body) {
+            if (!captured && res.statusCode >= 200 && res.statusCode < 300) {
+                captured = true;
+                const completedAt = Date.now();
+                if (dedupeWindowMs > 0) {
+                    setBoundedMapEntry(recentSubmissionCache, payloadKey, {
+                        expiresAt: completedAt + dedupeWindowMs
+                    });
+                }
+                if (cacheReplay && scopedIdemKey) {
+                    const isObjBody = typeof body === 'object' && body !== null && !Buffer.isBuffer(body);
+                    const serializedBody = Buffer.isBuffer(body)
+                        ? body
+                        : (typeof body === 'string' ? body : JSON.stringify(body));
+                    const contentType = res.getHeader('content-type') || (isObjBody ? 'application/json; charset=utf-8' : '');
+                    setBoundedMapEntry(idempotencyReplayCache, scopedIdemKey, {
+                        status: res.statusCode,
+                        body: serializedBody,
+                        contentType,
+                        payloadHash,
+                        expiresAt: completedAt + ttlMs
+                    });
+                }
+            }
+            res.send = originalSend;
+            return originalSend(body);
+        };
+
+        return next();
+    };
+}
+
+// ==========================================
 // RUTAS DE AUTENTICACIÓN Y SEGURIDAD
 // ==========================================
 
@@ -340,7 +501,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 // Enviar código de verificación al correo propietario (flavio.flax1234@gmail.com)
-app.post('/api/auth/send-register-code', async (req, res) => {
+app.post('/api/auth/send-register-code', preventDuplicateSubmit({ dedupeWindowMs: 15000 }), async (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`regcode:${ip}`, 6, 15 * 60 * 1000)) {
         return res.status(429).send('Too many attempts. Please wait a few minutes.');
@@ -393,7 +554,7 @@ app.post('/api/auth/send-register-code', async (req, res) => {
 });
 
 // Registro de usuario por primera vez (valida correo o clave secreta personal)
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`register:${ip}`, 8, 15 * 60 * 1000)) {
         return res.status(429).send('Too many registration attempts. Please wait 15 minutes.');
@@ -515,7 +676,7 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 // Inicio de sesión
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
     const ip = req.ip || 'unknown';
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
@@ -578,7 +739,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // Cerrar sesión manualmente
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
     const cookies = parseCookies(req);
     const rawToken = cookies.mt_session;
     clearSessionCookie(res);
@@ -594,7 +755,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Solicitar enlace de recuperación de contraseña por correo
-app.post('/api/auth/forgot-password', (req, res) => {
+app.post('/api/auth/forgot-password', preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`forgot:${ip}`, 5, 15 * 60 * 1000)) {
         return res.status(429).send('Too many requests. Please wait 15 minutes.');
@@ -661,7 +822,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
 });
 
 // Restablecer contraseña con el token enviado por correo
-app.post('/api/auth/reset-password', (req, res) => {
+app.post('/api/auth/reset-password', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`reset:${ip}`, 8, 15 * 60 * 1000)) {
         return res.status(429).send('Too many attempts. Please wait 15 minutes.');
@@ -727,7 +888,7 @@ app.get('/api/auth/medicos', requireAdmin, (req, res) => {
     });
 });
 
-app.post('/api/auth/create-medico', requireAdmin, async (req, res) => {
+app.post('/api/auth/create-medico', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
     const nombre = String(req.body.nombre || '').trim();
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
@@ -761,7 +922,7 @@ app.post('/api/auth/create-medico', requireAdmin, async (req, res) => {
     }
 });
 
-app.delete('/api/auth/medicos/:id', requireAdmin, (req, res) => {
+app.delete('/api/auth/medicos/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).send('Invalid ID.');
 
@@ -781,7 +942,7 @@ const FECHA_ISO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
 // Guardar el estado de ánimo (SOLO ADMIN)
-app.post('/api/insert-mood', requireAdmin, (req, res) => {
+app.post('/api/insert-mood', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), (req, res) => {
     const { fecha, momento_dia, estado_animo, color_hex } = req.body;
 
     if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
@@ -833,7 +994,7 @@ app.post('/api/insert-mood', requireAdmin, (req, res) => {
 });
 
 // Dar de alta un nuevo registro de sueño (SOLO ADMIN)
-app.post('/api/insert-sleep', requireAdmin, (req, res) => {
+app.post('/api/insert-sleep', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
     const { fecha, horas, calidad } = req.body;
     const horasNum = Number(horas);
 
@@ -937,6 +1098,9 @@ function createEncryptedPcQueue({ maxSize = MAX_COLA_TEXTOS, okMessage, emptyMes
             if (typeof texto !== 'string' || !texto.trim()) {
                 return res.status(400).send(emptyMessage);
             }
+            if (queue.includes(texto)) {
+                return res.status(409).send('This encrypted entry is already queued for your PC.');
+            }
             if (queue.length >= maxSize) {
                 return res.status(429).send(fullMessage);
             }
@@ -966,13 +1130,13 @@ const englishQueue = createEncryptedPcQueue({
 });
 
 // Enviar nota de Journal cifrada a la cola (SOLO ADMIN)
-app.post('/api/send-to-pc', requireAdmin, journalQueue.enqueue);
+app.post('/api/send-to-pc', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), journalQueue.enqueue);
 
 // Ruta para que tu PC consulte notas de Journal pendientes (el contenido viaja cifrado E2EE)
 app.get('/api/pull-text', journalQueue.pull);
 
 // Enviar entrada cifrada de English Learning Notebook a la cola (SOLO ADMIN, sin guardar en MySQL)
-app.post('/api/send-english', requireAdmin, englishQueue.enqueue);
+app.post('/api/send-english', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), englishQueue.enqueue);
 
 // Ruta para que tu PC consulte entradas de inglés pendientes (el contenido viaja cifrado E2EE)
 app.get('/api/pull-english', englishQueue.pull);
@@ -1029,7 +1193,7 @@ app.get('/api/get-agenda', requireAdmin, (req, res) => {
     });
 });
 
-app.post('/api/insert-agenda', requireAdmin, (req, res) => {
+app.post('/api/insert-agenda', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
     const errorValidacion = validarDatosAgenda(req.body);
     if (errorValidacion) {
         return res.status(400).send(errorValidacion);
@@ -1059,7 +1223,7 @@ app.post('/api/insert-agenda', requireAdmin, (req, res) => {
     });
 });
 
-app.put('/api/update-agenda/:id', requireAdmin, (req, res) => {
+app.put('/api/update-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
@@ -1088,7 +1252,7 @@ app.put('/api/update-agenda/:id', requireAdmin, (req, res) => {
     });
 });
 
-app.patch('/api/toggle-agenda/:id', requireAdmin, (req, res) => {
+app.patch('/api/toggle-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
@@ -1113,7 +1277,7 @@ app.patch('/api/toggle-agenda/:id', requireAdmin, (req, res) => {
     });
 });
 
-app.delete('/api/delete-agenda/:id', requireAdmin, (req, res) => {
+app.delete('/api/delete-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 

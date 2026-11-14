@@ -33,6 +33,158 @@ const MOMENTOS_LABELS = {
 };
 
 // ==========================================
+// ANTI-DOUBLE-CLICK, IDEMPOTENCY & STALE-FETCH GUARDS
+// ==========================================
+const busyActionElements = new WeakSet();
+const pendingSubmissions = new Map();
+
+function createIdempotencyKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        const bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return `mt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function createRequestTracker() {
+    let seq = 0;
+    let controller = null;
+    return {
+        begin() {
+            seq += 1;
+            if (controller) controller.abort();
+            controller = typeof AbortController === 'function' ? new AbortController() : null;
+            return { seq, signal: controller ? controller.signal : undefined };
+        },
+        isCurrent(tokenSeq) {
+            return tokenSeq === seq;
+        }
+    };
+}
+
+function isAbortError(err) {
+    return Boolean(err && err.name === 'AbortError');
+}
+
+function beginIdempotentSubmission(scopeKey, signature, buildBodyFn) {
+    const existing = pendingSubmissions.get(scopeKey);
+    if (existing && existing.signature === signature) {
+        return {
+            idempotencyKey: existing.idempotencyKey,
+            body: existing.body
+        };
+    }
+    const entry = {
+        signature,
+        idempotencyKey: createIdempotencyKey(),
+        body: buildBodyFn ? buildBodyFn() : null
+    };
+    pendingSubmissions.set(scopeKey, entry);
+    return {
+        idempotencyKey: entry.idempotencyKey,
+        body: entry.body
+    };
+}
+
+function clearIdempotentSubmission(scopeKey) {
+    if (scopeKey) pendingSubmissions.delete(scopeKey);
+}
+
+async function runWithButtonLock(btn, asyncFn, options = {}) {
+    const { loadingText = '', extraDisable = [] } = options;
+    if (!btn || busyActionElements.has(btn) || btn.disabled) {
+        return undefined;
+    }
+
+    const targets = [btn, ...extraDisable].filter(Boolean);
+    if (targets.some(el => busyActionElements.has(el))) {
+        return undefined;
+    }
+
+    const prevStates = targets.map(el => ({
+        el,
+        hasDisabledProp: typeof el.disabled === 'boolean',
+        disabled: Boolean(el.disabled),
+        ariaBusy: el.getAttribute('aria-busy')
+    }));
+    const origText = loadingText ? btn.textContent : null;
+
+    targets.forEach(el => {
+        busyActionElements.add(el);
+        if (typeof el.disabled === 'boolean') el.disabled = true;
+        el.setAttribute('aria-busy', 'true');
+        el.classList.add('is-busy');
+    });
+    if (loadingText) {
+        btn.textContent = loadingText;
+    }
+
+    try {
+        return await asyncFn();
+    } finally {
+        targets.forEach(el => {
+            busyActionElements.delete(el);
+            el.classList.remove('is-busy');
+        });
+        prevStates.forEach(({ el, hasDisabledProp, disabled, ariaBusy }) => {
+            if (hasDisabledProp) el.disabled = disabled;
+            if (ariaBusy === null) el.removeAttribute('aria-busy');
+            else el.setAttribute('aria-busy', ariaBusy);
+        });
+        if (origText !== null) {
+            btn.textContent = origText;
+        }
+    }
+}
+
+async function submitMutationRequest({
+    url,
+    method = 'POST',
+    scopeKey = '',
+    signature = '',
+    buildBody = null,
+    parseJson = false
+}) {
+    let idempotencyKey = createIdempotencyKey();
+    let bodyObj = buildBody ? buildBody() : null;
+
+    if (scopeKey) {
+        const sub = beginIdempotentSubmission(scopeKey, signature, () => (buildBody ? buildBody() : null));
+        idempotencyKey = sub.idempotencyKey;
+        bodyObj = sub.body;
+    }
+
+    const headers = { 'X-Idempotency-Key': idempotencyKey };
+    const fetchOpts = { method, headers };
+
+    if (bodyObj !== null && bodyObj !== undefined) {
+        headers['Content-Type'] = 'application/json';
+        fetchOpts.body = JSON.stringify(bodyObj);
+    }
+
+    const res = await fetch(url, fetchOpts);
+    if (!res.ok) {
+        if (scopeKey && res.status >= 400 && res.status < 500 && res.status !== 408) {
+            clearIdempotentSubmission(scopeKey);
+        }
+        const errText = await res.text();
+        throw new Error(errText || `HTTP ${res.status}`);
+    }
+
+    clearIdempotentSubmission(scopeKey);
+    return parseJson ? res.json() : res.text();
+}
+
+const homeSummaryTracker = createRequestTracker();
+const resumenTracker = createRequestTracker();
+const agendaLoadTracker = createRequestTracker();
+const medicosTracker = createRequestTracker();
+
+// ==========================================
 // E2EE CLIENT CRYPTO HELPERS (SHARED BY JOURNAL & ENGLISH NOTEBOOK)
 // ==========================================
 function obtenerLlaveE2EE() {
@@ -249,10 +401,14 @@ function cargarInicioResumen() {
     const agendaBox = document.getElementById('homeAgendaSummary');
     if (!moodBox || !sleepBox || !agendaBox) return;
 
+    const reqToken = homeSummaryTracker.begin();
+    const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
+
     // 1. Today's mood
-    fetch(`/api/get-moods?begin=${hoyStr}&end=${hoyStr}`)
+    fetch(`/api/get-moods?begin=${hoyStr}&end=${hoyStr}`, fetchOpts)
         .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch mood logs')))
         .then(registros => {
+            if (!homeSummaryTracker.isCurrent(reqToken.seq)) return;
             moodBox.innerHTML = '';
             if (!registros.length) {
                 const p = document.createElement('p');
@@ -276,14 +432,16 @@ function cargarInicioResumen() {
             });
             moodBox.appendChild(wrap);
         })
-        .catch(() => {
+        .catch(err => {
+            if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
             moodBox.innerHTML = '<p class="muted-text">Could not load today\'s mood entries.</p>';
         });
 
     // 2. Today's sleep
-    fetch(`/api/get-sleep?begin=${hoyStr}&end=${hoyStr}`)
+    fetch(`/api/get-sleep?begin=${hoyStr}&end=${hoyStr}`, fetchOpts)
         .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch sleep logs')))
         .then(registros => {
+            if (!homeSummaryTracker.isCurrent(reqToken.seq)) return;
             sleepBox.innerHTML = '';
             if (!registros.length) {
                 const p = document.createElement('p');
@@ -301,14 +459,16 @@ function cargarInicioResumen() {
             p.innerHTML = `<strong>${horasEnteras}:${String(minutosRest).padStart(2, '0')} hrs</strong> logged across ${registros.length} ${plural}.`;
             sleepBox.appendChild(p);
         })
-        .catch(() => {
+        .catch(err => {
+            if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
             sleepBox.innerHTML = '<p class="muted-text">Could not load sleep summary.</p>';
         });
 
     // 3. Today's agenda
-    fetch(`/api/get-agenda?begin=${hoyStr}&end=${hoyStr}`)
+    fetch(`/api/get-agenda?begin=${hoyStr}&end=${hoyStr}`, fetchOpts)
         .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to fetch agenda')))
         .then(items => {
+            if (!homeSummaryTracker.isCurrent(reqToken.seq)) return;
             agendaBox.innerHTML = '';
             if (!items.length) {
                 const p = document.createElement('p');
@@ -337,7 +497,8 @@ function cargarInicioResumen() {
             });
             agendaBox.appendChild(ul);
         })
-        .catch(() => {
+        .catch(err => {
+            if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
             agendaBox.innerHTML = '<p class="muted-text">Agenda unavailable or missing table in DB.</p>';
         });
 }
@@ -387,20 +548,18 @@ if (formRegistro) {
 
     obtenerMomentoDia(hora);
 
+    let lastSavedMoodSignature = '';
+
     formRegistro.addEventListener('submit', (e) => {
         e.preventDefault();
 
         const btnGuardarMood = document.getElementById('btn-save-mood');
-        if (btnGuardarMood.disabled) return;
+        if (!btnGuardarMood || busyActionElements.has(btnGuardarMood) || btnGuardarMood.disabled) return;
 
         if (!estadoSeleccionado) {
             alert('Please select a mood first.');
             return;
         }
-
-        const textoBtnMood = btnGuardarMood.textContent;
-        btnGuardarMood.disabled = true;
-        btnGuardarMood.textContent = 'Saving...';
 
         const datos = {
             fecha: document.getElementById('fecha').value,
@@ -409,29 +568,36 @@ if (formRegistro) {
             color_hex: colorSeleccionado
         };
 
-        fetch('/api/insert-mood', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datos)
-        })
-            .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => { throw new Error(text); });
-                }
-                return response.text();
-            })
-            .then(mensaje => {
+        if (!datos.fecha || !datos.momento_dia) {
+            alert('Please select date and time of day.');
+            return;
+        }
+
+        const moodSignature = `${datos.fecha}|${datos.momento_dia}|${datos.estado_animo}`;
+        if (moodSignature === lastSavedMoodSignature) {
+            alert('This exact mood is already saved for this date and time of day.');
+            return;
+        }
+
+        runWithButtonLock(btnGuardarMood, async () => {
+            try {
+                const mensaje = await submitMutationRequest({
+                    url: '/api/insert-mood',
+                    method: 'POST',
+                    scopeKey: 'mood',
+                    signature: moodSignature,
+                    buildBody: () => datos
+                });
+                lastSavedMoodSignature = moodSignature;
                 alert(mensaje);
                 botones.forEach(b => b.classList.remove('selected'));
                 estadoSeleccionado = '';
                 colorSeleccionado = '';
                 document.getElementById('momento').value = '';
-            })
-            .catch(error => alert('Error: ' + error.message))
-            .finally(() => {
-                btnGuardarMood.disabled = false;
-                btnGuardarMood.textContent = textoBtnMood;
-            });
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }, { loadingText: 'Saving...' });
     });
 }
 
@@ -469,13 +635,17 @@ if (selectSemana) {
     // 2. Fetch week data when changed
     selectSemana.addEventListener('change', () => {
         const [begin, end] = selectSemana.value.split('|');
+        const reqToken = resumenTracker.begin();
+        const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
         document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
         const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-        fetch(`/api/get-moods?begin=${begin}&end=${end}`)
-            .then(response => response.json())
+        fetch(`/api/get-moods?begin=${begin}&end=${end}`, fetchOpts)
+            .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load moods')))
             .then(registros => {
+                if (!resumenTracker.isCurrent(reqToken.seq)) return;
+                document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
                     const nombreDia = diasSemana[fechaObj.getUTCDay()];
@@ -486,7 +656,9 @@ if (selectSemana) {
                     }
                 });
             })
-            .catch(error => console.error('Error loading moods:', error));
+            .catch(error => {
+                if (!isAbortError(error)) console.error('Error loading moods:', error);
+            });
 
         const sleepGrid = document.getElementById('sleepGrid');
         sleepGrid.innerHTML = '';
@@ -502,9 +674,11 @@ if (selectSemana) {
             Saturday: { horas: 0, calidades: [], sesiones: [] }
         };
 
-        fetch(`/api/get-sleep?begin=${begin}&end=${end}`)
-            .then(response => response.json())
+        fetch(`/api/get-sleep?begin=${begin}&end=${end}`, fetchOpts)
+            .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load sleep logs')))
             .then(registros => {
+                if (!resumenTracker.isCurrent(reqToken.seq)) return;
+                sleepGrid.innerHTML = '';
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
                     const nombreDia = diasSemana[fechaObj.getUTCDay()];
@@ -567,7 +741,9 @@ if (selectSemana) {
                     sleepGrid.appendChild(card);
                 });
             })
-            .catch(error => console.error('Error loading sleep logs:', error));
+            .catch(error => {
+                if (!isAbortError(error)) console.error('Error loading sleep logs:', error);
+            });
     });
 }
 
@@ -608,10 +784,12 @@ if (formSleep) {
     document.getElementById('sleepTime').addEventListener('change', () => calcularHoras());
     document.getElementById('wakeupTime').addEventListener('change', () => calcularHoras());
 
+    let lastSavedSleepSignature = '';
+
     formSleep.addEventListener('submit', (e) => {
         e.preventDefault();
         const btnGuardarSleep = document.getElementById('btn-save-sleep');
-        if (btnGuardarSleep.disabled) return;
+        if (!btnGuardarSleep || busyActionElements.has(btnGuardarSleep) || btnGuardarSleep.disabled) return;
 
         const sleepTime = document.getElementById('sleepTime').value;
         const wakeupTime = document.getElementById('wakeupTime').value;
@@ -622,44 +800,42 @@ if (formSleep) {
             return;
         }
 
-        const textoBtnSleep = btnGuardarSleep.textContent;
-        btnGuardarSleep.disabled = true;
-        btnGuardarSleep.textContent = 'Saving...';
-
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-
-        const fecha = `${year}-${month}-${day}`;
         const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
-        const calidad = document.getElementById('quality-sleep').value;
+        if (!Number.isFinite(horas) || horas <= 0) {
+            alert('Bedtime and wake-up time cannot result in 0 hours of sleep.');
+            return;
+        }
 
-        const datos = { fecha, horas, calidad };
+        const fecha = formatLocalDate(new Date());
+        const sleepSignature = `${fecha}|${sleepTime}|${wakeupTime}|${horas}|${quality}`;
+        if (sleepSignature === lastSavedSleepSignature) {
+            alert('This exact sleep session was already recorded.');
+            return;
+        }
 
-        fetch('/api/insert-sleep', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(datos)
-        })
-            .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => { throw new Error(text); });
-                }
-                return response.text();
-            })
-            .then(mensaje => {
+        const datos = { fecha, horas, calidad: quality };
+
+        runWithButtonLock(btnGuardarSleep, async () => {
+            try {
+                const mensaje = await submitMutationRequest({
+                    url: '/api/insert-sleep',
+                    method: 'POST',
+                    scopeKey: 'sleep',
+                    signature: sleepSignature,
+                    buildBody: () => datos
+                });
+                lastSavedSleepSignature = sleepSignature;
                 alert(mensaje);
                 document.getElementById('sleepTime').value = '';
                 document.getElementById('wakeupTime').value = '';
-                document.getElementById('sleepHours').value = '';
+                const hoursInput = document.getElementById('sleepHours');
+                hoursInput.value = '';
+                delete hoursInput.dataset.decimal;
                 document.getElementById('quality-sleep').value = '';
-            })
-            .catch(error => alert('Error: ' + error.message))
-            .finally(() => {
-                btnGuardarSleep.disabled = false;
-                btnGuardarSleep.textContent = textoBtnSleep;
-            });
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }, { loadingText: 'Saving...' });
     });
 }
 
@@ -669,44 +845,42 @@ if (formSleep) {
 const journalForm = document.getElementById('journalForm');
 
 if (journalForm) {
+    let lastSentJournalText = '';
+
     journalForm.addEventListener('submit', function (e) {
         e.preventDefault();
         const btnEnviarWord = document.getElementById('btn-send-word');
-        if (btnEnviarWord.disabled) return;
+        if (!btnEnviarWord || busyActionElements.has(btnEnviarWord) || btnEnviarWord.disabled) return;
 
         const textInput = document.getElementById('journalText');
         const texto = textInput.value;
-        if (!texto.trim()) return;
+        const textoLimpio = texto.trim();
+        if (!textoLimpio) return;
+
+        if (textoLimpio === lastSentJournalText) {
+            alert('This exact note was already queued in this session. Edit the text before sending again.');
+            return;
+        }
 
         const llaveTexto = obtenerLlaveE2EE();
         if (!llaveTexto) return;
 
-        const textoBtnWord = btnEnviarWord.textContent;
-        btnEnviarWord.disabled = true;
-        btnEnviarWord.textContent = 'Sending...';
-
-        const textoSeguro = encriptarTextoE2EE(texto, llaveTexto);
-
-        fetch('/api/send-to-pc', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ texto: textoSeguro })
-        })
-            .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => { throw new Error(text); });
-                }
-                return response.text();
-            })
-            .then(() => {
+        runWithButtonLock(btnEnviarWord, async () => {
+            try {
+                await submitMutationRequest({
+                    url: '/api/send-to-pc',
+                    method: 'POST',
+                    scopeKey: 'journal',
+                    signature: textoLimpio,
+                    buildBody: () => ({ texto: encriptarTextoE2EE(texto, llaveTexto) })
+                });
+                lastSentJournalText = textoLimpio;
                 alert('Note sent! Your Python sync script will save it to Word on the next scan.');
                 textInput.value = '';
-            })
-            .catch(error => alert('Failed to send note: ' + error.message))
-            .finally(() => {
-                btnEnviarWord.disabled = false;
-                btnEnviarWord.textContent = textoBtnWord;
-            });
+            } catch (error) {
+                alert('Failed to send note: ' + error.message);
+            }
+        }, { loadingText: 'Sending...' });
     });
 }
 
@@ -851,10 +1025,23 @@ if (englishForm) {
         if (focusEl) focusEl.focus();
     }
 
+    const sentEnglishSignatures = new Set();
+
+    function getEnglishEntrySignature(entry) {
+        return JSON.stringify(
+            Object.keys(entry)
+                .sort()
+                .reduce((acc, k) => {
+                    acc[k] = String(entry[k] || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                    return acc;
+                }, {})
+        );
+    }
+
     englishForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const btn = document.getElementById('btnSendEnglish');
-        if (!btn || btn.disabled) return;
+        if (!btn || busyActionElements.has(btn) || btn.disabled) return;
 
         const category = categoryInput ? categoryInput.value : 'vocabulary';
         const entry = buildEnglishEntryPayload(category);
@@ -872,42 +1059,37 @@ if (englishForm) {
             return;
         }
 
+        const signature = getEnglishEntrySignature(entry);
+        if (sentEnglishSignatures.has(signature)) {
+            mostrarEstadoEnglish('err', 'This exact entry was already queued for your English Word notebook in this session.');
+            return;
+        }
+
         const llaveTexto = obtenerLlaveE2EE();
         if (!llaveTexto) return;
 
-        const origText = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = 'Sending...';
         if (statusBanner) statusBanner.hidden = true;
 
-        const textoSeguro = encriptarTextoE2EE(JSON.stringify(entry), llaveTexto);
-
-        fetch('/api/send-english', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ texto: textoSeguro })
-        })
-            .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => { throw new Error(text); });
-                }
-                return response.text();
-            })
-            .then(() => {
+        runWithButtonLock(btn, async () => {
+            try {
+                await submitMutationRequest({
+                    url: '/api/send-english',
+                    method: 'POST',
+                    scopeKey: `english:${category}`,
+                    signature,
+                    buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
+                });
+                sentEnglishSignatures.add(signature);
                 appendRecentEnglishItem(entry);
                 limpiarCamposEnglish(category);
                 mostrarEstadoEnglish(
                     'ok',
                     'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.'
                 );
-            })
-            .catch(err => {
+            } catch (err) {
                 mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
-            })
-            .finally(() => {
-                btn.disabled = false;
-                btn.textContent = origText;
-            });
+            }
+        }, { loadingText: 'Sending...' });
     });
 
     cambiarCategoriaEnglish('vocabulary');
@@ -1004,7 +1186,6 @@ function crearElementoActividad(item) {
     checkBtn.className = 'agenda-check-circle';
     checkBtn.setAttribute('aria-label', Number(item.completada) === 1 ? 'Mark as pending' : 'Mark as completed');
     checkBtn.textContent = Number(item.completada) === 1 ? '✓' : '';
-    checkBtn.addEventListener('click', () => toggleAgendaItem(item));
 
     const content = document.createElement('div');
     content.className = 'agenda-item-content';
@@ -1036,7 +1217,10 @@ function crearElementoActividad(item) {
     delBtn.title = 'Delete activity';
     delBtn.setAttribute('aria-label', 'Delete activity');
     delBtn.textContent = '🗑️';
-    delBtn.addEventListener('click', () => eliminarAgendaItem(item.id));
+
+    const uiRefs = { row, checkBtn, editBtn, delBtn };
+    checkBtn.addEventListener('click', () => toggleAgendaItem(item, uiRefs));
+    delBtn.addEventListener('click', () => eliminarAgendaItem(item.id, uiRefs));
 
     actions.append(editBtn, delBtn);
     row.append(checkBtn, content, actions);
@@ -1228,17 +1412,21 @@ function cargarAgendaSemana() {
     const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
     const begin = formatLocalDate(monday);
     const end = formatLocalDate(sunday);
+    const reqToken = agendaLoadTracker.begin();
+    const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
-    fetch(`/api/get-agenda?begin=${begin}&end=${end}`)
+    fetch(`/api/get-agenda?begin=${begin}&end=${end}`, fetchOpts)
         .then(res => {
             if (!res.ok) return res.text().then(t => { throw new Error(t); });
             return res.json();
         })
         .then(items => {
+            if (!agendaLoadTracker.isCurrent(reqToken.seq)) return;
             agendaState.items = Array.isArray(items) ? items : [];
             renderAgendaBoard();
         })
         .catch(err => {
+            if (isAbortError(err) || !agendaLoadTracker.isCurrent(reqToken.seq)) return;
             console.error('Error loading agenda:', err);
             agendaState.items = [];
             renderAgendaBoard();
@@ -1249,43 +1437,51 @@ function cargarAgendaSemana() {
         });
 }
 
-function toggleAgendaItem(item) {
+function toggleAgendaItem(item, ui = {}) {
     const nuevoEstado = Number(item.completada) === 1 ? 0 : 1;
-    fetch(`/api/toggle-agenda/${item.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completada: nuevoEstado })
-    })
-        .then(res => {
-            if (!res.ok) return res.text().then(t => { throw new Error(t); });
-            return res.json();
-        })
-        .then(() => {
+    const lockBtn = ui.checkBtn || ui.row || document.createElement('button');
+    runWithButtonLock(lockBtn, async () => {
+        try {
+            await submitMutationRequest({
+                url: `/api/toggle-agenda/${item.id}`,
+                method: 'PATCH',
+                scopeKey: `agenda-toggle:${item.id}`,
+                signature: String(nuevoEstado),
+                buildBody: () => ({ completada: nuevoEstado }),
+                parseJson: true
+            });
             item.completada = nuevoEstado;
             renderAgendaBoard();
-        })
-        .catch(err => alert('Failed to update activity status: ' + err.message));
+        } catch (err) {
+            alert('Failed to update activity status: ' + err.message);
+        }
+    }, { extraDisable: [ui.row, ui.editBtn, ui.delBtn] });
 }
 
-function eliminarAgendaItem(id) {
-    if (!confirm('Delete this activity from your agenda?')) return;
-
-    fetch(`/api/delete-agenda/${id}`, {
-        method: 'DELETE'
-    })
-        .then(res => {
-            if (!res.ok) return res.text().then(t => { throw new Error(t); });
-            return res.json();
-        })
-        .then(() => {
+function eliminarAgendaItem(id, ui = {}) {
+    const lockBtn = ui.delBtn || ui.row || document.createElement('button');
+    runWithButtonLock(lockBtn, async () => {
+        if (!confirm('Delete this activity from your agenda?')) return;
+        try {
+            await submitMutationRequest({
+                url: `/api/delete-agenda/${id}`,
+                method: 'DELETE',
+                scopeKey: `agenda-delete:${id}`,
+                signature: String(id),
+                parseJson: true
+            });
             agendaState.items = agendaState.items.filter(i => i.id !== id);
             renderAgendaBoard();
-        })
-        .catch(err => alert('Failed to delete activity: ' + err.message));
+        } catch (err) {
+            alert('Failed to delete activity: ' + err.message);
+        }
+    }, { extraDisable: [ui.row, ui.checkBtn, ui.editBtn] });
 }
 
 const agendaModal = document.getElementById('agendaModal');
 const agendaForm = document.getElementById('agendaForm');
+
+let agendaOriginalSnapshot = null;
 
 function abrirAgendaModal(prefill = {}) {
     if (!agendaModal || !agendaForm) return;
@@ -1298,18 +1494,28 @@ function abrirAgendaModal(prefill = {}) {
         : formatLocalDate(now);
     const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
+    const resolvedFecha = prefill.fecha || defaultDate;
+    const resolvedBloque = prefill.bloque || info.agendaBloque;
+    const resolvedHora = String(prefill.hora || defaultTime).slice(0, 5);
+    const resolvedActividad = String(prefill.actividad || '').trim();
+
     document.getElementById('agendaModalTitle').textContent = isEdit ? 'Edit Activity' : 'New Activity';
     document.getElementById('agendaEditId').value = isEdit ? String(prefill.id) : '';
-    document.getElementById('agendaFecha').value = prefill.fecha || defaultDate;
-    document.getElementById('agendaBloque').value = prefill.bloque || info.agendaBloque;
-    document.getElementById('agendaHora').value = prefill.hora || defaultTime;
-    document.getElementById('agendaActividad').value = prefill.actividad || '';
+    document.getElementById('agendaFecha').value = resolvedFecha;
+    document.getElementById('agendaBloque').value = resolvedBloque;
+    document.getElementById('agendaHora').value = resolvedHora;
+    document.getElementById('agendaActividad').value = resolvedActividad;
+
+    agendaOriginalSnapshot = isEdit
+        ? { fecha: resolvedFecha, bloque: resolvedBloque, hora: resolvedHora, actividad: resolvedActividad.replace(/\s+/g, ' ') }
+        : null;
 
     agendaModal.hidden = false;
     setTimeout(() => document.getElementById('agendaActividad').focus(), 40);
 }
 
 function cerrarAgendaModal() {
+    agendaOriginalSnapshot = null;
     if (agendaModal) agendaModal.hidden = true;
 }
 
@@ -1382,14 +1588,14 @@ if (agendaForm) {
     agendaForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const btnSave = document.getElementById('btnSaveAgenda');
-        if (btnSave.disabled) return;
+        if (!btnSave || busyActionElements.has(btnSave) || btnSave.disabled) return;
 
         const editId = document.getElementById('agendaEditId').value;
         const payload = {
             fecha: document.getElementById('agendaFecha').value,
             bloque: document.getElementById('agendaBloque').value,
-            hora: document.getElementById('agendaHora').value,
-            actividad: document.getElementById('agendaActividad').value.trim()
+            hora: String(document.getElementById('agendaHora').value || '').slice(0, 5),
+            actividad: document.getElementById('agendaActividad').value.replace(/\s+/g, ' ').trim()
         };
 
         if (!payload.fecha || !payload.bloque || !payload.hora || !payload.actividad) {
@@ -1397,32 +1603,51 @@ if (agendaForm) {
             return;
         }
 
-        const originalText = btnSave.textContent;
-        btnSave.disabled = true;
-        btnSave.textContent = 'Saving...';
+        if (
+            editId &&
+            agendaOriginalSnapshot &&
+            payload.fecha === agendaOriginalSnapshot.fecha &&
+            payload.bloque === agendaOriginalSnapshot.bloque &&
+            payload.hora === String(agendaOriginalSnapshot.hora || '').slice(0, 5) &&
+            payload.actividad === agendaOriginalSnapshot.actividad
+        ) {
+            cerrarAgendaModal();
+            return;
+        }
+
+        const duplicateExists = agendaState.items.some(item =>
+            String(item.id) !== String(editId || '') &&
+            item.fecha === payload.fecha &&
+            item.bloque === payload.bloque &&
+            String(item.hora || '').slice(0, 5) === payload.hora &&
+            String(item.actividad || '').trim().toLowerCase().replace(/\s+/g, ' ') === payload.actividad.toLowerCase()
+        );
+        if (duplicateExists) {
+            alert('This exact activity is already scheduled for that date, block, and time.');
+            return;
+        }
 
         const url = editId ? `/api/update-agenda/${editId}` : '/api/insert-agenda';
         const method = editId ? 'PUT' : 'POST';
+        const scopeKey = editId ? `agenda-edit:${editId}` : 'agenda-create';
 
-        fetch(url, {
-            method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-            .then(res => {
-                if (!res.ok) return res.text().then(t => { throw new Error(t); });
-                return res.json();
-            })
-            .then(() => {
+        runWithButtonLock(btnSave, async () => {
+            try {
+                await submitMutationRequest({
+                    url,
+                    method,
+                    scopeKey,
+                    signature: JSON.stringify(payload),
+                    buildBody: () => payload,
+                    parseJson: true
+                });
                 agendaState.selectedDate = payload.fecha;
                 cerrarAgendaModal();
                 cargarAgendaSemana();
-            })
-            .catch(err => alert('Error: ' + err.message))
-            .finally(() => {
-                btnSave.disabled = false;
-                btnSave.textContent = originalText;
-            });
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }, { loadingText: 'Saving...' });
     });
 }
 
@@ -1519,9 +1744,13 @@ function cargarMedicos() {
     const container = document.getElementById('medicosList');
     if (!container || !currentUser || currentUser.rol !== 'admin') return;
 
-    fetch('/api/auth/medicos')
+    const reqToken = medicosTracker.begin();
+    const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
+
+    fetch('/api/auth/medicos', fetchOpts)
         .then(res => res.ok ? res.json() : Promise.reject(new Error('Could not fetch accounts')))
         .then(medicos => {
+            if (!medicosTracker.isCurrent(reqToken.seq)) return;
             container.innerHTML = '';
             if (!Array.isArray(medicos) || medicos.length === 0) {
                 container.innerHTML = '<p class="muted-text">You have not created a psychiatrist account yet.</p>';
@@ -1544,18 +1773,29 @@ function cargarMedicos() {
                 delBtn.className = 'btn-revoke-medico';
                 delBtn.textContent = 'Revoke access';
                 delBtn.addEventListener('click', () => {
-                    if (!confirm(`Revoke access for ${m.nombre} (${m.email})?`)) return;
-                    fetch(`/api/auth/medicos/${m.id}`, { method: 'DELETE' })
-                        .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
-                        .then(() => cargarMedicos())
-                        .catch(err => alert('Error: ' + err.message));
+                    runWithButtonLock(delBtn, async () => {
+                        if (!confirm(`Revoke access for ${m.nombre} (${m.email})?`)) return;
+                        try {
+                            await submitMutationRequest({
+                                url: `/api/auth/medicos/${m.id}`,
+                                method: 'DELETE',
+                                scopeKey: `medico-revoke:${m.id}`,
+                                signature: String(m.id),
+                                parseJson: true
+                            });
+                            cargarMedicos();
+                        } catch (err) {
+                            alert('Error: ' + err.message);
+                        }
+                    }, { loadingText: 'Revoking...' });
                 });
 
                 row.append(info, delBtn);
                 container.appendChild(row);
             });
         })
-        .catch(() => {
+        .catch(err => {
+            if (isAbortError(err) || !medicosTracker.isCurrent(reqToken.seq)) return;
             container.innerHTML = '<p class="muted-text">Error loading psychiatrist accounts.</p>';
         });
 }
@@ -1625,217 +1865,202 @@ function initAuthHandlers() {
 
     if (btnSendRegCode) {
         btnSendRegCode.addEventListener('click', () => {
+            if (busyActionElements.has(btnSendRegCode) || btnSendRegCode.disabled) return;
             const email = document.getElementById('regEmail').value.trim();
             if (!email) {
                 alert('Please enter your email address above first.');
                 return;
             }
-            const origText = btnSendRegCode.textContent;
-            btnSendRegCode.disabled = true;
-            btnSendRegCode.textContent = 'Sending code...';
 
-            fetch('/api/auth/send-register-code', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email })
-            })
-                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
-                .then(data => alert(data.message))
-                .catch(err => alert(err.message))
-                .finally(() => {
-                    btnSendRegCode.disabled = false;
-                    btnSendRegCode.textContent = origText;
-                });
+            runWithButtonLock(btnSendRegCode, async () => {
+                try {
+                    const data = await submitMutationRequest({
+                        url: '/api/auth/send-register-code',
+                        method: 'POST',
+                        scopeKey: 'reg-code',
+                        signature: email.toLowerCase(),
+                        buildBody: () => ({ email }),
+                        parseJson: true
+                    });
+                    alert(data.message);
+                } catch (err) {
+                    alert(err.message);
+                }
+            }, { loadingText: 'Sending code...' });
         });
     }
 
-    const loginForm = document.getElementById('authLoginForm');
-    if (loginForm) {
-        loginForm.addEventListener('submit', (e) => {
+    function bindLockedFormSubmit({ formId, btnId, url, loadingText, scopeKey, getSubmission, onSuccess, errorPrefix = '' }) {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        form.addEventListener('submit', (e) => {
             e.preventDefault();
-            const btn = document.getElementById('btnLoginSubmit');
-            if (btn.disabled) return;
+            const btn = document.getElementById(btnId);
+            if (!btn || busyActionElements.has(btn) || btn.disabled) return;
+            const spec = getSubmission(form);
+            if (!spec) return;
 
+            runWithButtonLock(btn, async () => {
+                try {
+                    const data = await submitMutationRequest({
+                        url,
+                        method: 'POST',
+                        scopeKey,
+                        signature: spec.signature,
+                        buildBody: () => spec.payload,
+                        parseJson: true
+                    });
+                    onSuccess(data, form, spec.payload);
+                } catch (err) {
+                    alert(`${errorPrefix}${err.message}`);
+                }
+            }, { loadingText });
+        });
+    }
+
+    bindLockedFormSubmit({
+        formId: 'authLoginForm',
+        btnId: 'btnLoginSubmit',
+        url: '/api/auth/login',
+        loadingText: 'Verifying...',
+        scopeKey: 'login',
+        getSubmission: () => {
             const email = document.getElementById('loginEmail').value.trim();
             const password = document.getElementById('loginPassword').value;
+            return { payload: { email, password }, signature: `${email.toLowerCase()}|${password}` };
+        },
+        onSuccess: (data, form) => {
+            pendingSubmissions.clear();
+            form.reset();
+            resetPasswordToggles();
+            enterAppSession(data.user);
+        }
+    });
 
-            const origText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Verifying...';
-
-            fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            })
-                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
-                .then(data => {
-                    loginForm.reset();
-                    enterAppSession(data.user);
-                })
-                .catch(err => alert(err.message))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = origText;
-                });
-        });
-    }
-
-    const registerForm = document.getElementById('authRegisterForm');
-    if (registerForm) {
-        registerForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('btnRegSubmit');
-            if (btn.disabled) return;
-
+    bindLockedFormSubmit({
+        formId: 'authRegisterForm',
+        btnId: 'btnRegSubmit',
+        url: '/api/auth/register',
+        loadingText: 'Validating & creating...',
+        scopeKey: 'register',
+        getSubmission: () => {
             const payload = {
                 nombre: document.getElementById('regNombre').value.trim(),
                 email: document.getElementById('regEmail').value.trim(),
                 password: document.getElementById('regPassword').value,
                 codigoValidacion: document.getElementById('regCodigoValidacion').value.trim()
             };
+            return { payload, signature: payload.email.toLowerCase() };
+        },
+        onSuccess: (data, form) => {
+            pendingSubmissions.clear();
+            form.reset();
+            resetPasswordToggles();
+            alert(`Welcome, ${data.user.nombre}! Your session will remain active until Sunday at 00:00 or until you sign out.`);
+            enterAppSession(data.user);
+        }
+    });
 
-            const origText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Validating & creating...';
-
-            fetch('/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
-                .then(data => {
-                    registerForm.reset();
-                    alert(`Welcome, ${data.user.nombre}! Your session will remain active until Sunday at 00:00 or until you sign out.`);
-                    enterAppSession(data.user);
-                })
-                .catch(err => alert(err.message))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = origText;
-                });
-        });
-    }
-
-    const forgotForm = document.getElementById('authForgotForm');
-    if (forgotForm) {
-        forgotForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('btnForgotSubmit');
-            if (btn.disabled) return;
-
+    bindLockedFormSubmit({
+        formId: 'authForgotForm',
+        btnId: 'btnForgotSubmit',
+        url: '/api/auth/forgot-password',
+        loadingText: 'Sending link...',
+        scopeKey: 'forgot',
+        errorPrefix: 'Error: ',
+        getSubmission: () => {
             const email = document.getElementById('forgotEmail').value.trim();
-            const origText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Sending link...';
+            return { payload: { email }, signature: email.toLowerCase() };
+        },
+        onSuccess: (data) => {
+            alert(data.message);
+            showAuthForm('authLoginForm', 'Sign in to continue');
+        }
+    });
 
-            fetch('/api/auth/forgot-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email })
-            })
-                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
-                .then(data => {
-                    alert(data.message);
-                    showAuthForm('authLoginForm', 'Sign in to continue');
-                })
-                .catch(err => alert('Error: ' + err.message))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = origText;
-                });
-        });
-    }
-
-    const resetForm = document.getElementById('authResetForm');
-    if (resetForm) {
-        resetForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('btnResetSubmit');
-            if (btn.disabled) return;
-
+    bindLockedFormSubmit({
+        formId: 'authResetForm',
+        btnId: 'btnResetSubmit',
+        url: '/api/auth/reset-password',
+        loadingText: 'Updating...',
+        scopeKey: 'reset',
+        errorPrefix: 'Error: ',
+        getSubmission: () => {
             const params = new URLSearchParams(window.location.search);
             const token = params.get('resetToken') || '';
             const email = params.get('email') || '';
             const newPassword = document.getElementById('resetNewPassword').value;
             const confirmPassword = document.getElementById('resetConfirmPassword').value;
-
             if (newPassword !== confirmPassword) {
                 alert('Passwords do not match.');
-                return;
+                return null;
             }
-
-            const origText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Updating...';
-
-            fetch('/api/auth/reset-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, token, newPassword })
-            })
-                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
-                .then(data => {
-                    alert(data.message);
-                    resetForm.reset();
-                    history.replaceState(null, '', window.location.pathname);
-                    showAuthForm('authLoginForm', 'Sign in with your new password');
-                })
-                .catch(err => alert('Error: ' + err.message))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = origText;
-                });
-        });
-    }
+            return {
+                payload: { email, token, newPassword },
+                signature: `${email.toLowerCase()}|${token}`
+            };
+        },
+        onSuccess: (data, form) => {
+            alert(data.message);
+            form.reset();
+            resetPasswordToggles();
+            history.replaceState(null, '', window.location.pathname);
+            showAuthForm('authLoginForm', 'Sign in with your new password');
+        }
+    });
 
     if (btnLogout) {
         btnLogout.addEventListener('click', () => {
-            fetch('/api/auth/logout', { method: 'POST' })
-                .finally(() => {
+            runWithButtonLock(btnLogout, async () => {
+                try {
+                    await submitMutationRequest({
+                        url: '/api/auth/logout',
+                        method: 'POST',
+                        scopeKey: 'logout',
+                        signature: currentUser ? String(currentUser.id) : 'anon',
+                        parseJson: true
+                    });
+                } catch (_) {
+                    // Proceed to clear UI session even on flaky network
+                } finally {
+                    pendingSubmissions.clear();
+                    resetPasswordToggles();
                     setMobileMenuOpen(false);
                     showAuthScreen('authLoginForm');
-                });
+                }
+            }, { loadingText: 'Signing out...' });
         });
     }
 
-    const medicoForm = document.getElementById('medicoForm');
-    if (medicoForm) {
-        medicoForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('btnSaveMedico');
-            if (btn.disabled) return;
-
+    let lastSavedMedicoSignature = '';
+    bindLockedFormSubmit({
+        formId: 'medicoForm',
+        btnId: 'btnSaveMedico',
+        url: '/api/auth/create-medico',
+        loadingText: 'Saving...',
+        scopeKey: 'medico',
+        errorPrefix: 'Error: ',
+        getSubmission: () => {
             const payload = {
                 nombre: document.getElementById('medicoNombre').value.trim(),
                 email: document.getElementById('medicoEmail').value.trim(),
                 password: document.getElementById('medicoPassword').value
             };
-
-            const origText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Saving...';
-
-            fetch('/api/auth/create-medico', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
-                .then(data => {
-                    alert(data.message);
-                    medicoForm.reset();
-                    resetPasswordToggles();
-                    cargarMedicos();
-                })
-                .catch(err => alert('Error: ' + err.message))
-                .finally(() => {
-                    btn.disabled = false;
-                    btn.textContent = origText;
-                });
-        });
-    }
+            const sig = `${payload.nombre}|${payload.email.toLowerCase()}|${payload.password}`;
+            if (sig === lastSavedMedicoSignature) {
+                alert('These exact psychiatrist credentials were already saved.');
+                return null;
+            }
+            return { payload, signature: sig };
+        },
+        onSuccess: (data, form, payload) => {
+            lastSavedMedicoSignature = `${payload.nombre}|${payload.email.toLowerCase()}|${payload.password}`;
+            alert(data.message);
+            form.reset();
+            resetPasswordToggles();
+            cargarMedicos();
+        }
+    });
 }
 
 // ==========================================
