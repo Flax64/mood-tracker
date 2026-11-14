@@ -34,6 +34,242 @@ body {
 }
 
 /* =========================================
+   PANTALLA DE LOGIN, REGISTRO Y RECUPERACIÓN
+========================================= */
+.auth-screen {
+    min-height: 100dvh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background: linear-gradient(135deg, #1e2430 0%, #2b3548 55%, #3b4c6b 100%);
+}
+
+.auth-card {
+    background: #ffffff;
+    width: 100%;
+    max-width: 450px;
+    border-radius: 18px;
+    padding: 30px 26px;
+    box-shadow: 0 22px 50px rgba(0, 0, 0, 0.32);
+}
+
+.auth-brand {
+    text-align: center;
+    margin-bottom: 22px;
+}
+
+.auth-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+    background: #eef2ff;
+    font-size: 2rem;
+    margin-bottom: 10px;
+}
+
+.auth-brand h1 {
+    margin: 0 0 6px 0;
+    font-size: 1.55rem;
+    color: #1f2937;
+}
+
+.auth-brand p {
+    margin: 0;
+    font-size: 0.92rem;
+    color: var(--text-muted);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+}
+
+.auth-links {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.auth-link-btn {
+    background: transparent;
+    border: none;
+    color: #2563eb;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 4px 2px;
+}
+
+.auth-link-btn:hover {
+    text-decoration: underline;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #6b7280;
+    line-height: 1.35;
+}
+
+.code-send-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.btn-send-code {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #1e293b;
+    font-size: 0.86rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-send-code:hover {
+    background: #e2e8f0;
+}
+
+.btn-send-code:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Usuario y botón de cerrar sesión en el sidebar */
+.sidebar-user-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-user-box strong {
+    color: #ffffff;
+    font-size: 0.88rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sidebar-user-box small {
+    color: #9ca3af;
+    font-size: 0.74rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.btn-logout-sidebar {
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: rgba(239, 68, 68, 0.14);
+    color: #fca5a5;
+    font-size: 0.86rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.18s, color 0.18s;
+}
+
+.btn-logout-sidebar:hover {
+    background: rgba(239, 68, 68, 0.28);
+    color: #ffffff;
+}
+
+.readonly-banner {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e3a8a;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin-bottom: 18px;
+    text-align: center;
+}
+
+.medicos-section {
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.medicos-section h4 {
+    margin: 0 0 12px 0;
+    color: #1f2937;
+    font-size: 1rem;
+}
+
+.medicos-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.medico-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+}
+
+.medico-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.medico-item-info strong {
+    color: #111827;
+    font-size: 0.95rem;
+}
+
+.medico-item-info span {
+    color: #6b7280;
+    font-size: 0.83rem;
+}
+
+.btn-revoke-medico {
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.btn-revoke-medico:hover {
+    background: #fecaca;
+}
+
+/* =========================================
    SHELL DE APLICACIÓN + BARRA LATERAL FIJA
 ========================================= */
 .app-shell {
@@ -298,8 +534,19 @@ body {
     .app-shell.sidebar-collapsed .sidebar-brand-text,
     .app-shell.sidebar-collapsed .nav-label,
     .app-shell.sidebar-collapsed .nav-group-toggle,
-    .app-shell.sidebar-collapsed .sidebar-footer {
+    .app-shell.sidebar-collapsed .sidebar-user-box,
+    .app-shell.sidebar-collapsed .sidebar-status-row,
+    .app-shell.sidebar-collapsed #sidebarFechaHoy {
         display: none;
+    }
+
+    .app-shell.sidebar-collapsed .sidebar-footer {
+        padding: 10px 8px;
+    }
+
+    .app-shell.sidebar-collapsed .btn-logout-sidebar {
+        margin-top: 0;
+        padding: 10px 6px;
     }
 
     /* En modo compacto mostramos todos los botones directos como barra de iconos */
@@ -596,6 +843,8 @@ label {
 input[type="date"],
 input[type="time"],
 input[type="text"],
+input[type="email"],
+input[type="password"],
 select {
     width: 100%;
     padding: 12px;

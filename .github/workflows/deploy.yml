@@ -24,6 +24,10 @@ jobs:
           SECRET_DB_NAME: ${{ secrets.DB_NAME || vars.DB_NAME }}
           SECRET_PORT: ${{ vars.PORT || secrets.PORT }}
           SECRET_TZ: ${{ vars.TZ || secrets.TZ }}
+          SECRET_ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL || secrets.ADMIN_EMAIL }}
+          SECRET_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          SECRET_SMTP_USER: ${{ vars.SMTP_USER || secrets.SMTP_USER }}
+          SECRET_SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SECRET_RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE }}
           SECRET_RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR }}
           RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
@@ -31,7 +35,7 @@ jobs:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GITHUB_REPO,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
+          envs: GITHUB_REPO,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
           script: |
             set -euo pipefail
 
@@ -95,6 +99,10 @@ jobs:
             FINAL_DB_NAME="${SECRET_DB_NAME:-${OLD_DB_NAME:-MoodTrackerLocal}}"
             FINAL_PORT="${SECRET_PORT:-${OLD_PORT:-3000}}"
             FINAL_TZ="${SECRET_TZ:-${OLD_TZ:-America/Monterrey}}"
+            FINAL_ADMIN_EMAIL="${SECRET_ADMIN_EMAIL:-${OLD_ADMIN_EMAIL:-flavio.flax1234@gmail.com}}"
+            FINAL_ADMIN_SECRET="${SECRET_ADMIN_SECRET:-${OLD_ADMIN_SECRET:-}}"
+            FINAL_SMTP_USER="${SECRET_SMTP_USER:-${OLD_SMTP_USER:-flavio.flax1234@gmail.com}}"
+            FINAL_SMTP_PASS="${SECRET_SMTP_PASS:-${OLD_SMTP_PASS:-}}"
             FINAL_RCLONE_REMOTE="${SECRET_RCLONE_REMOTE:-${OLD_RCLONE_REMOTE:-gdrive}}"
             FINAL_RCLONE_BACKUP_DIR="${SECRET_RCLONE_BACKUP_DIR:-${OLD_RCLONE_BACKUP_DIR:-RespaldosApp}}"
 
@@ -105,6 +113,10 @@ jobs:
               printf 'DB_NAME=%s\n' "$FINAL_DB_NAME"
               printf 'PORT=%s\n' "$FINAL_PORT"
               printf 'TZ=%s\n' "$FINAL_TZ"
+              printf 'ADMIN_EMAIL=%s\n' "$FINAL_ADMIN_EMAIL"
+              printf 'ADMIN_SECRET=%s\n' "$FINAL_ADMIN_SECRET"
+              printf 'SMTP_USER=%s\n' "$FINAL_SMTP_USER"
+              printf 'SMTP_PASS=%s\n' "$FINAL_SMTP_PASS"
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
             } > .env

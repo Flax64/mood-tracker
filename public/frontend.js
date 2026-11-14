@@ -9,6 +9,9 @@ function formatLocalDate(date) {
 }
 
 function getMomentoInfo(hour) {
+    if (hour >= 0 && hour < 6) {
+        return { moodKey: 'Madrugada', moodLabel: 'Madrugada', saludo: '¡Buenas madrugadas!', agendaBloque: 'noche' };
+    }
     if (hour >= 6 && hour < 12) {
         return { moodKey: 'Morning', moodLabel: 'Mañana', saludo: '¡Buenos días!', agendaBloque: hour < 9 ? 'manana' : 'cole' };
     }
@@ -22,6 +25,7 @@ function getMomentoInfo(hour) {
 }
 
 const MOMENTOS_ES = {
+    Madrugada: 'Madrugada',
     Morning: 'Mañana',
     Noon: 'Mediodía',
     Afternoon: 'Tarde',
@@ -50,7 +54,10 @@ const ESTADOS_ES = {
 // ==========================================
 // NAVEGACIÓN PRINCIPAL Y BARRA LATERAL FIJA
 // ==========================================
-const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'agenda', 'resumen']);
+const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'agenda', 'resumen', 'medico']);
+let currentUser = null;
+let sundayWatcherInterval = null;
+const authOverlay = document.getElementById('authOverlay');
 const appShell = document.getElementById('appShell');
 const sidebar = document.getElementById('sidebar');
 const mobileMenuBtn = document.getElementById('mobileMenuBtn');
@@ -78,7 +85,12 @@ function updateDesktopSidebarState(collapsed) {
 }
 
 function showView(viewName, updateHash = true) {
-    const targetView = VALID_VIEWS.has(viewName) ? viewName : 'inicio';
+    let targetView = VALID_VIEWS.has(viewName) ? viewName : 'inicio';
+
+    // Si es el psiquiatra (solo lectura), bloquear acceso a cualquier otra vista
+    if (currentUser && currentUser.rol === 'psiquiatra') {
+        targetView = 'resumen';
+    }
 
     document.querySelectorAll('.app-view').forEach(section => {
         const isTarget = section.id === `view-${targetView}`;
@@ -101,11 +113,18 @@ function showView(viewName, updateHash = true) {
 
     if (targetView === 'inicio') {
         cargarInicioResumen();
+    } else if (targetView === 'mood') {
+        const fechaInput = document.getElementById('fecha');
+        const momentoSelect = document.getElementById('momento');
+        if (fechaInput) fechaInput.value = formatLocalDate(new Date());
+        if (momentoSelect) momentoSelect.value = getMomentoInfo(new Date().getHours()).moodKey;
     } else if (targetView === 'resumen') {
         const selectSemana = document.getElementById('semanaSeleccionada');
         if (selectSemana) selectSemana.dispatchEvent(new Event('change'));
     } else if (targetView === 'agenda') {
         cargarAgendaSemana();
+    } else if (targetView === 'medico') {
+        cargarMedicos();
     }
 }
 
@@ -342,9 +361,11 @@ if (formRegistro) {
     const momentoDia = document.getElementById('momento');
     const hora = new Date().getHours();
 
-    // 2. Definir la función
+    // 2. Definir la función (incluyendo Madrugada 00:00 - 05:59)
     const obtenerMomentoDia = (horaActual) => {
-        if (horaActual >= 6 && horaActual < 12) {
+        if (horaActual >= 0 && horaActual < 6) {
+            momentoDia.value = 'Madrugada';
+        } else if (horaActual >= 6 && horaActual < 12) {
             momentoDia.value = 'Morning';
         } else if (horaActual >= 12 && horaActual < 14) {
             momentoDia.value = 'Noon';
@@ -1247,12 +1268,418 @@ if (agendaForm) {
 }
 
 // ==========================================
+// AUTENTICACIÓN, ROLES, SESIÓN Y ACCESO PSIQUIATRA
+// ==========================================
+function showAuthForm(formId, subtitleText) {
+    ['authLoginForm', 'authRegisterForm', 'authForgotForm', 'authResetForm'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.hidden = id !== formId;
+    });
+    const sub = document.getElementById('authSubtitle');
+    if (sub && subtitleText) sub.textContent = subtitleText;
+}
+
+function showAuthScreen(defaultForm = 'authLoginForm') {
+    currentUser = null;
+    if (sundayWatcherInterval) {
+        clearInterval(sundayWatcherInterval);
+        sundayWatcherInterval = null;
+    }
+    if (appShell) appShell.hidden = true;
+    if (authOverlay) authOverlay.hidden = false;
+
+    const subtitles = {
+        authLoginForm: 'Inicia sesión para continuar',
+        authRegisterForm: 'Registro de cuenta verificada',
+        authForgotForm: 'Recuperación de contraseña por correo',
+        authResetForm: 'Crea tu nueva contraseña segura'
+    };
+    showAuthForm(defaultForm, subtitles[defaultForm]);
+}
+
+function programarExpiracionDomingo(expiraEnIso) {
+    if (sundayWatcherInterval) clearInterval(sundayWatcherInterval);
+    const expiraMs = expiraEnIso ? new Date(expiraEnIso).getTime() : null;
+
+    sundayWatcherInterval = setInterval(() => {
+        const ahora = new Date();
+        const vencioToken = expiraMs && Date.now() >= expiraMs;
+        const esDomingoMedianoche = ahora.getDay() === 0 && ahora.getHours() === 0 && ahora.getMinutes() === 0;
+
+        if (vencioToken || esDomingoMedianoche) {
+            clearInterval(sundayWatcherInterval);
+            sundayWatcherInterval = null;
+            fetch('/api/auth/logout', { method: 'POST' }).finally(() => {
+                alert('Tu sesión semanal se cerró automáticamente (Domingo 00:00). Por favor inicia sesión nuevamente.');
+                showAuthScreen('authLoginForm');
+            });
+        }
+    }, 30000);
+}
+
+function enterAppSession(user) {
+    currentUser = user;
+    if (authOverlay) authOverlay.hidden = true;
+    if (appShell) appShell.hidden = false;
+
+    const isPsiquiatra = user.rol === 'psiquiatra';
+
+    // Actualizar datos del usuario en la barra lateral
+    const userNameEl = document.getElementById('sidebarUserName');
+    const userEmailEl = document.getElementById('sidebarUserEmail');
+    const roleLabelEl = document.getElementById('sidebarRoleLabel');
+    const readonlyBanner = document.getElementById('medicoReadonlyBanner');
+
+    if (userNameEl) userNameEl.textContent = user.nombre;
+    if (userEmailEl) userEmailEl.textContent = user.email;
+    if (roleLabelEl) {
+        roleLabelEl.textContent = isPsiquiatra ? 'Modo Psiquiatra (Lectura)' : 'Propietario (Admin)';
+    }
+
+    // Mostrar u ocultar secciones exclusivas del propietario
+    document.querySelectorAll('.admin-only-nav').forEach(el => {
+        el.hidden = isPsiquiatra;
+    });
+    if (readonlyBanner) {
+        readonlyBanner.hidden = !isPsiquiatra;
+    }
+
+    actualizarCabecerasDeFecha();
+    programarExpiracionDomingo(user.expira_en);
+
+    if (isPsiquiatra) {
+        showView('resumen', true);
+    } else {
+        const initialHash = window.location.hash.replace('#', '');
+        const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
+        showView(startView, false);
+    }
+}
+
+// Gestión de cuentas de psiquiatra (vista #view-medico)
+function cargarMedicos() {
+    const container = document.getElementById('medicosList');
+    if (!container || !currentUser || currentUser.rol !== 'admin') return;
+
+    fetch('/api/auth/medicos')
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('No se pudo consultar')))
+        .then(medicos => {
+            container.innerHTML = '';
+            if (!Array.isArray(medicos) || medicos.length === 0) {
+                container.innerHTML = '<p class="muted-text">Aún no has creado una cuenta para tu psiquiatra.</p>';
+                return;
+            }
+            medicos.forEach(m => {
+                const row = document.createElement('div');
+                row.className = 'medico-item';
+
+                const info = document.createElement('div');
+                info.className = 'medico-item-info';
+                const nameStrong = document.createElement('strong');
+                nameStrong.textContent = m.nombre;
+                const emailSpan = document.createElement('span');
+                emailSpan.textContent = `${m.email} · Solo lectura ( Sueño y Estado de Ánimo )`;
+                info.append(nameStrong, emailSpan);
+
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'btn-revoke-medico';
+                delBtn.textContent = 'Revocar acceso';
+                delBtn.addEventListener('click', () => {
+                    if (!confirm(`¿Revocar el acceso de ${m.nombre} (${m.email})?`)) return;
+                    fetch(`/api/auth/medicos/${m.id}`, { method: 'DELETE' })
+                        .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t); }))
+                        .then(() => cargarMedicos())
+                        .catch(err => alert('Error: ' + err.message));
+                });
+
+                row.append(info, delBtn);
+                container.appendChild(row);
+            });
+        })
+        .catch(() => {
+            container.innerHTML = '<p class="muted-text">Error al cargar cuentas de psiquiatra.</p>';
+        });
+}
+
+function initAuthHandlers() {
+    const btnGoRegister = document.getElementById('linkGoRegister');
+    const btnGoForgot = document.getElementById('linkGoForgot');
+    const btnBackFromRegister = document.getElementById('linkBackLoginFromReg');
+    const btnBackFromForgot = document.getElementById('linkBackLoginFromForgot');
+    const btnBackFromReset = document.getElementById('linkBackLoginFromReset');
+    const btnSendRegCode = document.getElementById('btnSendRegCode');
+    const btnLogout = document.getElementById('btnLogout');
+
+    if (btnGoRegister) {
+        btnGoRegister.addEventListener('click', () => showAuthForm('authRegisterForm', 'Registro por primera vez y verificación'));
+    }
+    if (btnGoForgot) {
+        btnGoForgot.addEventListener('click', () => showAuthForm('authForgotForm', 'Te enviaremos un enlace a tu correo'));
+    }
+    if (btnBackFromRegister) {
+        btnBackFromRegister.addEventListener('click', () => showAuthForm('authLoginForm', 'Inicia sesión para continuar'));
+    }
+    if (btnBackFromForgot) {
+        btnBackFromForgot.addEventListener('click', () => showAuthForm('authLoginForm', 'Inicia sesión para continuar'));
+    }
+    if (btnBackFromReset) {
+        btnBackFromReset.addEventListener('click', () => {
+            history.replaceState(null, '', window.location.pathname);
+            showAuthForm('authLoginForm', 'Inicia sesión para continuar');
+        });
+    }
+
+    // Enviar código de verificación por correo
+    if (btnSendRegCode) {
+        btnSendRegCode.addEventListener('click', () => {
+            const email = document.getElementById('regEmail').value.trim();
+            if (!email) {
+                alert('Primero escribe tu correo electrónico arriba.');
+                return;
+            }
+            const origText = btnSendRegCode.textContent;
+            btnSendRegCode.disabled = true;
+            btnSendRegCode.textContent = 'Enviando código...';
+
+            fetch('/api/auth/send-register-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            })
+                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+                .then(data => alert(data.message))
+                .catch(err => alert(err.message))
+                .finally(() => {
+                    btnSendRegCode.disabled = false;
+                    btnSendRegCode.textContent = origText;
+                });
+        });
+    }
+
+    // Formulario de Login
+    const loginForm = document.getElementById('authLoginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnLoginSubmit');
+            if (btn.disabled) return;
+
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Verificando...';
+
+            fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            })
+                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+                .then(data => {
+                    loginForm.reset();
+                    enterAppSession(data.user);
+                })
+                .catch(err => alert(err.message))
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                });
+        });
+    }
+
+    // Formulario de Registro por primera vez
+    const registerForm = document.getElementById('authRegisterForm');
+    if (registerForm) {
+        registerForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnRegSubmit');
+            if (btn.disabled) return;
+
+            const payload = {
+                nombre: document.getElementById('regNombre').value.trim(),
+                email: document.getElementById('regEmail').value.trim(),
+                password: document.getElementById('regPassword').value,
+                codigoValidacion: document.getElementById('regCodigoValidacion').value.trim()
+            };
+
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Validando y registrando...';
+
+            fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+                .then(data => {
+                    registerForm.reset();
+                    alert(`¡Bienvenido, ${data.user.nombre}! Tu sesión permanecerá activa hasta el domingo a las 00:00 o hasta que cierres sesión.`);
+                    enterAppSession(data.user);
+                })
+                .catch(err => alert(err.message))
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                });
+        });
+    }
+
+    // Formulario de Olvidé mi contraseña
+    const forgotForm = document.getElementById('authForgotForm');
+    if (forgotForm) {
+        forgotForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnForgotSubmit');
+            if (btn.disabled) return;
+
+            const email = document.getElementById('forgotEmail').value.trim();
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Enviando enlace...';
+
+            fetch('/api/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            })
+                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+                .then(data => {
+                    alert(data.message);
+                    showAuthForm('authLoginForm', 'Inicia sesión para continuar');
+                })
+                .catch(err => alert('Error: ' + err.message))
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                });
+        });
+    }
+
+    // Formulario para restablecer contraseña desde el enlace del correo
+    const resetForm = document.getElementById('authResetForm');
+    if (resetForm) {
+        resetForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnResetSubmit');
+            if (btn.disabled) return;
+
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('resetToken') || '';
+            const email = params.get('email') || '';
+            const newPassword = document.getElementById('resetNewPassword').value;
+            const confirmPassword = document.getElementById('resetConfirmPassword').value;
+
+            if (newPassword !== confirmPassword) {
+                alert('Las contraseñas no coinciden.');
+                return;
+            }
+
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Actualizando...';
+
+            fetch('/api/auth/reset-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, token, newPassword })
+            })
+                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+                .then(data => {
+                    alert(data.message);
+                    resetForm.reset();
+                    history.replaceState(null, '', window.location.pathname);
+                    showAuthForm('authLoginForm', 'Inicia sesión con tu nueva contraseña');
+                })
+                .catch(err => alert('Error: ' + err.message))
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                });
+        });
+    }
+
+    // Botón Cerrar Sesión en el menú lateral
+    if (btnLogout) {
+        btnLogout.addEventListener('click', () => {
+            fetch('/api/auth/logout', { method: 'POST' })
+                .finally(() => {
+                    setMobileMenuOpen(false);
+                    showAuthScreen('authLoginForm');
+                });
+        });
+    }
+
+    // Formulario de creación de cuenta del psiquiatra (#view-medico)
+    const medicoForm = document.getElementById('medicoForm');
+    if (medicoForm) {
+        medicoForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btnSaveMedico');
+            if (btn.disabled) return;
+
+            const payload = {
+                nombre: document.getElementById('medicoNombre').value.trim(),
+                email: document.getElementById('medicoEmail').value.trim(),
+                password: document.getElementById('medicoPassword').value
+            };
+
+            const origText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Guardando...';
+
+            fetch('/api/auth/create-medico', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
+                .then(data => {
+                    alert(data.message);
+                    medicoForm.reset();
+                    cargarMedicos();
+                })
+                .catch(err => alert('Error: ' + err.message))
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                });
+        });
+    }
+}
+
+// ==========================================
 // INICIALIZACIÓN AL CARGAR LA APLICACIÓN
 // ==========================================
 function initApp() {
-    const initialHash = window.location.hash.replace('#', '');
-    const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
-    showView(startView, false);
+    initAuthHandlers();
+
+    // Si el usuario abrió el enlace de recuperación enviado a su correo (?resetToken=...&email=...)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('resetToken') && params.get('email')) {
+        const resetEmailEl = document.getElementById('resetEmail');
+        const resetTokenEl = document.getElementById('resetTokenInput');
+        if (resetEmailEl) resetEmailEl.value = params.get('email');
+        if (resetTokenEl) resetTokenEl.value = params.get('resetToken');
+        showAuthScreen('authResetForm');
+        return;
+    }
+
+    // Verificar si existe una sesión activa (persistente hasta el domingo 00:00)
+    fetch('/api/auth/me')
+        .then(res => {
+            if (!res.ok) throw new Error('No autenticado');
+            return res.json();
+        })
+        .then(data => {
+            enterAppSession(data.user);
+        })
+        .catch(() => {
+            showAuthScreen('authLoginForm');
+        });
 }
 
 if (document.readyState === 'loading') {
