@@ -30,10 +30,14 @@ load_env_file() {
         local key="${line%%=*}"
         local val="${line#*=}"
         key="${key//[[:space:]]/}"
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        case "$key" in
+            PATH|HOME|IFS|PWD|OLDPWD|SHELLOPTS) continue ;;
+        esac
         if [[ "$val" == \"*\" && "$val" == *\" ]] || [[ "$val" == \'*\' && "$val" == *\' ]]; then
             val="${val:1:${#val}-2}"
         fi
-        export "$key=$val"
+        printf -v "$key" '%s' "$val"
     done < "$env_file"
 }
 
@@ -42,9 +46,11 @@ load_env_file "$ENV_FILE"
 CONTENEDOR="${DB_CONTAINER:-mood_db}"
 RUTA_LOCAL="${BACKUP_LOCAL_DIR:-$HOME/projects/respaldos}"
 RESTORE_TMP="$RUTA_LOCAL/restore_mood_tracker.sql.gz"
-RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive}"
-RCLONE_BACKUP_DIR="${RCLONE_BACKUP_DIR:-RespaldosApp}"
-REMOTE_FILE="${RCLONE_REMOTE}:${RCLONE_BACKUP_DIR}/respaldo_mood_tracker.sql.gz"
+REMOTE_NAME="${RCLONE_REMOTE:-gdrive}"
+REMOTE_DIR="${RCLONE_BACKUP_DIR:-RespaldosApp}"
+REMOTE_FILE="${REMOTE_NAME}:${REMOTE_DIR}/respaldo_mood_tracker.sql.gz"
+RCLONE_CONF_PATH="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
+unset RCLONE_BACKUP_DIR RCLONE_REMOTE RCLONE_CONF_B64
 
 mkdir -p "$RUTA_LOCAL"
 
@@ -104,12 +110,12 @@ if [ -z "$RCLONE_BIN" ] || [ ! -x "$RCLONE_BIN" ]; then
     exit 0
 fi
 
-if ! "$RCLONE_BIN" listremotes | grep -q "^${RCLONE_REMOTE}:"; then
-    echo "Aviso: El remoto '${RCLONE_REMOTE}:' no está configurado en rclone. Se omite la restauración."
+if ! "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" listremotes | grep -q "^${REMOTE_NAME}:"; then
+    echo "Aviso: El remoto '${REMOTE_NAME}:' no está configurado en rclone. Se omite la restauración."
     exit 0
 fi
 
-if ! "$RCLONE_BIN" lsf "${RCLONE_REMOTE}:${RCLONE_BACKUP_DIR}" --include "respaldo_mood_tracker.sql.gz" 2>/dev/null | grep -q "^respaldo_mood_tracker\.sql\.gz$"; then
+if ! "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" lsf "${REMOTE_NAME}:${REMOTE_DIR}" --include "respaldo_mood_tracker.sql.gz" 2>/dev/null | grep -q "^respaldo_mood_tracker\.sql\.gz$"; then
     echo "Aviso: No se encontró $REMOTE_FILE en Google Drive. Iniciando con base de datos vacía."
     exit 0
 fi
@@ -117,7 +123,7 @@ fi
 # 5. Descargar y restaurar respaldo
 echo "Descargando respaldo desde $REMOTE_FILE..."
 rm -f "$RESTORE_TMP"
-"$RCLONE_BIN" copyto "$REMOTE_FILE" "$RESTORE_TMP"
+"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$REMOTE_FILE" "$RESTORE_TMP"
 
 if [ ! -s "$RESTORE_TMP" ]; then
     echo "Error: El archivo de respaldo descargado está vacío." >&2
