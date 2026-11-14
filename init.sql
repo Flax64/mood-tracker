@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS Usuarios (
     email VARCHAR(150) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     rol ENUM('admin', 'psiquiatra') NOT NULL DEFAULT 'psiquiatra',
+    estado ENUM('activo', 'inactivo', 'suspendido') NOT NULL DEFAULT 'activo',
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -51,7 +52,7 @@ CREATE TABLE IF NOT EXISTS SesionesAuth (
 CREATE TABLE IF NOT EXISTS CodigosSeguridad (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(150) NOT NULL,
-    tipo ENUM('registro', 'reset') NOT NULL,
+    tipo ENUM('registro', 'reset', 'mfa') NOT NULL,
     token_hash CHAR(64) NOT NULL,
     expira_en DATETIME NOT NULL,
     usado TINYINT(1) NOT NULL DEFAULT 0,

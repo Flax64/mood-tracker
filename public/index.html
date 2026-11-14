@@ -47,12 +47,12 @@
             <form id="authLoginForm" class="auth-form">
                 <div class="form-group">
                     <label for="loginEmail">Email address:</label>
-                    <input type="email" id="loginEmail" autocomplete="email" placeholder="example@email.com" required>
+                    <input type="email" id="loginEmail" maxlength="150" autocomplete="email" placeholder="example@email.com" required>
                 </div>
                 <div class="form-group">
                     <label for="loginPassword">Password:</label>
                     <div class="password-input-wrap">
-                        <input type="password" id="loginPassword" autocomplete="current-password"
+                        <input type="password" id="loginPassword" maxlength="128" autocomplete="current-password"
                             placeholder="Your password" required>
                         <button type="button" class="password-toggle-btn" data-toggle-password="loginPassword"
                             aria-label="Show password" aria-pressed="false" title="Show password"></button>
@@ -69,21 +69,21 @@
             <form id="authRegisterForm" class="auth-form" hidden>
                 <div class="form-group">
                     <label for="regNombre">Full name:</label>
-                    <input type="text" id="regNombre" maxlength="80" placeholder="e.g. Flavio / Dr. Smith" required>
+                    <input type="text" id="regNombre" minlength="2" maxlength="80" placeholder="e.g. Flavio / Dr. Smith" required>
                 </div>
                 <div class="form-group">
                     <label for="regEmail">Email address:</label>
-                    <input type="email" id="regEmail" autocomplete="email" placeholder="email@gmail.com"
+                    <input type="email" id="regEmail" maxlength="150" autocomplete="email" placeholder="email@gmail.com"
                         required>
                     <small class="form-hint">
                         The email configured as owner (<strong>ADMIN_EMAIL</strong>) gets full access. Any other authorized email is registered as <strong>Psychiatrist (read-only)</strong>.
                     </small>
                 </div>
                 <div class="form-group">
-                    <label for="regPassword">Create password (min. 8 characters):</label>
+                    <label for="regPassword">Create password (8–128 chars, letters &amp; numbers):</label>
                     <div class="password-input-wrap">
-                        <input type="password" id="regPassword" minlength="8" autocomplete="new-password"
-                            placeholder="Minimum 8 characters" required>
+                        <input type="password" id="regPassword" minlength="8" maxlength="128" autocomplete="new-password"
+                            placeholder="At least 8 characters with letters and numbers" required>
                         <button type="button" class="password-toggle-btn" data-toggle-password="regPassword"
                             aria-label="Show password" aria-pressed="false" title="Show password"></button>
                     </div>
@@ -115,7 +115,7 @@
             <form id="authForgotForm" class="auth-form" hidden>
                 <div class="form-group">
                     <label for="forgotEmail">Your registered email:</label>
-                    <input type="email" id="forgotEmail" autocomplete="email" placeholder="your_email@gmail.com"
+                    <input type="email" id="forgotEmail" maxlength="150" autocomplete="email" placeholder="your_email@gmail.com"
                         required>
                     <small class="form-hint">
                         We will send a secure link valid for 30 minutes to reset your password.
@@ -135,9 +135,9 @@
                     <input type="email" id="resetEmail" readonly>
                 </div>
                 <div class="form-group">
-                    <label for="resetNewPassword">New password (min. 8 characters):</label>
+                    <label for="resetNewPassword">New password (8–128 chars, letters &amp; numbers):</label>
                     <div class="password-input-wrap">
-                        <input type="password" id="resetNewPassword" minlength="8" autocomplete="new-password"
+                        <input type="password" id="resetNewPassword" minlength="8" maxlength="128" autocomplete="new-password"
                             placeholder="New password" required>
                         <button type="button" class="password-toggle-btn" data-toggle-password="resetNewPassword"
                             aria-label="Show password" aria-pressed="false" title="Show password"></button>
@@ -146,7 +146,7 @@
                 <div class="form-group">
                     <label for="resetConfirmPassword">Confirm new password:</label>
                     <div class="password-input-wrap">
-                        <input type="password" id="resetConfirmPassword" minlength="8" autocomplete="new-password"
+                        <input type="password" id="resetConfirmPassword" minlength="8" maxlength="128" autocomplete="new-password"
                             placeholder="Repeat password" required>
                         <button type="button" class="password-toggle-btn" data-toggle-password="resetConfirmPassword"
                             aria-label="Show password" aria-pressed="false" title="Show password"></button>
@@ -155,6 +155,24 @@
                 <button type="submit" class="btn-submit" id="btnResetSubmit">Save New Password</button>
                 <div class="auth-links">
                     <button type="button" class="auth-link-btn" id="linkBackLoginFromReset">⬅ Cancel</button>
+                </div>
+            </form>
+
+            <!-- 5. LOGIN MFA EMAIL OTP FORM (WHEN ENABLE_LOGIN_MFA=true) -->
+            <form id="authMfaForm" class="auth-form" hidden>
+                <div class="form-group">
+                    <label for="mfaCodeInput">Verification code sent to <strong id="mfaEmailLabel">your email</strong>:</label>
+                    <div class="password-input-wrap">
+                        <input type="password" id="mfaCodeInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                            placeholder="6-digit code" required>
+                        <button type="button" class="password-toggle-btn" data-toggle-password="mfaCodeInput"
+                            aria-label="Show code" aria-pressed="false" title="Show code"></button>
+                    </div>
+                    <small class="form-hint">Enter the 6-digit security code valid for 10 minutes.</small>
+                </div>
+                <button type="submit" class="btn-submit" id="btnMfaSubmit">Verify &amp; Sign In</button>
+                <div class="auth-links">
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromMfa">⬅ Back to Sign In</button>
                 </div>
             </form>
         </div>
@@ -853,17 +871,17 @@
                     <form id="medicoForm">
                         <div class="form-group">
                             <label for="medicoNombre">Doctor's name:</label>
-                            <input type="text" id="medicoNombre" maxlength="80" placeholder="e.g. Dr. Garcia" required>
+                            <input type="text" id="medicoNombre" minlength="2" maxlength="80" placeholder="e.g. Dr. Garcia" required>
                         </div>
                         <div class="form-group">
                             <label for="medicoEmail">Doctor's email address:</label>
-                            <input type="email" id="medicoEmail" placeholder="doctor@email.com" required>
+                            <input type="email" id="medicoEmail" maxlength="150" placeholder="doctor@email.com" required>
                         </div>
                         <div class="form-group">
-                            <label for="medicoPassword">Assigned password (min. 8 characters):</label>
+                            <label for="medicoPassword">Assigned password (8–128 chars, letters &amp; numbers):</label>
                             <div class="password-input-wrap">
-                                <input type="password" id="medicoPassword" minlength="8"
-                                    placeholder="Minimum 8 characters" required>
+                                <input type="password" id="medicoPassword" minlength="8" maxlength="128"
+                                    placeholder="At least 8 characters with letters and numbers" required>
                                 <button type="button" class="password-toggle-btn" data-toggle-password="medicoPassword"
                                     aria-label="Show password" aria-pressed="false" title="Show password"></button>
                             </div>
@@ -872,7 +890,7 @@
                     </form>
 
                     <hr class="section-divider">
-                    <h3 class="medicos-heading">Active psychiatrist accounts</h3>
+                    <h3 class="medicos-heading">Psychiatrist accounts</h3>
                     <div id="medicosList" class="medicos-list">
                         <p class="muted-text">Loading...</p>
                     </div>

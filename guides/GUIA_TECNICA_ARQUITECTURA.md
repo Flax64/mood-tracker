@@ -52,9 +52,9 @@ El sistema se divide en cinco capas desacopladas:
 | `RegistrosMood` | Estados de ánimo por franja horaria | `UNIQUE(fecha, momento_dia)` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`) |
 | `RegistrosSleep` | Horas y calidad de sueño diario | `horas DECIMAL(4,2)`, `calidad` (`Good`, `Regular`, `Bad`) |
 | `RegistrosAgenda` | Agenda personal semanal por bloques | `bloque` (`manana`, `cole`, `tarde`, `noche`), índice `idx_agenda_fecha` |
-| `Usuarios` | Cuentas registradas y su rol | `email UNIQUE`, `password_hash` (`bcrypt`), `rol ENUM('admin','psiquiatra')` |
+| `Usuarios` | Cuentas registradas y su rol | `email UNIQUE`, `password_hash` (`bcryptjs` 12 rondas), `rol ENUM('admin','psiquiatra')`, `estado ENUM('activo','inactivo','suspendido')` |
 | `SesionesAuth` | Sesiones activas del sistema | `token_hash CHAR(64) UNIQUE` (SHA-256), `expira_en`, índice `idx_sesion_expira`, `ON DELETE CASCADE` |
-| `CodigosSeguridad` | Códigos OTP de registro y tokens de reset | `tipo ENUM('registro','reset')`, `token_hash`, `expira_en`, `usado`, índice `idx_codigo_email_tipo` |
+| `CodigosSeguridad` | Códigos OTP de registro, MFA y reset | `tipo ENUM('registro','reset','mfa')`, `token_hash`, `expira_en`, `usado`, índice `idx_codigo_email_tipo` |
 
 ---
 
@@ -79,15 +79,20 @@ El sistema se divide en cinco capas desacopladas:
 
 ### 3.3 Cabeceras HTTP, Validación, Rate Limiting y Protección Anti-Duplicados
 - `app.disable('x-powered-by')` para no exponer el framework.
-- Cabeceras fijas en cada respuesta:
+- Cabeceras fijas en cada respuesta (Checklist U2):
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
   - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
-  - `Content-Security-Policy` restringida a `'self'` (y `cdnjs.cloudflare.com` para CryptoJS).
+  - `Cross-Origin-Opener-Policy: same-origin` y `Cross-Origin-Resource-Policy: same-origin`
+  - `X-Permitted-Cross-Domain-Policies: none` y `X-DNS-Prefetch-Control: off`
+  - `Content-Security-Policy` restringida a `'self'` (y `cdnjs.cloudflare.com` para CryptoJS), incluyendo `form-action 'self'` y `frame-ancestors 'none'`.
+  - `Strict-Transport-Security` condicional cuando la petición entra por HTTPS / proxy TLS (`X-Forwarded-Proto: https`).
   - `Cache-Control: public, max-age=0, must-revalidate` en archivos `.js` y `.css` para aplicar actualizaciones inmediatamente tras cada deploy.
-- `express.json({ limit: '64kb' })` para limitar payloads grandes.
-- Rate limiter en memoria (`checkRateLimit`) con poda automática y tope `MAX_RATE_LIMIT_ENTRIES = 300`.
+- Validación estricta y manejo controlado de errores:
+  - `express.json({ limit: '64kb' })` + captura de JSON malformado (`400`) y payloads excedidos (`413`), sin filtrar stack traces ni errores SQL.
+  - Normalización estricta de correo (`normalizeEmail`), formato seguro de contraseña (`validatePasswordFormat`, 8–128 caracteres alfanuméricos), control anti-enumeración en login y recuperación, verificación de `estado` de cuenta (`activo`/`inactivo`/`suspendido`) con revocación inmediata de sesiones y soporte opcional de MFA por correo en login (`ENABLE_LOGIN_MFA=true`).
+- Rate limiting multicapa en memoria (`createRateLimiter`) con tope `MAX_RATE_LIMIT_ENTRIES = 1000` por limiter, poda automática y cabeceras `X-RateLimit-*` + `Retry-After` para proteger el servidor contra fuerza bruta y saturación DoS en `/api/*`, auth, lecturas, escrituras y sincronización PC.
 - **Protección contra doble clic, red lenta y envíos redundantes:**
   - En `server.js`, el middleware `preventDuplicateSubmit` aplica bloqueo de concurrencia en vuelo (`409`), caché acotada (`MAX_IDEMPOTENCY_ENTRIES = 300`) de respuestas `2xx` por `X-Idempotency-Key` (`X-Idempotent-Replay: true`) y ventana corta anti-duplicados (`dedupeWindowMs`), además de impedir duplicados pendientes en `createEncryptedPcQueue`.
   - En `public/frontend.js`, `runWithButtonLock` (`WeakSet` + `disabled` + `aria-busy` + `.is-busy`) y `submitMutationRequest` bloquean clics múltiples y reutilizan la misma `X-Idempotency-Key` si falla la red sin respuesta; `createRequestTracker` (`AbortController`) descarta lecturas atrasadas y cada formulario bloquea reenvíos idénticos o inválidos (`0` horas de sueño, ediciones de agenda sin cambios o actividades ya agendadas).

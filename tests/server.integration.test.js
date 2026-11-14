@@ -54,8 +54,9 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
 
     const testHash = bcrypt.hashSync('ClavePrueba2026!', 4);
     const users = [
-        { id: 1, nombre: 'Flavio', email: 'admin@example.com', password_hash: testHash, rol: 'admin' },
-        { id: 2, nombre: 'Dr. Perez', email: 'medico@example.com', password_hash: testHash, rol: 'psiquiatra' }
+        { id: 1, nombre: 'Flavio', email: 'admin@example.com', password_hash: testHash, rol: 'admin', estado: 'activo' },
+        { id: 2, nombre: 'Dr. Perez', email: 'medico@example.com', password_hash: testHash, rol: 'psiquiatra', estado: 'activo' },
+        { id: 3, nombre: 'Dr. Suspendido', email: 'suspendido@example.com', password_hash: testHash, rol: 'psiquiatra', estado: 'suspendido' }
     ];
 
     before(async () => {
@@ -92,8 +93,29 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         id: u.id,
                         nombre: u.nombre,
                         email: u.email,
-                        rol: u.rol
+                        rol: u.rol,
+                        estado: u.estado
                     }]);
+                }
+
+                if (normalized.startsWith('SELECT id, nombre, email, COALESCE(estado')) {
+                    return finish(null, users.filter((x) => x.rol === 'psiquiatra'));
+                }
+
+                if (normalized.startsWith('UPDATE Usuarios SET estado = ?')) {
+                    const [estado, id] = params;
+                    const u = users.find((x) => x.id === Number(id) && x.rol === 'psiquiatra');
+                    if (!u) return finish(null, { affectedRows: 0 });
+                    u.estado = estado;
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('DELETE FROM SesionesAuth WHERE usuario_id = ?')) {
+                    const targetUserId = Number(params[0]);
+                    for (const [k, s] of sessions.entries()) {
+                        if (s.usuario_id === targetUserId) sessions.delete(k);
+                    }
+                    return finish(null, { affectedRows: 1 });
                 }
 
                 if (normalized.includes('FROM Usuarios') && normalized.includes('WHERE')) {
@@ -230,7 +252,12 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(res.headers['x-content-type-options'], 'nosniff');
         assert.strictEqual(res.headers['x-frame-options'], 'DENY');
         assert.strictEqual(res.headers['referrer-policy'], 'strict-origin-when-cross-origin');
+        assert.strictEqual(res.headers['cross-origin-opener-policy'], 'same-origin');
+        assert.strictEqual(res.headers['cross-origin-resource-policy'], 'same-origin');
+        assert.strictEqual(res.headers['x-permitted-cross-domain-policies'], 'none');
+        assert.strictEqual(res.headers['x-dns-prefetch-control'], 'off');
         assert.ok(String(res.headers['content-security-policy'] || '').includes("default-src 'self'"));
+        assert.ok(String(res.headers['content-security-policy'] || '').includes("form-action 'self'"));
         assert.ok(res.headers.etag);
         assert.ok(String(res.headers['cache-control'] || '').includes('max-age=600'));
 
@@ -619,5 +646,187 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(logout.status, 200);
         const meAfterLogout = await request({ port, reqPath: '/api/auth/me', headers: { Cookie: adminCookie } });
         assert.strictEqual(meAfterLogout.status, 401);
+    });
+
+    it('cumple Checklist U2: estado de cuenta, anti-enumeración, validación estricta y errores controlados', async () => {
+        // Re-iniciar sesión de admin para pruebas autenticadas
+        const reLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'admin@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(reLogin.status, 200);
+        const reCookie = `mt_session=${(reLogin.headers['set-cookie'] || []).join('; ').match(/mt_session=([^;]+)/)[1]}`;
+
+        // 1. Manejo controlado de errores (JSON malformado -> 400, ruta inexistente -> 404 sin stack trace)
+        const malformedJson = await new Promise((resolve, reject) => {
+            const badPayload = '{maljson';
+            const req = http.request(
+                {
+                    hostname: '127.0.0.1',
+                    port,
+                    path: '/api/auth/login',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(badPayload) }
+                },
+                (res) => {
+                    const chunks = [];
+                    res.on('data', (c) => chunks.push(c));
+                    res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+                }
+            );
+            req.on('error', reject);
+            req.write(badPayload);
+            req.end();
+        });
+        assert.strictEqual(malformedJson.status, 400);
+        assert.strictEqual(malformedJson.body, 'Invalid JSON payload.');
+
+        const notFoundApi = await request({ port, reqPath: '/api/ruta-inexistente' });
+        assert.strictEqual(notFoundApi.status, 404);
+        assert.strictEqual(notFoundApi.body, 'API endpoint not found.');
+
+        // 2. Validación de campos vacíos, arreglo en vez de objeto, correo inválido y contraseña débil
+        const emptyObj = await request({ port, method: 'POST', reqPath: '/api/auth/login', body: {} });
+        assert.strictEqual(emptyObj.status, 400);
+
+        const arrayBody = await request({ port, method: 'POST', reqPath: '/api/auth/login', body: ['a'] });
+        assert.strictEqual(arrayBody.status, 400);
+
+        const badEmail = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/create-medico',
+            headers: { Cookie: reCookie },
+            body: { nombre: 'Dr. Test', email: 'correo-invalido', password: 'Password2026!' }
+        });
+        assert.strictEqual(badEmail.status, 400);
+
+        for (const weakPw of ['1234567', 'abcdefgh', '12345678']) {
+            const weakRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/auth/create-medico',
+                headers: { Cookie: reCookie },
+                body: { nombre: 'Dr. Test', email: 'nuevo@example.com', password: weakPw }
+            });
+            assert.strictEqual(weakRes.status, 400, `Contraseña débil "${weakPw}" debe rechazarse`);
+        }
+
+        // 3. Anti-enumeración en login y forgot-password
+        const nonExistentLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'noexiste@example.com', password: 'ClavePrueba2026!' }
+        });
+        const wrongPassLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'admin@example.com', password: 'WrongPassword1!' }
+        });
+        assert.strictEqual(nonExistentLogin.status, 401);
+        assert.strictEqual(wrongPassLogin.status, 401);
+        assert.strictEqual(nonExistentLogin.body, wrongPassLogin.body);
+
+        const forgotKnown = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/forgot-password',
+            body: { email: 'admin@example.com' }
+        });
+        const forgotUnknown = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/forgot-password',
+            body: { email: 'desconocido@example.com' }
+        });
+        assert.strictEqual(forgotKnown.status, 200);
+        assert.strictEqual(forgotUnknown.status, 200);
+        assert.strictEqual(JSON.parse(forgotKnown.body).message, JSON.parse(forgotUnknown.body).message);
+
+        // 4. Validación del estado de cuenta (suspendido/inactivo bloquea login y revoca sesiones vivas)
+        const suspendedLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'suspendido@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(suspendedLogin.status, 403);
+
+        const suspendMedico = await request({
+            port,
+            method: 'PATCH',
+            reqPath: '/api/auth/medicos/2/estado',
+            headers: { Cookie: reCookie },
+            body: { estado: 'suspendido' }
+        });
+        assert.strictEqual(suspendMedico.status, 200);
+
+        const medicoMeAfterSuspend = await request({ port, reqPath: '/api/auth/me', headers: { Cookie: medicoCookie } });
+        assert.notStrictEqual(medicoMeAfterSuspend.status, 200);
+
+        const medicoLoginWhileSuspended = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'medico@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(medicoLoginWhileSuspended.status, 403);
+
+        const reactivateMedico = await request({
+            port,
+            method: 'PATCH',
+            reqPath: '/api/auth/medicos/2/estado',
+            headers: { Cookie: reCookie },
+            body: { estado: 'activo' }
+        });
+        assert.strictEqual(reactivateMedico.status, 200);
+
+        const medicoLoginAfterReactivate = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'medico@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(medicoLoginAfterReactivate.status, 200);
+    });
+
+    it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
+        // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
+        let blockedLoginRes = null;
+        for (let i = 1; i <= 12; i++) {
+            const res = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/auth/login',
+                body: { email: 'medico@example.com', password: `WrongAttempt${i}!` }
+            });
+            if (res.status === 429) {
+                blockedLoginRes = res;
+                break;
+            }
+            assert.strictEqual(res.status, 401);
+        }
+        assert.ok(blockedLoginRes, 'Debe activar 429 Too Many Requests tras múltiples intentos fallidos de login');
+        assert.ok(Number(blockedLoginRes.headers['retry-after']) >= 1, 'Debe incluir cabecera Retry-After');
+        assert.ok(blockedLoginRes.headers['x-ratelimit-limit'], 'Debe incluir X-RateLimit-Limit');
+        assert.strictEqual(blockedLoginRes.headers['x-ratelimit-remaining'], '0');
+
+        // 2. Protección contra saturación en /api/pull-text (pcPullLimiter = 60 req/min por IP)
+        let blockedPullRes = null;
+        for (let i = 1; i <= 65; i++) {
+            const res = await request({ port, reqPath: '/api/pull-text' });
+            if (res.status === 429) {
+                blockedPullRes = res;
+                break;
+            }
+            assert.strictEqual(res.status, 200);
+        }
+        assert.ok(blockedPullRes, 'Debe devolver 429 al exceder el límite de peticiones en /api/pull-text');
+        assert.ok(Number(blockedPullRes.headers['retry-after']) >= 1);
+        assert.strictEqual(blockedPullRes.headers['x-ratelimit-remaining'], '0');
     });
 });

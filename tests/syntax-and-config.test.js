@@ -39,13 +39,15 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'regCodigoValidacion',
             'resetNewPassword',
             'resetConfirmPassword',
-            'medicoPassword'
+            'medicoPassword',
+            'mfaCodeInput'
         ]) {
             assert.ok(
                 indexHtml.includes(`data-toggle-password="${fieldId}"`),
                 `Falta botón ojito data-toggle-password="${fieldId}" en index.html`
             );
         }
+        assert.ok(indexHtml.includes('id="authMfaForm"'), 'Falta formulario #authMfaForm en index.html');
         const frontendJs = readText('public/frontend.js');
         assert.match(frontendJs, /function\s+initPasswordToggles\s*\(/);
         for (const fnName of [
@@ -54,13 +56,23 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'createRequestTracker',
             'submitMutationRequest',
             'createLoadingBanner',
-            'hideBootScreen'
+            'hideBootScreen',
+            'validateEmailClient',
+            'validatePasswordFormatClient'
         ]) {
             assert.match(frontendJs, new RegExp(`function\\s+${fnName}\\s*\\(`), `Falta helper ${fnName} en frontend.js`);
         }
 
         const serverJs = readText('server.js');
-        assert.match(serverJs, /function\s+preventDuplicateSubmit\s*\(/);
+        for (const fnName of [
+            'preventDuplicateSubmit',
+            'createRateLimiter',
+            'normalizeEmail',
+            'validatePasswordFormat',
+            'requireNonEmptyBody'
+        ]) {
+            assert.match(serverJs, new RegExp(`function\\s+${fnName}\\s*\\(`), `Falta helper ${fnName} en server.js`);
+        }
         assert.match(serverJs, /Personal Daily Hub/);
 
         const dashHtml = readText('public/dashboard.html');
@@ -153,6 +165,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         ]) {
             assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`), `Falta tabla ${table}`);
         }
+        assert.match(sql, /estado\s+ENUM\('activo',\s*'inactivo',\s*'suspendido'\)/);
+        assert.match(sql, /tipo\s+ENUM\('registro',\s*'reset',\s*'mfa'\)/);
     });
 
     it('protege archivos secretos y optimiza Dockerfile / docker-compose.yml para t3.micro', () => {
