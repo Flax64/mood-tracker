@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 
 <head>
     <meta charset="UTF-8">
@@ -18,6 +18,10 @@
     ========================================== -->
     <div class="auth-screen" id="authOverlay">
         <div class="auth-card">
+            <div class="auth-top-bar">
+                <button type="button" class="theme-toggle-pill" id="btnThemeToggleAuth"
+                    aria-label="Cambiar tema claro u oscuro">☀️ Modo Claro</button>
+            </div>
             <div class="auth-brand">
                 <span class="auth-logo" aria-hidden="true">🌈</span>
                 <h1>Personal Mood Tracker</h1>
@@ -50,10 +54,10 @@
                 </div>
                 <div class="form-group">
                     <label for="regEmail">Correo electrónico:</label>
-                    <input type="email" id="regEmail" autocomplete="email" placeholder="flavio.flax1234@gmail.com"
+                    <input type="email" id="regEmail" autocomplete="email" placeholder="correo@gmail.com"
                         required>
                     <small class="form-hint">
-                        El correo <strong>flavio.flax1234@gmail.com</strong> recibe permisos de Propietario (edición total). Cualquier otro correo se registra como <strong>Psiquiatra (solo lectura)</strong>.
+                        El correo configurado como propietario (<strong>ADMIN_EMAIL</strong>) recibe permisos totales. Cualquier otro correo autorizado se registra como <strong>Psiquiatra (solo lectura)</strong>.
                     </small>
                 </div>
                 <div class="form-group">
@@ -65,13 +69,13 @@
                     <label for="regCodigoValidacion">Validación de identidad (propietario):</label>
                     <div class="code-send-row">
                         <button type="button" class="btn-send-code" id="btnSendRegCode">
-                            📧 Enviar código a flavio.flax1234@gmail.com
+                            📧 Enviar código al correo del propietario
                         </button>
                     </div>
                     <input type="password" id="regCodigoValidacion"
                         placeholder="Código de 6 dígitos del correo o tu clave secreta personal" required>
                     <small class="form-hint">
-                        Ingresa el código enviado a <strong>flavio.flax1234@gmail.com</strong> o tu contraseña secreta personal (Word / ADMIN_SECRET).
+                        Ingresa el código enviado a tu correo propietario (<strong>ADMIN_EMAIL</strong>) o tu clave secreta personal (<strong>ADMIN_SECRET</strong> / Word).
                     </small>
                 </div>
                 <button type="submit" class="btn-submit" id="btnRegSubmit">Validar y Crear Cuenta</button>
@@ -85,7 +89,7 @@
             <form id="authForgotForm" class="auth-form" hidden>
                 <div class="form-group">
                     <label for="forgotEmail">Tu correo registrado:</label>
-                    <input type="email" id="forgotEmail" autocomplete="email" placeholder="flavio.flax1234@gmail.com"
+                    <input type="email" id="forgotEmail" autocomplete="email" placeholder="tu_correo@gmail.com"
                         required>
                     <small class="form-hint">
                         Te enviaremos un enlace seguro válido por 30 minutos para restablecer tu contraseña.
@@ -134,7 +138,11 @@
                 <span class="hamburger-lines" aria-hidden="true">☰</span>
             </button>
             <div class="mobile-topbar-title" id="mobileViewTitle">Inicio</div>
-            <span class="moment-pill" id="mobileMomentBadge">--</span>
+            <div class="mobile-topbar-right">
+                <button type="button" class="icon-btn theme-icon-btn" id="btnThemeToggleMobile"
+                    title="Cambiar tema claro u oscuro" aria-label="Cambiar tema">☀️</button>
+                <span class="moment-pill" id="mobileMomentBadge">--</span>
+            </div>
         </header>
 
         <!-- Fondo oscuro al desplegar menú en celular -->
@@ -220,6 +228,10 @@
                     <span class="sidebar-status-text" id="sidebarMomentoActual">Momento: --</span>
                 </div>
                 <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
+                <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Cambiar tema">
+                    <span class="theme-icon" aria-hidden="true">☀️</span>
+                    <span class="theme-label">Tema Claro</span>
+                </button>
                 <button type="button" class="btn-logout-sidebar" id="btnLogout" title="Cerrar Sesión">
                     <span aria-hidden="true">🚪</span>
                     <span class="logout-text">Cerrar Sesión</span>
@@ -665,9 +677,8 @@
                             Psiquiatra</button>
                     </form>
 
-                    <hr style="margin: 25px 0; border: none; border-top: 1px solid #e5e7eb;">
-                    <h3 style="text-align: left; font-size: 1rem; color: #374151; margin-bottom: 12px;">Cuentas de
-                        psiquiatra activas</h3>
+                    <hr class="section-divider">
+                    <h3 class="medicos-heading">Cuentas de psiquiatra activas</h3>
                     <div id="medicosList" class="medicos-list">
                         <p class="muted-text">Cargando...</p>
                     </div>

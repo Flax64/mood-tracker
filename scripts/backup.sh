@@ -4,16 +4,22 @@ set -euo pipefail
 # 1. Cargar las credenciales desde el archivo .env del proyecto sin expandir caracteres especiales
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="$PROJECT_DIR/.env"
+ENV_FILE="${ENV_FILE_OVERRIDE:-$PROJECT_DIR/.env}"
 
-if [ ! -f "$ENV_FILE" ] && [ -f "$HOME/projects/mood-tracker/.env" ]; then
-    ENV_FILE="$HOME/projects/mood-tracker/.env"
-elif [ ! -f "$ENV_FILE" ] && [ -f "$HOME/projects/mood_tracker/.env" ]; then
-    ENV_FILE="$HOME/projects/mood_tracker/.env"
+if [ -z "${ENV_FILE_OVERRIDE:-}" ]; then
+    if [ ! -f "$ENV_FILE" ] && [ -f "$HOME/projects/mood-tracker/.env" ]; then
+        ENV_FILE="$HOME/projects/mood-tracker/.env"
+    elif [ ! -f "$ENV_FILE" ] && [ -f "$HOME/projects/mood_tracker/.env" ]; then
+        ENV_FILE="$HOME/projects/mood_tracker/.env"
+    fi
 fi
 
 if [ ! -f "$ENV_FILE" ]; then
-    echo "Error: No se encontró el archivo .env en $ENV_FILE" >&2
+    if [ -f "$PROJECT_DIR/.env.enc" ]; then
+        echo "Error: El archivo .env está cifrado en $PROJECT_DIR/.env.enc. Ejecuta: ./scripts/env-vault.sh backup" >&2
+    else
+        echo "Error: No se encontró el archivo .env en $ENV_FILE" >&2
+    fi
     exit 1
 fi
 

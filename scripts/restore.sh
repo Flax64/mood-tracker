@@ -4,11 +4,15 @@ set -euo pipefail
 MODE="${1:---if-empty}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="$PROJECT_DIR/.env"
+ENV_FILE="${ENV_FILE_OVERRIDE:-$PROJECT_DIR/.env}"
 INIT_SQL="$PROJECT_DIR/init.sql"
 
 if [ ! -f "$ENV_FILE" ]; then
-    echo "Error: No se encontró el archivo .env en $ENV_FILE" >&2
+    if [ -f "$PROJECT_DIR/.env.enc" ]; then
+        echo "Error: El archivo .env está cifrado en $PROJECT_DIR/.env.enc. Ejecuta: ./scripts/env-vault.sh restore $MODE" >&2
+    else
+        echo "Error: No se encontró el archivo .env en $ENV_FILE" >&2
+    fi
     exit 1
 fi
 

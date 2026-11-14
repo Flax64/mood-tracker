@@ -522,7 +522,7 @@ if (selectSemana) {
                 diasSemana.forEach((dia, index) => {
                     const datosDia = sumatoriaSueno[dia];
                     let emoji = '➖';
-                    let colorBorde = '#e9ecef';
+                    let colorBorde = '';
                     let textoHoras = '--';
                     let textoIntervalos = ''; // Para mostrar (5h + 2h)
 
@@ -543,7 +543,7 @@ if (selectSemana) {
                                 const mR = Math.round((sesionH - hE) * 60);
                                 return `${hE}:${String(mR).padStart(2, '0')}`;
                             });
-                            textoIntervalos = `<div style="font-size: 0.8rem; color: #777; margin-top: 5px; font-weight: normal;">(${listaIntervalos.join(' + ')})</div>`;
+                            textoIntervalos = `<div class="sleep-intervals">(${listaIntervalos.join(' + ')})</div>`;
                         }
 
                         // === LÓGICA DE CALIDAD INTELIGENTE ===
@@ -562,7 +562,7 @@ if (selectSemana) {
                     // Crear el bloque HTML de la tarjeta
                     const card = document.createElement('div');
                     card.className = 'sleep-card';
-                    card.style.borderColor = colorBorde;
+                    if (colorBorde) card.style.borderColor = colorBorde;
 
                     card.innerHTML = `
                         <div class="day-name">${diasNombres[index]}</div>
@@ -1652,9 +1652,53 @@ function initAuthHandlers() {
 }
 
 // ==========================================
+// TEMA OSCURO / CLARO
+// ==========================================
+function applyTheme(theme) {
+    const resolved = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', resolved);
+    localStorage.setItem('mt_theme', resolved);
+
+    const isDark = resolved === 'dark';
+    const authBtn = document.getElementById('btnThemeToggleAuth');
+    const mobileBtn = document.getElementById('btnThemeToggleMobile');
+    const sidebarBtn = document.getElementById('btnThemeToggleSidebar');
+
+    if (authBtn) {
+        authBtn.textContent = isDark ? '☀️ Modo Claro' : '🌙 Modo Oscuro';
+    }
+    if (mobileBtn) {
+        mobileBtn.textContent = isDark ? '☀️' : '🌙';
+        mobileBtn.title = isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro';
+    }
+    if (sidebarBtn) {
+        const iconEl = sidebarBtn.querySelector('.theme-icon');
+        const labelEl = sidebarBtn.querySelector('.theme-label');
+        if (iconEl) iconEl.textContent = isDark ? '☀️' : '🌙';
+        if (labelEl) labelEl.textContent = isDark ? 'Tema Claro' : 'Tema Oscuro';
+    }
+}
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('mt_theme') || 'dark';
+    applyTheme(savedTheme);
+
+    ['btnThemeToggleAuth', 'btnThemeToggleMobile', 'btnThemeToggleSidebar'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+                applyTheme(current === 'dark' ? 'light' : 'dark');
+            });
+        }
+    });
+}
+
+// ==========================================
 // INICIALIZACIÓN AL CARGAR LA APLICACIÓN
 // ==========================================
 function initApp() {
+    initTheme();
     initAuthHandlers();
 
     // Si el usuario abrió el enlace de recuperación enviado a su correo (?resetToken=...&email=...)

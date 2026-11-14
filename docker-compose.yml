@@ -45,8 +45,9 @@ services:
       - ADMIN_SECRET=${ADMIN_SECRET:-}
       - WORD_PASSWORD=${WORD_PASSWORD:-}
       - JOURNAL_SECRET_KEY=${JOURNAL_SECRET_KEY:-}
-      - SMTP_USER=${SMTP_USER:-flavio.flax1234@gmail.com}
+      - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
+      - APP_BASE_URL=${APP_BASE_URL:-}
     depends_on:
       db:
         condition: service_healthy

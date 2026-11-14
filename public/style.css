@@ -51,8 +51,84 @@ body {
     width: 100%;
     max-width: 450px;
     border-radius: 18px;
-    padding: 30px 26px;
+    padding: 24px 26px 30px;
     box-shadow: 0 22px 50px rgba(0, 0, 0, 0.32);
+}
+
+.auth-top-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6px;
+}
+
+.theme-toggle-pill {
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.16s, border-color 0.16s;
+}
+
+.theme-toggle-pill:hover {
+    background: #e2e8f0;
+}
+
+.btn-theme-sidebar {
+    width: 100%;
+    margin-top: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: rgba(255, 255, 255, 0.08);
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.18s;
+}
+
+.btn-theme-sidebar:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.section-divider {
+    margin: 25px 0;
+    border: none;
+    border-top: 1px solid #e5e7eb;
+}
+
+.medicos-heading {
+    text-align: left;
+    font-size: 1rem;
+    color: #374151;
+    margin: 0 0 12px 0;
+}
+
+.sleep-intervals {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 5px;
+    font-weight: normal;
+}
+
+.mobile-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.theme-icon-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
 }
 
 .auth-brand {
@@ -544,8 +620,14 @@ body {
         padding: 10px 8px;
     }
 
+    .app-shell.sidebar-collapsed .logout-text,
+    .app-shell.sidebar-collapsed .theme-label {
+        display: none;
+    }
+
+    .app-shell.sidebar-collapsed .btn-theme-sidebar,
     .app-shell.sidebar-collapsed .btn-logout-sidebar {
-        margin-top: 0;
+        margin-top: 6px;
         padding: 10px 6px;
     }
 
@@ -1984,4 +2066,354 @@ select {
     #sleepHours {
         max-width: 100%;
     }
+}
+
+/* =========================================
+   TEMA OSCURO (DARK MODE)
+========================================= */
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --sidebar-bg: #111827;
+    --sidebar-hover: #1f2937;
+    --sidebar-active: #4f7df3;
+    --bg-page: #0b1120;
+    --text-main: #e2e8f0;
+    --text-muted: #94a3b8;
+    --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="dark"] .auth-screen {
+    background: linear-gradient(135deg, #060913 0%, #0f172a 55%, #1e293b 100%);
+}
+
+:root[data-theme="dark"] .auth-card {
+    background: #162032;
+    border: 1px solid #293548;
+}
+
+:root[data-theme="dark"] .auth-logo {
+    background: rgba(79, 125, 243, 0.18);
+}
+
+:root[data-theme="dark"] .auth-brand h1,
+:root[data-theme="dark"] h2,
+:root[data-theme="dark"] .section-heading,
+:root[data-theme="dark"] .home-hero h1,
+:root[data-theme="dark"] .summary-card-header h3,
+:root[data-theme="dark"] .shortcut-card strong,
+:root[data-theme="dark"] .tracker-title,
+:root[data-theme="dark"] .agenda-title,
+:root[data-theme="dark"] .modal-header h3,
+:root[data-theme="dark"] .medicos-heading,
+:root[data-theme="dark"] .medicos-section h4,
+:root[data-theme="dark"] .medico-item-info strong {
+    color: #f8fafc;
+}
+
+:root[data-theme="dark"] .theme-toggle-pill,
+:root[data-theme="dark"] .btn-send-code {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .theme-toggle-pill:hover,
+:root[data-theme="dark"] .btn-send-code:hover {
+    background: #2b3a50;
+}
+
+:root[data-theme="dark"] .auth-link-btn,
+:root[data-theme="dark"] .summary-action {
+    color: #60a5fa;
+}
+
+:root[data-theme="dark"] .form-hint,
+:root[data-theme="dark"] .medico-item-info span {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] label,
+:root[data-theme="dark"] .controls label {
+    color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .home-hero {
+    background: linear-gradient(135deg, #162032 0%, #172554 100%);
+    border-color: #293548;
+}
+
+:root[data-theme="dark"] .home-badge {
+    background: rgba(59, 130, 246, 0.22);
+    color: #93c5fd;
+}
+
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .summary-card,
+:root[data-theme="dark"] .shortcut-card,
+:root[data-theme="dark"] .agenda-wrapper,
+:root[data-theme="dark"] .tracker-container,
+:root[data-theme="dark"] .modal-card {
+    background-color: #162032;
+    border: 1px solid #293548;
+}
+
+:root[data-theme="dark"] .shortcut-card:hover {
+    border-color: #60a5fa;
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.18);
+}
+
+:root[data-theme="dark"] .summary-card-body {
+    color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .home-mood-chip {
+    background: #1e293b;
+    color: #f1f5f9;
+}
+
+:root[data-theme="dark"] .home-mood-chip .mini-dot,
+:root[data-theme="dark"] .color-dot,
+:root[data-theme="dark"] .mood-cell .color-dot,
+:root[data-theme="dark"] .legend-list .color-dot {
+    border-color: rgba(255, 255, 255, 0.45);
+}
+
+:root[data-theme="dark"] .home-agenda-list li.done {
+    color: #64748b;
+}
+
+:root[data-theme="dark"] input[type="date"],
+:root[data-theme="dark"] input[type="time"],
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] input[type="email"],
+:root[data-theme="dark"] input[type="password"],
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] #journalText,
+:root[data-theme="dark"] #sleepHours,
+:root[data-theme="dark"] .hour-picker,
+:root[data-theme="dark"] #semanaSeleccionada {
+    background-color: #0f172a;
+    color: #f1f5f9;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] #journalText::placeholder {
+    color: #64748b;
+}
+
+:root[data-theme="dark"] #journalText:focus,
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] select:focus {
+    outline: none;
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+:root[data-theme="dark"] .mood-btn {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .mood-btn:hover {
+    background: #29374e;
+}
+
+:root[data-theme="dark"] .mood-btn.selected {
+    background: #0f172a;
+    border-color: #60a5fa;
+    color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+}
+
+:root[data-theme="dark"] .btn-submit,
+:root[data-theme="dark"] .btn-primary-pill,
+:root[data-theme="dark"] .btn-agenda-add-main {
+    background: #4f7df3;
+    color: #ffffff;
+}
+
+:root[data-theme="dark"] .btn-submit:hover,
+:root[data-theme="dark"] .btn-primary-pill:hover,
+:root[data-theme="dark"] .btn-agenda-add-main:hover {
+    background: #3b6ae0;
+}
+
+:root[data-theme="dark"] .btn-view,
+:root[data-theme="dark"] .btn-back,
+:root[data-theme="dark"] .btn-secondary-pill {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #475569;
+}
+
+:root[data-theme="dark"] .btn-view:hover,
+:root[data-theme="dark"] .btn-back:hover,
+:root[data-theme="dark"] .btn-secondary-pill:hover {
+    background: #29374e;
+}
+
+:root[data-theme="dark"] .readonly-banner {
+    background: rgba(37, 99, 235, 0.16);
+    border-color: rgba(96, 165, 250, 0.35);
+    color: #bfdbfe;
+}
+
+:root[data-theme="dark"] .medico-item {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .btn-revoke-medico {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.35);
+}
+
+:root[data-theme="dark"] .btn-revoke-medico:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+:root[data-theme="dark"] .section-divider,
+:root[data-theme="dark"] .agenda-toolbar {
+    border-color: #293548;
+}
+
+/* Resumen semanal y sueño en modo oscuro */
+:root[data-theme="dark"] .mood-table th,
+:root[data-theme="dark"] .mood-table td {
+    border-color: #475569;
+    background-color: #162032;
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .mood-table th {
+    background-color: #1e293b;
+}
+
+:root[data-theme="dark"] .sleep-container h3 {
+    color: #f1f5f9;
+    border-bottom-color: #334155;
+}
+
+:root[data-theme="dark"] .sleep-card {
+    background-color: #1e293b;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .sleep-card .day-name {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .sleep-card .sleep-hours {
+    color: #f8fafc;
+}
+
+/* Agenda Semanal en modo oscuro */
+:root[data-theme="dark"] .agenda-calendar-icon,
+:root[data-theme="dark"] .modal-close-btn,
+:root[data-theme="dark"] .btn-cancel {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .agenda-week-label {
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .agenda-nav-btn,
+:root[data-theme="dark"] .agenda-chip-btn,
+:root[data-theme="dark"] .suggestion-chip {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .agenda-nav-btn:hover,
+:root[data-theme="dark"] .suggestion-chip:hover {
+    background: #29374e;
+}
+
+:root[data-theme="dark"] .agenda-chip-btn.active {
+    background: #4f7df3;
+    border-color: #4f7df3;
+    color: #ffffff;
+}
+
+:root[data-theme="dark"] .agenda-block-header,
+:root[data-theme="dark"] .agenda-mobile-block-head {
+    background-color: #334155;
+}
+
+:root[data-theme="dark"] .agenda-day-header.is-today {
+    outline-color: #f8fafc;
+}
+
+:root[data-theme="dark"] .day-lun { --day-header: #b85668; --day-bg: rgba(245, 172, 184, 0.13); }
+:root[data-theme="dark"] .day-mar { --day-header: #2c8881; --day-bg: rgba(92, 186, 179, 0.13); }
+:root[data-theme="dark"] .day-mie { --day-header: #7d4ea6; --day-bg: rgba(191, 140, 235, 0.13); }
+:root[data-theme="dark"] .day-jue { --day-header: #bf6b29; --day-bg: rgba(247, 165, 97, 0.13); }
+:root[data-theme="dark"] .day-vie { --day-header: #2d7db3; --day-bg: rgba(136, 206, 248, 0.13); }
+:root[data-theme="dark"] .day-sab { --day-header: #3b8945; --day-bg: rgba(126, 199, 134, 0.13); }
+:root[data-theme="dark"] .day-dom { --day-header: #ab7b20; --day-bg: rgba(240, 188, 89, 0.13); }
+
+:root[data-theme="dark"] .agenda-cell {
+    border-bottom-color: #293548;
+}
+
+:root[data-theme="dark"] .agenda-item:hover {
+    background: rgba(15, 23, 42, 0.55);
+}
+
+:root[data-theme="dark"] .agenda-mobile-block-body .agenda-item {
+    background: rgba(15, 23, 42, 0.65);
+}
+
+:root[data-theme="dark"] .agenda-time-pill {
+    background: rgba(15, 23, 42, 0.85);
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .agenda-item-text {
+    color: #f1f5f9;
+}
+
+:root[data-theme="dark"] .agenda-item.is-done .agenda-item-text,
+:root[data-theme="dark"] .agenda-empty-block {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .agenda-check-circle {
+    background: #0f172a;
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+:root[data-theme="dark"] .agenda-cell-add {
+    background: rgba(15, 23, 42, 0.45);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .agenda-cell-add:hover {
+    background: #0f172a;
+    color: #ffffff;
+}
+
+:root[data-theme="dark"] .agenda-day-tab {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .agenda-day-tab .tab-day {
+    color: #f1f5f9;
+}
+
+:root[data-theme="dark"] .agenda-day-tab .tab-date {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .agenda-day-tab .tab-count {
+    background: #0f172a;
+    color: #cbd5e1;
 }

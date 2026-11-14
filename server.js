@@ -178,10 +178,37 @@ function resetRateLimit(key) {
 }
 
 // Transporte de correo (Gmail SMTP)
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function getResetBaseUrl(req) {
+    const envBase = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (envBase && /^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(envBase)) {
+        return envBase;
+    }
+
+    const rawProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http')
+        .split(',')[0]
+        .trim()
+        .toLowerCase();
+    const proto = rawProto === 'https' ? 'https' : 'http';
+    const rawHost = String(req.headers.host || '').trim();
+    if (!/^[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(rawHost)) {
+        return `${proto}://localhost:${process.env.PORT || 3000}`;
+    }
+    return `${proto}://${rawHost}`;
+}
+
 function crearTransporterCorreo() {
     const smtpUser = (process.env.SMTP_USER || ADMIN_EMAIL).trim();
-    const smtpPass = (process.env.SMTP_PASS || '').trim();
-    if (!smtpPass) return null;
+    const smtpPass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
+    if (!smtpUser || !smtpPass) return null;
 
     return nodemailer.createTransport({
         service: 'gmail',
@@ -195,15 +222,22 @@ function crearTransporterCorreo() {
 async function enviarCorreo({ to, subject, html }) {
     const transporter = crearTransporterCorreo();
     if (!transporter) {
-        throw new Error('El servidor aún no tiene configurado SMTP_PASS (Contraseña de aplicación de Gmail) en .env');
+        throw new Error('Falta configurar SMTP_USER y SMTP_PASS (Contraseña de aplicación de Gmail) en .env o GitHub Secrets');
     }
     const fromUser = (process.env.SMTP_USER || ADMIN_EMAIL).trim();
-    await transporter.sendMail({
-        from: `"Personal Mood Tracker" <${fromUser}>`,
-        to,
-        subject,
-        html
-    });
+    try {
+        await transporter.sendMail({
+            from: `"Personal Mood Tracker" <${fromUser}>`,
+            to,
+            subject,
+            html
+        });
+    } catch (err) {
+        if (err && (err.code === 'EAUTH' || err.responseCode === 535)) {
+            throw new Error('Gmail rechazó las credenciales SMTP. Verifica que SMTP_USER y la Contraseña de Aplicación (SMTP_PASS de 16 letras) coincidan.');
+        }
+        throw err;
+    }
 }
 
 // Middleware de autenticación
@@ -307,7 +341,7 @@ app.post('/api/auth/send-register-code', async (req, res) => {
                         </div>
                     `
                 });
-                res.json({ message: `Código enviado a ${ADMIN_EMAIL}` });
+                res.json({ message: 'Código de verificación enviado al correo propietario configurado en el servidor.' });
             } catch (mailErr) {
                 console.error(mailErr.message);
                 res.status(500).send(
@@ -556,9 +590,8 @@ app.post('/api/auth/forgot-password', (req, res) => {
                     return res.status(500).send('Error al generar el enlace de recuperación');
                 }
 
-                const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-                const host = req.headers.host;
-                const resetUrl = `${proto}://${host}/?resetToken=${rawResetToken}&email=${encodeURIComponent(user.email)}`;
+                const baseUrl = getResetBaseUrl(req);
+                const resetUrl = `${baseUrl}/?resetToken=${rawResetToken}&email=${encodeURIComponent(user.email)}`;
 
                 try {
                     await enviarCorreo({
@@ -567,7 +600,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
                         html: `
                             <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 22px; border: 1px solid #e5e7eb; border-radius: 12px;">
                                 <h2 style="color: #1e2430; margin-top: 0;">Restablecer Contraseña</h2>
-                                <p>Hola <strong>${user.nombre}</strong>,</p>
+                                <p>Hola <strong>${escapeHtml(user.nombre)}</strong>,</p>
                                 <p>Solicitaste cambiar tu contraseña en Personal Mood Tracker. Haz clic en el siguiente botón (válido por 30 minutos):</p>
                                 <p style="text-align: center; margin: 26px 0;">
                                     <a href="${resetUrl}" style="background: #1e2430; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: bold; display: inline-block;">
