@@ -2,5 +2,6 @@
 .ssh/
 base_datos/
 test/
-scripts/
+respaldos/
+*.sql.gz
 sincronitation/

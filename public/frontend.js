@@ -1,9 +1,322 @@
 // ==========================================
-// LÓGICA PARA INDEX.HTML (REGISTRO)
+// UTILIDADES GENERALES DE FECHA Y ESTADO
+// ==========================================
+function formatLocalDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+function getMomentoInfo(hour) {
+    if (hour >= 6 && hour < 12) {
+        return { moodKey: 'Morning', moodLabel: 'Mañana', saludo: '¡Buenos días!', agendaBloque: hour < 9 ? 'manana' : 'cole' };
+    }
+    if (hour >= 12 && hour < 14) {
+        return { moodKey: 'Noon', moodLabel: 'Mediodía', saludo: '¡Buenas tardes!', agendaBloque: 'cole' };
+    }
+    if (hour >= 14 && hour < 20) {
+        return { moodKey: 'Afternoon', moodLabel: 'Tarde', saludo: '¡Buenas tardes!', agendaBloque: 'tarde' };
+    }
+    return { moodKey: 'Night', moodLabel: 'Noche', saludo: '¡Buenas noches!', agendaBloque: 'noche' };
+}
+
+const MOMENTOS_ES = {
+    Morning: 'Mañana',
+    Noon: 'Mediodía',
+    Afternoon: 'Tarde',
+    Night: 'Noche'
+};
+
+const ESTADOS_ES = {
+    Happy: 'Feliz',
+    Calm: 'Tranquilo',
+    Excited: 'Emocionado',
+    Tired: 'Cansado',
+    Sad: 'Triste',
+    Angry: 'Enojado',
+    Worried: 'Preocupado',
+    Scared: 'Asustado',
+    Focused: 'Enfocado',
+    Motivated: 'Motivado',
+    Stressed: 'Estresado',
+    Frustrated: 'Frustrado',
+    Bored: 'Aburrido',
+    Anxious: 'Ansioso',
+    Distracted: 'Distraído',
+    Desperation: 'Desesperado'
+};
+
+// ==========================================
+// NAVEGACIÓN PRINCIPAL Y BARRA LATERAL FIJA
+// ==========================================
+const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'agenda', 'resumen']);
+const appShell = document.getElementById('appShell');
+const sidebar = document.getElementById('sidebar');
+const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+const mobileSidebarClose = document.getElementById('mobileSidebarClose');
+const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+const desktopSidebarToggle = document.getElementById('desktopSidebarToggle');
+const desktopToggleIcon = document.getElementById('desktopToggleIcon');
+const mobileViewTitle = document.getElementById('mobileViewTitle');
+
+function setMobileMenuOpen(isOpen) {
+    if (!appShell) return;
+    appShell.classList.toggle('mobile-menu-open', isOpen);
+    if (mobileMenuBtn) {
+        mobileMenuBtn.setAttribute('aria-expanded', String(isOpen));
+    }
+}
+
+function updateDesktopSidebarState(collapsed) {
+    if (!appShell) return;
+    appShell.classList.toggle('sidebar-collapsed', collapsed);
+    if (desktopToggleIcon) {
+        desktopToggleIcon.textContent = collapsed ? '▶' : '◀';
+    }
+    localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
+}
+
+function showView(viewName, updateHash = true) {
+    const targetView = VALID_VIEWS.has(viewName) ? viewName : 'inicio';
+
+    document.querySelectorAll('.app-view').forEach(section => {
+        const isTarget = section.id === `view-${targetView}`;
+        section.classList.toggle('active', isTarget);
+        if (isTarget && mobileViewTitle) {
+            mobileViewTitle.textContent = section.getAttribute('data-title') || 'Mood Tracker';
+        }
+    });
+
+    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-view') === targetView);
+    });
+
+    if (updateHash && window.location.hash !== `#${targetView}`) {
+        history.replaceState(null, '', `#${targetView}`);
+    }
+
+    setMobileMenuOpen(false);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+
+    if (targetView === 'inicio') {
+        cargarInicioResumen();
+    } else if (targetView === 'resumen') {
+        const selectSemana = document.getElementById('semanaSeleccionada');
+        if (selectSemana) selectSemana.dispatchEvent(new Event('change'));
+    } else if (targetView === 'agenda') {
+        cargarAgendaSemana();
+    }
+}
+
+if (appShell) {
+    // Estado guardado de barra lateral en PC
+    if (localStorage.getItem('sidebar_collapsed') === '1') {
+        updateDesktopSidebarState(true);
+    }
+
+    if (desktopSidebarToggle) {
+        desktopSidebarToggle.addEventListener('click', () => {
+            const isCollapsed = appShell.classList.contains('sidebar-collapsed');
+            updateDesktopSidebarState(!isCollapsed);
+        });
+    }
+
+    if (mobileMenuBtn) {
+        mobileMenuBtn.addEventListener('click', () => {
+            const isOpen = appShell.classList.contains('mobile-menu-open');
+            setMobileMenuOpen(!isOpen);
+        });
+    }
+
+    if (mobileSidebarClose) {
+        mobileSidebarClose.addEventListener('click', () => setMobileMenuOpen(false));
+    }
+
+    if (sidebarBackdrop) {
+        sidebarBackdrop.addEventListener('click', () => setMobileMenuOpen(false));
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            setMobileMenuOpen(false);
+            cerrarAgendaModal();
+        }
+    });
+
+    // Grupos desplegables dentro de la barra lateral
+    document.querySelectorAll('.nav-group-toggle').forEach(toggle => {
+        toggle.addEventListener('click', () => {
+            const group = toggle.closest('.nav-group');
+            if (!group) return;
+            const willOpen = !group.classList.contains('open');
+            group.classList.toggle('open', willOpen);
+            toggle.setAttribute('aria-expanded', String(willOpen));
+        });
+    });
+
+    // Botones del menú lateral
+    document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            showView(btn.getAttribute('data-view'));
+        });
+    });
+
+    // Accesos directos dentro de las vistas
+    document.querySelectorAll('[data-go-view]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            showView(btn.getAttribute('data-go-view'));
+        });
+    });
+
+    // Soporte de navegación por hash
+    window.addEventListener('hashchange', () => {
+        const hashView = window.location.hash.replace('#', '');
+        if (VALID_VIEWS.has(hashView)) {
+            showView(hashView, false);
+        }
+    });
+}
+
+// ==========================================
+// LÓGICA DE INICIO (INTERFAZ PRINCIPAL)
+// ==========================================
+function actualizarCabecerasDeFecha() {
+    const now = new Date();
+    const info = getMomentoInfo(now.getHours());
+    const fechaLarga = now.toLocaleDateString('es-ES', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+    });
+    const fechaCorta = now.toLocaleDateString('es-ES', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short'
+    });
+
+    const homeGreeting = document.getElementById('homeGreeting');
+    const homeDate = document.getElementById('homeDate');
+    const homeMomentBadge = document.getElementById('homeMomentBadge');
+    const sidebarMomentoActual = document.getElementById('sidebarMomentoActual');
+    const sidebarFechaHoy = document.getElementById('sidebarFechaHoy');
+    const mobileMomentBadge = document.getElementById('mobileMomentBadge');
+
+    if (homeGreeting) homeGreeting.textContent = info.saludo;
+    if (homeDate) homeDate.textContent = fechaLarga;
+    if (homeMomentBadge) homeMomentBadge.textContent = `Momento actual: ${info.moodLabel}`;
+    if (sidebarMomentoActual) sidebarMomentoActual.textContent = `Momento: ${info.moodLabel}`;
+    if (sidebarFechaHoy) sidebarFechaHoy.textContent = fechaCorta;
+    if (mobileMomentBadge) mobileMomentBadge.textContent = info.moodLabel;
+}
+
+function cargarInicioResumen() {
+    actualizarCabecerasDeFecha();
+    const hoyStr = formatLocalDate(new Date());
+
+    const moodBox = document.getElementById('homeMoodSummary');
+    const sleepBox = document.getElementById('homeSleepSummary');
+    const agendaBox = document.getElementById('homeAgendaSummary');
+    if (!moodBox || !sleepBox || !agendaBox) return;
+
+    // 1. Mood de hoy
+    fetch(`/api/get-moods?begin=${hoyStr}&end=${hoyStr}`)
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Error al consultar ánimo')))
+        .then(registros => {
+            moodBox.innerHTML = '';
+            if (!registros.length) {
+                const p = document.createElement('p');
+                p.className = 'muted-text';
+                p.textContent = 'Aún no registras tu estado de ánimo hoy.';
+                moodBox.appendChild(p);
+                return;
+            }
+            const wrap = document.createElement('div');
+            wrap.className = 'home-mood-pills';
+            registros.forEach(r => {
+                const chip = document.createElement('span');
+                chip.className = 'home-mood-chip';
+                const dot = document.createElement('span');
+                dot.className = 'mini-dot';
+                dot.style.backgroundColor = r.color_hex;
+                const txt = document.createElement('span');
+                txt.textContent = MOMENTOS_ES[r.momento_dia] || r.momento_dia;
+                chip.append(dot, txt);
+                wrap.appendChild(chip);
+            });
+            moodBox.appendChild(wrap);
+        })
+        .catch(() => {
+            moodBox.innerHTML = '<p class="muted-text">No se pudo cargar el estado de ánimo.</p>';
+        });
+
+    // 2. Sueño de hoy
+    fetch(`/api/get-sleep?begin=${hoyStr}&end=${hoyStr}`)
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Error al consultar sueño')))
+        .then(registros => {
+            sleepBox.innerHTML = '';
+            if (!registros.length) {
+                const p = document.createElement('p');
+                p.className = 'muted-text';
+                p.textContent = 'Sin registro de descanso el día de hoy.';
+                sleepBox.appendChild(p);
+                return;
+            }
+            const totalH = registros.reduce((acc, r) => acc + parseFloat(r.horas || 0), 0);
+            const horasEnteras = Math.floor(totalH);
+            const minutosRest = Math.round((totalH - horasEnteras) * 60);
+            const p = document.createElement('p');
+            p.style.margin = '0';
+            p.innerHTML = `<strong>${horasEnteras}:${String(minutosRest).padStart(2, '0')} h</strong> registradas en ${registros.length} sesión(es).`;
+            sleepBox.appendChild(p);
+        })
+        .catch(() => {
+            sleepBox.innerHTML = '<p class="muted-text">No se pudo cargar el resumen de sueño.</p>';
+        });
+
+    // 3. Agenda de hoy
+    fetch(`/api/get-agenda?begin=${hoyStr}&end=${hoyStr}`)
+        .then(res => res.ok ? res.json() : Promise.reject(new Error('Error al consultar agenda')))
+        .then(items => {
+            agendaBox.innerHTML = '';
+            if (!items.length) {
+                const p = document.createElement('p');
+                p.className = 'muted-text';
+                p.textContent = 'No tienes actividades programadas para hoy.';
+                agendaBox.appendChild(p);
+                return;
+            }
+            const completadas = items.filter(i => Number(i.completada) === 1).length;
+            const summary = document.createElement('p');
+            summary.style.margin = '0';
+            summary.innerHTML = `<strong>${completadas} de ${items.length}</strong> actividades completadas hoy.`;
+            agendaBox.appendChild(summary);
+
+            const ul = document.createElement('ul');
+            ul.className = 'home-agenda-list';
+            items.slice(0, 4).forEach(item => {
+                const li = document.createElement('li');
+                if (Number(item.completada) === 1) li.className = 'done';
+                const timeSpan = document.createElement('strong');
+                timeSpan.textContent = item.hora;
+                const textSpan = document.createElement('span');
+                textSpan.textContent = item.actividad;
+                li.append(timeSpan, textSpan);
+                ul.appendChild(li);
+            });
+            agendaBox.appendChild(ul);
+        })
+        .catch(() => {
+            agendaBox.innerHTML = '<p class="muted-text">Agenda pendiente de sincronizar o sin tabla en BD.</p>';
+        });
+}
+
+// ==========================================
+// LÓGICA PARA MOOD TRACKER (REGISTRO)
 // ==========================================
 const formRegistro = document.getElementById('moodForm');
 
-// Solo ejecutamos esto si estamos en la página del formulario
 if (formRegistro) {
     const now = new Date();
     const year = now.getFullYear();
@@ -47,7 +360,7 @@ if (formRegistro) {
     formRegistro.addEventListener('submit', (e) => {
         e.preventDefault();
 
-        // Prevenir el click fantasma o docke click
+        // Prevenir el click fantasma o doble click
         const btnGuardarMood = document.getElementById('btn-save-mood');
         if (btnGuardarMood.disabled) return;
 
@@ -56,10 +369,9 @@ if (formRegistro) {
             return;
         }
 
-
         const textoBtnMood = btnGuardarMood.textContent;
         btnGuardarMood.disabled = true;
-        btnGuardarMood.textContent = "Guardando..."
+        btnGuardarMood.textContent = "Guardando...";
 
         const datos = {
             fecha: document.getElementById('fecha').value,
@@ -75,7 +387,7 @@ if (formRegistro) {
         })
             .then(response => {
                 if (!response.ok) {
-                    return response.text().then(text => { throw new Error(text) })
+                    return response.text().then(text => { throw new Error(text); });
                 }
                 return response.text();
             })
@@ -95,7 +407,7 @@ if (formRegistro) {
 }
 
 // ==========================================
-// LÓGICA PARA DASHBOARD.HTML (TABLA)
+// LÓGICA PARA RESUMEN SEMANAL (TABLA MOOD & SUEÑO)
 // ==========================================
 const selectSemana = document.getElementById('semanaSeleccionada');
 
@@ -142,7 +454,6 @@ if (selectSemana) {
         fetch(`/api/get-moods?begin=${begin}&end=${end}`)
             .then(response => response.json())
             .then(registros => {
-
                 registros.forEach(registro => {
                     const fechaObj = new Date(registro.fecha);
                     const nombreDia = diasSemana[fechaObj.getUTCDay()];
@@ -153,7 +464,7 @@ if (selectSemana) {
                     }
                 });
             })
-            .catch(error => alert('Error:' + error.message));
+            .catch(error => console.error('Error cargando mood:', error));
 
         const sleepGrid = document.getElementById('sleepGrid');
         sleepGrid.innerHTML = ''; // Limpiar tarjetas anteriores
@@ -182,7 +493,7 @@ if (selectSemana) {
                     sumatoriaSueno[nombreDia].horas += horasRegistro;
                     sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
 
-                    // NUEVO: Guardamos el fragmento exacto para saber si es intermitente
+                    // Guardamos el fragmento exacto para saber si es intermitente
                     sumatoriaSueno[nombreDia].sesiones.push(horasRegistro);
                 });
 
@@ -211,21 +522,17 @@ if (selectSemana) {
                                 const mR = Math.round((sesionH - hE) * 60);
                                 return `${hE}:${String(mR).padStart(2, '0')}`;
                             });
-                            // Dibuja algo como: (5:00 + 2:30) en texto más pequeño
                             textoIntervalos = `<div style="font-size: 0.8rem; color: #777; margin-top: 5px; font-weight: normal;">(${listaIntervalos.join(' + ')})</div>`;
                         }
 
                         // === LÓGICA DE CALIDAD INTELIGENTE ===
                         if (totalH < 4 || (totalH < 6 && intermitente)) {
-                            // Rojo: Menor a 4h en total, o menor a 6h pero interrumpido
                             emoji = '🔴';
                             colorBorde = '#EF4444';
                         } else if (totalH >= 7 && !intermitente) {
-                            // Verde: ÚNICAMENTE si es 7h o más, y NO fue interrumpido (1 sola sesión)
                             emoji = '🟢';
                             colorBorde = '#4ADE80';
                         } else {
-                            // Amarillo: Todo lo demás (ej. 4 a 6.9h de corrido, o cualquier sueño interrumpido mayor a 6h)
                             emoji = '🟡';
                             colorBorde = '#FDE047';
                         }
@@ -249,9 +556,6 @@ if (selectSemana) {
             })
             .catch(error => console.error('Error cargando el sueño:', error));
     });
-
-    // 3. Disparar el evento inmediatamente al abrir la página para cargar la tabla
-    selectSemana.dispatchEvent(new Event('change'));
 }
 
 // ==========================================
@@ -340,7 +644,7 @@ if (formSleep) {
         })
             .then(resopnse => {
                 if (!resopnse.ok) {
-                    return resopnse.text().then(text => { throw new Error(text) })
+                    return resopnse.text().then(text => { throw new Error(text); });
                 }
                 return resopnse.text();
             })
@@ -410,11 +714,11 @@ if (journalForm) {
         })
             .then(response => {
                 if (!response.ok) {
-                    return response.text().then(text => { throw new Error(text) });
+                    return response.text().then(text => { throw new Error(text); });
                 }
                 return response.text();
             })
-            .then(mensaje => {
+            .then(() => {
                 alert('¡Nota enviada! Tu script de Python la guardará en el Word en el próximo escaneo.');
                 textInput.value = '';
             })
@@ -424,4 +728,535 @@ if (journalForm) {
                 btnEnviarWord.textContent = textoBtnWord;
             });
     });
+}
+
+// ==========================================
+// LÓGICA PARA AGENDA PERSONAL SEMANAL
+// ==========================================
+const AGENDA_BLOQUES = [
+    {
+        id: 'manana',
+        label: 'Por la mañana',
+        defaultHora: '08:00',
+        svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 9h11v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9z"/>
+                <path d="M16 10h2.5a2 2 0 0 1 0 4H16"/>
+                <path d="M4 19h13"/>
+              </svg>`
+    },
+    {
+        id: 'cole',
+        label: 'En el cole',
+        defaultHora: '10:00',
+        svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 10l9-5 9 5"/>
+                <path d="M5 11v7c2.5-1.2 4.8-1.2 7 0 2.2-1.2 4.5-1.2 7 0v-7"/>
+                <path d="M12 11v7"/>
+              </svg>`
+    },
+    {
+        id: 'tarde',
+        label: 'Por la tarde',
+        defaultHora: '16:00',
+        svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"/>
+                <path d="M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+              </svg>`
+    },
+    {
+        id: 'noche',
+        label: 'Por la noche',
+        defaultHora: '21:00',
+        svg: `<svg class="agenda-block-svg" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15.5 5.5a4.5 4.5 0 0 0 4 5.5 5 5 0 1 1-4-5.5z"/>
+                <path d="M6 17h9a3 3 0 0 0 0-6 4 4 0 0 0-7.7-1A3 3 0 0 0 6 17z"/>
+              </svg>`
+    }
+];
+
+const AGENDA_DIAS = [
+    { key: 'lun', nombre: 'Lunes', corto: 'Lun', offset: 0 },
+    { key: 'mar', nombre: 'Martes', corto: 'Mar', offset: 1 },
+    { key: 'mie', nombre: 'Miércoles', corto: 'Mié', offset: 2 },
+    { key: 'jue', nombre: 'Jueves', corto: 'Jue', offset: 3 },
+    { key: 'vie', nombre: 'Viernes', corto: 'Vie', offset: 4 },
+    { key: 'sab', nombre: 'Sábado', corto: 'Sáb', offset: 5 },
+    { key: 'dom', nombre: 'Domingo', corto: 'Dom', offset: 6 }
+];
+
+const agendaState = {
+    weekOffset: 0,
+    showWeekend: true,
+    layoutMode: window.innerWidth <= 820 ? 'day' : 'grid',
+    selectedDate: formatLocalDate(new Date()),
+    items: []
+};
+
+function getMondayOfOffset(offsetWeeks) {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday + (offsetWeeks * 7));
+}
+
+function getVisibleAgendaDays() {
+    const monday = getMondayOfOffset(agendaState.weekOffset);
+    const list = agendaState.showWeekend ? AGENDA_DIAS : AGENDA_DIAS.slice(0, 5);
+    return list.map(d => {
+        const dateObj = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + d.offset);
+        return {
+            ...d,
+            fecha: formatLocalDate(dateObj),
+            dateObj
+        };
+    });
+}
+
+function crearElementoActividad(item) {
+    const row = document.createElement('div');
+    row.className = `agenda-item${Number(item.completada) === 1 ? ' is-done' : ''}`;
+
+    const checkBtn = document.createElement('button');
+    checkBtn.type = 'button';
+    checkBtn.className = 'agenda-check-circle';
+    checkBtn.setAttribute('aria-label', Number(item.completada) === 1 ? 'Marcar como pendiente' : 'Marcar como completada');
+    checkBtn.textContent = Number(item.completada) === 1 ? '✓' : '';
+    checkBtn.addEventListener('click', () => toggleAgendaItem(item));
+
+    const content = document.createElement('div');
+    content.className = 'agenda-item-content';
+
+    const timePill = document.createElement('span');
+    timePill.className = 'agenda-time-pill';
+    timePill.textContent = item.hora;
+
+    const text = document.createElement('span');
+    text.className = 'agenda-item-text';
+    text.textContent = item.actividad;
+
+    content.append(timePill, text);
+
+    const actions = document.createElement('div');
+    actions.className = 'agenda-item-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'agenda-mini-btn';
+    editBtn.title = 'Editar actividad';
+    editBtn.setAttribute('aria-label', 'Editar actividad');
+    editBtn.textContent = '✏️';
+    editBtn.addEventListener('click', () => abrirAgendaModal(item));
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'agenda-mini-btn';
+    delBtn.title = 'Eliminar actividad';
+    delBtn.setAttribute('aria-label', 'Eliminar actividad');
+    delBtn.textContent = '🗑️';
+    delBtn.addEventListener('click', () => eliminarAgendaItem(item.id));
+
+    actions.append(editBtn, delBtn);
+    row.append(checkBtn, content, actions);
+    return row;
+}
+
+function renderAgendaBoard() {
+    const weekBoard = document.getElementById('agendaWeekBoard');
+    const dayTabs = document.getElementById('agendaDayTabs');
+    const dayBoard = document.getElementById('agendaDayBoard');
+    const tableScroll = document.getElementById('agendaTableScroll');
+    const weekLabel = document.getElementById('agendaWeekLabel');
+    const weekStats = document.getElementById('agendaWeekStats');
+    const btnToggleWeekend = document.getElementById('btnToggleWeekend');
+    const btnToggleLayout = document.getElementById('btnToggleAgendaLayout');
+
+    if (!weekBoard || !dayTabs || !dayBoard || !tableScroll) return;
+
+    const diasVisibles = getVisibleAgendaDays();
+    const hoyStr = formatLocalDate(new Date());
+
+    // Asegurar que selectedDate pertenezca a la semana visible
+    if (!diasVisibles.some(d => d.fecha === agendaState.selectedDate)) {
+        const todayInWeek = diasVisibles.find(d => d.fecha === hoyStr);
+        agendaState.selectedDate = todayInWeek ? todayInWeek.fecha : diasVisibles[0].fecha;
+    }
+
+    // Etiqueta de semana
+    const firstDate = diasVisibles[0].dateObj;
+    const lastDate = diasVisibles[diasVisibles.length - 1].dateObj;
+    if (weekLabel) {
+        const f1 = firstDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+        const f2 = lastDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+        weekLabel.textContent = `${f1} - ${f2}`;
+    }
+
+    // Estadísticas
+    const visibleDatesSet = new Set(diasVisibles.map(d => d.fecha));
+    const visibleItems = agendaState.items.filter(i => visibleDatesSet.has(i.fecha));
+    const completadas = visibleItems.filter(i => Number(i.completada) === 1).length;
+    if (weekStats) {
+        weekStats.textContent = visibleItems.length
+            ? `Progreso semanal: ${completadas} de ${visibleItems.length} actividades completadas`
+            : 'Registra tus actividades y horarios por momento del día';
+    }
+
+    if (btnToggleWeekend) {
+        btnToggleWeekend.textContent = agendaState.showWeekend ? 'Solo Lun - Vie' : 'Ver Lun - Dom';
+        btnToggleWeekend.classList.toggle('active', !agendaState.showWeekend);
+    }
+
+    if (btnToggleLayout) {
+        btnToggleLayout.textContent = agendaState.layoutMode === 'day' ? 'Vista Cuadrícula' : 'Vista Día';
+    }
+
+    const isDayLayout = agendaState.layoutMode === 'day';
+    dayTabs.hidden = !isDayLayout;
+    dayBoard.hidden = !isDayLayout;
+    tableScroll.hidden = isDayLayout;
+
+    // 1. Renderizar Vista Día (OPPO A79 / móvil / modo enfoque)
+    if (isDayLayout) {
+        dayTabs.innerHTML = '';
+        diasVisibles.forEach(dia => {
+            const count = agendaState.items.filter(i => i.fecha === dia.fecha).length;
+            const tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = `agenda-day-tab day-${dia.key}${dia.fecha === agendaState.selectedDate ? ' active' : ''}`;
+            tab.innerHTML = `
+                <span class="tab-day">${dia.corto}${dia.fecha === hoyStr ? ' •' : ''}</span>
+                <span class="tab-date">${dia.dateObj.getDate()} ${dia.dateObj.toLocaleDateString('es-ES', { month: 'short' })}</span>
+                <span class="tab-count">${count}</span>
+            `;
+            tab.addEventListener('click', () => {
+                agendaState.selectedDate = dia.fecha;
+                renderAgendaBoard();
+            });
+            dayTabs.appendChild(tab);
+        });
+
+        dayBoard.innerHTML = '';
+        const activeDay = diasVisibles.find(d => d.fecha === agendaState.selectedDate) || diasVisibles[0];
+
+        AGENDA_BLOQUES.forEach(bloque => {
+            const blockItems = agendaState.items.filter(
+                i => i.fecha === activeDay.fecha && i.bloque === bloque.id
+            );
+
+            const card = document.createElement('div');
+            card.className = `agenda-mobile-block-card day-${activeDay.key}`;
+
+            const head = document.createElement('div');
+            head.className = 'agenda-mobile-block-head';
+            head.innerHTML = `
+                <div class="agenda-mobile-block-head-left">
+                    ${bloque.svg}
+                    <span>${bloque.label}</span>
+                </div>
+                <span>${blockItems.length}</span>
+            `;
+
+            const body = document.createElement('div');
+            body.className = 'agenda-mobile-block-body';
+
+            if (!blockItems.length) {
+                const empty = document.createElement('p');
+                empty.className = 'agenda-empty-block';
+                empty.textContent = 'Sin actividades registradas';
+                body.appendChild(empty);
+            } else {
+                blockItems.forEach(item => body.appendChild(crearElementoActividad(item)));
+            }
+
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'agenda-cell-add';
+            addBtn.textContent = `+ Agregar en ${bloque.label.toLowerCase()}`;
+            addBtn.addEventListener('click', () => abrirAgendaModal({
+                fecha: activeDay.fecha,
+                bloque: bloque.id,
+                hora: bloque.defaultHora
+            }));
+
+            body.appendChild(addBtn);
+            card.append(head, body);
+            dayBoard.appendChild(card);
+        });
+        return;
+    }
+
+    // 2. Renderizar Vista Cuadrícula Semanal Pastel (estilo plantilla imagen)
+    weekBoard.innerHTML = '';
+    weekBoard.style.setProperty('--agenda-cols', String(diasVisibles.length));
+    weekBoard.classList.toggle('cols-5', diasVisibles.length === 5);
+
+    const corner = document.createElement('div');
+    corner.className = 'agenda-corner-cell';
+    corner.textContent = 'Bloque / Día';
+    weekBoard.appendChild(corner);
+
+    diasVisibles.forEach(dia => {
+        const header = document.createElement('div');
+        header.className = `agenda-day-header day-${dia.key}${dia.fecha === hoyStr ? ' is-today' : ''}`;
+        const dateLabel = `${dia.dateObj.getDate()} ${dia.dateObj.toLocaleDateString('es-ES', { month: 'short' })}`;
+        header.innerHTML = `
+            <span class="agenda-day-name">${dia.nombre}</span>
+            <span class="agenda-day-date">${dateLabel}${dia.fecha === hoyStr ? ' · Hoy' : ''}</span>
+        `;
+        weekBoard.appendChild(header);
+    });
+
+    AGENDA_BLOQUES.forEach(bloque => {
+        const blockHeader = document.createElement('div');
+        blockHeader.className = 'agenda-block-header';
+        blockHeader.innerHTML = `
+            ${bloque.svg}
+            <span class="agenda-block-title">${bloque.label}</span>
+        `;
+        weekBoard.appendChild(blockHeader);
+
+        diasVisibles.forEach(dia => {
+            const cell = document.createElement('div');
+            cell.className = `agenda-cell day-${dia.key}`;
+
+            const list = document.createElement('div');
+            list.className = 'agenda-items-list';
+
+            const cellItems = agendaState.items.filter(
+                i => i.fecha === dia.fecha && i.bloque === bloque.id
+            );
+
+            cellItems.forEach(item => list.appendChild(crearElementoActividad(item)));
+
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'agenda-cell-add';
+            addBtn.textContent = '+ Agregar';
+            addBtn.addEventListener('click', () => abrirAgendaModal({
+                fecha: dia.fecha,
+                bloque: bloque.id,
+                hora: bloque.defaultHora
+            }));
+
+            cell.append(list, addBtn);
+            weekBoard.appendChild(cell);
+        });
+    });
+}
+
+function cargarAgendaSemana() {
+    const monday = getMondayOfOffset(agendaState.weekOffset);
+    const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+    const begin = formatLocalDate(monday);
+    const end = formatLocalDate(sunday);
+
+    fetch(`/api/get-agenda?begin=${begin}&end=${end}`)
+        .then(res => {
+            if (!res.ok) return res.text().then(t => { throw new Error(t); });
+            return res.json();
+        })
+        .then(items => {
+            agendaState.items = Array.isArray(items) ? items : [];
+            renderAgendaBoard();
+        })
+        .catch(err => {
+            console.error('Error al cargar agenda:', err);
+            agendaState.items = [];
+            renderAgendaBoard();
+            const weekStats = document.getElementById('agendaWeekStats');
+            if (weekStats) {
+                weekStats.textContent = 'No se pudo cargar la agenda (verifica la tabla RegistrosAgenda en la BD).';
+            }
+        });
+}
+
+function toggleAgendaItem(item) {
+    const nuevoEstado = Number(item.completada) === 1 ? 0 : 1;
+    fetch(`/api/toggle-agenda/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completada: nuevoEstado })
+    })
+        .then(res => {
+            if (!res.ok) return res.text().then(t => { throw new Error(t); });
+            return res.json();
+        })
+        .then(() => {
+            item.completada = nuevoEstado;
+            renderAgendaBoard();
+        })
+        .catch(err => alert('Error al actualizar estado: ' + err.message));
+}
+
+function eliminarAgendaItem(id) {
+    if (!confirm('¿Eliminar esta actividad de tu agenda?')) return;
+
+    fetch(`/api/delete-agenda/${id}`, {
+        method: 'DELETE'
+    })
+        .then(res => {
+            if (!res.ok) return res.text().then(t => { throw new Error(t); });
+            return res.json();
+        })
+        .then(() => {
+            agendaState.items = agendaState.items.filter(i => i.id !== id);
+            renderAgendaBoard();
+        })
+        .catch(err => alert('Error al eliminar actividad: ' + err.message));
+}
+
+const agendaModal = document.getElementById('agendaModal');
+const agendaForm = document.getElementById('agendaForm');
+
+function abrirAgendaModal(prefill = {}) {
+    if (!agendaModal || !agendaForm) return;
+    const isEdit = Boolean(prefill.id);
+
+    const now = new Date();
+    const info = getMomentoInfo(now.getHours());
+    const defaultDate = agendaState.layoutMode === 'day'
+        ? agendaState.selectedDate
+        : formatLocalDate(now);
+    const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    document.getElementById('agendaModalTitle').textContent = isEdit ? 'Editar Actividad' : 'Nueva Actividad';
+    document.getElementById('agendaEditId').value = isEdit ? String(prefill.id) : '';
+    document.getElementById('agendaFecha').value = prefill.fecha || defaultDate;
+    document.getElementById('agendaBloque').value = prefill.bloque || info.agendaBloque;
+    document.getElementById('agendaHora').value = prefill.hora || defaultTime;
+    document.getElementById('agendaActividad').value = prefill.actividad || '';
+
+    agendaModal.hidden = false;
+    setTimeout(() => document.getElementById('agendaActividad').focus(), 40);
+}
+
+function cerrarAgendaModal() {
+    if (agendaModal) agendaModal.hidden = true;
+}
+
+if (agendaForm) {
+    const btnOpenModal = document.getElementById('btnOpenAgendaModal');
+    const btnCloseModal = document.getElementById('btnCloseAgendaModal');
+    const btnCancelModal = document.getElementById('btnCancelAgenda');
+    const btnPrevWeek = document.getElementById('btnAgendaPrevWeek');
+    const btnNextWeek = document.getElementById('btnAgendaNextWeek');
+    const btnToday = document.getElementById('btnAgendaToday');
+    const btnToggleWeekend = document.getElementById('btnToggleWeekend');
+    const btnToggleLayout = document.getElementById('btnToggleAgendaLayout');
+
+    if (btnOpenModal) btnOpenModal.addEventListener('click', () => abrirAgendaModal());
+    if (btnCloseModal) btnCloseModal.addEventListener('click', cerrarAgendaModal);
+    if (btnCancelModal) btnCancelModal.addEventListener('click', cerrarAgendaModal);
+
+    if (agendaModal) {
+        agendaModal.addEventListener('click', (e) => {
+            if (e.target === agendaModal) cerrarAgendaModal();
+        });
+    }
+
+    if (btnPrevWeek) {
+        btnPrevWeek.addEventListener('click', () => {
+            agendaState.weekOffset -= 1;
+            cargarAgendaSemana();
+        });
+    }
+
+    if (btnNextWeek) {
+        btnNextWeek.addEventListener('click', () => {
+            agendaState.weekOffset += 1;
+            cargarAgendaSemana();
+        });
+    }
+
+    if (btnToday) {
+        btnToday.addEventListener('click', () => {
+            agendaState.weekOffset = 0;
+            agendaState.selectedDate = formatLocalDate(new Date());
+            cargarAgendaSemana();
+        });
+    }
+
+    if (btnToggleWeekend) {
+        btnToggleWeekend.addEventListener('click', () => {
+            agendaState.showWeekend = !agendaState.showWeekend;
+            renderAgendaBoard();
+        });
+    }
+
+    if (btnToggleLayout) {
+        btnToggleLayout.addEventListener('click', () => {
+            agendaState.layoutMode = agendaState.layoutMode === 'day' ? 'grid' : 'day';
+            renderAgendaBoard();
+        });
+    }
+
+    document.querySelectorAll('#agendaSuggestions .suggestion-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const input = document.getElementById('agendaActividad');
+            if (input) {
+                input.value = chip.getAttribute('data-text') || '';
+                input.focus();
+            }
+        });
+    });
+
+    agendaForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btnSaveAgenda');
+        if (btnSave.disabled) return;
+
+        const editId = document.getElementById('agendaEditId').value;
+        const payload = {
+            fecha: document.getElementById('agendaFecha').value,
+            bloque: document.getElementById('agendaBloque').value,
+            hora: document.getElementById('agendaHora').value,
+            actividad: document.getElementById('agendaActividad').value.trim()
+        };
+
+        if (!payload.fecha || !payload.bloque || !payload.hora || !payload.actividad) {
+            alert('Por favor completa todos los campos de la actividad.');
+            return;
+        }
+
+        const originalText = btnSave.textContent;
+        btnSave.disabled = true;
+        btnSave.textContent = 'Guardando...';
+
+        const url = editId ? `/api/update-agenda/${editId}` : '/api/insert-agenda';
+        const method = editId ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => {
+                if (!res.ok) return res.text().then(t => { throw new Error(t); });
+                return res.json();
+            })
+            .then(() => {
+                agendaState.selectedDate = payload.fecha;
+                cerrarAgendaModal();
+                cargarAgendaSemana();
+            })
+            .catch(err => alert('Error: ' + err.message))
+            .finally(() => {
+                btnSave.disabled = false;
+                btnSave.textContent = originalText;
+            });
+    });
+}
+
+// ==========================================
+// INICIALIZACIÓN AL CARGAR LA APLICACIÓN
+// ==========================================
+function initApp() {
+    const initialHash = window.location.hash.replace('#', '');
+    const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
+    showView(startView, false);
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
 }

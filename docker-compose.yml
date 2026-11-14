@@ -11,7 +11,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASS}
       MYSQL_DATABASE: ${DB_NAME}
-      TZ: America/Monterrey
+      TZ: ${TZ:-America/Monterrey}
     ports:
       - "3306:3306"
     volumes:
@@ -28,19 +28,19 @@ services:
     container_name: mood_app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "2"
     environment:
-      - DB_HOST=db # Apunta al nombre del servicio contenedor de arriba
+      - DB_HOST=${DB_HOST:-db}
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - DB_NAME=${DB_NAME}
-      - PORT=3000
-      - TZ=America/Monterrey
+      - PORT=${PORT:-3000}
+      - TZ=${TZ:-America/Monterrey}
     depends_on:
       db:
         condition: service_healthy

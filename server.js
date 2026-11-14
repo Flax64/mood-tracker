@@ -11,16 +11,19 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configuración de MySQL
-const db = mysql.createConnection({
+const db = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
-    database: process.env.DB_NAME
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10
 });
 
-db.connect(err => {
+db.getConnection((err, connection) => {
     if (err) throw err;
     console.log('Conectado a la Base de Datos');
+    connection.release();
 });
 
 // Ruta para guardar el estado de ánimo (Tu código)
@@ -146,6 +149,8 @@ app.post('/api/send-to-pc', (req, res) => {
     if (texto) {
         colaDeTextos.push(texto);
         res.send('Texto encolado esperando a tu PC');
+    } else {
+        res.status(400).send('El texto no puede estar vacío');
     }
 });
 
@@ -155,6 +160,164 @@ app.get('/api/pull-text', (req, res) => {
     res.json(colaDeTextos);
     // Vaciamos la cola inmediatamente para no repetir textos
     colaDeTextos = [];
+});
+
+// ==========================================
+// RUTAS PARA LA AGENDA PERSONAL SEMANAL
+// ==========================================
+const BLOQUES_VALIDOS = new Set(['manana', 'cole', 'tarde', 'noche']);
+
+function validarDatosAgenda({ fecha, bloque, hora, actividad }) {
+    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        return 'La fecha debe tener el formato YYYY-MM-DD.';
+    }
+    if (!bloque || !BLOQUES_VALIDOS.has(bloque)) {
+        return 'Bloque del día no válido.';
+    }
+    if (!hora || !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(hora)) {
+        return 'La hora debe tener el formato HH:MM.';
+    }
+    if (typeof actividad !== 'string' || !actividad.trim()) {
+        return 'La descripción de la actividad es obligatoria.';
+    }
+    if (actividad.trim().length > 255) {
+        return 'La actividad no puede exceder 255 caracteres.';
+    }
+    return null;
+}
+
+function parseAgendaId(rawId) {
+    const id = Number(rawId);
+    return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+// Consultar actividades de la agenda por rango de fechas
+app.get('/api/get-agenda', (req, res) => {
+    const { begin, end } = req.query;
+    if (!begin || !end || !/^\d{4}-\d{2}-\d{2}$/.test(begin) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+        return res.status(400).send('Parámetros begin y end requeridos (YYYY-MM-DD).');
+    }
+
+    const sql = `
+        SELECT id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, bloque,
+               TIME_FORMAT(hora, '%H:%i') AS hora, actividad, completada
+        FROM RegistrosAgenda
+        WHERE fecha BETWEEN ? AND ?
+        ORDER BY fecha ASC, hora ASC, id ASC
+    `;
+
+    db.query(sql, [begin, end], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al consultar la agenda en la base de datos');
+        }
+        res.json(result);
+    });
+});
+
+// Crear nueva actividad en la agenda
+app.post('/api/insert-agenda', (req, res) => {
+    const errorValidacion = validarDatosAgenda(req.body);
+    if (errorValidacion) {
+        return res.status(400).send(errorValidacion);
+    }
+
+    const { fecha, bloque, hora } = req.body;
+    const actividad = req.body.actividad.trim();
+    const horaNormalizada = hora.slice(0, 5);
+
+    const sql = 'INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, completada) VALUES (?, ?, ?, ?, 0)';
+    db.query(sql, [fecha, bloque, horaNormalizada, actividad], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al guardar la actividad en la agenda');
+        }
+        res.status(201).json({
+            message: 'Actividad registrada correctamente',
+            item: {
+                id: result.insertId,
+                fecha,
+                bloque,
+                hora: horaNormalizada,
+                actividad,
+                completada: 0
+            }
+        });
+    });
+});
+
+// Editar una actividad existente de la agenda
+app.put('/api/update-agenda/:id', (req, res) => {
+    const id = parseAgendaId(req.params.id);
+    if (!id) return res.status(400).send('ID de actividad no válido.');
+
+    const errorValidacion = validarDatosAgenda(req.body);
+    if (errorValidacion) {
+        return res.status(400).send(errorValidacion);
+    }
+
+    const { fecha, bloque, hora } = req.body;
+    const actividad = req.body.actividad.trim();
+    const horaNormalizada = hora.slice(0, 5);
+
+    const sql = 'UPDATE RegistrosAgenda SET fecha = ?, bloque = ?, hora = ?, actividad = ? WHERE id = ?';
+    db.query(sql, [fecha, bloque, horaNormalizada, actividad, id], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al actualizar la actividad');
+        }
+        if (result.affectedRows === 0) {
+            return res.status(404).send('Actividad no encontrada');
+        }
+        res.json({
+            message: 'Actividad actualizada correctamente',
+            item: { id, fecha, bloque, hora: horaNormalizada, actividad }
+        });
+    });
+});
+
+// Marcar o desmarcar una actividad como completada
+app.patch('/api/toggle-agenda/:id', (req, res) => {
+    const id = parseAgendaId(req.params.id);
+    if (!id) return res.status(400).send('ID de actividad no válido.');
+
+    const completada = req.body && req.body.completada !== undefined
+        ? (req.body.completada ? 1 : 0)
+        : null;
+
+    const sql = completada === null
+        ? 'UPDATE RegistrosAgenda SET completada = NOT completada WHERE id = ?'
+        : 'UPDATE RegistrosAgenda SET completada = ? WHERE id = ?';
+    const params = completada === null ? [id] : [completada, id];
+
+    db.query(sql, params, (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al actualizar el estado de la actividad');
+        }
+        if (result.affectedRows === 0) {
+            return res.status(404).send('Actividad no encontrada');
+        }
+        res.json({ message: 'Estado actualizado', id, completada });
+    });
+});
+
+// Eliminar una actividad de la agenda
+app.delete('/api/delete-agenda/:id', (req, res) => {
+    const id = parseAgendaId(req.params.id);
+    if (!id) return res.status(400).send('ID de actividad no válido.');
+
+    const sql = 'DELETE FROM RegistrosAgenda WHERE id = ?';
+    db.query(sql, [id], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error al eliminar la actividad');
+        }
+        if (result.affectedRows === 0) {
+            return res.status(404).send('Actividad no encontrada');
+        }
+        res.json({ message: 'Actividad eliminada correctamente', id });
+    });
 });
 
 const PORT = process.env.PORT || 3000;

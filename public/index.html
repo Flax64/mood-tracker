@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<html lang="es">
 
 <head>
     <meta charset="UTF-8">
@@ -6,137 +7,550 @@
     <title>Personal Mood Tracker</title>
     <link rel="stylesheet" href="style.css">
     <meta property="og:title" content="Mood Tracker">
-    <meta property="og:url" content="http://3.149.248.153:3000/">
     <meta property="og:type" content="website">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" defer></script>
     <script src="frontend.js" defer></script>
 </head>
 
 <body>
-    <div>
+    <div class="app-shell" id="appShell">
+        <!-- Barra superior móvil (visible en celular / tablet) -->
+        <header class="mobile-topbar">
+            <button type="button" class="icon-btn" id="mobileMenuBtn" aria-label="Abrir menú" aria-expanded="false"
+                aria-controls="sidebar">
+                <span class="hamburger-lines" aria-hidden="true">☰</span>
+            </button>
+            <div class="mobile-topbar-title" id="mobileViewTitle">Inicio</div>
+            <span class="moment-pill" id="mobileMomentBadge">--</span>
+        </header>
 
+        <!-- Fondo oscuro al desplegar menú en celular -->
+        <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+        <!-- Barra lateral fija izquierda (desplegable en PC y celular) -->
+        <aside class="sidebar" id="sidebar" aria-label="Menú principal">
+            <div class="sidebar-header">
+                <div class="sidebar-brand">
+                    <span class="brand-logo" aria-hidden="true">🌈</span>
+                    <div class="sidebar-brand-text">
+                        <span class="brand-name">Mood Tracker</span>
+                        <span class="brand-sub">Espacio Personal</span>
+                    </div>
+                </div>
+                <button type="button" class="sidebar-toggle-btn desktop-only" id="desktopSidebarToggle"
+                    title="Plegar o desplegar barra lateral" aria-label="Plegar o desplegar barra lateral">
+                    <span id="desktopToggleIcon">◀</span>
+                </button>
+                <button type="button" class="sidebar-toggle-btn mobile-only" id="mobileSidebarClose"
+                    aria-label="Cerrar menú">
+                    ✕
+                </button>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button type="button" class="nav-item active" data-view="inicio" title="Inicio">
+                    <span class="nav-icon" aria-hidden="true">🏠</span>
+                    <span class="nav-label">Inicio</span>
+                </button>
+
+                <div class="nav-group open">
+                    <button type="button" class="nav-group-toggle" aria-expanded="true">
+                        <span class="nav-group-title">Registros Diarios</span>
+                        <span class="nav-group-arrow" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="nav-group-items">
+                        <button type="button" class="nav-item" data-view="mood" title="Estado de Ánimo">
+                            <span class="nav-icon" aria-hidden="true">😊</span>
+                            <span class="nav-label">Estado de Ánimo</span>
+                        </button>
+                        <button type="button" class="nav-item" data-view="sueno" title="Control de Sueño">
+                            <span class="nav-icon" aria-hidden="true">😴</span>
+                            <span class="nav-label">Control de Sueño</span>
+                        </button>
+                        <button type="button" class="nav-item" data-view="journal" title="Journal Notes">
+                            <span class="nav-icon" aria-hidden="true">📝</span>
+                            <span class="nav-label">Journal Notes</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="nav-group open">
+                    <button type="button" class="nav-group-toggle" aria-expanded="true">
+                        <span class="nav-group-title">Organización y Reportes</span>
+                        <span class="nav-group-arrow" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="nav-group-items">
+                        <button type="button" class="nav-item" data-view="agenda" title="Agenda Semanal">
+                            <span class="nav-icon" aria-hidden="true">📅</span>
+                            <span class="nav-label">Agenda Semanal</span>
+                        </button>
+                        <button type="button" class="nav-item" data-view="resumen" title="Resumen Semanal">
+                            <span class="nav-icon" aria-hidden="true">📊</span>
+                            <span class="nav-label">Resumen Semanal</span>
+                        </button>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-status-row">
+                    <span class="status-dot"></span>
+                    <span class="sidebar-status-text" id="sidebarMomentoActual">Momento: --</span>
+                </div>
+                <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
+            </div>
+        </aside>
+
+        <!-- Área principal de contenido -->
+        <main class="main-content" id="mainContent">
+
+            <!-- ==========================================
+                 VISTA 1: INTERFAZ PRINCIPAL (INICIO)
+            ========================================== -->
+            <section class="app-view active" id="view-inicio" data-title="Inicio">
+                <div class="home-container">
+                    <div class="home-hero">
+                        <div class="home-hero-info">
+                            <span class="home-badge" id="homeMomentBadge">Momento actual</span>
+                            <h1 id="homeGreeting">¡Bienvenido!</h1>
+                            <p class="home-date" id="homeDate">--</p>
+                        </div>
+                        <div class="home-hero-actions">
+                            <button type="button" class="btn-primary-pill" data-go-view="mood">+ Registrar Ánimo</button>
+                            <button type="button" class="btn-secondary-pill" data-go-view="agenda">📅 Ver Agenda</button>
+                        </div>
+                    </div>
+
+                    <h2 class="section-heading">Resumen de Hoy</h2>
+                    <div class="home-summary-grid">
+                        <article class="summary-card">
+                            <div class="summary-card-header">
+                                <span class="summary-icon">😊</span>
+                                <h3>Estado de Ánimo</h3>
+                            </div>
+                            <div class="summary-card-body" id="homeMoodSummary">
+                                <p class="muted-text">Cargando registros de hoy...</p>
+                            </div>
+                            <button type="button" class="summary-action" data-go-view="mood">Ir a Mood Tracker →</button>
+                        </article>
+
+                        <article class="summary-card">
+                            <div class="summary-card-header">
+                                <span class="summary-icon">😴</span>
+                                <h3>Descanso</h3>
+                            </div>
+                            <div class="summary-card-body" id="homeSleepSummary">
+                                <p class="muted-text">Cargando descanso de hoy...</p>
+                            </div>
+                            <button type="button" class="summary-action" data-go-view="sueno">Ir a Control de Sueño →</button>
+                        </article>
+
+                        <article class="summary-card">
+                            <div class="summary-card-header">
+                                <span class="summary-icon">📅</span>
+                                <h3>Agenda de Hoy</h3>
+                            </div>
+                            <div class="summary-card-body" id="homeAgendaSummary">
+                                <p class="muted-text">Cargando actividades de hoy...</p>
+                            </div>
+                            <button type="button" class="summary-action" data-go-view="agenda">Ir a Agenda Semanal →</button>
+                        </article>
+                    </div>
+
+                    <h2 class="section-heading">Todas las Funciones</h2>
+                    <div class="home-shortcuts-grid">
+                        <button type="button" class="shortcut-card" data-go-view="mood">
+                            <span class="shortcut-emoji">😊</span>
+                            <div>
+                                <strong>Estado de Ánimo</strong>
+                                <p>Registra cómo te sientes en cada momento del día.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="sueno">
+                            <span class="shortcut-emoji">😴</span>
+                            <div>
+                                <strong>Control de Sueño</strong>
+                                <p>Calcula tus horas de descanso y calidad al despertar.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="journal">
+                            <span class="shortcut-emoji">📝</span>
+                            <div>
+                                <strong>Journal Notes</strong>
+                                <p>Envía tus notas cifradas E2EE directamente a Word en tu PC.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="agenda">
+                            <span class="shortcut-emoji">📅</span>
+                            <div>
+                                <strong>Agenda Semanal</strong>
+                                <p>Organiza tus actividades y horarios por bloque del día.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="resumen">
+                            <span class="shortcut-emoji">📊</span>
+                            <div>
+                                <strong>Resumen Semanal</strong>
+                                <p>Visualiza tu matriz de colores de ánimo y descanso.</p>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VISTA 2: MI MOOD TRACKER
+            ========================================== -->
+            <section class="app-view" id="view-mood" data-title="Estado de Ánimo">
+                <div class="card">
+                    <h2>Mi Mood Tracker</h2>
+                    <form id="moodForm">
+                        <div class="form-group">
+                            <label for="fecha">Fecha:</label>
+                            <input type="date" id="fecha" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="momento">Momento del día:</label>
+                            <select id="momento" required>
+                                <option value="" disabled selected>Selecciona un momento...</option>
+                                <option value="Morning">Mañana</option>
+                                <option value="Noon">Mediodía</option>
+                                <option value="Afternoon">Tarde</option>
+                                <option value="Night">Noche</option>
+                            </select>
+                        </div>
+
+                        <label>Mi estado de ánimo:</label>
+                        <div class="mood-grid" id="moodOptions">
+                            <!-- Colores extraídos de la imagen -->
+                            <div class="mood-btn" data-mood="Happy" data-color="#FDE047">
+                                <div class="color-dot" style="background: #FDE047;"></div>Feliz
+                            </div>
+                            <div class="mood-btn" data-mood="Calm" data-color="#4ADE80">
+                                <div class="color-dot" style="background: #4ADE80;"></div>Tranquilo
+                            </div>
+                            <div class="mood-btn" data-mood="Excited" data-color="#7DD3FC">
+                                <div class="color-dot" style="background: #7DD3FC;"></div>Emocionado
+                            </div>
+                            <div class="mood-btn" data-mood="Tired" data-color="#D8B4FE">
+                                <div class="color-dot" style="background: #D8B4FE;"></div>Cansado
+                            </div>
+                            <div class="mood-btn" data-mood="Sad" data-color="#3B82F6">
+                                <div class="color-dot" style="background: #3B82F6;"></div>Triste
+                            </div>
+                            <div class="mood-btn" data-mood="Angry" data-color="#EF4444">
+                                <div class="color-dot" style="background: #EF4444;"></div>Enojado
+                            </div>
+                            <div class="mood-btn" data-mood="Worried" data-color="#F97316">
+                                <div class="color-dot" style="background: #F97316;"></div>Preocupado
+                            </div>
+                            <div class="mood-btn" data-mood="Scared" data-color="#9CA3AF">
+                                <div class="color-dot" style="background: #9CA3AF;"></div>Asustado
+                            </div>
+                            <div class="mood-btn" data-mood="Focused" data-color="#14B8A6">
+                                <div class="color-dot" style="background-color: #14B8A6;"></div>Enfocado
+                            </div>
+                            <div class="mood-btn" data-mood="Motivated" data-color="#F59E0B">
+                                <div class="color-dot" style="background-color: #F59E0B;"></div>Motivado
+                            </div>
+                            <div class="mood-btn" data-mood="Stressed" data-color="#991B1B">
+                                <div class="color-dot" style="background-color: #991B1B;"></div>Estresado
+                            </div>
+                            <div class="mood-btn" data-mood="Frustrated" data-color="#D946EF">
+                                <div class="color-dot" style="background-color: #D946EF;"></div>Frustrado
+                            </div>
+                            <div class="mood-btn" data-mood="Bored" data-color="#D1D5DB">
+                                <div class="color-dot" style="background-color: #D1D5DB;"></div>Aburrido
+                            </div>
+                            <div class="mood-btn" data-mood="Anxious" data-color="#A3E635">
+                                <div class="color-dot" style="background-color: #A3E635;"></div>Ansioso
+                            </div>
+                            <div class="mood-btn" data-mood="Distracted" data-color="#F9A8D4">
+                                <div class="color-dot" style="background-color: #F9A8D4;"></div>Distraído
+                            </div>
+                            <div class="mood-btn" data-mood="Desperation" data-color="#6B21A8">
+                                <div class="color-dot" style="background-color: #6B21A8;"></div>Desesperado
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn-submit" id="btn-save-mood">Guardar Registro</button>
+                        <button type="button" class="btn-view" data-go-view="resumen">Ver Registro Semanal</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VISTA 3: CONTROL DE SUEÑO
+            ========================================== -->
+            <section class="app-view" id="view-sueno" data-title="Control de Sueño">
+                <div class="card">
+                    <form id="sleepForm">
+                        <h3>De preferencia registrar al despertar</h3>
+                        <h2>😴 Control de Sueño</h2>
+
+                        <div class="form-group">
+                            <label for="sleepTime">¿A qué hora te dormiste?</label>
+                            <input type="time" id="sleepTime" class="hour-picker" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="wakeupTime">¿A qué hora despertaste?</label>
+                            <input type="time" id="wakeupTime" class="hour-picker" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sleepHours">Horas totales de sueño:</label>
+                            <input type="text" id="sleepHours" step="0.1" readonly>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quality-sleep">¿Cómo sentiste este descanso?</label>
+                            <select id="quality-sleep" required>
+                                <option value="" disabled selected>Selecciona una opcion...</option>
+                                <option value="Good">🟢 Bueno / Reparador</option>
+                                <option value="Regular">🟡 Regular / Intermitente</option>
+                                <option value="Bad">🔴 Malo / Pesado</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn-submit" id="btn-save-sleep">Registrar Sueño</button>
+                        <button type="button" class="btn-view" data-go-view="resumen">Ver Registro Semanal</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VISTA 4: JOURNAL NOTES
+            ========================================== -->
+            <section class="app-view" id="view-journal" data-title="Journal Notes">
+                <div class="card">
+                    <h2>📝 Journal Notes</h2>
+                    <form id="journalForm">
+                        <div class="form-group">
+                            <!-- El atributo lang="en" es la magia para el corrector ortográfico en inglés -->
+                            <textarea id="journalText" lang="en" spellcheck="true"
+                                placeholder="Write your thoughts here in English..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn-submit" id="btn-send-word">Enviar a Word (PC)</button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VISTA 5: AGENDA PERSONAL SEMANAL
+            ========================================== -->
+            <section class="app-view" id="view-agenda" data-title="Agenda Semanal">
+                <div class="agenda-wrapper">
+                    <div class="agenda-header">
+                        <div class="agenda-title-block">
+                            <span class="agenda-calendar-icon" aria-hidden="true">📅</span>
+                            <div>
+                                <h1 class="agenda-title">ORGANIZA TU SEMANA</h1>
+                                <p class="agenda-subtitle" id="agendaWeekStats">Cargando actividades...</p>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-agenda-add-main" id="btnOpenAgendaModal">
+                            + Nueva Actividad
+                        </button>
+                    </div>
+
+                    <div class="agenda-toolbar">
+                        <div class="agenda-week-nav">
+                            <button type="button" class="agenda-nav-btn" id="btnAgendaPrevWeek"
+                                aria-label="Semana anterior">◀</button>
+                            <span class="agenda-week-label" id="agendaWeekLabel">--</span>
+                            <button type="button" class="agenda-nav-btn" id="btnAgendaNextWeek"
+                                aria-label="Semana siguiente">▶</button>
+                            <button type="button" class="agenda-chip-btn" id="btnAgendaToday">Hoy</button>
+                        </div>
+                        <div class="agenda-view-controls">
+                            <button type="button" class="agenda-chip-btn" id="btnToggleWeekend">Solo Lun - Vie</button>
+                            <button type="button" class="agenda-chip-btn" id="btnToggleAgendaLayout">Vista Día</button>
+                        </div>
+                    </div>
+
+                    <!-- Pestañas por día (ideal en celular OPPO A79 o vista enfocada) -->
+                    <div class="agenda-day-tabs" id="agendaDayTabs" hidden></div>
+
+                    <!-- Vista por día (tarjetas claras para pantalla táctil) -->
+                    <div class="agenda-day-board" id="agendaDayBoard" hidden></div>
+
+                    <!-- Vista semanal tipo plantilla pastel de la imagen -->
+                    <div class="agenda-table-scroll" id="agendaTableScroll">
+                        <div class="agenda-week-board" id="agendaWeekBoard"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VISTA 6: RESUMEN SEMANAL (MOOD + SUEÑO)
+            ========================================== -->
+            <section class="app-view" id="view-resumen" data-title="Resumen Semanal">
+                <div class="tracker-container">
+                    <button type="button" class="btn-back" data-go-view="inicio">⬅ Volver al inicio</button>
+
+                    <h1 class="tracker-title">MI MOOD TRACKER SEMANAL</h1>
+
+                    <div class="controls">
+                        <label for="semanaSeleccionada">Elige una semana:</label>
+                        <select id="semanaSeleccionada"></select>
+                    </div>
+
+                    <hr class="title-divider">
+
+                    <div class="tracker-layout">
+                        <!-- Contenedor Responsivo para deslizar en celular -->
+                        <div class="table-responsive">
+                            <table class="mood-table">
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <th>Domingo</th>
+                                        <th>Lunes</th>
+                                        <th>Martes</th>
+                                        <th>Miércoles</th>
+                                        <th>Jueves</th>
+                                        <th>Viernes</th>
+                                        <th>Sábado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="row-label">Mañana</td>
+                                        <td class="mood-cell" data-day="Sunday" data-time="Morning"></td>
+                                        <td class="mood-cell" data-day="Monday" data-time="Morning"></td>
+                                        <td class="mood-cell" data-day="Tuesday" data-time="Morning"></td>
+                                        <td class="mood-cell" data-day="Wednesday" data-time="Morning"></td>
+                                        <td class="mood-cell" data-day="Thursday" data-time="Morning"></td>
+                                        <td class="mood-cell" data-day="Friday" data-time="Morning"></td>
+                                        <td class="mood-cell" data-day="Saturday" data-time="Morning"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="row-label">Mediodía</td>
+                                        <td class="mood-cell" data-day="Sunday" data-time="Noon"></td>
+                                        <td class="mood-cell" data-day="Monday" data-time="Noon"></td>
+                                        <td class="mood-cell" data-day="Tuesday" data-time="Noon"></td>
+                                        <td class="mood-cell" data-day="Wednesday" data-time="Noon"></td>
+                                        <td class="mood-cell" data-day="Thursday" data-time="Noon"></td>
+                                        <td class="mood-cell" data-day="Friday" data-time="Noon"></td>
+                                        <td class="mood-cell" data-day="Saturday" data-time="Noon"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="row-label">Tarde</td>
+                                        <td class="mood-cell" data-day="Sunday" data-time="Afternoon"></td>
+                                        <td class="mood-cell" data-day="Monday" data-time="Afternoon"></td>
+                                        <td class="mood-cell" data-day="Tuesday" data-time="Afternoon"></td>
+                                        <td class="mood-cell" data-day="Wednesday" data-time="Afternoon"></td>
+                                        <td class="mood-cell" data-day="Thursday" data-time="Afternoon"></td>
+                                        <td class="mood-cell" data-day="Friday" data-time="Afternoon"></td>
+                                        <td class="mood-cell" data-day="Saturday" data-time="Afternoon"></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="row-label">Noche</td>
+                                        <td class="mood-cell" data-day="Sunday" data-time="Night"></td>
+                                        <td class="mood-cell" data-day="Monday" data-time="Night"></td>
+                                        <td class="mood-cell" data-day="Tuesday" data-time="Night"></td>
+                                        <td class="mood-cell" data-day="Wednesday" data-time="Night"></td>
+                                        <td class="mood-cell" data-day="Thursday" data-time="Night"></td>
+                                        <td class="mood-cell" data-day="Friday" data-time="Night"></td>
+                                        <td class="mood-cell" data-day="Saturday" data-time="Night"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Leyenda Lateral -->
+                        <aside class="mood-legend">
+                            <h3 class="legend-title">MI ESTADO DE ÁNIMO</h3>
+                            <hr class="legend-divider">
+                            <ul class="legend-list">
+                                <li><span class="color-dot" style="background-color: #FDE047;"></span> FELIZ</li>
+                                <li><span class="color-dot" style="background-color: #4ADE80;"></span> TRANQUILO</li>
+                                <li><span class="color-dot" style="background-color: #7DD3FC;"></span> EMOCIONADO</li>
+                                <li><span class="color-dot" style="background-color: #D8B4FE;"></span> CANSADO</li>
+                                <li><span class="color-dot" style="background-color: #3B82F6;"></span> TRISTE</li>
+                                <li><span class="color-dot" style="background-color: #EF4444;"></span> ENOJADO</li>
+                                <li><span class="color-dot" style="background-color: #F97316;"></span> PREOCUPADO</li>
+                                <li><span class="color-dot" style="background-color: #9CA3AF;"></span> ASUSTADO</li>
+                                <li><span class="color-dot" style="background-color: #14B8A6;"></span> ENFOCADO</li>
+                                <li><span class="color-dot" style="background-color: #F59E0B;"></span> MOTIVADO</li>
+                                <li><span class="color-dot" style="background-color: #991B1B;"></span> ESTRESADO</li>
+                                <li><span class="color-dot" style="background-color: #D946EF;"></span> FRUSTRADO</li>
+                                <li><span class="color-dot" style="background-color: #D1D5DB;"></span> ABURRIDO</li>
+                                <li><span class="color-dot" style="background-color: #A3E635;"></span> ANSIOSO</li>
+                                <li><span class="color-dot" style="background-color: #F9A8D4;"></span> DISTRAIDO</li>
+                                <li><span class="color-dot" style="background-color: #6B21A8;"></span> DESESPERADO</li>
+                            </ul>
+                        </aside>
+
+                        <!-- VISUALIZADOR DE SUEÑO -->
+                        <div class="sleep-container">
+                            <h3>😴Resumen de Sueño</h3>
+                            <div class="sleep-grid" id="sleepGrid"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
-    <div class="card">
-        <h2>Mi Mood Tracker</h2>
-        <form id="moodForm">
-            <div class="form-group">
-                <label for="fecha">Fecha:</label>
-                <input type="date" id="fecha" required>
+
+    <!-- Modal para agregar / editar actividad de la Agenda -->
+    <div class="modal-overlay" id="agendaModal" hidden aria-modal="true" role="dialog"
+        aria-labelledby="agendaModalTitle">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="agendaModalTitle">Nueva Actividad</h3>
+                <button type="button" class="modal-close-btn" id="btnCloseAgendaModal" aria-label="Cerrar">✕</button>
             </div>
+            <form id="agendaForm">
+                <input type="hidden" id="agendaEditId" value="">
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="agendaFecha">Fecha:</label>
+                        <input type="date" id="agendaFecha" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="agendaHora">Hora:</label>
+                        <input type="time" id="agendaHora" required>
+                    </div>
+                </div>
 
-            <div class="form-group">
-                <label for="momento">Momento del día:</label>
-                <select id="momento" required>
-                    <option value="" disabled selected>Selecciona un momento...</option>
-                    <option value="Morning">Mañana</option>
-                    <option value="Noon">Mediodía</option>
-                    <option value="Afternoon">Tarde</option>
-                    <option value="Night">Noche</option>
-                </select>
-            </div>
+                <div class="form-group">
+                    <label for="agendaBloque">Momento (punto del día):</label>
+                    <select id="agendaBloque" required>
+                        <option value="manana">☕ Por la mañana</option>
+                        <option value="cole">📖 En el cole</option>
+                        <option value="tarde">☀️ Por la tarde</option>
+                        <option value="noche">🌙 Por la noche</option>
+                    </select>
+                </div>
 
-            <label>Mi estado de ánimo:</label>
-            <div class="mood-grid" id="moodOptions">
-                <!-- Colores extraídos de la imagen -->
-                <div class="mood-btn" data-mood="Happy" data-color="#FDE047">
-                    <div class="color-dot" style="background: #FDE047;"></div>Feliz
+                <div class="form-group">
+                    <label for="agendaActividad">Actividad:</label>
+                    <input type="text" id="agendaActividad" maxlength="255"
+                        placeholder="Ej. Desayunar, Hacer deberes, Ducharme..." required>
+                    <div class="agenda-suggestions" id="agendaSuggestions">
+                        <button type="button" class="suggestion-chip" data-text="Desayunar">Desayunar</button>
+                        <button type="button" class="suggestion-chip" data-text="Hacer deberes">Hacer deberes</button>
+                        <button type="button" class="suggestion-chip" data-text="Ducharme">Ducharme</button>
+                        <button type="button" class="suggestion-chip" data-text="Lavarme los dientes">Lavarme los
+                            dientes</button>
+                        <button type="button" class="suggestion-chip" data-text="Estudiar">Estudiar</button>
+                    </div>
                 </div>
-                <div class="mood-btn" data-mood="Calm" data-color="#4ADE80">
-                    <div class="color-dot" style="background: #4ADE80;"></div>Tranquilo
-                </div>
-                <div class="mood-btn" data-mood="Excited" data-color="#7DD3FC">
-                    <div class="color-dot" style="background: #7DD3FC;"></div>Emocionado
-                </div>
-                <div class="mood-btn" data-mood="Tired" data-color="#D8B4FE">
-                    <div class="color-dot" style="background: #D8B4FE;"></div>Cansado
-                </div>
-                <div class="mood-btn" data-mood="Sad" data-color="#3B82F6">
-                    <div class="color-dot" style="background: #3B82F6;"></div>Triste
-                </div>
-                <div class="mood-btn" data-mood="Angry" data-color="#EF4444">
-                    <div class="color-dot" style="background: #EF4444;"></div>Enojado
-                </div>
-                <div class="mood-btn" data-mood="Worried" data-color="#F97316">
-                    <div class="color-dot" style="background: #F97316;"></div>Preocupado
-                </div>
-                <div class="mood-btn" data-mood="Scared" data-color="#9CA3AF">
-                    <div class="color-dot" style="background: #9CA3AF;"></div>Asustado
-                </div>
-                <div class="mood-btn" data-mood="Focused" data-color="#14B8A6">
-                    <div class="color-dot" style="background-color: #14B8A6;"></div>Enfocado
-                </div>
-                <div class="mood-btn" data-mood="Motivated" data-color="#F59E0B">
-                    <div class="color-dot" style="background-color: #F59E0B;"></div>Motivado
-                </div>
-                <div class="mood-btn" data-mood="Stressed" data-color="#991B1B">
-                    <div class="color-dot" style="background-color: #991B1B;"></div>Estresado
-                </div>
-                <div class="mood-btn" data-mood="Frustrated" data-color="#D946EF">
-                    <div class="color-dot" style="background-color: #D946EF;"></div>Frustrado
-                </div>
-                <div class="mood-btn" data-mood="Bored" data-color="#D1D5DB">
-                    <div class="color-dot" style="background-color: #D1D5DB;"></div>Aburrido
-                </div>
-                <div class="mood-btn" data-mood="Anxious" data-color="#A3E635">
-                    <div class="color-dot" style="background-color: #A3E635;"></div>Ansioso
-                </div>
-                <div class="mood-btn" data-mood="Distracted" data-color="#F9A8D4">
-                    <div class="color-dot" style="background-color: #F9A8D4;"></div>Distraído
-                </div>
-                <div class="mood-btn" data-mood="Desperation" data-color="#6B21A8">
-                    <div class="color-dot" style="background-color: #6B21A8;"></div>Desesperado
-                </div>
-            </div>
 
-            <button type="submit" class="btn-submit" id="btn-save-mood">Guardar Registro</button>
-            <a href="dashboard.html" class="btn-view">Ver Registro Semanal</a>
-        </form>
-    </div>
-
-    <div class="card">
-        <form id="sleepForm">
-            <h3>De preferencia registrar al despertar</h3>
-            <h2>😴 Control de Sueño</h2>
-
-            <div class="form-group">
-                <label for="sleepTime">¿A qué hora te dormiste?</label>
-                <input type="time" id="sleepTime" class="hour-picker" required>
-            </div>
-
-            <div class="form-group">
-                <label for="wakeupTime">¿A qué hora despertaste?</label>
-                <input type="time" id="wakeupTime" class="hour-picker" required>
-            </div>
-
-            <div class="form-group">
-                <label for="sleepHours">Horas totales de sueño:</label>
-                <input type="text" id="sleepHours" step="0.1" readonly>
-            </div>
-
-            <div class="form-group">
-                <label>¿Cómo sentiste este descanso?</label>
-                <select id="quality-sleep" required>
-                    <option value="" disabled selected>Selecciona una opcion...</option>
-                    <option value="Good" required>🟢 Bueno / Reparador</option>
-                    <option value="Regular" required>🟡 Regular / Intermitente</option>
-                    <option value="Bad" required>🔴 Malo / Pesado</option>
-                </select>
-            </div>
-
-            <button type="submit" class="btn-submit" id="btn-save-sleep">Registrar Sueño</button>
-            <a href="dashboard.html" class="btn-view">Ver Registro Semanal</a>
-        </form>
-    </div>
-
-    <div class="card">
-        <h2>📝 Journal Notes</h2>
-        <form id="journalForm">
-            <div class="form-group">
-                <!-- El atributo lang="en" es la magia para el corrector ortográfico en inglés -->
-                <textarea id="journalText" lang="en" spellcheck="true"
-                    placeholder="Write your thoughts here in English..." required></textarea>
-            </div>
-            <button type="submit" class="btn-submit" id="btn-send-word">Enviar a Word (PC)</button>
-        </form>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" id="btnCancelAgenda">Cancelar</button>
+                    <button type="submit" class="btn-submit btn-modal-save" id="btnSaveAgenda">Guardar Actividad</button>
+                </div>
+            </form>
+        </div>
     </div>
 </body>
+
+</html>

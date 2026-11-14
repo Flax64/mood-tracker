@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -11,25 +12,98 @@ jobs:
 
     steps:
       - name: Checkout del repositorio
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Desplegar en EC2 vía SSH
+      - name: Desplegar y migrar en AWS EC2 vía SSH
         uses: appleboy/ssh-action@v1.0.0
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          DB_HOST: ${{ secrets.DB_HOST || vars.DB_HOST || 'db' }}
+          DB_USER: ${{ secrets.DB_USER || vars.DB_USER || 'root' }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME || vars.DB_NAME || 'MoodTrackerLocal' }}
+          PORT: ${{ vars.PORT || secrets.PORT || '3000' }}
+          TZ: ${{ vars.TZ || secrets.TZ || 'America/Monterrey' }}
+          RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE || 'gdrive' }}
+          RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR || 'RespaldosApp' }}
+          RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
+          username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: GITHUB_REPO,DB_HOST,DB_USER,DB_PASS,DB_NAME,PORT,TZ,RCLONE_REMOTE,RCLONE_BACKUP_DIR,RCLONE_CONF_B64
           script: |
-            # Crear la carpeta si no existe
-            mkdir -p /home/${{ secrets.EC2_USER }}/projects
-            cd /home/${{ secrets.EC2_USER }}/projects/mood-tracker
-            
-            # Clonar o actualizar el repositorio
-            if [ ! -d ".git" ]; then
-              git clone https://github.com/Flax64/mood-tracker.git
-            else
-              git pull origin main
+            set -euo pipefail
+
+            # 1. Instalar dependencias base si es una instancia nueva
+            if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1; then
+              if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update -y
+                sudo apt-get install -y git curl ca-certificates rclone unzip
+              elif command -v dnf >/dev/null 2>&1; then
+                sudo dnf install -y git curl unzip
+                if ! command -v rclone >/dev/null 2>&1; then
+                  curl -fsSL https://rclone.org/install.sh | sudo bash
+                fi
+              fi
             fi
-            
-            # Levantar o actualizar los contenedores
-            docker compose up -d --build
+
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Instalando Docker..."
+              curl -fsSL https://get.docker.com | sudo sh
+              sudo usermod -aG docker "$USER" || true
+              sudo systemctl enable --now docker || true
+            fi
+
+            DOCKER_CMD="docker"
+            if ! docker info >/dev/null 2>&1; then
+              DOCKER_CMD="sudo docker"
+            fi
+
+            # 2. Clonar o actualizar el repositorio de forma limpia
+            mkdir -p "$HOME/projects"
+            cd "$HOME/projects"
+            if [ ! -d "mood-tracker/.git" ]; then
+              git clone "https://github.com/${GITHUB_REPO}.git" mood-tracker
+            fi
+            cd "$HOME/projects/mood-tracker"
+            git fetch origin main
+            git reset --hard origin/main
+
+            # 3. Crear o actualizar .env desde GitHub Secrets (sin exponer credenciales en Git)
+            if [ -n "${DB_PASS:-}" ]; then
+              {
+                printf 'DB_HOST=%s\n' "${DB_HOST:-db}"
+                printf 'DB_USER=%s\n' "${DB_USER:-root}"
+                printf 'DB_PASS=%s\n' "${DB_PASS}"
+                printf 'DB_NAME=%s\n' "${DB_NAME:-MoodTrackerLocal}"
+                printf 'PORT=%s\n' "${PORT:-3000}"
+                printf 'TZ=%s\n' "${TZ:-America/Monterrey}"
+                printf 'RCLONE_REMOTE=%s\n' "${RCLONE_REMOTE:-gdrive}"
+                printf 'RCLONE_BACKUP_DIR=%s\n' "${RCLONE_BACKUP_DIR:-RespaldosApp}"
+              } > .env
+              chmod 600 .env
+            elif [ ! -f ".env" ]; then
+              echo "ERROR: No existe .env en la instancia ni el secret DB_PASS en GitHub." >&2
+              exit 1
+            fi
+
+            # 4. Configurar rclone automáticamente si se proporcionó RCLONE_CONF_B64
+            if [ -n "${RCLONE_CONF_B64:-}" ]; then
+              mkdir -p "$HOME/.config/rclone"
+              printf '%s' "$RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d > "$HOME/.config/rclone/rclone.conf"
+              chmod 600 "$HOME/.config/rclone/rclone.conf"
+            fi
+
+            chmod +x scripts/backup.sh scripts/restore.sh
+
+            # 5. Levantar o actualizar los contenedores Docker
+            $DOCKER_CMD compose up -d --build
+
+            # 6. Si es una instancia nueva / BD vacía, restaurar automáticamente el último backup de Google Drive
+            ./scripts/restore.sh --if-empty
+
+            # 7. Registrar respaldo automático diario a Google Drive (3:00 AM)
+            mkdir -p "$HOME/projects/respaldos"
+            CRON_JOB="0 3 * * * $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
+            (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" || true; echo "$CRON_JOB") | crontab -

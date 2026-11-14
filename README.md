@@ -1,172 +1,216 @@
-# Personal Mood Tracker
+# Personal Mood Tracker & Agenda Personal
 
-Aplicación web full-stack diseñada para el registro diario y la visualización semanal del estado de ánimo. El sistema permite a los usuarios registrar cómo se sienten en diferentes momentos del día (Mañana, Mediodía, Tarde, Noche) y generar automáticamente una matriz visual de colores basada en un selector dinámico de semanas (de Domingo a Sábado).
+Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles como OPPO A79) para el seguimiento diario del estado de ánimo, control de sueño, notas privadas cifradas E2EE y planificación semanal personal.
+
+---
+
+## ✨ Funcionalidades Principales
+
+La aplicación cuenta con una **interfaz principal (`Inicio`)** al abrirla y una **barra lateral fija en el lado izquierdo**, desplegable tanto en PC (plegable a barra compacta de iconos) como en celular (menú tipo *drawer*), con cada función separada en su propia vista:
+
+1. **🏠 Inicio (Interfaz Principal):** Resumen rápido del día actual (estados de ánimo registrados hoy, horas de sueño y actividades pendientes/completadas en la agenda) más accesos directos a todos los módulos.
+2. **😊 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (`Morning`, `Noon`, `Afternoon`, `Night`) con 16 estados y colores, validando la ventana de tiempo modificable desde el servidor.
+3. **😴 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, con registro de calidad (`Good`, `Regular`, `Bad`).
+4. **📝 Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia el script local de Python (`sincronitation/sincronizador.py`) para escribir en Word.
+5. **📅 Agenda Semanal (`Organiza tu Semana`):** Calendario/agenda visual por semana con diseño en tonos pastel por día y dividido en los 4 bloques del día:
+   - ☕ **Por la mañana** (`manana`)
+   - 📖 **En el cole** (`cole`)
+   - ☀️ **Por la tarde** (`tarde`)
+   - 🌙 **Por la noche** (`noche`)
+   Permite registrar actividad y hora, marcar actividades completadas, editar/eliminar, alternar vista `Lun - Vie` / `Lun - Dom` y cambiar entre **Vista Día** (optimizada para celular) y **Vista Cuadrícula** (estilo plantilla semanal).
+6. **📊 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
+
+---
 
 ## 🛠️ Tecnologías Utilizadas
 
-**Frontend:**
-
-* **HTML5 & CSS3:** Diseño responsivo adaptado para dispositivos móviles y de escritorio.
-
-
-* **JavaScript (Vanilla):** Consumo de API REST, manipulación del DOM y lógica de cálculo de rangos de fechas (ISO 8601 adaptado).
-
-
-
-**Backend:**
-
-* **Node.js & Express:** Servidor web y enrutamiento de la API.
-
-
-* **MySQL 8.0:** Base de datos relacional persistente.
-
-
-* **Cors & Dotenv:** Manejo de variables de entorno y políticas de intercambio de recursos.
-
-
-
-**DevOps & Despliegue:**
-
-* **Docker & Docker Compose:** Contenerización de la aplicación y orquestación de servicios.
-
-
-* **GitHub Actions:** Flujo de trabajo CI/CD automatizado (`deploy.yml`) para despliegue en instancias AWS EC2.
-
-
+* **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, diseño móvil *touch-friendly* y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
+* **Backend:** Node.js, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `cors`, `dotenv`.
+* **Base de Datos:** MySQL 8.0 (`RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`).
+* **Sincronización PC (Journal):** Python (`sincronitation/sincronizador.py`) con `pycryptodome` y `pywin32`.
+* **DevOps y Respaldos:** Docker, Docker Compose, GitHub Actions (`.github/workflows/deploy.yml`) en AWS EC2 y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
 
 ---
 
 ## 📁 Estructura del Proyecto
 
-La arquitectura del proyecto sigue una separación clara entre el código fuente del cliente (interfaz gráfica) y el servidor, orquestado mediante contenedores:
-
 ```text
 mood-tracker/
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml          # Pipeline de CI/CD para despliegue en EC2
-├── public/                     # Archivos estáticos servidos por Express
-│   ├── dashboard.html          # Vista de la matriz semanal de colores
-│   ├── index.html              # Vista del formulario de registro diario
-│   ├── style.css               # Hojas de estilo unificadas y responsivas
-│   └── frontend.js             # Lógica de cliente (registro y renderizado visual)
-├── .env                        # Variables de entorno (No incluido en el repositorio)
-├── .gitignore                  # Reglas de exclusión para Git
-├── docker-compose.yml          # Definición de servicios (App + MySQL)
-├── Dockerfile                  # Receta de construcción de la imagen de Node.js
-├── init.sql                    # Script de inicialización de la tabla RegistrosMood
-├── package.json                # Dependencias del proyecto Node.js
-├── README.md                   # Documentación principal
-└── server.js                   # Lógica del backend y conexión a base de datos
-
+│       └── deploy.yml              # CI/CD automático hacia AWS EC2
+├── base_datos/
+│   └── Diseño Base Datos.xml       # Modelo visual de base de datos
+├── public/                         # Archivos estáticos servidos por Express
+│   ├── index.html                  # Shell principal, barra lateral y todas las vistas
+│   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
+│   ├── style.css                   # Estilos responsivos (PC, OPPO A79 y agenda pastel)
+│   └── frontend.js                 # Navegación, formularios, resumen semanal y agenda
+├── scripts/
+│   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
+│   └── restore.sh                  # Script de restauración automática desde Google Drive
+├── sincronitation/
+│   ├── sincronizador.py            # Cliente local en Windows (lee configuración desde .env)
+│   └── historial.log               # Bitácora del sincronizador
+├── .env                            # Variables de entorno y contraseñas (no versionado)
+├── .env.example                    # Plantilla de variables de entorno requeridas
+├── .gitignore
+├── docker-compose.yml              # Orquestación de MySQL 8.0 + Node.js
+├── Dockerfile
+├── init.sql                        # Esquema inicial de tablas MySQL
+├── package.json
+├── README.md
+└── server.js                       # Backend Express y API REST
 ```
 
 ---
 
-## 🚀 Instalación y Ejecución (Entorno Local/Docker)
+## 🗄️ Base de Datos (`init.sql` y Migración en AWS)
 
-El proyecto está diseñado para levantarse rápidamente utilizando Docker Compose, el cual inicializará tanto el servidor de Node.js en el puerto `3000` como la base de datos MySQL en el puerto `3306`.
+El archivo `init.sql` define tres tablas principales:
+
+* **`RegistrosMood`**: `id`, `fecha`, `momento_dia`, `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
+* **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `fecha_registro`.
+* **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `completada`, `fecha_registro`.
+
+### Crear la tabla `RegistrosAgenda` en una instancia AWS EC2 ya existente
+
+> Docker solo ejecuta `init.sql` cuando el volumen `db_data` se crea por primera vez. Si tu instancia AWS ya está corriendo, ejecuta este comando por SSH dentro de tu EC2 para crear la tabla nueva sin perder datos existentes:
+
+```bash
+cd /home/ubuntu/projects/mood-tracker
+set -a && source .env && set +a
+
+docker exec -i mood_db mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" <<'EOF'
+CREATE TABLE IF NOT EXISTS RegistrosAgenda (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    fecha DATE NOT NULL,
+    bloque VARCHAR(30) NOT NULL,
+    hora TIME NOT NULL,
+    actividad VARCHAR(255) NOT NULL,
+    completada TINYINT(1) NOT NULL DEFAULT 0,
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_agenda_fecha (fecha)
+);
+EOF
+```
+
+---
+
+## 🚀 Instalación y Ejecución (Entorno Local / Docker)
 
 1. **Clonar el repositorio:**
-```bash
-git clone <URL_DEL_REPOSITORIO>
-cd mood-tracker
+   ```bash
+   git clone <URL_DEL_REPOSITORIO>
+   cd mood-tracker
+   ```
 
-```
-
-
-2. **Configurar Variables de Entorno:**
-Crea un archivo `.env` en la raíz del proyecto y define las credenciales de la base de datos.
-
-
-```env
-DB_HOST
-DB_USER
-DB_PASS
-DB_NAME
-PORT
-
-```
-
+2. **Configurar Variables de Entorno (`.env`):**
+   ```env
+   DB_HOST=db
+   DB_USER=root
+   DB_PASS=tu_password
+   DB_NAME=MoodTrackerLocal
+   PORT=3000
+   ```
 
 3. **Construir y levantar los contenedores:**
-```bash
-docker compose up -d --build
+   ```bash
+   docker compose up -d --build
+   ```
 
-```
-
-
-Nota: Durante el primer arranque, el volumen de la base de datos ejecutará automáticamente el archivo `init.sql` para estructurar la tabla necesaria. El contenedor de la aplicación incluye un `healthcheck` que esperará hasta 20 segundos a que MySQL esté listo antes de arrancar Node.js.
-
-
-4. **Acceso a la aplicación:**
-Abre tu navegador web e ingresa a `http://localhost:3000`.
+4. **Acceder a la aplicación:**
+   Abre `http://localhost:3000` (o la IP/dominio de tu instancia en el puerto `3000`).
 
 ---
 
 ## 📡 Endpoints de la API
 
-El backend expone rutas RESTful estandarizadas para la comunicación con el cliente web.
+### Estado de Ánimo
+* `POST /api/insert-mood`: Registra o actualiza (si está dentro de su rango horario del mismo día) un estado de ánimo.
+  * Body: `{ "fecha": "2026-11-13", "momento_dia": "Morning", "estado_animo": "Happy", "color_hex": "#FDE047" }`
+* `GET /api/get-moods?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, momento_dia, color_hex }` en el rango.
 
-### 1. Guardar un registro de estado de ánimo
+### Control de Sueño
+* `POST /api/insert-sleep`: Inserta un registro de sueño.
+  * Body: `{ "fecha": "2026-11-13", "horas": 7.5, "calidad": "Good" }`
+* `GET /api/get-sleep?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, horas, calidad }` en el rango.
 
-* **Ruta:** `POST /api/mood`
+### Journal Notes (PC Word Sync)
+* `POST /api/send-to-pc`: Encola un texto cifrado (`{ "texto": "<iv>:<ciphertext>" }`).
+* `GET /api/pull-text`: Entrega y vacía la cola de textos pendientes.
 
-* **Descripción:** Inserta un nuevo registro en la base de datos. Posee una restricción `UNIQUE` para evitar duplicidad de registros en el mismo momento del día.
-
-
-* **Body (JSON):**
-```json
-{
-  "fecha": "2026-09-28",
-  "momento_dia": "Morning",
-  "estado_animo": "Happy",
-  "color_hex": "#FDE047"
-}
-
-```
-
-
-* **Respuestas:**
-* `200 OK`: 'Estado de ánimo registrado correctamente'.
-
-
-* `400 Bad Request`: 'Ya registraste tu estado de ánimo para este momento del día' (Error `ER_DUP_ENTRY`).
-
-
-
-
-
-### 2. Consultar registros por rango de fechas
-
-* **Ruta:** `GET /api/moods`
-
-* **Descripción:** Retorna todos los registros almacenados que coincidan con el rango de fechas proporcionado, utilizados para rellenar el dashboard visual.
-
-
-* **Query Parameters:**
-* `inicio`: Fecha de inicio (ej. `2026-09-27`).
-* `fin`: Fecha de fin (ej. `2026-10-03`).
-
-
-* **Respuesta Exitosa (JSON):**
-```json
-[
-  {
-    "fecha": "2026-09-28T00:00:00.000Z",
-    "momento_dia": "Morning",
-    "color_hex": "#FDE047"
-  }
-]
-
-```
-
-
+### Agenda Personal Semanal
+* `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista las actividades ordenadas por `fecha` y `hora`.
+* `POST /api/insert-agenda`: Crea una nueva actividad (`{ "fecha", "bloque", "hora", "actividad" }`).
+* `PUT /api/update-agenda/:id`: Actualiza fecha, bloque, hora y descripción de una actividad.
+* `PATCH /api/toggle-agenda/:id`: Cambia el estado `completada` (`0` o `1`).
+* `DELETE /api/delete-agenda/:id`: Elimina una actividad por `id`.
 
 ---
 
-## 🌐 Despliegue en Producción (AWS EC2)
+## ☁️ Respaldos Automáticos en Google Drive desde AWS EC2
 
-Para entornos de producción, el repositorio utiliza un flujo de GitHub Actions ubicado en `.github/workflows/deploy.yml`.
+La instancia AWS EC2 puede subir respaldos de MySQL directamente a tu Google Drive mediante **`rclone`** y el script [`scripts/backup.sh`](scripts/backup.sh), que ejecuta `mysqldump` sobre el contenedor `mood_db` (respaldando automáticamente todas las tablas, incluida `RegistrosAgenda`) y copia el `.sql.gz` hacia `gdrive:RespaldosApp`.
 
-Al integrar cambios en la rama principal (`main`), el pipeline se conecta mediante SSH a la instancia EC2, actualiza el código fuente, reconstruye las imágenes y levanta los servicios mediante `docker compose up -d --build` garantizando una integración continua. Asegúrese de que el **Security Group** de la instancia EC2 tenga habilitado el puerto TCP `3000` para permitir tráfico HTTP entrante hacia el contenedor de Node.js.
+### Pasos de configuración en AWS EC2
+1. Instalar `rclone` en Ubuntu (EC2):
+   ```bash
+   sudo apt update && sudo apt install -y rclone
+   ```
+2. Configurar el remoto llamado `gdrive`:
+   ```bash
+   rclone config
+   # n (New remote) -> name: gdrive -> Storage: drive (Google Drive)
+   # En "Use web browser to automatically authenticate" elige "n" (EC2 no tiene navegador)
+   ```
+3. En tu **PC local (Windows)** donde sí tienes navegador (instalando `rclone` en Windows):
+   ```powershell
+   rclone authorize "drive"
+   ```
+   Inicia sesión con tu cuenta de Google, acepta los permisos y pega el token JSON generado en la terminal de tu EC2.
+4. Dar permisos de ejecución y probar [`scripts/backup.sh`](scripts/backup.sh):
+   ```bash
+   chmod +x /home/ubuntu/projects/mood-tracker/scripts/backup.sh
+   /home/ubuntu/projects/mood-tracker/scripts/backup.sh
+   ```
+5. Automatizar con `cron` (ej. todos los días a las 3:00 AM):
+   ```bash
+   crontab -e
+   # Agrega la línea:
+   0 3 * * * /home/ubuntu/projects/mood-tracker/scripts/backup.sh >> /home/ubuntu/projects/respaldos/backup.log 2>&1
+   ```
+   *(Nota: al desplegar mediante GitHub Actions, este `cron` se registra automáticamente).*
+
+---
+
+## 🔄 Migración Automática a una Nueva Instancia AWS EC2 (Sin tocar código)
+
+El pipeline [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) está preparado para desplegar en **cualquier instancia EC2 nueva o con cambio de IP pública** sin editar el código fuente.
+
+### 1. Configurar en GitHub (`Settings → Secrets and variables → Actions`)
+
+**En la pestaña `Variables`:**
+* `EC2_HOST`: IP pública actual de tu instancia AWS EC2 (es el único dato que cambias cuando cambie tu IP).
+* `EC2_USER` *(opcional)*: usuario SSH (por defecto `ubuntu`).
+* `PORT` *(opcional)*: puerto HTTP (por defecto `3000`).
+
+**En la pestaña `Secrets`:**
+* `EC2_SSH_KEY`: llave privada SSH (`.pem`) para conectarse a tu instancia EC2.
+* `DB_PASS`: contraseña de MySQL.
+* `DB_USER` *(opcional)*: usuario de MySQL (por defecto `root`).
+* `DB_NAME` *(opcional)*: nombre de la base de datos (por defecto `MoodTrackerLocal`).
+* `DB_HOST` *(opcional)*: host de MySQL en Docker (por defecto `db`).
+* `RCLONE_CONF_B64` *(recomendado para restaurar backups en instancias nuevas)*: contenido de `~/.config/rclone/rclone.conf` codificado en Base64:
+  ```bash
+  base64 -w 0 ~/.config/rclone/rclone.conf
+  ```
+
+### 2. ¿Qué ocurre automáticamente al hacer `push` a `main` (o ejecutar `Run workflow`)?
+1. Se conecta a la IP indicada en `EC2_HOST`.
+2. Si la instancia es nueva, instala automáticamente `git`, `curl`, `rclone`, `docker` y `docker compose`.
+3. Clona o actualiza el repositorio en `~/projects/mood-tracker`.
+4. Genera automáticamente el archivo `.env` desde tus *GitHub Secrets* y restaura `~/.config/rclone/rclone.conf` desde `RCLONE_CONF_B64`.
+5. Levanta los contenedores (`docker compose up -d --build`).
+6. Ejecuta [`scripts/restore.sh --if-empty`](scripts/restore.sh): si es una instancia nueva (base de datos vacía), descarga automáticamente `respaldo_mood_tracker.sql.gz` desde Google Drive y restaura todos tus datos previos; si ya tenía datos, los conserva intactos.
+7. Registra el `cron` diario de respaldos hacia Google Drive.
