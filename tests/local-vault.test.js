@@ -20,18 +20,19 @@ describe('Bóveda local (.env / .env.enc)', () => {
         assert.equal(res.status, 0, res.stderr || res.stdout);
     });
 
-    test('.gitignore y .dockerignore excluyen docs-privados y secretos locales', () => {
+    test('.gitignore y .dockerignore excluyen secretos locales y excluyen guides del build Docker', () => {
         const gitignore = fs.readFileSync(path.join(ROOT_DIR, '.gitignore'), 'utf8')
             .split(/\r?\n/)
             .map((l) => l.trim());
-        for (const entry of ['.env', '.env.enc', '.ssh/', 'sincronitation/', 'docs-privados/']) {
+        for (const entry of ['.env', '.env.enc', '.ssh/', 'sincronitation/', 'english-notes/']) {
             assert.ok(gitignore.includes(entry), `Falta "${entry}" en .gitignore`);
         }
+        assert.ok(!gitignore.includes('guides') && !gitignore.includes('guides/'), 'guides/ debe mantenerse versionada en Git');
 
         const dockerignore = fs.readFileSync(path.join(ROOT_DIR, '.dockerignore'), 'utf8')
             .split(/\r?\n/)
             .map((l) => l.trim());
-        for (const entry of ['.env', '.env.enc', '.env.*.tmp', '.ssh', 'scripts', 'tests', 'docs-privados']) {
+        for (const entry of ['.env', '.env.enc', '.env.*.tmp', '.ssh', 'scripts', 'tests', 'guides', 'english-notes']) {
             assert.ok(dockerignore.includes(entry), `Falta "${entry}" en .dockerignore`);
         }
     });

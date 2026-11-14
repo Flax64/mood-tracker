@@ -162,8 +162,14 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
 
         const dockerignore = readText('.dockerignore');
-        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'english-notes']) {
+        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes']) {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
+        }
+
+        for (const guidePath of ['guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+            const guide = readText(guidePath);
+            assert.equal(guide.includes('file:///'), false, `${guidePath} no debe contener enlaces locales file:///`);
+            assert.equal(guide.includes('docs-privados'), false, `${guidePath} no debe referenciar docs-privados`);
         }
 
         const dockerfile = readText('Dockerfile');

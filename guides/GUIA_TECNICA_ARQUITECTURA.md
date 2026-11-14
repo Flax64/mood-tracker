@@ -1,6 +1,6 @@
 # Guía Técnica de Arquitectura e Implementación — Personal Daily Hub
 
-> Documento técnico privado (ignorado por Git en `docs-privados/` y excluido de Docker en `.dockerignore`). Resume exactamente cómo está construido, asegurado, optimizado y automatizado el sistema completo (**Personal Daily Hub** / repo `mood-tracker`).
+> Documento técnico de arquitectura e implementación (versionado en `guides/` y excluido de Docker en `.dockerignore`). Resume exactamente cómo está construido, asegurado, optimizado y automatizado el sistema completo (**Personal Daily Hub** / repo `mood-tracker`).
 
 ---
 
@@ -69,7 +69,7 @@ El sistema se divide en cinco capas desacopladas:
 - **Limpieza automática:** `limpiarRegistrosExpirados()` elimina sesiones vencidas y códigos usados/expirados en cada login y cada 6 horas (`setInterval(...).unref()`).
 
 ### 3.2 Control de Acceso por Roles (RBAC) y Registro Seguro
-- Solo el correo configurado en `ADMIN_EMAIL` (por defecto `flavio.flax1234@gmail.com`) puede registrarse con rol `admin`; cualquier otro correo recibe estrictamente `psiquiatra`.
+- Solo el correo configurado en `ADMIN_EMAIL` puede registrarse con rol `admin`; cualquier otro correo recibe estrictamente `psiquiatra`.
 - Para evitar registros no autorizados del propietario, el primer registro exige verificar identidad mediante:
   - Código OTP enviado al `ADMIN_EMAIL` por Gmail SMTP (`nodemailer`), **o**
   - Clave secreta personal (`ADMIN_SECRET`, `WORD_PASSWORD` o `JOURNAL_SECRET_KEY`), comparada en tiempo constante mediante `safeCompareStrings()` (`crypto.timingSafeEqual` sobre SHA-256).
@@ -95,7 +95,7 @@ El sistema se divide en cinco capas desacopladas:
 
 ### 3.4 Recuperación de Contraseña por Correo
 - `POST /api/auth/forgot-password` genera token temporal guardado con hash en `CodigosSeguridad` (`tipo='reset'`) y envía enlace con `getResetBaseUrl(req)` usando `APP_BASE_URL` (o `EC2_HOST:PORT` en despliegue).
-- Soporta separar la cuenta receptora (`ADMIN_EMAIL`) de la cuenta emisora SMTP (`SMTP_USER`, ej. `farmacia4850@gmail.com`) + Contraseña de Aplicación de Google (`SMTP_PASS`).
+- Soporta separar la cuenta receptora (`ADMIN_EMAIL`) de la cuenta emisora SMTP (`SMTP_USER`, cuenta Gmail dedicada para envío) + Contraseña de Aplicación de Google (`SMTP_PASS`).
 
 ---
 
@@ -117,7 +117,7 @@ El sistema se divide en cinco capas desacopladas:
 | Componente | Ajuste aplicado | Objetivo en `t3.micro` |
 | :--- | :--- | :--- |
 | `Dockerfile` | `FROM node:20-alpine`, `NODE_ENV=production`, `npm ci --omit=dev && npm cache clean --force`, copia selectiva (`server.js` y `public/`), `CMD ["node", "--max-old-space-size=128", "server.js"]` | Imagen ligera, sin caché `npm`, tope de heap V8 en 128 MB |
-| `.dockerignore` | Excluye `.git`, `.github`, `.env`, `.env.enc`, `.env.*.tmp`, `.env.example`, `node_modules`, `base_datos`, `respaldos`, `sincronitation`, `scripts`, `test`, `tests`, `docs-privados`, `english-notes`, `*.sql.gz`, `*.log` | Contexto de build mínimo |
+| `.dockerignore` | Excluye `.git`, `.github`, `.env`, `.env.enc`, `.env.*.tmp`, `.env.example`, `node_modules`, `base_datos`, `respaldos`, `sincronitation`, `scripts`, `test`, `tests`, `guides`, `english-notes`, `*.sql.gz`, `*.log` | Contexto de build mínimo |
 | `docker-compose.yml` (`db`) | `mem_limit: 512m`, `--performance-schema=OFF`, `--mysqlx=0`, `--skip-log-bin`, `--innodb-buffer-pool-size=32M`, `--innodb-log-buffer-size=4M`, `--max-connections=25`, `--table-open-cache=128`, `--table-definition-cache=256`, `--key-buffer-size=4M`, `--tmp-table-size=8M`, `--max-heap-table-size=8M`, `--thread-cache-size=4` | Recorta consumo base de MySQL 8 y evita acumulación de binlogs en disco |
 | `docker-compose.yml` (`app` + logs) | `mem_limit: 220m` en `app`; `logging` con `max-size: "5m"`, `max-file: "2"` en ambos servicios | Techo conjunto de 732 MB para contenedores + logs acotados |
 | `server.js` | Pool MySQL (`connectionLimit: 4`, `maxIdle: 2`, `idleTimeout: 60000`, `enableKeepAlive: false`), estáticos con `etag: true, maxAge: '10m'`, poda de `rateLimitStore` (`300`), cola PC acotada (`100`), limpieza de sesiones/códigos vencidos cada 6h | Evita fugas de memoria y crecimiento ilimitado en MySQL |

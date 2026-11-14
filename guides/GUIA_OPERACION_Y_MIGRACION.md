@@ -1,6 +1,6 @@
 # Guía Completa de Operación, Bóveda Local y Migración EC2 — Personal Daily Hub
 
-> Documento privado de referencia diaria (ignorado por Git en `docs-privados/` y excluido de Docker en `.dockerignore`). Reúne en un solo lugar **cómo consultar, ver, editar y re-cifrar tu `.env` local**, cómo trabajar con **Git Bash y la rama protegida `main`**, cómo revisar **logs, respaldos y secretos** en GitHub/EC2, y cómo **migrar a otra instancia AWS EC2** reutilizando tus llaves en `.ssh/`.
+> Guía operativa de referencia diaria (versionada en `guides/` y excluida de Docker en `.dockerignore`). Reúne en un solo lugar **cómo consultar, ver, editar y re-cifrar tu `.env` local**, cómo trabajar con **Git Bash y la rama protegida `main`**, cómo revisar **logs, respaldos y secretos** en GitHub/EC2, y cómo **migrar a otra instancia AWS EC2** reutilizando tus llaves en `.ssh/`.
 
 ---
 
@@ -23,14 +23,14 @@
 
 ## 1. Bóveda local (`.env` ↔ `.env.enc`) en Windows
 
-Tu archivo `.env` local se cifra en `.env.enc` usando [local-vault.js](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/scripts/local-vault.js) con el estándar OpenSSL (**PBKDF2-HMAC-SHA256** de `600,000` iteraciones + **AES-256-CBC**). Ambos archivos están en [.gitignore](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/.gitignore) para que nunca suban a GitHub.
+Tu archivo `.env` local se cifra en `.env.enc` usando [`scripts/local-vault.js`](../scripts/local-vault.js) con el estándar OpenSSL (**PBKDF2-HMAC-SHA256** de `600,000` iteraciones + **AES-256-CBC**). Ambos archivos están en [`.gitignore`](../.gitignore) para que nunca suban a GitHub.
 
 > [!CAUTION]
 > Tu contraseña maestra **no se guarda en ningún lado**. Si la olvidas, `.env.enc` no puede descifrarse y tendrías que reconstruir `.env` desde tus Secrets/Variables de GitHub y tus datos locales de Word.
 
 Primero entra al proyecto en **Git Bash**:
 ```bash
-cd "/c/Users/flavi/Desktop/9no Semestre/Proyectos/mood-tracker"
+cd "<RUTA_DEL_REPOSITORIO>"
 ```
 
 > [!TIP]
@@ -86,7 +86,7 @@ python sincronitation/sincronizador.py --configurar-autoinicio   # Actualiza tam
 
 ## 2. Sincronizador Word local (`sincronizador.py`)
 
-El script [sincronizador.py](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/sincronitation/sincronizador.py) detecta automáticamente `.env` o `.env.enc` (descifrándolo solo en RAM) y sincroniza **dos documentos Word** en tu PC:
+El script `sincronitation/sincronizador.py` detecta automáticamente `.env` o `.env.enc` (descifrándolo solo en RAM) y sincroniza **dos documentos Word** en tu PC:
 1. **Journal diario (cifrado con contraseña):** usa `WORD_FILE_PATH` + `WORD_PASSWORD` desde `/api/pull-text`.
 2. **English Learning Notebook (`english-notes/English_Learning_Notebook.docx`, sin contraseña):** carpeta ignorada por Git; ordena tus registros en **3 apartados** (*Glossary & New Words*, *Grammar & Usage Notes* y *Phrasal Verbs*) y regenera automáticamente la **Tabla de Contenidos** al inicio del archivo en cada registro desde `/api/pull-english`. Su ruta es **relativa al proyecto**, por lo que **no requiere modificar `.env`, `.env.enc` ni rutas al migrar de instancia EC2**.
 
@@ -122,7 +122,7 @@ python sincronitation/sincronizador.py --quitar-autoinicio
 powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; "Detenido PID: $($_.ProcessId)" }'
 
 # 2. Volver a iniciarlo en segundo plano (sin ventana) usando el autoinicio DPAPI
-powershell.exe -NoProfile -Command 'Start-Process -FilePath pythonw -WorkingDirectory "C:\Users\flavi\Desktop\9no Semestre\Proyectos\mood-tracker" -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden'
+powershell.exe -NoProfile -Command 'Start-Process -FilePath pythonw -WorkingDirectory "<RUTA_DEL_REPOSITORIO>" -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden'
 
 # (O ejecutarlo visible en terminal:)
 python sincronitation/sincronizador.py
@@ -139,7 +139,7 @@ La rama `main` está protegida: los cambios siempre se suben desde una rama de t
 
 ```bash
 # 1. Ver en qué rama estás y qué archivos detecta Git
-# (docs-privados/, english-notes/, .env, .env.enc, .ssh/ y sincronitation/ NUNCA deben aparecer aquí)
+# (english-notes/, .env, .env.enc, .ssh/ y sincronitation/ NUNCA deben aparecer aquí)
 git branch
 git status
 
@@ -154,10 +154,10 @@ git push -u origin mejoras
 ```
 
 ### Cómo revisar el reporte de pruebas en GitHub Actions
-1. Al hacer `git push` a `mejoras` o abrir un **Pull Request → `main`**, se ejecuta automáticamente el workflow [ci.yml](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/.github/workflows/ci.yml).
+1. Al hacer `git push` a `mejoras` o abrir un **Pull Request → `main`**, se ejecuta automáticamente el workflow [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 2. Entra en GitHub a **Actions → CI — Pruebas y Validación** (o haz clic en el check dentro del Pull Request).
-3. En la pantalla principal del run verás la tabla de resumen generada por [ci-summary.js](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/tests/ci-summary.js) (`Validación y Pruebas Aprobadas` / `Fallidas`, conteo de pruebas y detalle por caso).
-4. Cuando las pruebas pasen y hagas **Merge Pull Request → `main`**, [deploy.yml](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/.github/workflows/deploy.yml) desplegará automáticamente en EC2.
+3. En la pantalla principal del run verás la tabla de resumen generada por [`tests/ci-summary.js`](../tests/ci-summary.js) (`Validación y Pruebas Aprobadas` / `Fallidas`, conteo de pruebas y detalle por caso).
+4. Cuando las pruebas pasen y hagas **Merge Pull Request → `main`**, [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) desplegará automáticamente en EC2.
 
 ---
 
@@ -217,7 +217,7 @@ base64 -w 0 ~/.config/rclone/rclone.conf
   ```
   Debes ver al final: `Respaldo completado (modo=sellado) y subido a gdrive:RespaldosApp/respaldo_mood_tracker.sql.gz`.
 * **Restauración automática en instancia nueva o BD vacía:** durante el despliegue con `deploy.yml`, se ejecuta `ENV_FILE_OVERRIDE="$DEPLOY_ENV_FILE" ./scripts/restore.sh --if-empty`.
-* **Restauración manual de emergencia** (en un servidor ya sellado que **no** tiene `.env` ni `.env.enc` en disco, ya que [restore.sh](file:///c:/Users/flavi/Desktop/9no%20Semestre/Proyectos/mood-tracker/scripts/restore.sh) exige un archivo de entorno si se invoca directo):
+* **Restauración manual de emergencia** (en un servidor ya sellado que **no** tiene `.env` ni `.env.enc` en disco, ya que [`scripts/restore.sh`](../scripts/restore.sh) exige un archivo de entorno si se invoca directo):
   ```bash
   # Descarga desde Drive e importa directo usando las variables vivas de mood_db (sin crear .env)
   rclone copyto gdrive:RespaldosApp/respaldo_mood_tracker.sql.gz /tmp/restore_manual.sql.gz
@@ -260,7 +260,7 @@ Reemplaza `NUEVA_IP` (y `ubuntu` por `ec2-user` si usas Amazon Linux):
 
 #### Opción A: Comandos en **Git Bash** (recomendado)
 ```bash
-cd "/c/Users/flavi/Desktop/9no Semestre/Proyectos/mood-tracker"
+cd "<RUTA_DEL_REPOSITORIO>"
 
 # 1. Asegurar permisos de lectura exclusiva en las llaves privadas
 chmod 600 .ssh/clave-pmt.pem .ssh/github_deploy_key
