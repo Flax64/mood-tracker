@@ -12,9 +12,22 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-set -a
-source "$ENV_FILE"
-set +a
+load_env_file() {
+    local env_file="$1"
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+        local key="${line%%=*}"
+        local val="${line#*=}"
+        key="${key//[[:space:]]/}"
+        if [[ "$val" == \"*\" && "$val" == *\" ]] || [[ "$val" == \'*\' && "$val" == *\' ]]; then
+            val="${val:1:${#val}-2}"
+        fi
+        export "$key=$val"
+    done < "$env_file"
+}
+
+load_env_file "$ENV_FILE"
 
 CONTENEDOR="${DB_CONTAINER:-mood_db}"
 RUTA_LOCAL="${BACKUP_LOCAL_DIR:-$HOME/projects/respaldos}"
@@ -30,11 +43,20 @@ if ! docker info >/dev/null 2>&1; then
     DOCKER_CMD="sudo docker"
 fi
 
-# 1. Esperar a que MySQL acepte conexiones
+mysql_exec() {
+    if [ -n "${DB_PASS:-}" ]; then
+        $DOCKER_CMD exec -i -e MYSQL_PWD="$DB_PASS" "$CONTENEDOR" mysql -u "$DB_USER" "$@"
+    else
+        $DOCKER_CMD exec -i "$CONTENEDOR" mysql -u "$DB_USER" "$@"
+    fi
+}
+
+# 1. Esperar a que MySQL acepte conexiones (hasta 90s)
 echo "Esperando a que el contenedor $CONTENEDOR esté listo..."
 DB_READY=0
-for _ in $(seq 1 30); do
-    if $DOCKER_CMD exec "$CONTENEDOR" /usr/bin/mysql -u "$DB_USER" -p"$DB_PASS" -e "SELECT 1;" "$DB_NAME" >/dev/null 2>&1; then
+LAST_ERR=""
+for _ in $(seq 1 45); do
+    if LAST_ERR="$(mysql_exec -e "SELECT 1;" </dev/null 2>&1)"; then
         DB_READY=1
         break
     fi
@@ -43,21 +65,24 @@ done
 
 if [ "$DB_READY" -ne 1 ]; then
     echo "Error: MySQL en $CONTENEDOR no respondió a tiempo." >&2
+    echo "Último error de MySQL (usuario=$DB_USER, db=$DB_NAME): $LAST_ERR" >&2
+    $DOCKER_CMD logs --tail 25 "$CONTENEDOR" >&2 || true
     exit 1
 fi
 
-# 2. Asegurar que las tablas base existan antes de consultar conteos
+# 2. Asegurar que la base de datos y las tablas base existan
+mysql_exec -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;" </dev/null
 if [ -f "$INIT_SQL" ]; then
-    $DOCKER_CMD exec -i "$CONTENEDOR" /usr/bin/mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$INIT_SQL"
+    mysql_exec "$DB_NAME" < "$INIT_SQL"
 fi
 
 # 3. Verificar si la base de datos ya contiene datos (en modo --if-empty)
 if [ "$MODE" = "--if-empty" ]; then
-    TOTAL_ROWS="$($DOCKER_CMD exec "$CONTENEDOR" /usr/bin/mysql -N -s -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -e \
-        "SELECT (SELECT COUNT(*) FROM RegistrosMood) + (SELECT COUNT(*) FROM RegistrosSleep) + (SELECT COUNT(*) FROM RegistrosAgenda);")"
+    TOTAL_ROWS="$(mysql_exec -N -s "$DB_NAME" -e \
+        "SELECT (SELECT COUNT(*) FROM RegistrosMood) + (SELECT COUNT(*) FROM RegistrosSleep) + (SELECT COUNT(*) FROM RegistrosAgenda);" </dev/null)"
 
     if [ "${TOTAL_ROWS:-0}" -gt 0 ]; then
-        echo "La base de datos ya tiene $TOTAL_ROWS registros. Se omite la restauración automática."
+        echo "La base de datos '$DB_NAME' ya tiene $TOTAL_ROWS registros. Se omite la restauración automática."
         exit 0
     fi
 fi
@@ -91,12 +116,12 @@ if [ ! -s "$RESTORE_TMP" ]; then
 fi
 
 echo "Restaurando respaldo en la base de datos '$DB_NAME'..."
-gunzip -c "$RESTORE_TMP" | $DOCKER_CMD exec -i "$CONTENEDOR" /usr/bin/mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+gunzip -c "$RESTORE_TMP" | mysql_exec "$DB_NAME"
 rm -f "$RESTORE_TMP"
 
 # 6. Asegurar que tablas nuevas (ej. RegistrosAgenda) existan si el backup era anterior
 if [ -f "$INIT_SQL" ]; then
-    $DOCKER_CMD exec -i "$CONTENEDOR" /usr/bin/mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$INIT_SQL"
+    mysql_exec "$DB_NAME" < "$INIT_SQL"
 fi
 
 echo "Restauración completada exitosamente."

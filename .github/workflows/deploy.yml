@@ -18,20 +18,20 @@ jobs:
         uses: appleboy/ssh-action@v1.0.0
         env:
           GITHUB_REPO: ${{ github.repository }}
-          DB_HOST: ${{ secrets.DB_HOST || vars.DB_HOST || 'db' }}
-          DB_USER: ${{ secrets.DB_USER || vars.DB_USER || 'root' }}
-          DB_PASS: ${{ secrets.DB_PASS }}
-          DB_NAME: ${{ secrets.DB_NAME || vars.DB_NAME || 'MoodTrackerLocal' }}
-          PORT: ${{ vars.PORT || secrets.PORT || '3000' }}
-          TZ: ${{ vars.TZ || secrets.TZ || 'America/Monterrey' }}
-          RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE || 'gdrive' }}
-          RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR || 'RespaldosApp' }}
+          SECRET_DB_HOST: ${{ secrets.DB_HOST || vars.DB_HOST }}
+          SECRET_DB_USER: ${{ secrets.DB_USER || vars.DB_USER }}
+          SECRET_DB_PASS: ${{ secrets.DB_PASS }}
+          SECRET_DB_NAME: ${{ secrets.DB_NAME || vars.DB_NAME }}
+          SECRET_PORT: ${{ vars.PORT || secrets.PORT }}
+          SECRET_TZ: ${{ vars.TZ || secrets.TZ }}
+          SECRET_RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE }}
+          SECRET_RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR }}
           RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
         with:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GITHUB_REPO,DB_HOST,DB_USER,DB_PASS,DB_NAME,PORT,TZ,RCLONE_REMOTE,RCLONE_BACKUP_DIR,RCLONE_CONF_B64
+          envs: GITHUB_REPO,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
           script: |
             set -euo pipefail
 
@@ -70,23 +70,45 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # 3. Crear o actualizar .env desde GitHub Secrets (sin exponer credenciales en Git)
-            if [ -n "${DB_PASS:-}" ]; then
-              {
-                printf 'DB_HOST=%s\n' "${DB_HOST:-db}"
-                printf 'DB_USER=%s\n' "${DB_USER:-root}"
-                printf 'DB_PASS=%s\n' "${DB_PASS}"
-                printf 'DB_NAME=%s\n' "${DB_NAME:-MoodTrackerLocal}"
-                printf 'PORT=%s\n' "${PORT:-3000}"
-                printf 'TZ=%s\n' "${TZ:-America/Monterrey}"
-                printf 'RCLONE_REMOTE=%s\n' "${RCLONE_REMOTE:-gdrive}"
-                printf 'RCLONE_BACKUP_DIR=%s\n' "${RCLONE_BACKUP_DIR:-RespaldosApp}"
-              } > .env
-              chmod 600 .env
-            elif [ ! -f ".env" ]; then
+            # 3. Crear o actualizar .env conservando valores previos si algún secret opcional no está definido
+            if [ -f ".env" ]; then
+              while IFS= read -r line || [ -n "$line" ]; do
+                line="${line%$'\r'}"
+                [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+                k="${line%%=*}"; v="${line#*=}"; k="${k//[[:space:]]/}"
+                [[ "$k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+                if [[ "$v" == \"*\" && "$v" == *\" ]] || [[ "$v" == \'*\' && "$v" == *\' ]]; then
+                  v="${v:1:${#v}-2}"
+                fi
+                export "OLD_$k=$v"
+              done < .env
+            fi
+
+            FINAL_DB_PASS="${SECRET_DB_PASS:-${OLD_DB_PASS:-}}"
+            if [ -z "$FINAL_DB_PASS" ]; then
               echo "ERROR: No existe .env en la instancia ni el secret DB_PASS en GitHub." >&2
               exit 1
             fi
+
+            FINAL_DB_HOST="${SECRET_DB_HOST:-${OLD_DB_HOST:-db}}"
+            FINAL_DB_USER="${SECRET_DB_USER:-${OLD_DB_USER:-root}}"
+            FINAL_DB_NAME="${SECRET_DB_NAME:-${OLD_DB_NAME:-MoodTrackerLocal}}"
+            FINAL_PORT="${SECRET_PORT:-${OLD_PORT:-3000}}"
+            FINAL_TZ="${SECRET_TZ:-${OLD_TZ:-America/Monterrey}}"
+            FINAL_RCLONE_REMOTE="${SECRET_RCLONE_REMOTE:-${OLD_RCLONE_REMOTE:-gdrive}}"
+            FINAL_RCLONE_BACKUP_DIR="${SECRET_RCLONE_BACKUP_DIR:-${OLD_RCLONE_BACKUP_DIR:-RespaldosApp}}"
+
+            {
+              printf 'DB_HOST=%s\n' "$FINAL_DB_HOST"
+              printf 'DB_USER=%s\n' "$FINAL_DB_USER"
+              printf 'DB_PASS=%s\n' "$FINAL_DB_PASS"
+              printf 'DB_NAME=%s\n' "$FINAL_DB_NAME"
+              printf 'PORT=%s\n' "$FINAL_PORT"
+              printf 'TZ=%s\n' "$FINAL_TZ"
+              printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
+              printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
+            } > .env
+            chmod 600 .env
 
             # 4. Configurar rclone automáticamente si se proporcionó RCLONE_CONF_B64
             if [ -n "${RCLONE_CONF_B64:-}" ]; then
