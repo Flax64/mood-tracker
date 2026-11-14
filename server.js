@@ -2794,6 +2794,10 @@ function parseYouTubeMusicInput(rawInput) {
         return { valid: false, error: 'YouTube Music URL must use HTTPS.' };
     }
 
+    if (parsed.username || parsed.password) {
+        return { valid: false, error: 'URLs cannot contain embedded credentials.' };
+    }
+
     const host = parsed.hostname.toLowerCase();
     if (!YOUTUBE_ALLOWED_HOSTS.has(host)) {
         return { valid: false, error: 'Only youtube.com, music.youtube.com, or youtu.be URLs are allowed.' };
@@ -2833,10 +2837,15 @@ function parseYouTubeMusicInput(rawInput) {
     }
 
     if (host === 'music.youtube.com') {
+        const cleanParams = new URLSearchParams();
+        if (parsed.pathname === '/search' && parsed.searchParams.get('q')) {
+            cleanParams.set('q', parsed.searchParams.get('q').slice(0, 120));
+        }
+        const suffix = cleanParams.toString() ? `?${cleanParams.toString()}` : '';
         return {
             valid: true,
             videoId: null,
-            ytMusicUrl: `https://music.youtube.com${parsed.pathname}${parsed.search}`.slice(0, 490),
+            ytMusicUrl: `https://music.youtube.com${parsed.pathname}${suffix}`.slice(0, 490),
             thumbnailUrl: null
         };
     }

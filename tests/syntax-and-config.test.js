@@ -262,6 +262,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
 
         assert.match(deploy, /cleanup_deploy_env/);
+        assert.match(deploy, /git remote set-url origin "https:\/\/github\.com\/\$\{GITHUB_REPO\}\.git"/);
         assert.match(deploy, /\/swapfile/);
         assert.match(deploy, /swapon\s+\/swapfile/);
         assert.ok(
