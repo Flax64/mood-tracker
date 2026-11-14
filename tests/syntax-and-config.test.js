@@ -153,7 +153,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
     });
 
-    it('define las 8 tablas requeridas y columnas de agenda/recordatorios en init.sql', () => {
+    it('define las 12 tablas requeridas (incluyendo música/inglés) en init.sql', () => {
         const sql = readText('init.sql');
         for (const table of [
             'RegistrosMood',
@@ -163,7 +163,11 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'SesionesAuth',
             'CodigosSeguridad',
             'ConfiguracionUsuario',
-            'RecordatoriosEstado'
+            'RecordatoriosEstado',
+            'MusicaArtistas',
+            'MusicaAlbumes',
+            'MusicaCanciones',
+            'MusicaCancionArtistas'
         ]) {
             assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`), `Falta tabla ${table}`);
         }
@@ -172,9 +176,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(sql, /tipo\s+ENUM\('evento',\s*'tarea'\)/);
         assert.match(sql, /categoria\s+ENUM\('universidad',\s*'personal'\)/);
         assert.match(sql, /estado\s+ENUM\('todo',\s*'in_progress',\s*'done'\)/);
+        assert.match(sql, /tipo_lanzamiento\s+ENUM\('album',\s*'mini_album',\s*'ep',\s*'single',\s*'ost',\s*'collab_single'\)/);
     });
 
-    it('reemplaza el arcoíris, expone controles de Settings/Jira/Recordatorios y agrega índices a las guías', () => {
+    it('reemplaza el arcoíris, expone controles de Settings/Jira/Recordatorios/Música y agrega índices a las guías', () => {
         for (const relPath of ['public/index.html', 'public/dashboard.html', 'README.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
             const content = readText(relPath);
             assert.equal(content.includes('🌈'), false, `${relPath} no debe contener el emoji arcoíris`);
@@ -198,7 +203,13 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="setPhoneEnabled"',
             'id="setNtfyTopic"',
             'id="setEnglishEnabled"',
-            'id="setMoodLateNight"'
+            'id="setMoodLateNight"',
+            'data-english-cat="music"',
+            'id="englishMusicStudio"',
+            'id="musicSongForm"',
+            'id="musicCatalogContainer"',
+            'id="musicWordNotesForm"',
+            'id="btnMusicSearchYt"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
@@ -251,6 +262,12 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
 
         assert.match(deploy, /cleanup_deploy_env/);
+        assert.match(deploy, /\/swapfile/);
+        assert.match(deploy, /swapon\s+\/swapfile/);
+        assert.ok(
+            deploy.indexOf('/swapfile') < deploy.indexOf('# 1. Instalar dependencias base'),
+            'El paso de activación Swap debe ejecutarse primero al entrar por SSH antes de instalar dependencias'
+        );
         assert.match(deploy, /BACKUP_CRON_SCHEDULE:-30 3 \* \* \*/);
         assert.match(deploy, /SEAL_ENV_AFTER_DEPLOY:-true/);
 

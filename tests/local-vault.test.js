@@ -277,11 +277,13 @@ describe('Bóveda local (.env / .env.enc)', () => {
             '',
             'vocab = sincronizador.parsear_entrada_ingles(json.dumps({"category": "vocabulary", "word": "Resilience", "part_of_speech": "Noun", "spanish": "Resiliencia", "example": "Build resilience."}))',
             'grammar = sincronizador.parsear_entrada_ingles(json.dumps({"category": "grammar", "title": "Make vs Do", "notes": "Line one\\nLine two", "example": "Make progress\\nDo homework"}))',
+            'music = sincronizador.parsear_entrada_ingles(json.dumps({"category": "music", "song_title": "APT.", "artists_display": "ROSÉ (feat. Bruno Mars)", "album_title": "APT.", "album_type": "Collab Single", "release_year": "2024", "yt_music_url": "https://music.youtube.com/watch?v=ekr2nIex040", "focus_summary": "Colloquial expressions", "lyrics_study": "Verse breakdown line 1\\nChorus idiom note"}))',
             'dt = datetime(2026, 11, 14, 15, 30)',
             'specs = {',
             '  "vocab": sincronizador.formatear_entrada_ingles(vocab, dt),',
             '  "grammar": sincronizador.formatear_entrada_ingles(grammar, dt),',
             '  "pv": sincronizador.formatear_entrada_ingles(parsed_pv, dt),',
+            '  "music": sincronizador.formatear_entrada_ingles(music, dt),',
             '}',
             'no_internal_newlines = all("\\n" not in line["text"] and "\\r" not in line["text"] for s in specs.values() for line in s["lines"])',
             '',
@@ -326,6 +328,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
         assert.equal(out.specs.grammar.heading, 'Make vs Do');
         assert.equal(out.specs.pv.section_title, '3. Phrasal Verbs');
         assert.equal(out.specs.pv.heading, 'work out — Hacer ejercicio / resolver');
+        assert.equal(out.specs.music.section_title, '4. Songs & Music Study');
+        assert.equal(out.specs.music.heading, 'ROSÉ (feat. Bruno Mars) — APT. [APT.]');
         assert.equal(out.url_host, 'http://1.2.3.4:3000/api/pull-english');
         assert.equal(out.url_direct, 'http://5.6.7.8:3000/api/pull-english');
     });

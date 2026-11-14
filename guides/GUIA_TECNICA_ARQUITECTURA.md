@@ -70,6 +70,10 @@ El sistema se divide en cinco capas desacopladas:
 | `CodigosSeguridad` | Códigos OTP de registro, MFA y reset | `tipo ENUM('registro','reset','mfa')`, `token_hash`, `expira_en`, `usado`, índice `idx_codigo_email_tipo` |
 | `ConfiguracionUsuario` | Reglas de recordatorios, ntfy y preferencias UI | `usuario_id` PK (`ON DELETE CASCADE`), `config_json` (`LONGTEXT`), migrado automáticamente al arranque |
 | `RecordatoriosEstado` | Estado de entrega, posposición (Snooze) y descarte | `UNIQUE(usuario_id, clave_unica)`, `estado ENUM('active','snoozed','dismissed')`, `snooze_hasta`, `enviado_push_en`, poda a los 14 días |
+| `MusicaArtistas` | Catálogo personal de artistas y grupos musicales | `UNIQUE(usuario_id, nombre_normalizado)`, `tipo_artista` (`solo`, `group`, `duo`, `collab_project`) |
+| `MusicaAlbumes` | Álbumes, mini álbumes, EPs, singles y OST | `artista_principal_id` (`FK`), `tipo_lanzamiento` (`album`, `mini_album`, `ep`, `single`, `ost`, `collab_single`), `anio` |
+| `MusicaCanciones` | Metadatos de canciones para estudio (sin letras) | `album_id` (`FK`), `yt_music_url`, `yt_video_id`, `estado_estudio` (`to_study`/`in_progress`/`mastered`), `enfoque_corto <= 255`, `word_sincronizado` |
+| `MusicaCancionArtistas` | Relación muchos-a-muchos para colaboraciones (`feat` / `collab`) | `PRIMARY KEY (cancion_id, artista_id)`, `rol ENUM('main','feat','collab','producer')`, `orden` |
 
 > **Auto-migración sin pérdida de datos:** Al iniciar `server.js`, `inicializarTablasSeguridad()` garantiza la existencia de las tablas nuevas y ejecuta `SHOW COLUMNS FROM RegistrosAgenda` para añadir de forma idempotente `tipo`, `categoria`, `estado` (sincronizando `completada = 1` → `'done'`) y `recordatorio_min` en bases de datos ya desplegadas en EC2.
 
@@ -103,7 +107,7 @@ El sistema se divide en cinco capas desacopladas:
   - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
   - `Cross-Origin-Opener-Policy: same-origin` y `Cross-Origin-Resource-Policy: same-origin`
   - `X-Permitted-Cross-Domain-Policies: none` y `X-DNS-Prefetch-Control: off`
-  - `Content-Security-Policy` restringida a `'self'` (y `cdnjs.cloudflare.com` para CryptoJS), incluyendo `form-action 'self'` y `frame-ancestors 'none'`.
+  - `Content-Security-Policy` restringida a `'self'` (`cdnjs.cloudflare.com` en `script-src`, `i.ytimg.com` en `img-src` para miniaturas y `youtube-nocookie.com` / `youtube.com` en `frame-src` para el mini reproductor opcional de estudio), incluyendo `form-action 'self'` y `frame-ancestors 'none'`.
   - `Strict-Transport-Security` condicional cuando la petición entra por HTTPS / proxy TLS (`X-Forwarded-Proto: https`).
   - `Cache-Control: public, max-age=0, must-revalidate` en archivos `.js` y `.css` para aplicar actualizaciones inmediatamente tras cada deploy.
 - Validación estricta y manejo controlado de errores:
@@ -130,7 +134,7 @@ El sistema se divide en cinco capas desacopladas:
    - Con `GITHUB_TOKEN` + `GITHUB_REPO`, `obtener_url_aws(endpoint)` consulta `https://api.github.com/repos/<repo>/actions/variables/EC2_HOST` (y `PORT`) cada 5 minutos o inmediatamente si falla la conexión, construyendo dinámicamente tanto `/api/pull-text` como `/api/pull-english` al migrar de IP EC2.
    - Descifra cada texto con `AES.new(LLAVE_SECRETA, AES.MODE_CBC, iv)` (exige 32 bytes UTF-8 en `JOURNAL_SECRET_KEY`).
    - **Journal Notes:** escribe bajo el encabezado diario (`Month DDth D-XXX`) en el `.docx` protegido con `WORD_PASSWORD`.
-   - **English Learning Notebook (`english-notes/English_Learning_Notebook.docx`):** usa `DEFAULT_ENGLISH_WORD_PATH` relativo al proyecto (sin requerir cambios al migrar instancia ni entradas nuevas en `.env.enc`, opcionalmente anulable con `ENGLISH_WORD_FILE_PATH`). Mantiene **sin contraseña** 3 secciones ordenadas con `Heading 1` (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs`), inserta cada entrada como `Heading 2` + párrafos descriptivos (`parsear_entrada_ingles` / `formatear_entrada_ingles`), repagina (`doc.Repaginate()`) y actualiza automáticamente la **Tabla de Contenidos (`TablesOfContents`)** al inicio del documento.
+   - **English Learning Notebook (`english-notes/English_Learning_Notebook.docx`):** usa `DEFAULT_ENGLISH_WORD_PATH` relativo al proyecto (sin requerir cambios al migrar instancia ni entradas nuevas en `.env.enc`, opcionalmente anulable con `ENGLISH_WORD_FILE_PATH`). Mantiene **sin contraseña** 4 secciones ordenadas con `Heading 1` (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs` y `4. Songs & Music Study`), inserta cada entrada como `Heading 2` + párrafos descriptivos (`parsear_entrada_ingles` / `formatear_entrada_ingles`), repagina (`doc.Repaginate()`) y actualiza automáticamente la **Tabla de Contenidos (`TablesOfContents`)** al inicio del documento. En el modo **Learn with Music**, solo los metadatos (artista, colaboraciones, álbum/mini álbum, estado y URL normalizada de YouTube Music) viven en MySQL, mientras las explicaciones largas de letras y pronunciación se envían únicamente cifradas E2EE por la cola hacia Word.
 
 ---
 
@@ -150,6 +154,7 @@ El sistema se divide en cinco capas desacopladas:
 ## 6. Despliegue Automatizado Cero-`.env` y Respaldos Nocturnos
 
 ### 6.1 Flujo en `.github/workflows/deploy.yml`
+0. **Memoria Swap automática al entrar por SSH (Paso `# 0`):** antes de instalar paquetes o compilar Docker, verifica `swapon`; en instancias nuevas sin Swap crea `/swapfile` (1 GB, `chmod 600`, `mkswap`, `swapon`) y lo hace permanente en `/etc/fstab`.
 1. Instala paquetes faltantes en instancia nueva (`git`, `curl`, `rclone`, `unzip`, `cron`/`cronie`, `openssl`, `docker`), habilita `cron`/`crond`.
 2. Clona/actualiza `main` en `~/projects/mood-tracker`.
 3. Crea un archivo temporal **exclusivamente en RAM** (`/dev/shm/.mood_deploy_env.XXXXXX`, `0600`) con variables desde **GitHub Secrets/Variables** y un `trap cleanup_deploy_env EXIT INT TERM`.
@@ -167,7 +172,7 @@ El sistema se divide en cinco capas desacopladas:
 ## 7. Rama `main` Protegida, Pruebas Automatizadas y Bóveda Local
 
 * **CI en GitHub Actions (`.github/workflows/ci.yml`):** se ejecuta en `push` a ramas distintas de `main`, en `pull_request` hacia `main` y manualmente. Valida sintaxis nativa (`node --check`, `bash -n`, Python `ast.parse` cuando existe el archivo, `ruby -ryaml`), ejecuta `tests/*.test.js` y genera un resumen Markdown en `$GITHUB_STEP_SUMMARY` mediante `tests/ci-summary.js`.
-* **Pruebas (`tests/`):** verifican sintaxis, idioma inglés, reemplazo del arcoíris por emblema de control personal, vistas `view-english` y `view-settings` en HTML, balance CSS, las 8 tablas de `init.sql`, `.gitignore`/`.dockerignore` (`english-notes`), `Dockerfile`/`docker-compose.yml`, consistencia de `deploy.yml`/`ci.yml`, pool MySQL, cabeceras HTTP, `bcrypt`, RBAC, `Madrugada`, colas `/api/send-to-pc` y `/api/send-english` + drenado en `/api/pull-english`, Agenda Event/Task + University/Personal + transiciones Jira (`todo`/`in_progress`/`done`), validación SSRF de `Settings`, recordatorios con Snooze + acción HMAC, cifrado/descifrado de la bóveda local y formateo/enrutado de `sincronizador.py` (`tests/local-vault.test.js`).
+* **Pruebas (`tests/`):** verifican sintaxis, idioma inglés, reemplazo del arcoíris por emblema de control personal, vistas `view-english` (`#englishMusicStudio`) y `view-settings` en HTML, balance CSS, las 12 tablas de `init.sql`, `.gitignore`/`.dockerignore` (`english-notes`), `Dockerfile`/`docker-compose.yml`, creación automática de `/swapfile` en `deploy.yml` y consistencia con `ci.yml`, pool MySQL, cabeceras HTTP, `bcrypt`, RBAC, `Madrugada`, colas `/api/send-to-pc` y `/api/send-english` + drenado en `/api/pull-english`, catálogo Learn with Music (artistas, colaboraciones, mini álbumes, anti-SSRF YouTube, guardrail anti-letras >255 caracteres en BD), Agenda Event/Task + University/Personal + transiciones Jira (`todo`/`in_progress`/`done`), validación SSRF de `Settings`, recordatorios con Snooze + acción HMAC, cifrado/descifrado de la bóveda local y formateo/enrutado (incluyendo `4. Songs & Music Study`) de `sincronizador.py` (`tests/local-vault.test.js`).
 
 ---
 

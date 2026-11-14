@@ -27,7 +27,10 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 2. **🧠 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo desde el servidor y recordatorios automáticos a mitad de cada horario (`09:00`, `13:00`, `17:00`, `22:00`; **`Madrugada 03:00` es opcional** y viene desactivado por defecto).
 3. **🌙 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, calidad (`Good`, `Regular`, `Bad`) y recordatorio matutino configurable (por defecto `08:30`) con opción de posponer (*Snooze 15m / 30m / 1h*).
 4. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
-5. **📖 English Notebook:** Registro de vocabulario, notas de gramática y *phrasal verbs* cifrados E2EE en tránsito y guardados automáticamente en un documento Word local sin contraseña (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y recordatorio de estudio **100% configurable** por día y hora (desactivado por defecto).
+5. **📖 English Notebook (`Glossary`, `Grammar`, `Phrasal Verbs` + `🎵 Learn with Music`):** Registro de vocabulario, notas de gramática y *phrasal verbs* cifrados E2EE hacia un documento Word local sin contraseña (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y recordatorio de estudio **100% configurable** por día y hora (desactivado por defecto). Además, incluye el modo **Learn with Music** para:
+   - Buscar canciones directamente en tu cuenta de **YouTube Music** y vincular pistas mediante URL normalizada (o búsqueda in-app opcional con `YOUTUBE_API_KEY`).
+   - Organizar el catálogo en MySQL **únicamente con metadatos** agrupados por **Artista**, **Colaboraciones** (ej. *ROSÉ & Bruno Mars*) y **Álbum / Mini Álbum / EP / Single / OST** (ej. *BABYMONSTER*, *BLACKPINK*).
+   - Cifrar las explicaciones largas de letras, significados, vocabulario y pronunciación con **E2EE** hacia la sección **`4. Songs & Music Study`** de tu Word local (sin publicar ni almacenar letras en la base de datos para proteger privacidad y derechos de autor).
 6. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
    - **Tipos de actividad:** **Evento** (`evento`: clases, citas, reuniones) y **Tarea** (`tarea`).
    - **Dos categorías principales:** **🎓 Universidad** (`universidad`) y **👤 Personal** (`personal`), con filtros rápidos por categoría y tipo, y divisores visuales por categoría dentro de cada bloque del día (**Morning**, **At School / Classes**, **Afternoon**, **Night**).
@@ -47,7 +50,7 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 
 * **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, bandejas de recordatorios, filtros por categoría/tipo, selectores tipo Jira, **Tema Oscuro** y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
 * **Backend:** Node.js 20, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `bcryptjs`, `nodemailer`, `cors`, `dotenv`, `fetch` nativo para puente HTTPS de notificaciones móviles (`ntfy`).
-* **Base de Datos:** MySQL 8.0 (8 tablas: `RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`, `ConfiguracionUsuario`, `RecordatoriosEstado`).
+* **Base de Datos:** MySQL 8.0 (12 tablas: `RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`, `ConfiguracionUsuario`, `RecordatoriosEstado`, `MusicaArtistas`, `MusicaAlbumes`, `MusicaCanciones`, `MusicaCancionArtistas`).
 * **Sincronización PC (Journal & English):** Python (`sincronitation/sincronizador.py`) con `pycryptodome`, `pywin32` y `python-docx`.
 * **Calidad y DevOps:** Node Test Runner (`tests/*.test.js`), GitHub Actions (`.github/workflows/ci.yml` y `deploy.yml`), Docker / Docker Compose en AWS EC2, bóveda `.env.enc` (`scripts/env-vault.sh` / `scripts/local-vault.js`) y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
 
@@ -191,9 +194,12 @@ EOF
   * Body: `{ "fecha": "2026-11-13", "horas": 7.5, "calidad": "Good" }`
 * `GET /api/get-sleep?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, horas, calidad }` en el rango.
 
-### Journal Notes (PC Word Sync)
-* `POST /api/send-to-pc`: Encola un texto cifrado (`{ "texto": "<iv>:<ciphertext>" }`).
-* `GET /api/pull-text`: Entrega y vacía la cola de textos pendientes.
+### Journal Notes & English Learning Notebook (PC Word Sync + Learn with Music)
+* `POST /api/send-to-pc` y `GET /api/pull-text`: Cola E2EE para el diario privado protegido con contraseña.
+* `POST /api/send-english` y `GET /api/pull-english`: Cola E2EE para el cuaderno Word local de inglés (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs` y `4. Songs & Music Study`).
+* `GET /api/english/music/catalog`: Lista artistas, colaboraciones, álbumes / mini álbumes y metadatos de canciones del propietario (`admin`).
+* `GET /api/english/music/search?q=...` y `POST /api/english/music/resolve`: Genera enlace directo de búsqueda en **YouTube Music**, valida/normaliza URLs (`youtu.be`, `youtube.com`, `music.youtube.com`) sin riesgo SSRF y obtiene título/artista vía oEmbed oficial.
+* `POST /api/english/music/songs`, `PUT /api/english/music/songs/:id`, `PATCH /api/english/music/songs/:id/status` y `DELETE /api/english/music/songs/:id`: Gestión de canciones por artista/colaboración y tipo de lanzamiento (bloquea textos largos >255 caracteres para mantener letras fuera de MySQL).
 
 ### Agenda Personal Semanal (Eventos, Tareas y Estados Jira)
 * `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista actividades con `tipo` (`evento`/`tarea`), `categoria` (`universidad`/`personal`), `estado` (`todo`/`in_progress`/`done`), `completada` y `recordatorio_min`.
@@ -279,8 +285,9 @@ El pipeline [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) está
   ```
 
 ### 2. ¿Qué ocurre automáticamente al hacer `push` a `main` (o ejecutar `Run workflow`)?
-1. Se conecta a la IP indicada en `EC2_HOST`.
-2. Si la instancia es nueva, instala automáticamente `git`, `curl`, `rclone`, `docker` y `docker compose`.
+1. Se conecta a la IP indicada en `EC2_HOST` mediante SSH.
+2. **Paso `# 0` (primera acción al entrar):** verifica si existe memoria **Swap**; si no hay ninguna activa en la nueva instancia, crea y activa automáticamente **`/swapfile` (1 GB)** en `/etc/fstab` antes de instalar dependencias o compilar contenedores (evitando bloqueos por falta de RAM en `t3.micro`).
+3. Si la instancia es nueva, instala automáticamente `git`, `curl`, `rclone`, `docker` y `docker compose`.
 3. Clona o actualiza el repositorio en `~/projects/mood-tracker`.
 4. Genera automáticamente el archivo `.env` desde tus *GitHub Secrets* y restaura `~/.config/rclone/rclone.conf` desde `RCLONE_CONF_B64`.
 5. Levanta los contenedores (`docker compose up -d --build`).

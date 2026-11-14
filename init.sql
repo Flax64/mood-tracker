@@ -88,3 +88,67 @@ CREATE TABLE IF NOT EXISTS RecordatoriosEstado (
     INDEX idx_rec_estado (usuario_id, estado),
     FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
 );
+
+-- =========================================================================
+-- MÓDULO DE APRENDIZAJE DE INGLÉS CON MÚSICA (SÓLO METADATOS, SIN LETRAS)
+-- Las letras largas y notas detalladas se cifran E2EE hacia Word en tu PC.
+-- =========================================================================
+
+CREATE TABLE IF NOT EXISTS MusicaArtistas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    nombre VARCHAR(140) NOT NULL,
+    nombre_normalizado VARCHAR(140) NOT NULL,
+    tipo_artista ENUM('solo','group','duo','collab_project') NOT NULL DEFAULT 'solo',
+    notas_cortas VARCHAR(255) NULL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_usuario_artista (usuario_id, nombre_normalizado),
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS MusicaAlbumes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    artista_principal_id INT NULL,
+    titulo VARCHAR(180) NOT NULL,
+    titulo_normalizado VARCHAR(180) NOT NULL,
+    tipo_lanzamiento ENUM('album','mini_album','ep','single','ost','collab_single') NOT NULL DEFAULT 'album',
+    anio SMALLINT NULL,
+    notas_cortas VARCHAR(255) NULL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_album_usuario (usuario_id, artista_principal_id),
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (artista_principal_id) REFERENCES MusicaArtistas(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS MusicaCanciones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    album_id INT NULL,
+    titulo VARCHAR(180) NOT NULL,
+    numero_pista SMALLINT NULL,
+    idioma VARCHAR(40) NOT NULL DEFAULT 'English',
+    yt_music_url VARCHAR(500) NULL,
+    yt_video_id VARCHAR(32) NULL,
+    thumbnail_url VARCHAR(500) NULL,
+    estado_estudio ENUM('to_study','in_progress','mastered') NOT NULL DEFAULT 'to_study',
+    enfoque_corto VARCHAR(255) NULL,
+    word_sincronizado BOOLEAN NOT NULL DEFAULT FALSE,
+    ultimo_estudio_en DATETIME NULL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_cancion_usuario (usuario_id, album_id, estado_estudio),
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (album_id) REFERENCES MusicaAlbumes(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS MusicaCancionArtistas (
+    cancion_id INT NOT NULL,
+    artista_id INT NOT NULL,
+    rol ENUM('main','feat','collab','producer') NOT NULL DEFAULT 'main',
+    orden SMALLINT NOT NULL DEFAULT 1,
+    PRIMARY KEY (cancion_id, artista_id),
+    INDEX idx_mca_artista (artista_id, rol),
+    FOREIGN KEY (cancion_id) REFERENCES MusicaCanciones(id) ON DELETE CASCADE,
+    FOREIGN KEY (artista_id) REFERENCES MusicaArtistas(id) ON DELETE CASCADE
+);

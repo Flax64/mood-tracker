@@ -25,7 +25,7 @@ app.use((req, res, next) => {
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
     );
     const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
     if (req.secure || proto === 'https') {
@@ -152,6 +152,72 @@ function inicializarTablasSeguridad() {
             if (err) console.error('Error asegurando tabla:', err.message);
         });
     });
+
+    const musicaTablasSql = [
+        `CREATE TABLE IF NOT EXISTS MusicaArtistas (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            usuario_id INT NOT NULL,
+            nombre VARCHAR(140) NOT NULL,
+            nombre_normalizado VARCHAR(140) NOT NULL,
+            tipo_artista ENUM('solo','group','duo','collab_project') NOT NULL DEFAULT 'solo',
+            notas_cortas VARCHAR(255) NULL,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_usuario_artista (usuario_id, nombre_normalizado),
+            FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS MusicaAlbumes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            usuario_id INT NOT NULL,
+            artista_principal_id INT NULL,
+            titulo VARCHAR(180) NOT NULL,
+            titulo_normalizado VARCHAR(180) NOT NULL,
+            tipo_lanzamiento ENUM('album','mini_album','ep','single','ost','collab_single') NOT NULL DEFAULT 'album',
+            anio SMALLINT NULL,
+            notas_cortas VARCHAR(255) NULL,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_album_usuario (usuario_id, artista_principal_id),
+            FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE,
+            FOREIGN KEY (artista_principal_id) REFERENCES MusicaArtistas(id) ON DELETE SET NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS MusicaCanciones (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            usuario_id INT NOT NULL,
+            album_id INT NULL,
+            titulo VARCHAR(180) NOT NULL,
+            numero_pista SMALLINT NULL,
+            idioma VARCHAR(40) NOT NULL DEFAULT 'English',
+            yt_music_url VARCHAR(500) NULL,
+            yt_video_id VARCHAR(32) NULL,
+            thumbnail_url VARCHAR(500) NULL,
+            estado_estudio ENUM('to_study','in_progress','mastered') NOT NULL DEFAULT 'to_study',
+            enfoque_corto VARCHAR(255) NULL,
+            word_sincronizado BOOLEAN NOT NULL DEFAULT FALSE,
+            ultimo_estudio_en DATETIME NULL,
+            creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_cancion_usuario (usuario_id, album_id, estado_estudio),
+            FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE,
+            FOREIGN KEY (album_id) REFERENCES MusicaAlbumes(id) ON DELETE SET NULL
+        )`,
+        `CREATE TABLE IF NOT EXISTS MusicaCancionArtistas (
+            cancion_id INT NOT NULL,
+            artista_id INT NOT NULL,
+            rol ENUM('main','feat','collab','producer') NOT NULL DEFAULT 'main',
+            orden SMALLINT NOT NULL DEFAULT 1,
+            PRIMARY KEY (cancion_id, artista_id),
+            INDEX idx_mca_artista (artista_id, rol),
+            FOREIGN KEY (cancion_id) REFERENCES MusicaCanciones(id) ON DELETE CASCADE,
+            FOREIGN KEY (artista_id) REFERENCES MusicaArtistas(id) ON DELETE CASCADE
+        )`
+    ];
+    const ejecutarTablasMusicaSecuencial = idx => {
+        if (idx >= musicaTablasSql.length) return;
+        db.query(musicaTablasSql[idx], err => {
+            if (err) console.error('Error asegurando tabla musical:', err.message);
+            ejecutarTablasMusicaSecuencial(idx + 1);
+        });
+    };
+    ejecutarTablasMusicaSecuencial(0);
 
     // Migración automática idempotente para bases de datos ya existentes
     const agendaCols = [
@@ -2679,6 +2745,628 @@ app.post('/api/reminders/action', reminderActionLimiter.middleware, async (req, 
     } catch (err) {
         console.error(err);
         return res.status(500).send('Error processing reminder action.');
+    }
+});
+
+// =========================================================================
+// APRENDIZAJE DE INGLÉS CON MÚSICA (SÓLO METADATOS EN MYSQL + YOUTUBE MUSIC)
+// Las notas largas y fragmentos de estudio se envían cifrados E2EE a Word (.docx).
+// =========================================================================
+const MUSIC_RELEASE_TYPES = new Set(['album', 'mini_album', 'ep', 'single', 'ost', 'collab_single']);
+const MUSIC_STUDY_STATES = new Set(['to_study', 'in_progress', 'mastered']);
+const MUSIC_ARTIST_ROLES = new Set(['main', 'feat', 'collab', 'producer']);
+const YOUTUBE_ALLOWED_HOSTS = new Set([
+    'music.youtube.com',
+    'www.youtube.com',
+    'youtube.com',
+    'm.youtube.com',
+    'youtu.be'
+]);
+
+function normalizarTextoCatalogo(valor) {
+    return String(valor || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function parseYouTubeMusicInput(rawInput) {
+    const trimmed = String(rawInput || '').trim();
+    if (!trimmed) {
+        return { valid: true, videoId: null, ytMusicUrl: null, thumbnailUrl: null };
+    }
+
+    // Permitir ingresar únicamente el ID de 11 caracteres si el usuario lo prefiere
+    if (/^[A-Za-z0-9_-]{11}$/.test(trimmed)) {
+        return {
+            valid: true,
+            videoId: trimmed,
+            ytMusicUrl: `https://music.youtube.com/watch?v=${trimmed}`,
+            thumbnailUrl: `https://i.ytimg.com/vi/${trimmed}/hqdefault.jpg`
+        };
+    }
+
+    let parsed;
+    try {
+        parsed = new URL(trimmed);
+    } catch (_err) {
+        return { valid: false, error: 'Invalid YouTube / YouTube Music URL.' };
+    }
+
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        return { valid: false, error: 'YouTube Music URL must use HTTPS.' };
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    if (!YOUTUBE_ALLOWED_HOSTS.has(host)) {
+        return { valid: false, error: 'Only youtube.com, music.youtube.com, or youtu.be URLs are allowed.' };
+    }
+
+    let videoId = null;
+    if (host === 'youtu.be') {
+        const candidate = parsed.pathname.replace(/^\/+/, '').split('/')[0];
+        if (/^[A-Za-z0-9_-]{11}$/.test(candidate)) videoId = candidate;
+    } else {
+        const vParam = parsed.searchParams.get('v');
+        if (vParam && /^[A-Za-z0-9_-]{11}$/.test(vParam)) {
+            videoId = vParam;
+        } else {
+            const pathMatch = parsed.pathname.match(/^\/(?:embed|shorts|live|v)\/([A-Za-z0-9_-]{11})/);
+            if (pathMatch) videoId = pathMatch[1];
+        }
+    }
+
+    if (videoId) {
+        return {
+            valid: true,
+            videoId,
+            ytMusicUrl: `https://music.youtube.com/watch?v=${videoId}`,
+            thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+        };
+    }
+
+    const listParam = parsed.searchParams.get('list');
+    if (listParam && /^[A-Za-z0-9_-]{10,80}$/.test(listParam)) {
+        return {
+            valid: true,
+            videoId: null,
+            ytMusicUrl: `https://music.youtube.com/playlist?list=${encodeURIComponent(listParam)}`,
+            thumbnailUrl: null
+        };
+    }
+
+    if (host === 'music.youtube.com') {
+        return {
+            valid: true,
+            videoId: null,
+            ytMusicUrl: `https://music.youtube.com${parsed.pathname}${parsed.search}`.slice(0, 490),
+            thumbnailUrl: null
+        };
+    }
+
+    return { valid: false, error: 'Could not extract a valid YouTube Music track, video, or playlist link.' };
+}
+
+function parseCollaboratorsInput(rawCollaborators, mainArtistName) {
+    const mainNorm = normalizarTextoCatalogo(mainArtistName);
+    const seen = new Set(mainNorm ? [mainNorm] : []);
+    const result = [];
+
+    let items = [];
+    if (Array.isArray(rawCollaborators)) {
+        items = rawCollaborators;
+    } else if (typeof rawCollaborators === 'string' && rawCollaborators.trim()) {
+        items = rawCollaborators.split(/[,;&\n]+/).map(part => {
+            const cleaned = part.trim();
+            const featMatch = cleaned.match(/^(?:feat\.?|ft\.?)\s+(.+)$/i);
+            return featMatch ? { nombre: featMatch[1], rol: 'feat' } : { nombre: cleaned, rol: 'collab' };
+        });
+    }
+
+    for (const item of items) {
+        const nombre = String(typeof item === 'string' ? item : (item && item.nombre) || '').trim().replace(/\s+/g, ' ');
+        if (!nombre || nombre.length > 140) continue;
+        const norm = normalizarTextoCatalogo(nombre);
+        if (!norm || seen.has(norm)) continue;
+        seen.add(norm);
+        const rawRol = String((item && item.rol) || 'collab').trim().toLowerCase();
+        const rol = MUSIC_ARTIST_ROLES.has(rawRol) && rawRol !== 'main' ? rawRol : 'collab';
+        result.push({ nombre, rol });
+        if (result.length >= 8) break;
+    }
+    return result;
+}
+
+async function upsertMusicaArtista(usuarioId, nombre, tipoArtista = 'solo') {
+    const cleanName = String(nombre || '').trim().replace(/\s+/g, ' ').slice(0, 140);
+    const norm = normalizarTextoCatalogo(cleanName);
+    if (!norm) return null;
+
+    const existing = await dbQueryAsync(
+        'SELECT id FROM MusicaArtistas WHERE usuario_id = ? AND nombre_normalizado = ? LIMIT 1',
+        [usuarioId, norm]
+    );
+    if (existing.length) return existing[0].id;
+
+    const tipo = ['solo', 'group', 'duo', 'collab_project'].includes(tipoArtista) ? tipoArtista : 'solo';
+    const inserted = await dbQueryAsync(
+        'INSERT INTO MusicaArtistas (usuario_id, nombre, nombre_normalizado, tipo_artista) VALUES (?, ?, ?, ?)',
+        [usuarioId, cleanName, norm, tipo]
+    );
+    return inserted.insertId;
+}
+
+async function upsertMusicaAlbum({ usuarioId, albumTitle, albumType, albumYear, mainArtistId }) {
+    const cleanTitle = String(albumTitle || '').trim().replace(/\s+/g, ' ').slice(0, 180);
+    const norm = normalizarTextoCatalogo(cleanTitle);
+    if (!norm) return null;
+
+    const tipo = MUSIC_RELEASE_TYPES.has(albumType) ? albumType : 'album';
+    const yearVal = albumYear && Number.isInteger(Number(albumYear)) && Number(albumYear) >= 1900 && Number(albumYear) <= 2100
+        ? Number(albumYear)
+        : null;
+
+    const existing = await dbQueryAsync(
+        `SELECT id FROM MusicaAlbumes
+         WHERE usuario_id = ? AND titulo_normalizado = ? AND COALESCE(artista_principal_id, 0) = COALESCE(?, 0)
+         LIMIT 1`,
+        [usuarioId, norm, mainArtistId || null]
+    );
+    if (existing.length) {
+        await dbQueryAsync(
+            'UPDATE MusicaAlbumes SET tipo_lanzamiento = ?, anio = COALESCE(?, anio) WHERE id = ? AND usuario_id = ?',
+            [tipo, yearVal, existing[0].id, usuarioId]
+        );
+        return existing[0].id;
+    }
+
+    const inserted = await dbQueryAsync(
+        `INSERT INTO MusicaAlbumes (usuario_id, artista_principal_id, titulo, titulo_normalizado, tipo_lanzamiento, anio)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [usuarioId, mainArtistId || null, cleanTitle, norm, tipo, yearVal]
+    );
+    return inserted.insertId;
+}
+
+function validateAndExtractSongPayload(body) {
+    const titulo = String(body.titulo || body.title || '').trim().replace(/\s+/g, ' ');
+    const mainArtist = String(body.mainArtist || body.artistaPrincipal || '').trim().replace(/\s+/g, ' ');
+    if (!titulo || titulo.length > 180) {
+        return { error: 'Song title is required (max 180 characters).' };
+    }
+    if (!mainArtist || mainArtist.length > 140) {
+        return { error: 'Main artist or group name is required (max 140 characters).' };
+    }
+
+    const enfoqueRaw = String(body.enfoqueCorto || body.focus || '').trim();
+    if (enfoqueRaw.length > 255 || enfoqueRaw.split(/\r?\n/).length > 4) {
+        return {
+            error: 'Short study focus must be <= 255 chars. Keep long lyrics & translations encrypted to Word on your PC.'
+        };
+    }
+
+    const ytParsed = parseYouTubeMusicInput(body.ytMusicUrl || body.youtubeUrl || '');
+    if (!ytParsed.valid) {
+        return { error: ytParsed.error };
+    }
+
+    const albumTitle = String(body.albumTitle || '').trim().replace(/\s+/g, ' ');
+    if (albumTitle.length > 180) {
+        return { error: 'Album / Mini Album title must be <= 180 characters.' };
+    }
+
+    const rawType = String(body.albumType || 'album').trim().toLowerCase();
+    const albumType = MUSIC_RELEASE_TYPES.has(rawType) ? rawType : 'album';
+
+    let albumYear = null;
+    if (body.albumYear !== undefined && body.albumYear !== null && String(body.albumYear).trim() !== '') {
+        const y = Number.parseInt(body.albumYear, 10);
+        if (!Number.isInteger(y) || y < 1900 || y > 2100) {
+            return { error: 'Album release year must be between 1900 and 2100.' };
+        }
+        albumYear = y;
+    }
+
+    let numeroPista = null;
+    if (body.trackNumber !== undefined && body.trackNumber !== null && String(body.trackNumber).trim() !== '') {
+        const n = Number.parseInt(body.trackNumber, 10);
+        if (!Number.isInteger(n) || n < 1 || n > 999) {
+            return { error: 'Track number must be between 1 and 999.' };
+        }
+        numeroPista = n;
+    }
+
+    const rawState = String(body.estadoEstudio || body.status || 'to_study').trim().toLowerCase();
+    const estadoEstudio = MUSIC_STUDY_STATES.has(rawState) ? rawState : 'to_study';
+    const idioma = String(body.idioma || body.language || 'English').trim().slice(0, 40) || 'English';
+    const artistType = ['solo', 'group', 'duo', 'collab_project'].includes(body.artistType)
+        ? body.artistType
+        : 'solo';
+    const collaborators = parseCollaboratorsInput(body.collaborators, mainArtist);
+
+    return {
+        data: {
+            titulo,
+            mainArtist,
+            artistType,
+            collaborators,
+            albumTitle,
+            albumType,
+            albumYear,
+            numeroPista,
+            idioma,
+            ytMusicUrl: ytParsed.ytMusicUrl,
+            ytVideoId: ytParsed.videoId,
+            thumbnailUrl: ytParsed.thumbnailUrl,
+            estadoEstudio,
+            enfoqueCorto: enfoqueRaw || null
+        }
+    };
+}
+
+app.get('/api/english/music/catalog', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const uid = req.user.id;
+        const [artists, albums, songs, songArtists] = await Promise.all([
+            dbQueryAsync(
+                `SELECT id, nombre, tipo_artista, notas_cortas, creado_en
+                 FROM MusicaArtistas WHERE usuario_id = ? ORDER BY nombre ASC`,
+                [uid]
+            ),
+            dbQueryAsync(
+                `SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre,
+                        al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en
+                 FROM MusicaAlbumes al
+                 LEFT JOIN MusicaArtistas ma ON ma.id = al.artista_principal_id
+                 WHERE al.usuario_id = ?
+                 ORDER BY COALESCE(al.anio, 0) DESC, al.titulo ASC`,
+                [uid]
+            ),
+            dbQueryAsync(
+                `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
+                        al.anio AS album_anio, c.titulo, c.numero_pista, c.idioma,
+                        c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
+                        c.enfoque_corto, c.word_sincronizado, c.ultimo_estudio_en,
+                        c.creado_en, c.actualizado_en
+                 FROM MusicaCanciones c
+                 LEFT JOIN MusicaAlbumes al ON al.id = c.album_id
+                 WHERE c.usuario_id = ?
+                 ORDER BY c.actualizado_en DESC, c.id DESC`,
+                [uid]
+            ),
+            dbQueryAsync(
+                `SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre
+                 FROM MusicaCancionArtistas mca
+                 INNER JOIN MusicaCanciones c ON c.id = mca.cancion_id
+                 INNER JOIN MusicaArtistas ma ON ma.id = mca.artista_id
+                 WHERE c.usuario_id = ?
+                 ORDER BY mca.orden ASC, ma.nombre ASC`,
+                [uid]
+            )
+        ]);
+
+        const artistsBySong = new Map();
+        for (const link of songArtists) {
+            if (!artistsBySong.has(link.cancion_id)) artistsBySong.set(link.cancion_id, []);
+            artistsBySong.get(link.cancion_id).push({
+                id: link.artista_id,
+                nombre: link.nombre,
+                rol: link.rol,
+                orden: link.orden
+            });
+        }
+
+        const enrichedSongs = songs.map(song => ({
+            ...song,
+            word_sincronizado: Boolean(song.word_sincronizado),
+            artists: artistsBySong.get(song.id) || []
+        }));
+
+        const stats = {
+            totalSongs: enrichedSongs.length,
+            totalArtists: artists.length,
+            totalAlbums: albums.length,
+            toStudy: enrichedSongs.filter(s => s.estado_estudio === 'to_study').length,
+            inProgress: enrichedSongs.filter(s => s.estado_estudio === 'in_progress').length,
+            mastered: enrichedSongs.filter(s => s.estado_estudio === 'mastered').length,
+            wordSynced: enrichedSongs.filter(s => s.word_sincronizado).length
+        };
+
+        res.json({ artists, albums, songs: enrichedSongs, stats });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error loading English music catalog.');
+    }
+});
+
+app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    const queryText = String(req.query.q || '').trim().slice(0, 120);
+    const ytMusicSearchUrl = queryText
+        ? `https://music.youtube.com/search?q=${encodeURIComponent(queryText)}`
+        : 'https://music.youtube.com/';
+    const ytMusicLibraryUrl = 'https://music.youtube.com/library';
+
+    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+    if (!apiKey || !queryText) {
+        return res.json({
+            configured: Boolean(apiKey),
+            ytMusicSearchUrl,
+            ytMusicLibraryUrl,
+            results: []
+        });
+    }
+
+    try {
+        const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
+        searchUrl.searchParams.set('part', 'snippet');
+        searchUrl.searchParams.set('type', 'video');
+        searchUrl.searchParams.set('videoCategoryId', '10');
+        searchUrl.searchParams.set('maxResults', '8');
+        searchUrl.searchParams.set('q', queryText);
+        searchUrl.searchParams.set('key', apiKey);
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        const apiRes = await fetch(searchUrl.toString(), { signal: controller.signal });
+        clearTimeout(timer);
+
+        if (!apiRes.ok) {
+            return res.json({
+                configured: true,
+                apiUnavailable: true,
+                ytMusicSearchUrl,
+                ytMusicLibraryUrl,
+                results: []
+            });
+        }
+
+        const payload = await apiRes.json();
+        const results = (Array.isArray(payload.items) ? payload.items : [])
+            .map(item => {
+                const videoId = item && item.id && item.id.videoId;
+                const snippet = (item && item.snippet) || {};
+                if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+                return {
+                    videoId,
+                    title: String(snippet.title || '').slice(0, 180),
+                    channelTitle: String(snippet.channelTitle || '').replace(/\s*-\s*Topic$/i, '').slice(0, 140),
+                    ytMusicUrl: `https://music.youtube.com/watch?v=${videoId}`,
+                    thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+                };
+            })
+            .filter(Boolean);
+
+        return res.json({
+            configured: true,
+            ytMusicSearchUrl,
+            ytMusicLibraryUrl,
+            results
+        });
+    } catch (_err) {
+        return res.json({
+            configured: Boolean(apiKey),
+            apiUnavailable: true,
+            ytMusicSearchUrl,
+            ytMusicLibraryUrl,
+            results: []
+        });
+    }
+});
+
+app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    const parsed = parseYouTubeMusicInput(req.body.url || '');
+    if (!parsed.valid || (!parsed.ytMusicUrl && !parsed.videoId)) {
+        return res.status(400).send(parsed.error || 'Provide a valid YouTube or YouTube Music URL.');
+    }
+
+    let suggestedTitle = null;
+    let suggestedArtist = null;
+
+    if (parsed.videoId) {
+        try {
+            const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${parsed.videoId}`)}&format=json`;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 4000);
+            const oRes = await fetch(oembedUrl, { signal: controller.signal });
+            clearTimeout(timer);
+            if (oRes.ok) {
+                const meta = await oRes.json();
+                suggestedTitle = meta && meta.title ? String(meta.title).slice(0, 180) : null;
+                suggestedArtist = meta && meta.author_name
+                    ? String(meta.author_name).replace(/\s*-\s*Topic$/i, '').slice(0, 140)
+                    : null;
+            }
+        } catch (_err) {
+            // Si oEmbed falla o no hay red, devolvemos igualmente el enlace normalizado
+        }
+    }
+
+    res.json({
+        videoId: parsed.videoId,
+        ytMusicUrl: parsed.ytMusicUrl,
+        thumbnailUrl: parsed.thumbnailUrl,
+        suggestedTitle,
+        suggestedArtist
+    });
+});
+
+async function syncMusicaCancionArtistas(uid, songId, mainArtistId, collaborators, clearExisting = false) {
+    if (clearExisting) {
+        await dbQueryAsync('DELETE FROM MusicaCancionArtistas WHERE cancion_id = ?', [songId]);
+    }
+    await dbQueryAsync(
+        'INSERT INTO MusicaCancionArtistas (cancion_id, artista_id, rol, orden) VALUES (?, ?, ?, ?)',
+        [songId, mainArtistId, 'main', 1]
+    );
+
+    let order = 2;
+    for (const collab of collaborators) {
+        const collabId = await upsertMusicaArtista(uid, collab.nombre, 'solo');
+        if (collabId && collabId !== mainArtistId) {
+            await dbQueryAsync(
+                'INSERT INTO MusicaCancionArtistas (cancion_id, artista_id, rol, orden) VALUES (?, ?, ?, ?)',
+                [songId, collabId, collab.rol, order++]
+            );
+        }
+    }
+}
+
+app.post('/api/english/music/songs', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 8000 }), async (req, res) => {
+    const validated = validateAndExtractSongPayload(req.body);
+    if (validated.error) return res.status(400).send(validated.error);
+
+    const d = validated.data;
+    const uid = req.user.id;
+
+    try {
+        const mainArtistId = await upsertMusicaArtista(uid, d.mainArtist, d.artistType);
+        const albumId = await upsertMusicaAlbum({
+            usuarioId: uid,
+            albumTitle: d.albumTitle,
+            albumType: d.albumType,
+            albumYear: d.albumYear,
+            mainArtistId
+        });
+
+        const insertedSong = await dbQueryAsync(
+            `INSERT INTO MusicaCanciones
+             (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                uid,
+                albumId,
+                d.titulo,
+                d.numeroPista,
+                d.idioma,
+                d.ytMusicUrl,
+                d.ytVideoId,
+                d.thumbnailUrl,
+                d.estadoEstudio,
+                d.enfoqueCorto
+            ]
+        );
+        const songId = insertedSong.insertId;
+        await syncMusicaCancionArtistas(uid, songId, mainArtistId, d.collaborators, false);
+
+        res.status(201).json({
+            message: 'Song registered in your English Music catalog.',
+            songId,
+            ytMusicUrl: d.ytMusicUrl
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error saving song to music catalog.');
+    }
+});
+
+app.put('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+
+    const validated = validateAndExtractSongPayload(req.body);
+    if (validated.error) return res.status(400).send(validated.error);
+
+    const d = validated.data;
+    const uid = req.user.id;
+
+    try {
+        const existing = await dbQueryAsync(
+            'SELECT id FROM MusicaCanciones WHERE id = ? AND usuario_id = ? LIMIT 1',
+            [songId, uid]
+        );
+        if (!existing.length) return res.status(404).send('Song not found.');
+
+        const mainArtistId = await upsertMusicaArtista(uid, d.mainArtist, d.artistType);
+        const albumId = await upsertMusicaAlbum({
+            usuarioId: uid,
+            albumTitle: d.albumTitle,
+            albumType: d.albumType,
+            albumYear: d.albumYear,
+            mainArtistId
+        });
+
+        await dbQueryAsync(
+            `UPDATE MusicaCanciones
+             SET album_id = ?, titulo = ?, numero_pista = ?, idioma = ?,
+                 yt_music_url = ?, yt_video_id = ?, thumbnail_url = ?,
+                 estado_estudio = ?, enfoque_corto = ?
+             WHERE id = ? AND usuario_id = ?`,
+            [
+                albumId,
+                d.titulo,
+                d.numeroPista,
+                d.idioma,
+                d.ytMusicUrl,
+                d.ytVideoId,
+                d.thumbnailUrl,
+                d.estadoEstudio,
+                d.enfoqueCorto,
+                songId,
+                uid
+            ]
+        );
+
+        await syncMusicaCancionArtistas(uid, songId, mainArtistId, d.collaborators, true);
+
+        res.json({ message: 'Song metadata updated.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating song metadata.');
+    }
+});
+
+app.patch('/api/english/music/songs/:id/status', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+
+    const uid = req.user.id;
+    const rawState = req.body.estadoEstudio !== undefined ? String(req.body.estadoEstudio).trim().toLowerCase() : null;
+    if (rawState !== null && !MUSIC_STUDY_STATES.has(rawState)) {
+        return res.status(400).send('Unsupported study status.');
+    }
+    const wordSyncedProvided = req.body.wordSynced !== undefined;
+    const wordSyncedVal = wordSyncedProvided ? (req.body.wordSynced ? 1 : 0) : null;
+
+    if (rawState === null && !wordSyncedProvided) {
+        return res.status(400).send('Nothing to update.');
+    }
+
+    try {
+        const currentRows = await dbQueryAsync(
+            'SELECT id, estado_estudio, word_sincronizado FROM MusicaCanciones WHERE id = ? AND usuario_id = ? LIMIT 1',
+            [songId, uid]
+        );
+        if (!currentRows.length) return res.status(404).send('Song not found.');
+
+        const nextState = rawState !== null ? rawState : currentRows[0].estado_estudio;
+        const nextWord = wordSyncedProvided ? wordSyncedVal : (currentRows[0].word_sincronizado ? 1 : 0);
+
+        await dbQueryAsync(
+            `UPDATE MusicaCanciones
+             SET estado_estudio = ?, word_sincronizado = ?, ultimo_estudio_en = ?
+             WHERE id = ? AND usuario_id = ?`,
+            [nextState, nextWord, formatMySqlDateTime(new Date()), songId, uid]
+        );
+
+        res.json({ message: 'Song study state updated.', estado_estudio: nextState, word_sincronizado: Boolean(nextWord) });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating song study state.');
+    }
+});
+
+app.delete('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+
+    try {
+        const result = await dbQueryAsync(
+            'DELETE FROM MusicaCanciones WHERE id = ? AND usuario_id = ?',
+            [songId, req.user.id]
+        );
+        if (!result.affectedRows) return res.status(404).send('Song not found.');
+
+        res.json({ message: 'Song deleted from music catalog.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error deleting song.');
     }
 });
 
