@@ -27,6 +27,8 @@ jobs:
           SECRET_TZ: ${{ vars.TZ || secrets.TZ }}
           SECRET_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL || vars.ADMIN_EMAIL }}
           SECRET_ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          SECRET_WORD_PASSWORD: ${{ secrets.WORD_PASSWORD }}
+          SECRET_JOURNAL_SECRET_KEY: ${{ secrets.JOURNAL_SECRET_KEY }}
           SECRET_SMTP_USER: ${{ secrets.SMTP_USER || vars.SMTP_USER }}
           SECRET_SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SECRET_APP_BASE_URL: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
@@ -39,9 +41,18 @@ jobs:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GITHUB_REPO,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
+          envs: GITHUB_REPO,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
           script: |
             set -euo pipefail
+
+            DEPLOY_ENV_FILE=""
+            cleanup_deploy_env() {
+              if [ -n "${DEPLOY_ENV_FILE:-}" ] && [ -f "$DEPLOY_ENV_FILE" ]; then
+                shred -u -z -n 1 "$DEPLOY_ENV_FILE" 2>/dev/null || rm -f "$DEPLOY_ENV_FILE"
+                DEPLOY_ENV_FILE=""
+              fi
+            }
+            trap cleanup_deploy_env EXIT INT TERM
 
             # 1. Instalar dependencias base (incluyendo cron y openssl) si es una instancia nueva
             if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
@@ -82,7 +93,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # 3. Crear o actualizar .env conservando valores previos si algún secret opcional no está definido
+            # 3. Preparar entorno de despliegue solo en RAM (/dev/shm) desde GitHub Secrets/Variables
             if [ -f ".env" ]; then
               while IFS= read -r line || [ -n "$line" ]; do
                 line="${line%$'\r'}"
@@ -98,7 +109,7 @@ jobs:
 
             FINAL_DB_PASS="${SECRET_DB_PASS:-${OLD_DB_PASS:-}}"
             if [ -z "$FINAL_DB_PASS" ]; then
-              echo "ERROR: No existe .env en la instancia ni el secret DB_PASS en GitHub." >&2
+              echo "ERROR: No existe el secret DB_PASS en GitHub ni .env previo en la instancia." >&2
               exit 1
             fi
 
@@ -109,11 +120,20 @@ jobs:
             FINAL_TZ="${SECRET_TZ:-${OLD_TZ:-America/Monterrey}}"
             FINAL_ADMIN_EMAIL="${SECRET_ADMIN_EMAIL:-${OLD_ADMIN_EMAIL:-flavio.flax1234@gmail.com}}"
             FINAL_ADMIN_SECRET="${SECRET_ADMIN_SECRET:-${OLD_ADMIN_SECRET:-}}"
+            FINAL_WORD_PASSWORD="${SECRET_WORD_PASSWORD:-${OLD_WORD_PASSWORD:-}}"
+            FINAL_JOURNAL_SECRET_KEY="${SECRET_JOURNAL_SECRET_KEY:-${OLD_JOURNAL_SECRET_KEY:-}}"
             FINAL_SMTP_USER="${SECRET_SMTP_USER:-${OLD_SMTP_USER:-$FINAL_ADMIN_EMAIL}}"
             FINAL_SMTP_PASS="${SECRET_SMTP_PASS:-${OLD_SMTP_PASS:-}}"
             FINAL_APP_BASE_URL="${SECRET_APP_BASE_URL:-http://${DEPLOY_EC2_HOST}:${FINAL_PORT}}"
             FINAL_RCLONE_REMOTE="${SECRET_RCLONE_REMOTE:-${OLD_RCLONE_REMOTE:-gdrive}}"
             FINAL_RCLONE_BACKUP_DIR="${SECRET_RCLONE_BACKUP_DIR:-${OLD_RCLONE_BACKUP_DIR:-RespaldosApp}}"
+
+            ENV_TMP_DIR="/dev/shm"
+            if [ ! -d "$ENV_TMP_DIR" ] || [ ! -w "$ENV_TMP_DIR" ]; then
+              ENV_TMP_DIR="${TMPDIR:-/tmp}"
+            fi
+            DEPLOY_ENV_FILE="$(umask 077 && mktemp "$ENV_TMP_DIR/.mood_deploy_env.XXXXXX")"
+            chmod 600 "$DEPLOY_ENV_FILE"
 
             {
               printf 'DB_HOST=%s\n' "$FINAL_DB_HOST"
@@ -124,13 +144,14 @@ jobs:
               printf 'TZ=%s\n' "$FINAL_TZ"
               printf 'ADMIN_EMAIL=%s\n' "$FINAL_ADMIN_EMAIL"
               printf 'ADMIN_SECRET=%s\n' "$FINAL_ADMIN_SECRET"
+              printf 'WORD_PASSWORD=%s\n' "$FINAL_WORD_PASSWORD"
+              printf 'JOURNAL_SECRET_KEY=%s\n' "$FINAL_JOURNAL_SECRET_KEY"
               printf 'SMTP_USER=%s\n' "$FINAL_SMTP_USER"
               printf 'SMTP_PASS=%s\n' "$FINAL_SMTP_PASS"
               printf 'APP_BASE_URL=%s\n' "$FINAL_APP_BASE_URL"
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
-            } > .env
-            chmod 600 .env
+            } > "$DEPLOY_ENV_FILE"
 
             # 4. Configurar rclone automáticamente si se proporcionó RCLONE_CONF_B64
             if [ -n "${RCLONE_CONF_B64:-}" ]; then
@@ -142,11 +163,11 @@ jobs:
 
             chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh
 
-            # 5. Levantar o actualizar los contenedores Docker
-            $DOCKER_CMD compose up -d --build
+            # 5. Levantar o actualizar los contenedores Docker leyendo el entorno desde RAM
+            $DOCKER_CMD compose --env-file "$DEPLOY_ENV_FILE" up -d --build
 
             # 6. Si es una instancia nueva / BD vacía, restaurar automáticamente el último backup de Google Drive
-            ./scripts/restore.sh --if-empty
+            ENV_FILE_OVERRIDE="$DEPLOY_ENV_FILE" ./scripts/restore.sh --if-empty
 
             # 7. Limpiar imágenes huérfanas y caché viejo de Docker para no llenar el disco de la t3.micro
             $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
@@ -177,9 +198,15 @@ jobs:
             CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" || true; printf '%s\n' "$CRON_JOB") | crontab -
 
-            # 9. Sellar .env plano si SEAL_ENV_AFTER_DEPLOY=true o si ya existe bóveda .env.enc (salvo false explícito)
-            SHOULD_SEAL="${SEAL_ENV_AFTER_DEPLOY:-}"
-            if [ "$SHOULD_SEAL" = "true" ] || { [ -z "$SHOULD_SEAL" ] && [ -f ".env.enc" ]; }; then
-              shred -u -z -n 1 .env 2>/dev/null || rm -f .env
-              echo "Archivo .env en texto plano eliminado tras el despliegue."
+            # 9. Garantizar cero .env en disco por defecto (salvo que SEAL_ENV_AFTER_DEPLOY=false)
+            if [ "${SEAL_ENV_AFTER_DEPLOY:-true}" = "false" ]; then
+              cp "$DEPLOY_ENV_FILE" .env
+              chmod 600 .env
+              echo "Archivo .env conservado en disco (SEAL_ENV_AFTER_DEPLOY=false)."
+            else
+              if [ -f ".env" ]; then
+                shred -u -z -n 1 .env 2>/dev/null || rm -f .env
+              fi
+              echo "Despliegue completado sin archivo .env en disco (gestionado 100% por GitHub Secrets/Variables)."
             fi
+            cleanup_deploy_env
