@@ -4,119 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualizador Mood Tracker</title>
-    <link rel="stylesheet" href="style.css">
+    <meta http-equiv="refresh" content="0; url=index.html#resumen">
+    <title>Resumen Semanal - Mood Tracker</title>
+    <script>
+        window.location.replace('index.html#resumen');
+    </script>
 </head>
 
 <body>
-    <div class="tracker-container">
-
-        <!-- Botón para regresar al formulario -->
-        <a href="index.html" class="btn-back">⬅ Volver al registro</a>
-
-        <h1 class="tracker-title">MI MOOD TRACKER SEMANAL</h1>
-
-        <div class="controls">
-            <label for="semanaSeleccionada">Elige una semana:</label>
-            <select id="semanaSeleccionada"></select>
-        </div>
-
-        <hr class="title-divider">
-
-        <div class="tracker-layout">
-
-            <!-- Contenedor Responsivo para deslizar en celular -->
-            <div class="table-responsive">
-                <table class="mood-table">
-                    <thead>
-                        <tr>
-                            <th></th>
-                            <th>Domingo</th>
-                            <th>Lunes</th>
-                            <th>Martes</th>
-                            <th>Miércoles</th>
-                            <th>Jueves</th>
-                            <th>Viernes</th>
-                            <th>Sábado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="row-label">Mañana</td>
-                            <td class="mood-cell" data-day="Sunday" data-time="Morning"></td>
-                            <td class="mood-cell" data-day="Monday" data-time="Morning"></td>
-                            <td class="mood-cell" data-day="Tuesday" data-time="Morning"></td>
-                            <td class="mood-cell" data-day="Wednesday" data-time="Morning"></td>
-                            <td class="mood-cell" data-day="Thursday" data-time="Morning"></td>
-                            <td class="mood-cell" data-day="Friday" data-time="Morning"></td>
-                            <td class="mood-cell" data-day="Saturday" data-time="Morning"></td>
-                        </tr>
-                        <tr>
-                            <td class="row-label">Mediodía</td>
-                            <td class="mood-cell" data-day="Sunday" data-time="Noon"></td>
-                            <td class="mood-cell" data-day="Monday" data-time="Noon"></td>
-                            <td class="mood-cell" data-day="Tuesday" data-time="Noon"></td>
-                            <td class="mood-cell" data-day="Wednesday" data-time="Noon"></td>
-                            <td class="mood-cell" data-day="Thursday" data-time="Noon"></td>
-                            <td class="mood-cell" data-day="Friday" data-time="Noon"></td>
-                            <td class="mood-cell" data-day="Saturday" data-time="Noon"></td>
-                        </tr>
-                        <tr>
-                            <td class="row-label">Tarde</td>
-                            <td class="mood-cell" data-day="Sunday" data-time="Afternoon"></td>
-                            <td class="mood-cell" data-day="Monday" data-time="Afternoon"></td>
-                            <td class="mood-cell" data-day="Tuesday" data-time="Afternoon"></td>
-                            <td class="mood-cell" data-day="Wednesday" data-time="Afternoon"></td>
-                            <td class="mood-cell" data-day="Thursday" data-time="Afternoon"></td>
-                            <td class="mood-cell" data-day="Friday" data-time="Afternoon"></td>
-                            <td class="mood-cell" data-day="Saturday" data-time="Afternoon"></td>
-                        </tr>
-                        <tr>
-                            <td class="row-label">Noche</td>
-                            <td class="mood-cell" data-day="Sunday" data-time="Night"></td>
-                            <td class="mood-cell" data-day="Monday" data-time="Night"></td>
-                            <td class="mood-cell" data-day="Tuesday" data-time="Night"></td>
-                            <td class="mood-cell" data-day="Wednesday" data-time="Night"></td>
-                            <td class="mood-cell" data-day="Thursday" data-time="Night"></td>
-                            <td class="mood-cell" data-day="Friday" data-time="Night"></td>
-                            <td class="mood-cell" data-day="Saturday" data-time="Night"></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Leyenda Lateral -->
-            <aside class="mood-legend">
-                <h3 class="legend-title">MI ESTADO DE ÁNIMO</h3>
-                <hr class="legend-divider">
-                <ul class="legend-list">
-                    <li><span class="color-dot" style="background-color: #FDE047;"></span> FELIZ</li>
-                    <li><span class="color-dot" style="background-color: #4ADE80;"></span> TRANQUILO</li>
-                    <li><span class="color-dot" style="background-color: #7DD3FC;"></span> EMOCIONADO</li>
-                    <li><span class="color-dot" style="background-color: #D8B4FE;"></span> CANSADO</li>
-                    <li><span class="color-dot" style="background-color: #3B82F6;"></span> TRISTE</li>
-                    <li><span class="color-dot" style="background-color: #EF4444;"></span> ENOJADO</li>
-                    <li><span class="color-dot" style="background-color: #F97316;"></span> PREOCUPADO</li>
-                    <li><span class="color-dot" style="background-color: #9CA3AF;"></span> ASUSTADO</li>
-                    <li><span class="color-dot" style="background-color: #14B8A6;"></span> ENFOCADO</li>
-                    <li><span class="color-dot" style="background-color: #F59E0B;"></span> MOTIVADO</li>
-                    <li><span class="color-dot" style="background-color: #991B1B;"></span> ESTRESADO</li>
-                    <li><span class="color-dot" style="background-color: #D946EF;"></span> FRUSTRADO</li>
-                    <li><span class="color-dot" style="background-color: #D1D5DB;"></span> ABURRIDO</li>
-                    <li><span class="color-dot" style="background-color: #A3E635;"></span> ANSIOSO</li>
-                    <li><span class="color-dot" style="background-color: #F9A8D4;"></span> DISTRAIDO</li>
-                    <li><span class="color-dot" style="background-color: #6B21A8;"></span> DESESPERADO</li>
-                </ul>
-            </aside>
-            <!-- VISUALIZADOR DE SUEÑO -->
-            <div class="sleep-container">
-                <h3>😴Resumen de Sueño</h3>
-                <div class="sleep-grid" id="sleepGrid">
-                </div>
-            </div>
-        </div>
-    </div>
-    <script src="frontend.js"></script>
+    <p>Redirigiendo al <a href="index.html#resumen">Resumen Semanal</a>...</p>
 </body>
 
 </html>
