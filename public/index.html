@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Personal Daily Hub</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f7df3'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23ffffff' stroke-width='2.2'/%3E%3Cpath d='M16 7v4M16 21v4M7 16h4M21 16h4' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='16' r='2.8' fill='%23ffffff'/%3E%3C/svg%3E">
     <script src="theme-init.js"></script>
     <link rel="stylesheet" href="style.css">
     <meta property="og:title" content="Personal Daily Hub">
@@ -19,7 +20,13 @@
     ========================================== -->
     <div class="boot-screen" id="appBootScreen" role="status" aria-live="polite">
         <div class="boot-card">
-            <span class="auth-logo" aria-hidden="true">🌈</span>
+            <span class="auth-logo brand-emblem" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="9"/>
+                    <path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+                    <polygon points="10.5 10.5 16 8 13.5 13.5 8 16 10.5 10.5" fill="currentColor" stroke="none"/>
+                </svg>
+            </span>
             <h1>Personal Daily Hub</h1>
             <div class="boot-status-row">
                 <span class="spinner-circle spinner-lg" aria-hidden="true"></span>
@@ -38,7 +45,13 @@
                     aria-label="Toggle light or dark theme">☀️ Light Mode</button>
             </div>
             <div class="auth-brand">
-                <span class="auth-logo" aria-hidden="true">🌈</span>
+                <span class="auth-logo brand-emblem" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9"/>
+                        <path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+                        <polygon points="10.5 10.5 16 8 13.5 13.5 8 16 10.5 10.5" fill="currentColor" stroke="none"/>
+                    </svg>
+                </span>
                 <h1>Personal Daily Hub</h1>
                 <p id="authSubtitle">Sign in to access your workspace</p>
             </div>
@@ -203,10 +216,16 @@
         <aside class="sidebar" id="sidebar" aria-label="Main menu">
             <div class="sidebar-header">
                 <div class="sidebar-brand">
-                    <span class="brand-logo" aria-hidden="true">🌈</span>
+                    <span class="brand-logo brand-emblem" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="9"/>
+                            <path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>
+                            <polygon points="10.5 10.5 16 8 13.5 13.5 8 16 10.5 10.5" fill="currentColor" stroke="none"/>
+                        </svg>
+                    </span>
                     <div class="sidebar-brand-text">
                         <span class="brand-name">Daily Hub</span>
-                        <span class="brand-sub" id="sidebarRoleLabel">Personal Space</span>
+                        <span class="brand-sub" id="sidebarRoleLabel">Personal Control</span>
                     </div>
                 </div>
                 <button type="button" class="sidebar-toggle-btn desktop-only" id="desktopSidebarToggle"
@@ -221,7 +240,7 @@
 
             <nav class="sidebar-nav">
                 <button type="button" class="nav-item admin-only-nav" data-view="inicio" title="Home">
-                    <span class="nav-icon" aria-hidden="true">🏠</span>
+                    <span class="nav-icon" aria-hidden="true">🧭</span>
                     <span class="nav-label">Home</span>
                 </button>
 
@@ -232,19 +251,19 @@
                     </button>
                     <div class="nav-group-items">
                         <button type="button" class="nav-item" data-view="mood" title="Mood Tracker">
-                            <span class="nav-icon" aria-hidden="true">😊</span>
+                            <span class="nav-icon" aria-hidden="true">🧠</span>
                             <span class="nav-label">Mood Tracker</span>
                         </button>
                         <button type="button" class="nav-item" data-view="sueno" title="Sleep Tracker">
-                            <span class="nav-icon" aria-hidden="true">😴</span>
+                            <span class="nav-icon" aria-hidden="true">🌙</span>
                             <span class="nav-label">Sleep Tracker</span>
                         </button>
                         <button type="button" class="nav-item" data-view="journal" title="Journal Notes">
-                            <span class="nav-icon" aria-hidden="true">📝</span>
+                            <span class="nav-icon" aria-hidden="true">🖋️</span>
                             <span class="nav-label">Journal Notes</span>
                         </button>
                         <button type="button" class="nav-item" data-view="english" title="English Notebook">
-                            <span class="nav-icon" aria-hidden="true">📚</span>
+                            <span class="nav-icon" aria-hidden="true">📖</span>
                             <span class="nav-label">English Notebook</span>
                         </button>
                     </div>
@@ -257,17 +276,22 @@
                     </button>
                     <div class="nav-group-items">
                         <button type="button" class="nav-item admin-only-nav" data-view="agenda" title="Weekly Agenda">
-                            <span class="nav-icon" aria-hidden="true">📅</span>
+                            <span class="nav-icon" aria-hidden="true">🗓️</span>
                             <span class="nav-label">Weekly Agenda</span>
                         </button>
                         <button type="button" class="nav-item" data-view="resumen" title="Weekly Summary">
-                            <span class="nav-icon" aria-hidden="true">📊</span>
+                            <span class="nav-icon" aria-hidden="true">📈</span>
                             <span class="nav-label">Weekly Summary</span>
                         </button>
                         <button type="button" class="nav-item admin-only-nav" data-view="medico"
                             title="Psychiatrist Access">
-                            <span class="nav-icon" aria-hidden="true">👨‍⚕️</span>
+                            <span class="nav-icon" aria-hidden="true">🩺</span>
                             <span class="nav-label">Psychiatrist Access</span>
+                        </button>
+                        <button type="button" class="nav-item admin-only-nav" data-view="settings"
+                            title="Settings &amp; Reminders">
+                            <span class="nav-icon" aria-hidden="true">⚙️</span>
+                            <span class="nav-label">Settings</span>
                         </button>
                     </div>
                 </div>
@@ -288,7 +312,7 @@
                     <span class="theme-label">Light Theme</span>
                 </button>
                 <button type="button" class="btn-logout-sidebar" id="btnLogout" title="Sign Out">
-                    <span aria-hidden="true">🚪</span>
+                    <span aria-hidden="true">🔒</span>
                     <span class="logout-text">Sign Out</span>
                 </button>
             </div>
@@ -296,6 +320,8 @@
 
         <!-- Main content area -->
         <main class="main-content" id="mainContent">
+            <!-- Active & snoozed reminders notification bar -->
+            <div id="reminderTray" class="reminder-tray admin-only-nav" hidden aria-live="polite"></div>
 
             <!-- ==========================================
                  VIEW 1: HOME DASHBOARD
@@ -310,7 +336,8 @@
                         </div>
                         <div class="home-hero-actions">
                             <button type="button" class="btn-primary-pill" data-go-view="mood">+ Log Mood</button>
-                            <button type="button" class="btn-secondary-pill" data-go-view="agenda">📅 View Agenda</button>
+                            <button type="button" class="btn-secondary-pill" data-go-view="agenda">🗓️ View Agenda</button>
+                            <button type="button" class="btn-secondary-pill" data-go-view="settings">⚙️ Settings</button>
                         </div>
                     </div>
 
@@ -318,7 +345,7 @@
                     <div class="home-summary-grid">
                         <article class="summary-card">
                             <div class="summary-card-header">
-                                <span class="summary-icon">😊</span>
+                                <span class="summary-icon">🧠</span>
                                 <h3>Mood Tracker</h3>
                             </div>
                             <div class="summary-card-body" id="homeMoodSummary">
@@ -329,7 +356,7 @@
 
                         <article class="summary-card">
                             <div class="summary-card-header">
-                                <span class="summary-icon">😴</span>
+                                <span class="summary-icon">🌙</span>
                                 <h3>Sleep</h3>
                             </div>
                             <div class="summary-card-body" id="homeSleepSummary">
@@ -340,7 +367,7 @@
 
                         <article class="summary-card">
                             <div class="summary-card-header">
-                                <span class="summary-icon">📅</span>
+                                <span class="summary-icon">🗓️</span>
                                 <h3>Today's Agenda</h3>
                             </div>
                             <div class="summary-card-body" id="homeAgendaSummary">
@@ -353,7 +380,7 @@
                     <h2 class="section-heading">All Features</h2>
                     <div class="home-shortcuts-grid">
                         <button type="button" class="shortcut-card" data-go-view="mood">
-                            <span class="shortcut-emoji">😊</span>
+                            <span class="shortcut-emoji">🧠</span>
                             <div>
                                 <strong>Mood Tracker</strong>
                                 <p>Log how you feel at each time of day (including late night).</p>
@@ -361,7 +388,7 @@
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="sueno">
-                            <span class="shortcut-emoji">😴</span>
+                            <span class="shortcut-emoji">🌙</span>
                             <div>
                                 <strong>Sleep Tracker</strong>
                                 <p>Calculate your sleep duration and rest quality upon waking.</p>
@@ -369,7 +396,7 @@
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="journal">
-                            <span class="shortcut-emoji">📝</span>
+                            <span class="shortcut-emoji">🖋️</span>
                             <div>
                                 <strong>Journal Notes</strong>
                                 <p>Send your E2EE encrypted thoughts directly to Word on your PC.</p>
@@ -377,7 +404,7 @@
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="english">
-                            <span class="shortcut-emoji">📚</span>
+                            <span class="shortcut-emoji">📖</span>
                             <div>
                                 <strong>English Notebook</strong>
                                 <p>Save new vocabulary, grammar notes, and phrasal verbs to your Word notebook.</p>
@@ -385,15 +412,15 @@
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="agenda">
-                            <span class="shortcut-emoji">📅</span>
+                            <span class="shortcut-emoji">🗓️</span>
                             <div>
                                 <strong>Weekly Agenda</strong>
-                                <p>Organize your daily activities and schedule by time block.</p>
+                                <p>Manage University &amp; Personal events and Jira-style tasks (To Do, In Progress, Done).</p>
                             </div>
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="resumen">
-                            <span class="shortcut-emoji">📊</span>
+                            <span class="shortcut-emoji">📈</span>
                             <div>
                                 <strong>Weekly Summary</strong>
                                 <p>View your weekly mood color grid and sleep overview.</p>
@@ -401,10 +428,18 @@
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="medico">
-                            <span class="shortcut-emoji">👨‍⚕️</span>
+                            <span class="shortcut-emoji">🩺</span>
                             <div>
                                 <strong>Psychiatrist Access</strong>
                                 <p>Manage read-only accounts for your doctor or clinician.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="settings">
+                            <span class="shortcut-emoji">⚙️</span>
+                            <div>
+                                <strong>Settings &amp; Reminders</strong>
+                                <p>Configure phone notifications, automatic reminders, English study alerts, and theme.</p>
                             </div>
                         </button>
                     </div>
@@ -500,7 +535,7 @@
                 <div class="card">
                     <form id="sleepForm">
                         <h3>Best logged right after waking up</h3>
-                        <h2>😴 Sleep Tracker</h2>
+                        <h2>🌙 Sleep Tracker</h2>
 
                         <div class="form-group">
                             <label for="sleepTime">What time did you fall asleep?</label>
@@ -538,7 +573,7 @@
             ========================================== -->
             <section class="app-view" id="view-journal" data-title="Journal Notes">
                 <div class="card">
-                    <h2>📝 Journal Notes</h2>
+                    <h2>🖋️ Journal Notes</h2>
                     <form id="journalForm">
                         <div class="form-group">
                             <textarea id="journalText" lang="en" spellcheck="true"
@@ -554,7 +589,7 @@
             ========================================== -->
             <section class="app-view" id="view-english" data-title="English Notebook">
                 <div class="card english-card">
-                    <h2>📚 English Learning Notebook</h2>
+                    <h2>📖 English Learning Notebook</h2>
                     <p class="english-subtitle">
                         Save new vocabulary, grammar rules, and phrasal verbs directly to your local Word notebook (<code>english-notes/</code>) without storing them in MySQL. Every entry updates the Table of Contents automatically.
                     </p>
@@ -563,9 +598,9 @@
                         <button type="button" class="english-tab-btn active" data-english-cat="vocabulary" role="tab"
                             aria-selected="true">📖 Glossary / New Word</button>
                         <button type="button" class="english-tab-btn" data-english-cat="grammar" role="tab"
-                            aria-selected="false">📝 Grammar &amp; Usage Note</button>
+                            aria-selected="false">✍️ Grammar &amp; Usage Note</button>
                         <button type="button" class="english-tab-btn" data-english-cat="phrasal_verb" role="tab"
-                            aria-selected="false">🚀 Phrasal Verb</button>
+                            aria-selected="false">🔗 Phrasal Verb</button>
                     </div>
 
                     <form id="englishForm">
@@ -700,7 +735,7 @@
                 <div class="agenda-wrapper">
                     <div class="agenda-header">
                         <div class="agenda-title-block">
-                            <span class="agenda-calendar-icon" aria-hidden="true">📅</span>
+                            <span class="agenda-calendar-icon" aria-hidden="true">🗓️</span>
                             <div>
                                 <h1 class="agenda-title">ORGANIZE YOUR WEEK</h1>
                                 <p class="agenda-subtitle" id="agendaWeekStats">Loading activities...</p>
@@ -726,6 +761,19 @@
                         </div>
                     </div>
 
+                    <div class="agenda-filter-bar">
+                        <div class="agenda-filter-group" id="agendaCategoryFilters" role="group" aria-label="Category filter">
+                            <button type="button" class="agenda-filter-pill active" data-agenda-cat="all">All</button>
+                            <button type="button" class="agenda-filter-pill" data-agenda-cat="universidad">🎓 University</button>
+                            <button type="button" class="agenda-filter-pill" data-agenda-cat="personal">👤 Personal</button>
+                        </div>
+                        <div class="agenda-filter-group" id="agendaTypeFilters" role="group" aria-label="Type filter">
+                            <button type="button" class="agenda-filter-pill active" data-agenda-type="all">Events &amp; Tasks</button>
+                            <button type="button" class="agenda-filter-pill" data-agenda-type="evento">📌 Events</button>
+                            <button type="button" class="agenda-filter-pill" data-agenda-type="tarea">☑ Tasks (Jira)</button>
+                        </div>
+                    </div>
+
                     <div id="agendaLoadingBanner" class="section-loading-banner" hidden></div>
                     <div class="agenda-day-tabs" id="agendaDayTabs" hidden></div>
                     <div class="agenda-day-board" id="agendaDayBoard" hidden></div>
@@ -745,7 +793,7 @@
                         Back to Home</button>
 
                     <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
-                        👨‍⚕️ <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker &amp; Sleep Hours.
+                        🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker &amp; Sleep Hours.
                     </div>
 
                     <h1 class="tracker-title">WEEKLY MOOD &amp; SLEEP SUMMARY</h1>
@@ -852,7 +900,7 @@
                         </aside>
 
                         <div class="sleep-container">
-                            <h3>😴 Sleep Summary</h3>
+                            <h3>🌙 Sleep Summary</h3>
                             <div class="sleep-grid" id="sleepGrid"></div>
                         </div>
                     </div>
@@ -864,7 +912,7 @@
             ========================================== -->
             <section class="app-view" id="view-medico" data-title="Psychiatrist Access">
                 <div class="card">
-                    <h2>👨‍⚕️ Psychiatrist Access</h2>
+                    <h2>🩺 Psychiatrist Access</h2>
                     <p class="muted-text" style="margin-bottom: 20px; text-align: center;">
                         Create or update a <strong>read-only</strong> account for your psychiatrist. This account can only view the Weekly Mood &amp; Sleep Summary (no access to notes, agenda, or editing).
                     </p>
@@ -896,6 +944,219 @@
                     </div>
                 </div>
             </section>
+
+            <!-- ==========================================
+                 VIEW 8: SETTINGS & PHONE REMINDERS (ADMIN ONLY)
+            ========================================== -->
+            <section class="app-view" id="view-settings" data-title="Settings & Reminders">
+                <div class="settings-container">
+                    <div class="settings-header-card">
+                        <div>
+                            <h2>⚙️ Settings &amp; Reminders</h2>
+                            <p class="muted-text">Manage mobile notification bar alerts, automated reminders, agenda defaults, appearance, and local E2EE key settings.</p>
+                        </div>
+                        <div class="settings-header-actions">
+                            <button type="button" class="btn-secondary-pill" id="btnSettingsThemeToggle">☀️ Switch Theme</button>
+                        </div>
+                    </div>
+
+                    <div id="settingsLoadingBanner" class="section-loading-banner" hidden></div>
+
+                    <form id="settingsForm" class="settings-grid">
+                        <!-- Card A: Mobile Notification Bar Delivery -->
+                        <section class="card settings-card">
+                            <h3>📱 Phone Notification Bar (ntfy)</h3>
+                            <p class="settings-desc">
+                                Receive reminders directly in your phone's Android / iOS notification shade even when the browser is closed (desktop alerts stay off by default).
+                            </p>
+
+                            <div class="settings-steps-box">
+                                <strong>Quick Setup (OPPO A79 / Android / iOS):</strong>
+                                <ol>
+                                    <li>Install the free <strong>ntfy</strong> app on your phone.</li>
+                                    <li>Generate or enter a private topic below and subscribe to that same topic inside the phone app.</li>
+                                    <li>Save Settings and click <strong>Send Test Notification</strong>.</li>
+                                </ol>
+                            </div>
+
+                            <label class="switch-row">
+                                <input type="checkbox" id="setPhoneEnabled">
+                                <span>Enable notifications on my phone's notification bar</span>
+                            </label>
+
+                            <div class="form-group">
+                                <label for="setNtfyTopic">Private phone topic (min. 8 characters):</label>
+                                <div class="input-with-actions">
+                                    <input type="text" id="setNtfyTopic" maxlength="80" pattern="[A-Za-z0-9_-]{8,80}"
+                                        placeholder="e.g. hub_flavio_9x4k2m">
+                                    <button type="button" class="agenda-chip-btn" id="btnGenerateNtfyTopic">Generate</button>
+                                    <button type="button" class="agenda-chip-btn" id="btnCopyNtfyTopic">Copy</button>
+                                </div>
+                            </div>
+
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="setNtfyServerUrl">Push server (HTTPS):</label>
+                                    <input type="url" id="setNtfyServerUrl" value="https://ntfy.sh" placeholder="https://ntfy.sh">
+                                </div>
+                                <div class="form-group">
+                                    <label for="setNtfyPriority">Phone alert priority:</label>
+                                    <select id="setNtfyPriority">
+                                        <option value="5">5 — Urgent</option>
+                                        <option value="4" selected>4 — High (Pop-up + sound)</option>
+                                        <option value="3">3 — Normal</option>
+                                        <option value="2">2 — Low (Silent tray)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="setPublicBaseUrl">Public server URL (for Open / Snooze phone buttons):</label>
+                                <input type="url" id="setPublicBaseUrl" placeholder="Auto-detected from current address">
+                            </div>
+
+                            <label class="switch-row">
+                                <input type="checkbox" id="setDesktopNotify">
+                                <span>Also show desktop browser notifications <small class="muted-text">(Optional — off by default since PC alerts aren't needed)</small></span>
+                            </label>
+
+                            <div class="settings-inline-actions">
+                                <button type="button" class="btn-view" id="btnTestPhonePush">🔔 Send Test to Phone</button>
+                            </div>
+                        </section>
+
+                        <!-- Card B: Automated & Custom Reminders -->
+                        <section class="card settings-card">
+                            <h3>🔔 Reminder Schedule &amp; Rules</h3>
+
+                            <div class="reminder-rule-block">
+                                <label class="switch-row">
+                                    <input type="checkbox" id="setMoodEnabled">
+                                    <span><strong>Mood Tracker</strong> — Automatic mid-window check-ins</span>
+                                </label>
+                                <p class="form-hint">Notifies automatically at Morning (09:00), Noon (13:00), Afternoon (17:00), and Night (22:00) only if you haven't logged that block yet.</p>
+                                <label class="switch-row switch-sub-row">
+                                    <input type="checkbox" id="setMoodLateNight">
+                                    <span>Optional: include Late Night reminder (03:00 AM)</span>
+                                </label>
+                            </div>
+
+                            <div class="reminder-rule-block">
+                                <div class="rule-row-split">
+                                    <label class="switch-row">
+                                        <input type="checkbox" id="setSleepEnabled">
+                                        <span><strong>Morning Sleep Log</strong> (supports Snooze / Postpone)</span>
+                                    </label>
+                                    <input type="time" id="setSleepTime" value="08:30" aria-label="Morning sleep reminder time">
+                                </div>
+                            </div>
+
+                            <div class="reminder-rule-block">
+                                <label class="switch-row">
+                                    <input type="checkbox" id="setAgendaRemEnabled">
+                                    <span><strong>Weekly Agenda</strong> — Events &amp; Tasks alerts</span>
+                                </label>
+                                <div class="rule-sub-controls">
+                                    <label class="mini-check"><input type="checkbox" id="setAgendaEvents"> Events</label>
+                                    <label class="mini-check"><input type="checkbox" id="setAgendaTasks"> Tasks</label>
+                                    <label class="mini-select-wrap">
+                                        Remind
+                                        <select id="setAgendaLeadMin">
+                                            <option value="0">At start time</option>
+                                            <option value="5">5 min before</option>
+                                            <option value="10" selected>10 min before</option>
+                                            <option value="15">15 min before</option>
+                                            <option value="30">30 min before</option>
+                                            <option value="60">60 min before</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="reminder-rule-block">
+                                <div class="rule-row-split">
+                                    <label class="switch-row">
+                                        <input type="checkbox" id="setWordEodEnabled">
+                                        <span><strong>End-of-Day Word Notes Check</strong> (Journal &amp; English .docx)</span>
+                                    </label>
+                                    <input type="time" id="setWordEodTime" value="21:30" aria-label="Word check reminder time">
+                                </div>
+                            </div>
+
+                            <div class="reminder-rule-block">
+                                <div class="rule-row-split">
+                                    <label class="switch-row">
+                                        <input type="checkbox" id="setEnglishEnabled">
+                                        <span><strong>English Study Reminder</strong> <small class="muted-text">(Configurable — off by default)</small></span>
+                                    </label>
+                                    <input type="time" id="setEnglishTime" value="19:00" aria-label="English study reminder time">
+                                </div>
+                                <div class="weekday-pills" id="setEnglishDaysGroup" aria-label="English study days">
+                                    <label class="day-check-pill"><input type="checkbox" value="1">Mon</label>
+                                    <label class="day-check-pill"><input type="checkbox" value="2">Tue</label>
+                                    <label class="day-check-pill"><input type="checkbox" value="3">Wed</label>
+                                    <label class="day-check-pill"><input type="checkbox" value="4">Thu</label>
+                                    <label class="day-check-pill"><input type="checkbox" value="5">Fri</label>
+                                    <label class="day-check-pill"><input type="checkbox" value="6">Sat</label>
+                                    <label class="day-check-pill"><input type="checkbox" value="0">Sun</label>
+                                </div>
+                                <div class="form-group" style="margin-top: 8px; margin-bottom: 0;">
+                                    <input type="text" id="setEnglishTopic" maxlength="200"
+                                        placeholder="e.g. Review 5 phrasal verbs and practice speaking">
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Card C: Workspace, Agenda Defaults & Security Shortcuts -->
+                        <section class="card settings-card settings-card-wide">
+                            <h3>🎛️ Workspace Defaults &amp; Security</h3>
+                            <div class="form-row-3">
+                                <div class="form-group">
+                                    <label for="setDefaultCat">Default Agenda Category:</label>
+                                    <select id="setDefaultCat">
+                                        <option value="all">All (University + Personal)</option>
+                                        <option value="universidad">🎓 University Only</option>
+                                        <option value="personal">👤 Personal Only</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setDefaultLayout">Default Agenda View:</label>
+                                    <select id="setDefaultLayout">
+                                        <option value="auto">Auto (Grid PC / Day Mobile)</option>
+                                        <option value="grid">Weekly Grid View</option>
+                                        <option value="day">Day Focus View</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setTimezone">Timezone (IANA):</label>
+                                    <input type="text" id="setTimezone" maxlength="80" placeholder="America/Monterrey">
+                                </div>
+                            </div>
+
+                            <label class="switch-row">
+                                <input type="checkbox" id="setShowWeekend" checked>
+                                <span>Include Saturday &amp; Sunday in Weekly Agenda by default</span>
+                            </label>
+
+                            <div class="e2ee-key-box">
+                                <div>
+                                    <strong>Local E2EE Secret Key (Journal &amp; English Word):</strong>
+                                    <span id="settingsE2eeStatus" class="muted-text">Checking...</span>
+                                </div>
+                                <div class="settings-inline-actions">
+                                    <button type="button" class="agenda-chip-btn" id="btnSetE2eeKey">Update 32-char Key</button>
+                                    <button type="button" class="agenda-chip-btn" id="btnClearE2eeKey">Clear from Browser</button>
+                                </div>
+                            </div>
+
+                            <div class="settings-save-bar">
+                                <div id="settingsStatusBanner" class="english-status-banner" hidden></div>
+                                <button type="submit" class="btn-submit" id="btnSaveSettings">Save All Settings</button>
+                            </div>
+                        </section>
+                    </form>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -911,6 +1172,23 @@
                 <input type="hidden" id="agendaEditId" value="">
                 <div class="form-row-2">
                     <div class="form-group">
+                        <label for="agendaTipo">Activity type:</label>
+                        <select id="agendaTipo" required>
+                            <option value="evento">📌 Event (Class / Appointment / Meeting)</option>
+                            <option value="tarea">☑ Task (Jira Status: To Do / In Progress / Done)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="agendaCategoria">Category:</label>
+                        <select id="agendaCategoria" required>
+                            <option value="universidad">🎓 University</option>
+                            <option value="personal">👤 Personal</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row-2">
+                    <div class="form-group">
                         <label for="agendaFecha">Date:</label>
                         <input type="date" id="agendaFecha" required>
                     </div>
@@ -920,26 +1198,50 @@
                     </div>
                 </div>
 
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="agendaBloque">Time block (part of day):</label>
+                        <select id="agendaBloque" required>
+                            <option value="manana">☕ Morning</option>
+                            <option value="cole">🎓 School / University</option>
+                            <option value="tarde">☀️ Afternoon</option>
+                            <option value="noche">🌙 Night</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="agendaEstado">Workflow status (Jira):</label>
+                        <select id="agendaEstado" required>
+                            <option value="todo">To Do</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="done">Done</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="form-group">
-                    <label for="agendaBloque">Time block (part of day):</label>
-                    <select id="agendaBloque" required>
-                        <option value="manana">☕ Morning</option>
-                        <option value="cole">📖 At School / Classes</option>
-                        <option value="tarde">☀️ Afternoon</option>
-                        <option value="noche">🌙 Night</option>
+                    <label for="agendaRecordatorioMin">Phone reminder timing:</label>
+                    <select id="agendaRecordatorioMin">
+                        <option value="">Use Settings default</option>
+                        <option value="0">At scheduled time (0 min before)</option>
+                        <option value="5">5 minutes before</option>
+                        <option value="10">10 minutes before</option>
+                        <option value="15">15 minutes before</option>
+                        <option value="30">30 minutes before</option>
+                        <option value="60">1 hour before</option>
+                        <option value="-1">No reminder for this item</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="agendaActividad">Activity:</label>
+                    <label for="agendaActividad">Title / Description:</label>
                     <input type="text" id="agendaActividad" maxlength="255"
-                        placeholder="e.g. Have breakfast, Do homework, Take a shower..." required>
+                        placeholder="e.g. Software Engineering Lecture, Finish Lab Report..." required>
                     <div class="agenda-suggestions" id="agendaSuggestions">
+                        <button type="button" class="suggestion-chip" data-text="University Class">University Class</button>
+                        <button type="button" class="suggestion-chip" data-text="Complete Assignment">Complete Assignment</button>
+                        <button type="button" class="suggestion-chip" data-text="Study for Exam">Study for Exam</button>
                         <button type="button" class="suggestion-chip" data-text="Have breakfast">Have breakfast</button>
-                        <button type="button" class="suggestion-chip" data-text="Do homework">Do homework</button>
-                        <button type="button" class="suggestion-chip" data-text="Take a shower">Take a shower</button>
-                        <button type="button" class="suggestion-chip" data-text="Brush my teeth">Brush my teeth</button>
-                        <button type="button" class="suggestion-chip" data-text="Study">Study</button>
+                        <button type="button" class="suggestion-chip" data-text="Workout">Workout</button>
                     </div>
                 </div>
 

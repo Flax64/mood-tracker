@@ -1,41 +1,55 @@
 # Personal Daily Hub
 
-Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles como OPPO A79) para el seguimiento diario del estado de ánimo (`Mood Tracker`), control de sueño, diario privado cifrado E2EE, cuaderno de aprendizaje de inglés, planificación semanal personal (`Weekly Agenda`) y seguimiento psiquiátrico de solo lectura.
+Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles como OPPO A79) para el control personal diario: seguimiento de estado de ánimo (`Mood Tracker`), control de sueño, diario privado cifrado E2EE, cuaderno de aprendizaje de inglés, agenda semanal dividida en **Universidad / Personal** con flujo tipo Jira (**To Do / In Progress / Done**), y sistema de recordatorios automáticos con entrega directa a la barra de notificaciones del celular (`ntfy`) y panel dedicado de **Configuración (`Settings`)**.
+
+---
+
+## 📑 Índice de Contenidos
+
+* [✨ Funcionalidades Principales](#-funcionalidades-principales)
+* [🛠️ Tecnologías Utilizadas](#️-tecnologías-utilizadas)
+* [📁 Estructura del Proyecto](#-estructura-del-proyecto)
+* [📚 Guías del Proyecto](#-guías-del-proyecto)
+* [🗄️ Base de Datos (`init.sql` y Migración Automática)](#️-base-de-datos-initsql-y-migración-automática)
+* [🚀 Instalación y Ejecución (Entorno Local / Docker)](#-instalación-y-ejecución-entorno-local--docker)
+* [📡 Endpoints de la API](#-endpoints-de-la-api)
+* [☁️ Respaldos Automáticos en Google Drive desde AWS EC2](#️-respaldos-automáticos-en-google-drive-desde-aws-ec2)
+* [🔄 Migración Automática a una Nueva Instancia AWS EC2 (Sin tocar código)](#-migración-automática-a-una-nueva-instancia-aws-ec2-sin-tocar-código)
+* [🔒 Encriptar `.env` en el servidor con contraseña maestra (`scripts/env-vault.sh`)](#-encriptar-env-en-el-servidor-con-contraseña-maestra-scriptsenv-vaultsh)
 
 ---
 
 ## ✨ Funcionalidades Principales
 
-La aplicación cuenta con una **interfaz principal (`Inicio`)** al abrirla y una **barra lateral fija en el lado izquierdo**, desplegable tanto en PC (plegable a barra compacta de iconos) como en celular (menú tipo *drawer*), con cada función separada en su propia vista:
+La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja interactiva de recordatorios activos (`#reminderTray`)** y una **barra lateral fija en el lado izquierdo**, desplegable tanto en PC (plegable a barra compacta) como en celular (menú tipo *drawer*), organizando cada módulo en su vista:
 
-1. **🏠 Inicio (Interfaz Principal):** Resumen rápido del día actual (estados de ánimo registrados hoy, horas de sueño y actividades pendientes/completadas en la agenda) más accesos directos a todos los módulos.
-2. **😊 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo modificable desde el servidor.
-3. **😴 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, con registro de calidad (`Good`, `Regular`, `Bad`).
-4. **📝 Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia el script local de Python (`sincronitation/sincronizador.py`) para escribir en Word.
-5. **📚 English Notebook:** Registro de vocabulario, notas de gramática y *phrasal verbs* cifrados E2EE en tránsito y guardados automáticamente en un documento Word local sin contraseña (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada.
-6. **📅 Agenda Semanal (`Organize Your Week`):** Calendario/agenda visual por semana con diseño en tonos pastel por día y dividido en los 4 bloques del día:
-   - ☕ **Morning** (`manana`)
-   - 📖 **School / Classes** (`cole`)
-   - ☀️ **Afternoon** (`tarde`)
-   - 🌙 **Night** (`noche`)
-   Permite registrar actividad y hora, marcar actividades completadas, editar/eliminar, alternar vista `Mon - Fri` / `Mon - Sun` y cambiar entre **Day View** (optimizada para celular) y **Grid View** (estilo plantilla semanal).
-7. **📊 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
-8. **🔐 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
-   - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos y gestión de la cuenta del psiquiatra (`#view-medico`).
-   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado al dashboard semanal de **Estado de Ánimo y Horas de Sueño** (`#view-resumen`); sin acceso a notas del Journal, English Notebook, Agenda ni formularios de edición.
-   - **Sesión persistente:** Permanece activa aunque cierres la pestaña o el navegador (`HttpOnly` cookie + tabla `SesionesAuth`) y solo se cierra cuando presionas **Sign Out** en el menú lateral o automáticamente **cada domingo a las `00:00`**.
-   - **Seguridad:** Contraseñas encriptadas con `bcrypt` (`bcryptjs`, 12 rondas), tokens de sesión hasheados con SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), *rate-limiting* contra fuerza bruta, protección anti-duplicado (`X-Idempotency-Key` + bloqueos de envío) y recuperación de contraseña por correo (`nodemailer` con Gmail SMTP).
-9. **🌙 Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y botón para alternar entre modo oscuro y claro.
+1. **🧭 Inicio (Interfaz Principal):** Resumen rápido del día actual (estados de ánimo registrados hoy, horas de sueño y desglose de actividades **University / Personal** y su avance **To Do / In Progress / Done**), bandeja de recordatorios activos con botones para posponer (*Snooze*) o completar al instante, y accesos directos a todos los módulos (incluyendo **Settings**).
+2. **🧠 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo desde el servidor y recordatorios automáticos a mitad de cada horario (`09:00`, `13:00`, `17:00`, `22:00`; **`Madrugada 03:00` es opcional** y viene desactivado por defecto).
+3. **🌙 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, calidad (`Good`, `Regular`, `Bad`) y recordatorio matutino configurable (por defecto `08:30`) con opción de posponer (*Snooze 15m / 30m / 1h*).
+4. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
+5. **📖 English Notebook:** Registro de vocabulario, notas de gramática y *phrasal verbs* cifrados E2EE en tránsito y guardados automáticamente en un documento Word local sin contraseña (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y recordatorio de estudio **100% configurable** por día y hora (desactivado por defecto).
+6. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
+   - **Tipos de actividad:** **Evento** (`evento`: clases, citas, reuniones) y **Tarea** (`tarea`).
+   - **Dos categorías principales:** **🎓 Universidad** (`universidad`) y **👤 Personal** (`personal`), con filtros rápidos por categoría y tipo, y divisores visuales por categoría dentro de cada bloque del día (**Morning**, **At School / Classes**, **Afternoon**, **Night**).
+   - **Flujo tipo Jira:** selector directo e icono de estado **`To Do`** (`todo`), **`In Progress`** (`in_progress`) y **`Done`** (`done`) sincronizados con `completada` y recordatorios anticipados configurables por actividad.
+7. **📈 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
+8. **⚙️ Configuración (`Settings`):** Vista dedicada para gestionar notificaciones en la barra del celular (**`ntfy`** sin requerir HTTPS ni notificaciones en la computadora), horarios y reglas de recordatorios (Estado de ánimo, `Madrugada` opcional, Sueño, Agenda, revisión nocturna de notas Word, estudio de inglés opcional), valores predeterminados de agenda, zona horaria IANA, tema claro/oscuro y administración de la clave local E2EE de 32 caracteres.
+9. **🩺 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
+   - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos, recordatorios, configuración y gestión de cuentas psiquiátricas con activación/desactivación (`#view-medico`).
+   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado a **Resumen Semanal** de ánimo y sueño (`#view-resumen`); bloqueado por RBAC (`403`) en agenda, notas, configuración y recordatorios.
+   - **Sesión persistente:** Permanece activa mediante cookie `HttpOnly; SameSite=Lax` y tabla `SesionesAuth` hasta cerrar sesión (**Sign Out**) o hasta el **domingo `00:00`**.
+   - **Seguridad Checklist U2:** Contraseñas con `bcryptjs` (12 rondas), tokens SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`), *rate limiting* multicapa en API/Auth/acciones de recordatorio, protección SSRF en URLs de notificación, idempotencia (`X-Idempotency-Key` + locks en botones), MFA opcional y recuperación por correo (`nodemailer`).
+10. **🎛️ Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y cambio de tema desde barra lateral, móvil y *Settings*.
 
 ---
 
 ## 🛠️ Tecnologías Utilizadas
 
-* **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, **Tema Oscuro**, diseño móvil *touch-friendly* y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
-* **Backend:** Node.js, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `bcryptjs`, `nodemailer`, `cors`, `dotenv`.
-* **Base de Datos:** MySQL 8.0 (`RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`).
-* **Sincronización PC (Journal):** Python (`sincronitation/sincronizador.py`) con `pycryptodome` y `pywin32`.
-* **DevOps y Respaldos:** Docker, Docker Compose, GitHub Actions (`.github/workflows/deploy.yml`) en AWS EC2, bóveda `.env.enc` (`scripts/env-vault.sh`) y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
+* **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, bandejas de recordatorios, filtros por categoría/tipo, selectores tipo Jira, **Tema Oscuro** y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
+* **Backend:** Node.js 20, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `bcryptjs`, `nodemailer`, `cors`, `dotenv`, `fetch` nativo para puente HTTPS de notificaciones móviles (`ntfy`).
+* **Base de Datos:** MySQL 8.0 (8 tablas: `RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`, `ConfiguracionUsuario`, `RecordatoriosEstado`).
+* **Sincronización PC (Journal & English):** Python (`sincronitation/sincronizador.py`) con `pycryptodome`, `pywin32` y `python-docx`.
+* **Calidad y DevOps:** Node Test Runner (`tests/*.test.js`), GitHub Actions (`.github/workflows/ci.yml` y `deploy.yml`), Docker / Docker Compose en AWS EC2, bóveda `.env.enc` (`scripts/env-vault.sh` / `scripts/local-vault.js`) y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
 
 ---
 
@@ -45,34 +59,46 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)** al abrirla y una
 mood-tracker/
 ├── .github/
 │   └── workflows/
+│       ├── ci.yml                  # Pruebas automatizadas y sintaxis en ramas/PR hacia main
 │       └── deploy.yml              # CI/CD automático hacia AWS EC2
 ├── base_datos/
 │   └── Diseño Base Datos.xml       # Modelo visual de base de datos
-├── guides/                         # Documentación técnica y operativa
+├── english-notes/                  # Cuaderno Word de inglés autogenerado (ignorado en Git/Docker)
+│   └── English_Learning_Notebook.docx
+├── guides/                         # Documentación técnica y operativa (con índice rápido)
 │   ├── GUIA_OPERACION_Y_MIGRACION.md
 │   └── GUIA_TECNICA_ARQUITECTURA.md
 ├── public/                         # Archivos estáticos servidos por Express
-│   ├── index.html                  # Shell principal, pantalla de arranque, barra lateral y vistas
+│   ├── index.html                  # Shell principal, tray de recordatorios, Agenda Jira y vista Settings
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
 │   ├── theme-init.js               # Inicialización temprana de tema antes del primer pintado (CSP)
-│   ├── style.css                   # Estilos responsivos, spinners de carga + Tema Oscuro
-│   └── frontend.js                 # Navegación, formularios, auth, idempotencia, tema y agenda
+│   ├── style.css                   # Estilos responsivos, spinners, filtros Jira y vista Settings
+│   └── frontend.js                 # Navegación, E2EE, agenda categórica/Jira, recordatorios y settings
 ├── scripts/
 │   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
-│   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor
+│   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor EC2
+│   ├── local-vault.js              # Bóveda local en Windows (.env <-> .env.enc y autoinicio DPAPI)
 │   └── restore.sh                  # Script de restauración automática desde Google Drive
-├── sincronitation/
-│   ├── sincronizador.py            # Cliente local en Windows (lee configuración desde .env)
+├── sincronitation/                 # Scripts locales en Windows (ignorados en Git/Docker)
+│   ├── sincronizador.py            # Cliente local Windows para Journal (.docx protegido) y English (.docx)
 │   └── historial.log               # Bitácora del sincronizador
-├── .env                            # Variables de entorno y contraseñas (no versionado)
+├── tests/                          # Suite automatizada con node:test (sin BD real requerida)
+│   ├── ci-summary.js               # Resumen Markdown de pruebas para GitHub Actions
+│   ├── local-vault.test.js         # Pruebas de cifrado local e interoperabilidad Python
+│   ├── server.integration.test.js  # Pruebas API, RBAC, Rate Limit, Agenda Jira, Settings y Recordatorios
+│   └── syntax-and-config.test.js   # Verificación de sintaxis, CSS, SQL, HTML, docs y CI/CD
+├── .dockerignore                   # Exclusiones del contexto Docker (incluye tests/, guides/, .env*)
+├── .env                            # Variables de entorno temporales (no versionado; usar .env.enc)
+├── .env.enc                        # Bóveda cifrada local de variables de entorno
 ├── .env.example                    # Plantilla de variables de entorno requeridas
 ├── .gitignore
-├── docker-compose.yml              # Orquestación de MySQL 8.0 + Node.js
-├── Dockerfile
-├── init.sql                        # Esquema inicial de tablas MySQL
-├── package.json
-├── README.md
-└── server.js                       # Backend Express y API REST
+├── docker-compose.yml              # Orquestación de MySQL 8.0 (512m) + Node.js (220m)
+├── Dockerfile                      # Imagen node:20-alpine optimizada para EC2 t3.micro
+├── init.sql                        # Esquema inicial completo de las 8 tablas MySQL
+├── package.json                    # Dependencias Node y script "npm test"
+├── package-lock.json
+├── README.md                       # Documentación principal del proyecto (este archivo)
+└── server.js                       # Backend Express, API REST, RBAC, Rate Limiting y Scheduler ntfy
 ```
 
 ---
@@ -84,20 +110,22 @@ mood-tracker/
 
 ---
 
-## 🗄️ Base de Datos (`init.sql` y Migración en AWS)
+## 🗄️ Base de Datos (`init.sql` y Migración Automática)
 
-El archivo `init.sql` define tres tablas principales:
+El archivo `init.sql` define **8 tablas principales** (y `server.js` crea/migra automáticamente al arrancar las tablas nuevas y las columnas nuevas de `RegistrosAgenda` sin perder datos):
 
 * **`RegistrosMood`**: `id`, `fecha`, `momento_dia` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`), `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
 * **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `fecha_registro`.
-* **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `completada`, `fecha_registro`.
-* **`Usuarios`**: `id`, `nombre`, `email`, `password_hash` (bcrypt), `rol` (`admin` o `psiquiatra`), `fecha_registro`.
+* **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `completada`, `recordatorio_min`, `fecha_registro`.
+* **`Usuarios`**: `id`, `nombre`, `email`, `password_hash` (bcrypt), `rol` (`admin` o `psiquiatra`), `estado` (`activo`, `inactivo`, `suspendido`), `fecha_registro`.
 * **`SesionesAuth`**: `id`, `usuario_id`, `token_hash` (SHA-256), `expira_en` (próximo domingo `00:00`), `creado_en`.
-* **`CodigosSeguridad`**: `id`, `email`, `tipo` (`registro` o `reset`), `token_hash` (SHA-256), `expira_en`, `usado`, `creado_en`.
+* **`CodigosSeguridad`**: `id`, `email`, `tipo` (`registro`, `reset`, `mfa`), `token_hash` (SHA-256), `expira_en`, `usado`, `creado_en`.
+* **`ConfiguracionUsuario`**: `usuario_id` (PK / FK), `config_json` (`LONGTEXT` con configuración de `ntfy`, reglas de recordatorios y preferencias), `actualizado_en`.
+* **`RecordatoriosEstado`**: `id`, `usuario_id`, `clave_unica`, `tipo`, `ref_id`, `titulo`, `mensaje`, `estado` (`active`, `snoozed`, `dismissed`), `snooze_hasta`, `enviado_push_en`.
 
-### Crear la tabla `RegistrosAgenda` en una instancia AWS EC2 ya existente
+### Esquema / migración manual de `RegistrosAgenda` en AWS EC2
 
-> Docker solo ejecuta `init.sql` cuando el volumen `db_data` se crea por primera vez. Si tu instancia AWS ya está corriendo, ejecuta este comando por SSH dentro de tu EC2 para crear la tabla nueva sin perder datos existentes:
+> `server.js` aplica automáticamente `SHOW COLUMNS FROM RegistrosAgenda` + `ALTER TABLE` al iniciar (`inicializarTablasSeguridad()`). Si deseas inspeccionar o aplicar manualmente en MySQL dentro de EC2:
 
 ```bash
 cd /home/ubuntu/projects/mood-tracker
@@ -110,9 +138,14 @@ CREATE TABLE IF NOT EXISTS RegistrosAgenda (
     bloque VARCHAR(30) NOT NULL,
     hora TIME NOT NULL,
     actividad VARCHAR(255) NOT NULL,
+    tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento',
+    categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
+    estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
     completada TINYINT(1) NOT NULL DEFAULT 0,
+    recordatorio_min SMALLINT NULL DEFAULT NULL,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_agenda_fecha (fecha)
+    INDEX idx_agenda_fecha (fecha),
+    INDEX idx_agenda_categoria_estado (categoria, estado)
 );
 EOF
 ```
@@ -162,12 +195,25 @@ EOF
 * `POST /api/send-to-pc`: Encola un texto cifrado (`{ "texto": "<iv>:<ciphertext>" }`).
 * `GET /api/pull-text`: Entrega y vacía la cola de textos pendientes.
 
-### Agenda Personal Semanal
-* `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista las actividades ordenadas por `fecha` y `hora`.
-* `POST /api/insert-agenda`: Crea una nueva actividad (`{ "fecha", "bloque", "hora", "actividad" }`).
-* `PUT /api/update-agenda/:id`: Actualiza fecha, bloque, hora y descripción de una actividad.
-* `PATCH /api/toggle-agenda/:id`: Cambia el estado `completada` (`0` o `1`).
+### Agenda Personal Semanal (Eventos, Tareas y Estados Jira)
+* `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista actividades con `tipo` (`evento`/`tarea`), `categoria` (`universidad`/`personal`), `estado` (`todo`/`in_progress`/`done`), `completada` y `recordatorio_min`.
+* `POST /api/insert-agenda`: Crea un evento o tarea (`{ "fecha", "bloque", "hora", "actividad", "tipo", "categoria", "estado", "recordatorio_min" }`).
+* `PUT /api/update-agenda/:id`: Actualiza todos los campos de un evento o tarea.
+* `PATCH /api/toggle-agenda/:id`: Cambia directamente el estado Jira (`{ "estado": "todo" | "in_progress" | "done" }`) o alterna `completada`, descartando recordatorios si pasa a `done`.
 * `DELETE /api/delete-agenda/:id`: Elimina una actividad por `id`.
+
+### Configuración Personal y Recordatorios (`Settings` & Móvil `ntfy`)
+* `GET /api/settings`: Obtiene la configuración del usuario `admin` (reglas de recordatorios, horario de sueño/Word/inglés, `Madrugada` opcional, `ntfy`).
+* `PUT /api/settings`: Valida y guarda preferencias personales en `ConfiguracionUsuario` (protegido contra SSRF en URLs de push).
+* `POST /api/settings/test-notification`: Envía una notificación de prueba inmediata al tópico `ntfy` configurado en el celular.
+* `GET /api/reminders/active`: Evalúa y retorna recordatorios activos y pospuestos (`active` / `snoozed`) según los registros del día y la configuración vigente.
+* `POST /api/reminders/snooze`: Pospone (`snooze`, minutos `1..240`) o descarta (`dismiss`) un recordatorio desde la app web.
+* `POST /api/reminders/action?token=...`: Endpoint firmado con token HMAC temporal para ejecutar **Snooze 15m / 30m** o **Mark Done** directamente desde los botones de la barra de notificaciones de Android.
+
+### Autenticación, RBAC y Cuentas Médicas
+* `POST /api/auth/request-register-code`, `/api/auth/register`, `/api/auth/login`, `/api/auth/verify-mfa`, `/api/auth/logout`, `/api/auth/me`
+* `POST /api/auth/forgot-password` y `/api/auth/reset-password`
+* `GET /api/auth/medicos` y `PATCH /api/auth/medicos/:id/estado` (`activo` | `inactivo` | `suspendido`)
 
 ---
 

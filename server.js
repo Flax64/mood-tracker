@@ -86,9 +86,14 @@ function inicializarTablasSeguridad() {
             bloque VARCHAR(30) NOT NULL,
             hora TIME NOT NULL,
             actividad VARCHAR(255) NOT NULL,
+            tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento',
+            categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
+            estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
             completada TINYINT(1) NOT NULL DEFAULT 0,
+            recordatorio_min SMALLINT NULL DEFAULT NULL,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_agenda_fecha (fecha)
+            INDEX idx_agenda_fecha (fecha),
+            INDEX idx_agenda_categoria_estado (categoria, estado)
         )`,
         `CREATE TABLE IF NOT EXISTS Usuarios (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -118,6 +123,28 @@ function inicializarTablasSeguridad() {
             usado TINYINT(1) NOT NULL DEFAULT 0,
             creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_codigo_email_tipo (email, tipo)
+        )`,
+        `CREATE TABLE IF NOT EXISTS ConfiguracionUsuario (
+            usuario_id INT PRIMARY KEY,
+            config_json LONGTEXT NOT NULL,
+            actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS RecordatoriosEstado (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            usuario_id INT NOT NULL,
+            clave_unica VARCHAR(120) NOT NULL,
+            tipo VARCHAR(30) NOT NULL,
+            ref_id INT NULL,
+            titulo VARCHAR(140) NOT NULL,
+            mensaje VARCHAR(320) NOT NULL,
+            estado ENUM('active', 'snoozed', 'sent', 'dismissed') NOT NULL DEFAULT 'active',
+            snooze_hasta DATETIME NULL,
+            enviado_push_en DATETIME NULL,
+            actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_usuario_clave (usuario_id, clave_unica),
+            INDEX idx_rec_estado (usuario_id, estado),
+            FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
         )`
     ];
     tablasSql.forEach(sql => {
@@ -127,6 +154,38 @@ function inicializarTablasSeguridad() {
     });
 
     // Migración automática idempotente para bases de datos ya existentes
+    const agendaCols = [
+        {
+            name: 'tipo',
+            sql: "ALTER TABLE RegistrosAgenda ADD COLUMN tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento' AFTER actividad"
+        },
+        {
+            name: 'categoria',
+            sql: "ALTER TABLE RegistrosAgenda ADD COLUMN categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal' AFTER tipo"
+        },
+        {
+            name: 'estado',
+            sql: "ALTER TABLE RegistrosAgenda ADD COLUMN estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo' AFTER categoria",
+            afterMigrate: "UPDATE RegistrosAgenda SET estado = 'done' WHERE completada = 1"
+        },
+        {
+            name: 'recordatorio_min',
+            sql: 'ALTER TABLE RegistrosAgenda ADD COLUMN recordatorio_min SMALLINT NULL DEFAULT NULL AFTER completada'
+        }
+    ];
+    agendaCols.forEach(col => {
+        db.query('SHOW COLUMNS FROM RegistrosAgenda LIKE ?', [col.name], (errCol, cols) => {
+            if (!errCol && Array.isArray(cols) && cols.length === 0) {
+                db.query(col.sql, (errAlt) => {
+                    if (errAlt) {
+                        console.error(`Error migrando columna ${col.name} en RegistrosAgenda:`, errAlt.message);
+                    } else if (col.afterMigrate) {
+                        db.query(col.afterMigrate, () => {});
+                    }
+                });
+            }
+        });
+    });
     db.query("SHOW COLUMNS FROM Usuarios LIKE 'estado'", (errCol, cols) => {
         if (!errCol && Array.isArray(cols) && cols.length === 0) {
             db.query(
@@ -463,14 +522,22 @@ const pcPullLimiter = createRateLimiter({
     keyGenerator: (req) => `${getClientIp(req)}:${req.path}`
 });
 
+const reminderActionLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_REMINDER_ACTION_MAX, 30),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many reminder actions. Please wait a moment.'
+});
+
 // Middleware global anti-DoS sobre /api/*
 app.use('/api', apiGlobalLimiter.middleware);
 
 // Limpieza periódica de sesiones y códigos vencidos para ahorrar espacio en MySQL
 function limpiarRegistrosExpirados() {
     const nowSql = formatMySqlDateTime(new Date());
+    const cutoff14Days = formatMySqlDateTime(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000));
     db.query('DELETE FROM SesionesAuth WHERE expira_en <= ?', [nowSql], () => {});
     db.query('DELETE FROM CodigosSeguridad WHERE usado = 1 OR expira_en <= ?', [nowSql], () => {});
+    db.query('DELETE FROM RecordatoriosEstado WHERE actualizado_en < ?', [cutoff14Days], () => {});
 }
 
 setInterval(limpiarRegistrosExpirados, 6 * 60 * 60 * 1000).unref();
@@ -1489,6 +1556,9 @@ function createEncryptedPcQueue({ maxSize = MAX_COLA_TEXTOS, okMessage, emptyMes
             const items = queue;
             queue = [];
             return res.json(items);
+        },
+        size() {
+            return queue.length;
         }
     };
 }
@@ -1523,8 +1593,30 @@ app.get('/api/pull-english', pcPullLimiter.middleware, englishQueue.pull);
 // RUTAS PARA LA AGENDA PERSONAL SEMANAL (SOLO ADMIN)
 // ==========================================
 const BLOQUES_VALIDOS = new Set(['manana', 'cole', 'tarde', 'noche']);
+const AGENDA_TIPOS_VALIDOS = new Set(['evento', 'tarea']);
+const AGENDA_CATEGORIAS_VALIDAS = new Set(['universidad', 'personal']);
+const AGENDA_ESTADOS_VALIDOS = new Set(['todo', 'in_progress', 'done']);
+const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-function validarDatosAgenda({ fecha, bloque, hora, actividad }) {
+function normalizeAgendaItemFields(body = {}) {
+    const tipo = body.tipo === undefined || body.tipo === null || body.tipo === ''
+        ? 'evento'
+        : String(body.tipo).trim().toLowerCase();
+    const categoria = body.categoria === undefined || body.categoria === null || body.categoria === ''
+        ? 'personal'
+        : String(body.categoria).trim().toLowerCase();
+    const estado = body.estado === undefined || body.estado === null || body.estado === ''
+        ? 'todo'
+        : String(body.estado).trim().toLowerCase();
+    let recordatorioMin = null;
+    if (body.recordatorio_min !== undefined && body.recordatorio_min !== null && body.recordatorio_min !== '') {
+        recordatorioMin = Number(body.recordatorio_min);
+    }
+    return { tipo, categoria, estado, recordatorioMin };
+}
+
+function validarDatosAgenda(body = {}) {
+    const { fecha, bloque, hora, actividad } = body;
     if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
         return 'Date must use YYYY-MM-DD format.';
     }
@@ -1539,6 +1631,19 @@ function validarDatosAgenda({ fecha, bloque, hora, actividad }) {
     }
     if (actividad.trim().length > 255) {
         return 'Activity cannot exceed 255 characters.';
+    }
+    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(body);
+    if (!AGENDA_TIPOS_VALIDOS.has(tipo)) {
+        return 'Invalid activity type (allowed: evento, tarea).';
+    }
+    if (!AGENDA_CATEGORIAS_VALIDAS.has(categoria)) {
+        return 'Invalid category (allowed: universidad, personal).';
+    }
+    if (!AGENDA_ESTADOS_VALIDOS.has(estado)) {
+        return 'Invalid status (allowed: todo, in_progress, done).';
+    }
+    if (recordatorioMin !== null && (!Number.isInteger(recordatorioMin) || recordatorioMin < -1 || recordatorioMin > 180)) {
+        return 'Reminder lead minutes must be -1 (disabled) or between 0 and 180.';
     }
     return null;
 }
@@ -1556,7 +1661,12 @@ app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) =
 
     const sql = `
         SELECT id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, bloque,
-               TIME_FORMAT(hora, '%H:%i') AS hora, actividad, completada
+               TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
+               COALESCE(tipo, 'evento') AS tipo,
+               COALESCE(categoria, 'personal') AS categoria,
+               COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
+               completada,
+               recordatorio_min
         FROM RegistrosAgenda
         WHERE fecha BETWEEN ? AND ?
         ORDER BY fecha ASC, hora ASC, id ASC
@@ -1580,9 +1690,14 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
     const { fecha, bloque, hora } = req.body;
     const actividad = req.body.actividad.trim();
     const horaNormalizada = hora.slice(0, 5);
+    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
+    const completada = estado === 'done' ? 1 : 0;
 
-    const sql = 'INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, completada) VALUES (?, ?, ?, ?, 0)';
-    db.query(sql, [fecha, bloque, horaNormalizada, actividad], (err, result) => {
+    const sql = `
+        INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    db.query(sql, [fecha, bloque, horaNormalizada, actividad, tipo, categoria, estado, completada, recordatorioMin], (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Error saving agenda activity.');
@@ -1595,7 +1710,11 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
                 bloque,
                 hora: horaNormalizada,
                 actividad,
-                completada: 0
+                tipo,
+                categoria,
+                estado,
+                completada,
+                recordatorio_min: recordatorioMin
             }
         });
     });
@@ -1613,9 +1732,15 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
     const { fecha, bloque, hora } = req.body;
     const actividad = req.body.actividad.trim();
     const horaNormalizada = hora.slice(0, 5);
+    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
+    const completada = estado === 'done' ? 1 : 0;
 
-    const sql = 'UPDATE RegistrosAgenda SET fecha = ?, bloque = ?, hora = ?, actividad = ? WHERE id = ?';
-    db.query(sql, [fecha, bloque, horaNormalizada, actividad, id], (err, result) => {
+    const sql = `
+        UPDATE RegistrosAgenda
+        SET fecha = ?, bloque = ?, hora = ?, actividad = ?, tipo = ?, categoria = ?, estado = ?, completada = ?, recordatorio_min = ?
+        WHERE id = ?
+    `;
+    db.query(sql, [fecha, bloque, horaNormalizada, actividad, tipo, categoria, estado, completada, recordatorioMin, id], (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Error updating activity.');
@@ -1623,9 +1748,23 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
         if (result.affectedRows === 0) {
             return res.status(404).send('Activity not found.');
         }
+        if (estado === 'done') {
+            db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
+        }
         res.json({
             message: 'Activity updated successfully.',
-            item: { id, fecha, bloque, hora: horaNormalizada, actividad }
+            item: {
+                id,
+                fecha,
+                bloque,
+                hora: horaNormalizada,
+                actividad,
+                tipo,
+                categoria,
+                estado,
+                completada,
+                recordatorio_min: recordatorioMin
+            }
         });
     });
 });
@@ -1634,14 +1773,26 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
-    const completada = req.body && req.body.completada !== undefined
-        ? (req.body.completada ? 1 : 0)
-        : null;
+    const body = req.body || {};
+    let resolvedEstado = null;
+    let resolvedCompletada = null;
 
-    const sql = completada === null
-        ? 'UPDATE RegistrosAgenda SET completada = NOT completada WHERE id = ?'
-        : 'UPDATE RegistrosAgenda SET completada = ? WHERE id = ?';
-    const params = completada === null ? [id] : [completada, id];
+    if (body.estado !== undefined && body.estado !== null && body.estado !== '') {
+        const candidate = String(body.estado).trim().toLowerCase();
+        if (!AGENDA_ESTADOS_VALIDOS.has(candidate)) {
+            return res.status(400).send('Invalid status (allowed: todo, in_progress, done).');
+        }
+        resolvedEstado = candidate;
+        resolvedCompletada = candidate === 'done' ? 1 : 0;
+    } else if (body.completada !== undefined) {
+        resolvedCompletada = body.completada ? 1 : 0;
+        resolvedEstado = resolvedCompletada === 1 ? 'done' : 'todo';
+    }
+
+    const sql = resolvedEstado === null
+        ? "UPDATE RegistrosAgenda SET completada = NOT completada, estado = CASE WHEN completada = 1 THEN 'todo' ELSE 'done' END WHERE id = ?"
+        : 'UPDATE RegistrosAgenda SET estado = ?, completada = ? WHERE id = ?';
+    const params = resolvedEstado === null ? [id] : [resolvedEstado, resolvedCompletada, id];
 
     db.query(sql, params, (err, result) => {
         if (err) {
@@ -1651,7 +1802,10 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
         if (result.affectedRows === 0) {
             return res.status(404).send('Activity not found.');
         }
-        res.json({ message: 'Status updated.', id, completada });
+        if (resolvedEstado === 'done') {
+            db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
+        }
+        res.json({ message: 'Status updated.', id, completada: resolvedCompletada, estado: resolvedEstado });
     });
 });
 
@@ -1668,8 +1822,864 @@ app.delete('/api/delete-agenda/:id', apiWriteLimiter.middleware, requireAdmin, p
         if (result.affectedRows === 0) {
             return res.status(404).send('Activity not found.');
         }
+        db.query("DELETE FROM RecordatoriosEstado WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
         res.json({ message: 'Activity deleted successfully.', id });
     });
+});
+
+// ==========================================
+// CONFIGURACIÓN PERSONAL, RECORDATORIOS Y NOTIFICACIONES MÓVILES
+// ==========================================
+function dbQueryAsync(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.query(sql, params, (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
+function getDefaultUserSettings() {
+    return {
+        defaultAgendaCategory: 'all',
+        defaultAgendaLayout: 'auto',
+        agendaShowWeekend: true,
+        timezone: process.env.TZ || 'America/Monterrey',
+        publicBaseUrl: '',
+        phoneNotificationsEnabled: false,
+        ntfyServerUrl: 'https://ntfy.sh',
+        ntfyTopic: '',
+        ntfyPriority: 4,
+        desktopNotificationsEnabled: false,
+        moodRemindersEnabled: true,
+        moodIncludeLateNight: false,
+        sleepReminderEnabled: true,
+        sleepReminderTime: '08:30',
+        agendaRemindersEnabled: true,
+        agendaNotifyEvents: true,
+        agendaNotifyTasks: true,
+        agendaLeadMinutes: 10,
+        wordEodReminderEnabled: true,
+        wordEodReminderTime: '21:30',
+        englishReminderEnabled: false,
+        englishReminderTime: '19:00',
+        englishReminderDays: [1, 2, 3, 4, 5],
+        englishReminderTopic: 'Practice vocabulary, grammar notes, and phrasal verbs'
+    };
+}
+
+function isBlockedPrivateHostname(hostname) {
+    const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+    if (!host) return true;
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
+        return true;
+    }
+    if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host)) {
+        return true;
+    }
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) {
+        return true;
+    }
+    if (host === '::1' || /^(fe80:|fc|fd)/i.test(host)) {
+        return true;
+    }
+    return false;
+}
+
+function validatePushServerUrl(rawUrl) {
+    const raw = typeof rawUrl === 'string' && rawUrl.trim() ? rawUrl.trim() : 'https://ntfy.sh';
+    let parsed;
+    try {
+        parsed = new URL(raw);
+    } catch (_) {
+        return { error: 'Notification server URL must be a valid HTTPS URL (e.g. https://ntfy.sh).' };
+    }
+    if (parsed.protocol !== 'https:') {
+        return { error: 'Notification server URL must use HTTPS.' };
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+        return { error: 'Notification server URL cannot include credentials, query strings, or fragments.' };
+    }
+    if (isBlockedPrivateHostname(parsed.hostname)) {
+        return { error: 'Private or local network hosts are not allowed for notification relays.' };
+    }
+    const cleanPath = parsed.pathname.replace(/\/+$/, '');
+    return { url: `${parsed.origin}${cleanPath}` };
+}
+
+function validateTimeZoneName(rawTz, fallbackTz) {
+    const tz = typeof rawTz === 'string' && rawTz.trim() ? rawTz.trim() : fallbackTz;
+    if (tz.length > 80) return null;
+    try {
+        new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(new Date());
+        return tz;
+    } catch (_) {
+        return null;
+    }
+}
+
+function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()) {
+    const next = { ...base };
+
+    if (input.defaultAgendaCategory !== undefined) {
+        const val = String(input.defaultAgendaCategory).trim().toLowerCase();
+        if (!['all', 'universidad', 'personal'].includes(val)) {
+            return { error: 'Invalid default agenda category.' };
+        }
+        next.defaultAgendaCategory = val;
+    }
+
+    if (input.defaultAgendaLayout !== undefined) {
+        const val = String(input.defaultAgendaLayout).trim().toLowerCase();
+        if (!['auto', 'grid', 'day'].includes(val)) {
+            return { error: 'Invalid default agenda layout.' };
+        }
+        next.defaultAgendaLayout = val;
+    }
+
+    const boolKeys = [
+        'agendaShowWeekend',
+        'phoneNotificationsEnabled',
+        'desktopNotificationsEnabled',
+        'moodRemindersEnabled',
+        'moodIncludeLateNight',
+        'sleepReminderEnabled',
+        'agendaRemindersEnabled',
+        'agendaNotifyEvents',
+        'agendaNotifyTasks',
+        'wordEodReminderEnabled',
+        'englishReminderEnabled'
+    ];
+    for (const key of boolKeys) {
+        if (input[key] !== undefined) {
+            if (typeof input[key] !== 'boolean') {
+                return { error: `Field ${key} must be a boolean.` };
+            }
+            next[key] = input[key];
+        }
+    }
+
+    if (input.timezone !== undefined) {
+        const validTz = validateTimeZoneName(input.timezone, base.timezone);
+        if (!validTz) {
+            return { error: 'Invalid IANA timezone (e.g. America/Monterrey).' };
+        }
+        next.timezone = validTz;
+    }
+
+    if (input.publicBaseUrl !== undefined) {
+        const rawBase = String(input.publicBaseUrl || '').trim().replace(/\/+$/, '');
+        if (rawBase && !/^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(rawBase)) {
+            return { error: 'App public URL must look like http://host:3000 or https://example.com.' };
+        }
+        next.publicBaseUrl = rawBase;
+    }
+
+    if (input.ntfyServerUrl !== undefined) {
+        const urlCheck = validatePushServerUrl(input.ntfyServerUrl);
+        if (urlCheck.error) return { error: urlCheck.error };
+        next.ntfyServerUrl = urlCheck.url;
+    }
+
+    if (input.ntfyTopic !== undefined) {
+        const topic = String(input.ntfyTopic || '').trim();
+        if (topic && !/^[a-zA-Z0-9_-]{8,80}$/.test(topic)) {
+            return { error: 'Phone notification topic must be 8–80 characters (letters, numbers, "_" or "-").' };
+        }
+        next.ntfyTopic = topic;
+    }
+
+    if (next.phoneNotificationsEnabled && !next.ntfyTopic) {
+        return { error: 'Enter or generate a private ntfy topic before enabling phone notifications.' };
+    }
+
+    if (input.ntfyPriority !== undefined) {
+        const prio = Number(input.ntfyPriority);
+        if (!Number.isInteger(prio) || prio < 1 || prio > 5) {
+            return { error: 'Notification priority must be an integer between 1 and 5.' };
+        }
+        next.ntfyPriority = prio;
+    }
+
+    const timeKeys = ['sleepReminderTime', 'wordEodReminderTime', 'englishReminderTime'];
+    for (const tKey of timeKeys) {
+        if (input[tKey] !== undefined) {
+            const tVal = String(input[tKey] || '').trim();
+            if (!HHMM_REGEX.test(tVal)) {
+                return { error: `Field ${tKey} must use HH:MM format (00:00 - 23:59).` };
+            }
+            next[tKey] = tVal;
+        }
+    }
+
+    if (input.agendaLeadMinutes !== undefined) {
+        const mins = Number(input.agendaLeadMinutes);
+        if (!Number.isInteger(mins) || mins < 0 || mins > 120) {
+            return { error: 'Agenda lead minutes must be between 0 and 120.' };
+        }
+        next.agendaLeadMinutes = mins;
+    }
+
+    if (input.englishReminderDays !== undefined) {
+        if (!Array.isArray(input.englishReminderDays)) {
+            return { error: 'English study days must be an array of weekday numbers (0-6).' };
+        }
+        const uniqueDays = Array.from(new Set(input.englishReminderDays.map(Number)));
+        if (uniqueDays.some(d => !Number.isInteger(d) || d < 0 || d > 6)) {
+            return { error: 'English study days must contain integers from 0 (Sun) to 6 (Sat).' };
+        }
+        next.englishReminderDays = uniqueDays.sort((a, b) => a - b);
+    }
+
+    if (input.englishReminderTopic !== undefined) {
+        const topicText = String(input.englishReminderTopic || '').trim();
+        if (topicText.length > 200) {
+            return { error: 'English study reminder note cannot exceed 200 characters.' };
+        }
+        next.englishReminderTopic = topicText || getDefaultUserSettings().englishReminderTopic;
+    }
+
+    return { settings: next };
+}
+
+async function loadUserSettings(userId) {
+    const defaults = getDefaultUserSettings();
+    const rows = await dbQueryAsync('SELECT config_json FROM ConfiguracionUsuario WHERE usuario_id = ? LIMIT 1', [userId]);
+    if (!rows || rows.length === 0 || !rows[0].config_json) {
+        return defaults;
+    }
+    try {
+        const parsed = typeof rows[0].config_json === 'string'
+            ? JSON.parse(rows[0].config_json)
+            : rows[0].config_json;
+        const validated = validateUserSettingsPayload(parsed, defaults);
+        return validated.settings || defaults;
+    } catch (_) {
+        return defaults;
+    }
+}
+
+async function saveUserSettings(userId, settings) {
+    const jsonText = JSON.stringify(settings);
+    await dbQueryAsync(
+        `INSERT INTO ConfiguracionUsuario (usuario_id, config_json)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`,
+        [userId, jsonText]
+    );
+}
+
+function getLocalNowParts(timeZone) {
+    const safeTz = validateTimeZoneName(timeZone, process.env.TZ || 'America/Monterrey') || 'UTC';
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: safeTz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).formatToParts(now);
+
+    const map = {};
+    parts.forEach(p => {
+        map[p.type] = p.value;
+    });
+    const hourNum = Number(map.hour) % 24;
+    const minNum = Number(map.minute) || 0;
+    const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return {
+        dateStr: `${map.year}-${map.month}-${map.day}`,
+        weekday: dayMap[map.weekday] !== undefined ? dayMap[map.weekday] : now.getDay(),
+        hhmm: `${String(hourNum).padStart(2, '0')}:${String(minNum).padStart(2, '0')}`,
+        minutesOfDay: hourNum * 60 + minNum,
+        timeZone: safeTz
+    };
+}
+
+function hhmmToMinutes(hhmm) {
+    const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+}
+
+const MOOD_REMINDER_WINDOWS = [
+    { key: 'Morning', label: 'Morning', triggerMin: 9 * 60, startMin: 6 * 60, endMin: 12 * 60, optional: false },
+    { key: 'Noon', label: 'Noon', triggerMin: 13 * 60, startMin: 12 * 60, endMin: 14 * 60, optional: false },
+    { key: 'Afternoon', label: 'Afternoon', triggerMin: 17 * 60, startMin: 14 * 60, endMin: 20 * 60, optional: false },
+    { key: 'Night', label: 'Night', triggerMin: 22 * 60, startMin: 20 * 60, endMin: 24 * 60, optional: false },
+    { key: 'Madrugada', label: 'Late Night', triggerMin: 3 * 60, startMin: 0, endMin: 6 * 60, optional: true }
+];
+
+function computeCandidateReminders({ settings, localNow, moodLogsToday = [], sleepLogsToday = [], agendaItemsToday = [], queueCounts = { journal: 0, english: 0 } }) {
+    const candidates = [];
+    const { dateStr, weekday, minutesOfDay } = localNow;
+
+    // 1. Automatic Mood Tracker mid-window reminders (Late Night optional / OFF by default)
+    if (settings.moodRemindersEnabled) {
+        const loggedMoments = new Set(moodLogsToday.map(r => r.momento_dia));
+        const activeWin = MOOD_REMINDER_WINDOWS.find(w =>
+            minutesOfDay >= w.startMin &&
+            minutesOfDay < w.endMin &&
+            (!w.optional || settings.moodIncludeLateNight)
+        );
+        if (activeWin && minutesOfDay >= activeWin.triggerMin && !loggedMoments.has(activeWin.key)) {
+            candidates.push({
+                key: `mood:${dateStr}:${activeWin.key}`,
+                type: 'mood',
+                refId: null,
+                title: `Mood Check-in (${activeWin.label})`,
+                message: `Mid-${activeWin.label.toLowerCase()} check-in: log how you feel right now in Daily Hub.`,
+                targetView: 'mood',
+                canSnooze: true,
+                canComplete: false
+            });
+        }
+    }
+
+    // 2. Sleep Tracker morning reminder (with Postpone/Snooze support)
+    if (settings.sleepReminderEnabled && sleepLogsToday.length === 0) {
+        const sleepStartMin = hhmmToMinutes(settings.sleepReminderTime);
+        if (minutesOfDay >= sleepStartMin && minutesOfDay < 14 * 60) {
+            candidates.push({
+                key: `sleep:${dateStr}`,
+                type: 'sleep',
+                refId: null,
+                title: 'Morning Sleep Log',
+                message: 'Remember to log last night’s bedtime, wake-up time, and rest quality. You can snooze if needed.',
+                targetView: 'sueno',
+                canSnooze: true,
+                canComplete: false
+            });
+        }
+    }
+
+    // 3. Weekly Agenda Events & Tasks reminders (University / Personal)
+    if (settings.agendaRemindersEnabled) {
+        agendaItemsToday.forEach(item => {
+            const estado = item.estado || (Number(item.completada) === 1 ? 'done' : 'todo');
+            if (estado === 'done' || Number(item.completada) === 1) return;
+
+            const tipo = item.tipo === 'tarea' ? 'tarea' : 'evento';
+            if (tipo === 'evento' && !settings.agendaNotifyEvents) return;
+            if (tipo === 'tarea' && !settings.agendaNotifyTasks) return;
+
+            const itemLead = item.recordatorio_min !== null && item.recordatorio_min !== undefined
+                ? Number(item.recordatorio_min)
+                : Number(settings.agendaLeadMinutes || 10);
+            if (itemLead < 0) return;
+
+            const itemMin = hhmmToMinutes(item.hora);
+            const triggerMin = Math.max(0, itemMin - itemLead);
+            const windowEndMin = Math.min(1439, itemMin + 120);
+
+            if (minutesOfDay >= triggerMin && minutesOfDay <= windowEndMin) {
+                const catLabel = item.categoria === 'universidad' ? 'University' : 'Personal';
+                const typeLabel = tipo === 'tarea' ? 'Task' : 'Event';
+                candidates.push({
+                    key: `agenda:${item.id}:${dateStr}`,
+                    type: 'agenda',
+                    refId: item.id,
+                    title: `[${catLabel} ${typeLabel}] ${item.hora}`,
+                    message: `${item.actividad}${itemLead > 0 && minutesOfDay < itemMin ? ` (starts at ${item.hora})` : ''}`,
+                    targetView: 'agenda',
+                    canSnooze: true,
+                    canComplete: true
+                });
+            }
+        });
+    }
+
+    // 4. End-of-day Word Notes check reminder
+    if (settings.wordEodReminderEnabled) {
+        const wordMin = hhmmToMinutes(settings.wordEodReminderTime);
+        if (minutesOfDay >= wordMin) {
+            const pendingTotal = Number(queueCounts.journal || 0) + Number(queueCounts.english || 0);
+            const wordMsg = pendingTotal > 0
+                ? `You have ${queueCounts.journal || 0} Journal and ${queueCounts.english || 0} English note(s) waiting for PC Word sync.`
+                : 'End-of-day check: verify your Journal and English Word documents or add any final notes before bed.';
+            candidates.push({
+                key: `word:${dateStr}`,
+                type: 'word',
+                refId: null,
+                title: 'End-of-Day Word Notes Check',
+                message: wordMsg,
+                targetView: pendingTotal > 0 ? 'journal' : 'english',
+                canSnooze: true,
+                canComplete: false
+            });
+        }
+    }
+
+    // 5. Configurable English Study reminder (OFF by default!)
+    if (settings.englishReminderEnabled) {
+        const allowedDays = Array.isArray(settings.englishReminderDays) ? settings.englishReminderDays : [];
+        const engMin = hhmmToMinutes(settings.englishReminderTime);
+        if (allowedDays.includes(weekday) && minutesOfDay >= engMin && minutesOfDay <= Math.min(1439, engMin + 180)) {
+            candidates.push({
+                key: `english:${dateStr}:${settings.englishReminderTime}`,
+                type: 'english',
+                refId: null,
+                title: 'English Study Session',
+                message: settings.englishReminderTopic || 'Practice vocabulary, grammar notes, and phrasal verbs.',
+                targetView: 'english',
+                canSnooze: true,
+                canComplete: false
+            });
+        }
+    }
+
+    return candidates;
+}
+
+function buildPublicBaseUrlForUser(settings, req = null) {
+    if (settings && settings.publicBaseUrl) return settings.publicBaseUrl;
+    if (req) return getResetBaseUrl(req);
+    const envBase = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (envBase && /^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(envBase)) {
+        return envBase;
+    }
+    return '';
+}
+
+function signReminderActionToken(payload) {
+    return signMfaChallenge({
+        ...payload,
+        purpose: 'reminder_action',
+        exp: Date.now() + 12 * 60 * 60 * 1000
+    });
+}
+
+function verifyReminderActionToken(token) {
+    const parsed = verifyMfaChallenge(token);
+    if (!parsed || parsed.purpose !== 'reminder_action' || !parsed.reminderKey || !parsed.action) {
+        return null;
+    }
+    return parsed;
+}
+
+async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }) {
+    if (!settings || !settings.phoneNotificationsEnabled || !settings.ntfyTopic) {
+        return { skipped: true };
+    }
+    const urlCheck = validatePushServerUrl(settings.ntfyServerUrl);
+    if (urlCheck.error) {
+        throw new Error(urlCheck.error);
+    }
+
+    const endpoint = `${urlCheck.url}/${encodeURIComponent(settings.ntfyTopic)}`;
+    const tagMap = {
+        mood: 'brain',
+        sleep: 'crescent_moon',
+        agenda: 'calendar',
+        word: 'memo',
+        english: 'books',
+        test: 'white_check_mark'
+    };
+
+    const headers = {
+        Title: String(reminder.title || 'Personal Daily Hub').slice(0, 140),
+        Priority: String(settings.ntfyPriority || 4),
+        Tags: tagMap[reminder.type] || 'bell',
+        'Content-Type': 'text/plain; charset=utf-8'
+    };
+
+    if (baseUrl) {
+        const actions = [
+            {
+                action: 'view',
+                label: 'Open App',
+                url: `${baseUrl}/#${reminder.targetView || 'inicio'}`
+            }
+        ];
+
+        if (reminder.canSnooze && userId && reminder.key && reminder.type !== 'test') {
+            const snooze15Token = signReminderActionToken({
+                userId,
+                reminderKey: reminder.key,
+                type: reminder.type,
+                refId: reminder.refId || null,
+                action: 'snooze',
+                mins: 15
+            });
+            actions.push({
+                action: 'http',
+                label: 'Snooze 15m',
+                url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(snooze15Token)}`,
+                method: 'POST',
+                clear: true
+            });
+
+            if (reminder.canComplete && reminder.refId) {
+                const doneToken = signReminderActionToken({
+                    userId,
+                    reminderKey: reminder.key,
+                    type: reminder.type,
+                    refId: reminder.refId,
+                    action: 'complete'
+                });
+                actions.push({
+                    action: 'http',
+                    label: 'Mark Done',
+                    url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(doneToken)}`,
+                    method: 'POST',
+                    clear: true
+                });
+            } else {
+                const snooze30Token = signReminderActionToken({
+                    userId,
+                    reminderKey: reminder.key,
+                    type: reminder.type,
+                    refId: reminder.refId || null,
+                    action: 'snooze',
+                    mins: 30
+                });
+                actions.push({
+                    action: 'http',
+                    label: 'Snooze 30m',
+                    url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(snooze30Token)}`,
+                    method: 'POST',
+                    clear: true
+                });
+            }
+        }
+
+        headers.Actions = JSON.stringify(actions);
+    }
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: String(reminder.message || '').slice(0, 500),
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
+    });
+
+    if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        throw new Error(`Push relay returned HTTP ${response.status}${errBody ? `: ${errBody.slice(0, 120)}` : ''}`);
+    }
+    return { sent: true };
+}
+
+async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req = null } = {}) {
+    const settings = await loadUserSettings(user.id);
+    const localNow = getLocalNowParts(settings.timezone);
+    const baseUrl = buildPublicBaseUrlForUser(settings, req);
+
+    const [moodRows, sleepRows, agendaRows, stateRows] = await Promise.all([
+        dbQueryAsync('SELECT momento_dia FROM RegistrosMood WHERE fecha = ?', [localNow.dateStr]),
+        dbQueryAsync('SELECT id FROM RegistrosSleep WHERE fecha = ? LIMIT 1', [localNow.dateStr]),
+        dbQueryAsync(
+            `SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
+                    COALESCE(tipo, 'evento') AS tipo,
+                    COALESCE(categoria, 'personal') AS categoria,
+                    COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
+                    completada, recordatorio_min
+             FROM RegistrosAgenda
+             WHERE fecha = ?
+             ORDER BY hora ASC`,
+            [localNow.dateStr]
+        ),
+        dbQueryAsync(
+            'SELECT clave_unica, tipo, titulo, mensaje, estado, snooze_hasta, enviado_push_en FROM RecordatoriosEstado WHERE usuario_id = ?',
+            [user.id]
+        )
+    ]);
+
+    const candidates = computeCandidateReminders({
+        settings,
+        localNow,
+        moodLogsToday: Array.isArray(moodRows) ? moodRows : [],
+        sleepLogsToday: Array.isArray(sleepRows) ? sleepRows : [],
+        agendaItemsToday: Array.isArray(agendaRows) ? agendaRows : [],
+        queueCounts: { journal: journalQueue.size(), english: englishQueue.size() }
+    });
+
+    const stateMap = new Map((Array.isArray(stateRows) ? stateRows : []).map(r => [r.clave_unica, r]));
+    const nowMs = Date.now();
+    const active = [];
+    const snoozed = [];
+
+    for (const candidate of candidates) {
+        const existing = stateMap.get(candidate.key);
+        if (existing && existing.estado === 'dismissed') {
+            continue;
+        }
+        if (existing && existing.estado === 'snoozed' && existing.snooze_hasta) {
+            const snoozeUntilMs = new Date(existing.snooze_hasta).getTime();
+            if (Number.isFinite(snoozeUntilMs) && snoozeUntilMs > nowMs) {
+                snoozed.push({
+                    ...candidate,
+                    snoozeUntil: new Date(snoozeUntilMs).toISOString()
+                });
+                continue;
+            }
+        }
+
+        const shouldMarkPush = !existing || !existing.enviado_push_en || existing.estado === 'snoozed';
+        let pushSentAtSql = existing && existing.enviado_push_en && existing.estado !== 'snoozed'
+            ? existing.enviado_push_en
+            : null;
+
+        if (shouldMarkPush && dispatchPush && settings.phoneNotificationsEnabled && settings.ntfyTopic) {
+            try {
+                await sendPhonePushViaNtfy({ settings, reminder: candidate, baseUrl, userId: user.id });
+                pushSentAtSql = formatMySqlDateTime(new Date());
+            } catch (pushErr) {
+                console.error('[PHONE_PUSH_ERROR]', pushErr.message);
+            }
+        }
+
+        if (!existing || existing.estado === 'snoozed' || pushSentAtSql !== existing.enviado_push_en) {
+            await dbQueryAsync(
+                `INSERT INTO RecordatoriosEstado (usuario_id, clave_unica, tipo, ref_id, titulo, mensaje, estado, snooze_hasta, enviado_push_en)
+                 VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?)
+                 ON DUPLICATE KEY UPDATE
+                    titulo = VALUES(titulo),
+                    mensaje = VALUES(mensaje),
+                    estado = 'active',
+                    snooze_hasta = NULL,
+                    enviado_push_en = COALESCE(VALUES(enviado_push_en), enviado_push_en)`,
+                [
+                    user.id,
+                    candidate.key,
+                    candidate.type,
+                    candidate.refId || null,
+                    candidate.title.slice(0, 140),
+                    candidate.message.slice(0, 320),
+                    pushSentAtSql
+                ]
+            );
+        }
+
+        active.push(candidate);
+    }
+
+    return {
+        localNow,
+        settings,
+        active,
+        snoozed
+    };
+}
+
+let schedulerRunning = false;
+async function runReminderSchedulerTick() {
+    if (schedulerRunning) return;
+    schedulerRunning = true;
+    try {
+        const admins = await dbQueryAsync(
+            "SELECT id, nombre, email FROM Usuarios WHERE rol = 'admin' AND COALESCE(estado, 'activo') = 'activo'"
+        );
+        if (!Array.isArray(admins) || admins.length === 0) return;
+        for (const adminUser of admins) {
+            await evaluateAndDispatchUserReminders(adminUser, { dispatchPush: true });
+        }
+    } catch (err) {
+        if (err && err.code !== 'ER_NO_SUCH_TABLE') {
+            console.error('[REMINDER_SCHEDULER_ERROR]', err.message);
+        }
+    } finally {
+        schedulerRunning = false;
+    }
+}
+
+if (process.env.DISABLE_REMINDER_SCHEDULER !== 'true') {
+    setTimeout(runReminderSchedulerTick, 5000).unref();
+    setInterval(runReminderSchedulerTick, 30 * 1000).unref();
+}
+
+app.get('/api/settings', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        res.json({ settings });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error loading settings.');
+    }
+});
+
+app.put('/api/settings', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
+    try {
+        const current = await loadUserSettings(req.user.id);
+        const result = validateUserSettingsPayload(req.body, current);
+        if (result.error) {
+            return res.status(400).send(result.error);
+        }
+        await saveUserSettings(req.user.id, result.settings);
+        res.json({ message: 'Settings saved successfully.', settings: result.settings });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error saving settings.');
+    }
+});
+
+app.post('/api/settings/test-notification', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 3000 }), async (req, res) => {
+    try {
+        const saved = await loadUserSettings(req.user.id);
+        const body = req.body || {};
+        const merged = {
+            ...saved,
+            phoneNotificationsEnabled: true,
+            ntfyServerUrl: body.ntfyServerUrl !== undefined ? body.ntfyServerUrl : saved.ntfyServerUrl,
+            ntfyTopic: body.ntfyTopic !== undefined ? body.ntfyTopic : saved.ntfyTopic,
+            ntfyPriority: body.ntfyPriority !== undefined ? body.ntfyPriority : saved.ntfyPriority,
+            publicBaseUrl: body.publicBaseUrl !== undefined ? body.publicBaseUrl : saved.publicBaseUrl
+        };
+        const validation = validateUserSettingsPayload(merged, saved);
+        if (validation.error) {
+            return res.status(400).send(validation.error);
+        }
+
+        const baseUrl = buildPublicBaseUrlForUser(validation.settings, req);
+        await sendPhonePushViaNtfy({
+            settings: validation.settings,
+            reminder: {
+                key: `test:${Date.now()}`,
+                type: 'test',
+                title: 'Personal Daily Hub — Phone Connected',
+                message: 'Test alert delivered! Reminders for Mood, Sleep, Agenda, Word Notes, and English Study will appear here.',
+                targetView: 'settings',
+                canSnooze: false
+            },
+            baseUrl,
+            userId: req.user.id
+        });
+        res.json({ message: 'Test notification sent to your phone notification channel.' });
+    } catch (err) {
+        console.error('[TEST_PUSH_ERROR]', err.message);
+        res.status(502).send(err.message || 'Could not reach phone notification relay.');
+    }
+});
+
+app.get('/api/reminders/active', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const state = await evaluateAndDispatchUserReminders(req.user, {
+            dispatchPush: false,
+            req
+        });
+        res.json({
+            localNow: state.localNow,
+            active: state.active,
+            snoozed: state.snoozed
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error checking active reminders.');
+    }
+});
+
+async function applyReminderSnoozeOrDismiss({ userId, key, type = 'general', refId = null, action = 'snooze', minutes = 15, title = 'Reminder', message = '' }) {
+    if (action === 'dismiss') {
+        await dbQueryAsync(
+            `INSERT INTO RecordatoriosEstado (usuario_id, clave_unica, tipo, ref_id, titulo, mensaje, estado, snooze_hasta)
+             VALUES (?, ?, ?, ?, ?, ?, 'dismissed', NULL)
+             ON DUPLICATE KEY UPDATE estado = 'dismissed', snooze_hasta = NULL`,
+            [userId, key, type, refId, title.slice(0, 140), message.slice(0, 320)]
+        );
+        return { action: 'dismissed', snoozeUntil: null };
+    }
+
+    const safeMins = Number.isInteger(Number(minutes)) && Number(minutes) >= 1 && Number(minutes) <= 240
+        ? Number(minutes)
+        : 15;
+    const snoozeUntil = new Date(Date.now() + safeMins * 60 * 1000);
+    const snoozeSql = formatMySqlDateTime(snoozeUntil);
+
+    await dbQueryAsync(
+        `INSERT INTO RecordatoriosEstado (usuario_id, clave_unica, tipo, ref_id, titulo, mensaje, estado, snooze_hasta, enviado_push_en)
+         VALUES (?, ?, ?, ?, ?, ?, 'snoozed', ?, NULL)
+         ON DUPLICATE KEY UPDATE estado = 'snoozed', snooze_hasta = VALUES(snooze_hasta), enviado_push_en = NULL`,
+        [userId, key, type, refId, title.slice(0, 140), message.slice(0, 320), snoozeSql]
+    );
+    return { action: 'snoozed', snoozeUntil: snoozeUntil.toISOString(), minutes: safeMins };
+}
+
+app.post('/api/reminders/snooze', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
+    const key = typeof req.body.key === 'string' ? req.body.key.trim() : '';
+    const action = req.body.action === 'dismiss' ? 'dismiss' : 'snooze';
+    const type = typeof req.body.type === 'string' && req.body.type.trim() ? req.body.type.trim().slice(0, 30) : 'general';
+    const title = typeof req.body.title === 'string' ? req.body.title : 'Reminder';
+    const message = typeof req.body.message === 'string' ? req.body.message : '';
+    const refId = req.body.refId ? parseAgendaId(req.body.refId) : null;
+
+    if (!key || key.length > 120) {
+        return res.status(400).send('Invalid reminder key.');
+    }
+    if (action === 'snooze') {
+        const mins = Number(req.body.minutes ?? 15);
+        if (!Number.isInteger(mins) || mins < 1 || mins > 240) {
+            return res.status(400).send('Snooze minutes must be an integer between 1 and 240.');
+        }
+    }
+
+    try {
+        const result = await applyReminderSnoozeOrDismiss({
+            userId: req.user.id,
+            key,
+            type,
+            refId,
+            action,
+            minutes: Number(req.body.minutes ?? 15),
+            title,
+            message
+        });
+        res.json({
+            message: result.action === 'dismissed'
+                ? 'Reminder dismissed.'
+                : `Reminder postponed for ${result.minutes} minutes.`,
+            key,
+            ...result
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating reminder state.');
+    }
+});
+
+app.post('/api/reminders/action', reminderActionLimiter.middleware, async (req, res) => {
+    const token = String((req.query && req.query.token) || (req.body && req.body.token) || '').trim();
+    const parsed = verifyReminderActionToken(token);
+    if (!parsed) {
+        return res.status(401).send('Invalid or expired reminder action token.');
+    }
+
+    try {
+        const userRows = await dbQueryAsync('SELECT id, rol, estado FROM Usuarios WHERE id = ? LIMIT 1', [parsed.userId]);
+        if (!userRows || userRows.length === 0 || (userRows[0].estado || 'activo') !== 'activo' || userRows[0].rol !== 'admin') {
+            return res.status(403).send('Account not authorized for this action.');
+        }
+
+        if (parsed.action === 'complete' && parsed.refId) {
+            await dbQueryAsync("UPDATE RegistrosAgenda SET estado = 'done', completada = 1 WHERE id = ?", [parsed.refId]);
+            await applyReminderSnoozeOrDismiss({
+                userId: parsed.userId,
+                key: parsed.reminderKey,
+                type: parsed.type || 'agenda',
+                refId: parsed.refId,
+                action: 'dismiss'
+            });
+            return res.json({ message: 'Agenda item marked as Done.', id: parsed.refId });
+        }
+
+        if (parsed.action === 'snooze') {
+            const result = await applyReminderSnoozeOrDismiss({
+                userId: parsed.userId,
+                key: parsed.reminderKey,
+                type: parsed.type || 'general',
+                refId: parsed.refId || null,
+                action: 'snooze',
+                minutes: Number(parsed.mins || 15)
+            });
+            return res.json({ message: `Postponed for ${result.minutes} minutes.`, ...result });
+        }
+
+        return res.status(400).send('Unsupported reminder action.');
+    } catch (err) {
+        console.error(err);
+        return res.status(500).send('Error processing reminder action.');
+    }
 });
 
 // Manejo controlado de rutas inexistentes y errores inesperados en API (sin filtrar stack traces)

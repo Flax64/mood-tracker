@@ -4,6 +4,19 @@
 
 ---
 
+## 📑 Índice de Contenidos
+
+* [1. Mapa de componentes y flujo general](#1-mapa-de-componentes-y-flujo-general)
+* [2. Base de datos (`init.sql`)](#2-base-de-datos-initsql)
+* [3. Seguridad, Autenticación, RBAC y Lógica Temporal (`server.js`)](#3-seguridad-autenticación-rbac-y-lógica-temporal-serverjs)
+* [4. Sincronización Cifrada hacia Word (`sincronitation/sincronizador.py`)](#4-sincronización-cifrada-hacia-word-sincronitationsincronizadorpy)
+* [5. Optimizaciones de RAM y Almacenamiento para `t3.micro`](#5-optimizaciones-de-ram-y-almacenamiento-para-t3micro-1-gb-ram--1-gb-swap)
+* [6. Despliegue Automatizado Cero-`.env` y Respaldos Nocturnos](#6-despliegue-automatizado-cero-env-y-respaldos-nocturnos)
+* [7. Rama `main` Protegida, Pruebas Automatizadas y Bóveda Local](#7-rama-main-protegida-pruebas-automatizadas-y-bóveda-local)
+* [8. Sistema de Recordatorios, Flujo Jira y Notificaciones Móviles (`ntfy`)](#8-sistema-de-recordatorios-flujo-jira-y-notificaciones-móviles-ntfy)
+
+---
+
 ## 1. Mapa de componentes y flujo general
 
 El sistema se divide en cinco capas desacopladas:
@@ -51,10 +64,14 @@ El sistema se divide en cinco capas desacopladas:
 | :--- | :--- | :--- |
 | `RegistrosMood` | Estados de ánimo por franja horaria | `UNIQUE(fecha, momento_dia)` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`) |
 | `RegistrosSleep` | Horas y calidad de sueño diario | `horas DECIMAL(4,2)`, `calidad` (`Good`, `Regular`, `Bad`) |
-| `RegistrosAgenda` | Agenda personal semanal por bloques | `bloque` (`manana`, `cole`, `tarde`, `noche`), índice `idx_agenda_fecha` |
+| `RegistrosAgenda` | Eventos y tareas divididos en `universidad` / `personal` | `bloque` (`manana`, `cole`, `tarde`, `noche`), `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `recordatorio_min`, índices `idx_agenda_fecha` y `idx_agenda_categoria_estado` |
 | `Usuarios` | Cuentas registradas y su rol | `email UNIQUE`, `password_hash` (`bcryptjs` 12 rondas), `rol ENUM('admin','psiquiatra')`, `estado ENUM('activo','inactivo','suspendido')` |
 | `SesionesAuth` | Sesiones activas del sistema | `token_hash CHAR(64) UNIQUE` (SHA-256), `expira_en`, índice `idx_sesion_expira`, `ON DELETE CASCADE` |
 | `CodigosSeguridad` | Códigos OTP de registro, MFA y reset | `tipo ENUM('registro','reset','mfa')`, `token_hash`, `expira_en`, `usado`, índice `idx_codigo_email_tipo` |
+| `ConfiguracionUsuario` | Reglas de recordatorios, ntfy y preferencias UI | `usuario_id` PK (`ON DELETE CASCADE`), `config_json` (`LONGTEXT`), migrado automáticamente al arranque |
+| `RecordatoriosEstado` | Estado de entrega, posposición (Snooze) y descarte | `UNIQUE(usuario_id, clave_unica)`, `estado ENUM('active','snoozed','dismissed')`, `snooze_hasta`, `enviado_push_en`, poda a los 14 días |
+
+> **Auto-migración sin pérdida de datos:** Al iniciar `server.js`, `inicializarTablasSeguridad()` garantiza la existencia de las tablas nuevas y ejecuta `SHOW COLUMNS FROM RegistrosAgenda` para añadir de forma idempotente `tipo`, `categoria`, `estado` (sincronizando `completada = 1` → `'done'`) y `recordatorio_min` en bases de datos ya desplegadas en EC2.
 
 ---
 
@@ -150,5 +167,23 @@ El sistema se divide en cinco capas desacopladas:
 ## 7. Rama `main` Protegida, Pruebas Automatizadas y Bóveda Local
 
 * **CI en GitHub Actions (`.github/workflows/ci.yml`):** se ejecuta en `push` a ramas distintas de `main`, en `pull_request` hacia `main` y manualmente. Valida sintaxis nativa (`node --check`, `bash -n`, Python `ast.parse` cuando existe el archivo, `ruby -ryaml`), ejecuta `tests/*.test.js` y genera un resumen Markdown en `$GITHUB_STEP_SUMMARY` mediante `tests/ci-summary.js`.
-* **Pruebas (`tests/`):** verifican sintaxis, idioma inglés y vista `view-english` en HTML, balance CSS, `init.sql`, `.gitignore`/`.dockerignore` (`english-notes`), `Dockerfile`/`docker-compose.yml`, consistencia de `deploy.yml`/`ci.yml`, pool MySQL, cabeceras HTTP, `bcrypt`, RBAC, `Madrugada`, colas `/api/send-to-pc` y `/api/send-english` + drenado en `/api/pull-english`, cifrado/descifrado de la bóveda local y formateo/enrutado de `sincronizador.py` (`tests/local-vault.test.js`).
+* **Pruebas (`tests/`):** verifican sintaxis, idioma inglés, reemplazo del arcoíris por emblema de control personal, vistas `view-english` y `view-settings` en HTML, balance CSS, las 8 tablas de `init.sql`, `.gitignore`/`.dockerignore` (`english-notes`), `Dockerfile`/`docker-compose.yml`, consistencia de `deploy.yml`/`ci.yml`, pool MySQL, cabeceras HTTP, `bcrypt`, RBAC, `Madrugada`, colas `/api/send-to-pc` y `/api/send-english` + drenado en `/api/pull-english`, Agenda Event/Task + University/Personal + transiciones Jira (`todo`/`in_progress`/`done`), validación SSRF de `Settings`, recordatorios con Snooze + acción HMAC, cifrado/descifrado de la bóveda local y formateo/enrutado de `sincronizador.py` (`tests/local-vault.test.js`).
+
+---
+
+## 8. Sistema de Recordatorios, Flujo Jira y Notificaciones Móviles (`ntfy`)
+
+* **Agenda categórica y workflow Jira (`RegistrosAgenda`):**
+  * Cada registro distingue `tipo` (`evento` vs `tarea`), `categoria` (`universidad` vs `personal`), estado tipo Jira `estado` (`todo` → **To Do**, `in_progress` → **In Progress**, `done` → **Done** sincronizado con `completada`), y `recordatorio_min` (`NULL` para usar el valor global, `-1` para silenciar, o minutos `0..180` antes de la hora).
+  * La vista Agenda incorpora filtros combinables por categoría y tipo, así como divisores visuales (**University** / **Personal**) y controles rápidos sin recarga completa.
+* **Motor de recordatorios automáticos y configurables (`computeCandidateReminders`):**
+  * **Estado de Ánimo (`mood`):** Evalúa automáticamente a mitad de cada horario (**`Morning` `09:00`**, **`Noon` `13:00`**, **`Afternoon` `17:00`**, **`Night` `22:00`**) solo si aún no existe registro para ese bloque en el día actual; **`Madrugada` (`03:00`)** es opcional y viene desactivada por defecto (`moodIncludeLateNight: false`).
+  * **Sueño (`sleep`):** Recordatorio matutino configurable (por defecto `08:30`) mientras no exista registro de sueño del día; soporta botones de **posposición (*Snooze +15m / +30m / +1h*)**.
+  * **Agenda (`agenda`):** Avisa en la ventana de anticipación configurada para eventos y/o tareas cuya hora se aproxima y aún no estén en `done`, permitiendo posponer o marcar **Done** con un toque.
+  * **Revisión nocturna de Word (`word`):** Recordatorio al cierre del día (por defecto `21:30`) informando el número en tiempo real de notas cifradas en memoria pendientes en `journalQueue` y `englishQueue`.
+  * **Estudio de Inglés (`english`):** **Desactivado por defecto** (`englishReminderEnabled: false`); el usuario configura días de la semana (`0..6`), hora y tema desde **Settings (`#view-settings`)**.
+* **Puente de Barra de Notificaciones Móvil sin depender de HTTPS en EC2 (`ntfy`):**
+  * Como Chrome/Android bloquea Web Push VAPID en orígenes HTTP (`http://<IP>:3000`), un *scheduler* cada 30 s en `server.js` (deshabilitable en pruebas mediante `DISABLE_REMINDER_SCHEDULER=true`) publica las alertas pendientes por **HTTPS** hacia **`ntfy`** (`https://ntfy.sh/<topico>` o servidor `ntfy` HTTPS personalizado).
+  * Las notificaciones en computadora (`desktopNotificationsEnabled`) permanecen desactivadas por defecto para priorizar únicamente la barra de notificaciones del celular y la bandeja interna `#reminderTray`.
+  * Los botones de acción en la notificación móvil (**Snooze 15m**, **Snooze 30m**, **Mark Done**) apuntan a `POST /api/reminders/action?token=...` protegidos por firma **HMAC-SHA256** (`signReminderActionToken`, expiración 12 h) y por `reminderActionLimiter` (`30 req / 15 min`), mientras que `validatePushServerUrl()` bloquea direcciones locales/privadas (`localhost`, `127.0.0.1`, `10.x`, `172.16-31.x`, `192.168.x`, `169.254.x`) contra **SSRF**.
 * **Bóveda local en Windows (`scripts/local-vault.js`):** cifra `.env` → `.env.enc` con el formato estándar OpenSSL (`Salted__`, PBKDF2-HMAC-SHA256 de 600,000 iteraciones, AES-256-CBC + PKCS#7) usando solo módulos nativos de Node.js, destruye `.env` sobrescribiéndolo con ceros, y permite ejecutar cualquier comando (`run`) o correr `sincronizador.py` descifrando `.env.enc` únicamente en memoria RAM.

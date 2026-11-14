@@ -18,6 +18,7 @@
 | Sacar respaldo manual o restaurar desde Google Drive | [5. Respaldos y restauración manual](#5-respaldos-manuales-y-restauración-desde-drive) |
 | Cambiar de instancia AWS EC2 usando `.ssh/` | [6. Migración a nueva instancia EC2](#6-migración-a-otra-instancia-aws-ec2-usando-ssh) |
 | Resolver errores típicos (`winpty`, permisos SSH, `main`) | [7. Solución rápida de problemas](#7-solución-rápida-de-problemas) |
+| Activar notificaciones en celular (`ntfy`), Jira y recordatorios | [8. Notificaciones Móviles, Agenda Jira y Settings](#8-notificaciones-móviles-agenda-jira-y-settings) |
 
 ---
 
@@ -325,3 +326,36 @@ exit
 | `git push origin main` rechazado | Regla de protección en `main` | Cambia o sube desde tu rama de trabajo (`git push -u origin mejoras`) y haz Pull Request |
 | `sincronizador.py` falla tras cambiar de IP EC2 | Falta `GITHUB_TOKEN` en `.env.enc` o sigue en caché <= 5 min | Verifica `GITHUB_TOKEN` y `GITHUB_REPO` con `local-vault.js run` o reinicia el sincronizador |
 | Olvidaste correr `lock` / `encrypt` tras ver `.env` | `.env` plano quedó temporalmente en disco | Ejecuta `node scripts/local-vault.js lock` (si no editaste) o `encrypt` (si editaste) |
+
+---
+
+## 8. Notificaciones Móviles, Agenda Jira y Settings
+
+No necesitas agregar nuevos *Secrets* ni *Variables* en GitHub para usar los recordatorios en tu teléfono ni las categorías de Agenda: todo se administra desde el menú **⚙️ Settings** dentro de la propia aplicación web y se guarda por usuario en MySQL (`ConfiguracionUsuario`).
+
+### 8.1 Cómo recibir los recordatorios en la barra de notificaciones de tu celular (OPPO A79 / Android / iOS)
+
+1. Instala la aplicación gratuita **ntfy** (desde Google Play Store en Android o App Store en iOS).
+2. Entra a **Personal Daily Hub** en tu navegador → abre **⚙️ Settings** en la barra lateral.
+3. En la tarjeta **📱 Phone Notification Bar (ntfy)**:
+   * Marca **Enable notifications on my phone's notification bar**.
+   * Haz clic en **Generate** para crear un tópico privado único (mínimo 8 caracteres, p. ej. `hub_personal_...`) o escribe uno propio difícil de adivinar.
+   * Abre la app **ntfy** en tu celular, presiona **`+`** (*Subscribe to topic*), pega exactamente ese mismo nombre de tópico y deja el servidor por defecto (`https://ntfy.sh`). En OPPO ColorOS / Android conviene desactivar el ahorro agresivo de batería para **ntfy** para que lleguen al instante con la pantalla apagada.
+   * Mantén desmarcada la casilla *Also show desktop browser notifications* si no necesitas alertas en tu computadora.
+4. En **Personal Daily Hub → Settings**, haz clic en **Save All Settings** y después en **🔔 Send Test to Phone** para verificar que aparezca de inmediato en la barra de notificaciones de tu teléfono.
+
+### 8.2 Reglas predeterminadas y configurables
+
+| Módulo | Comportamiento por defecto | Qué puedes configurar en Settings |
+| :--- | :--- | :--- |
+| **Estado de Ánimo (`Mood Tracker`)** | Activo; recuerda a mitad de cada horario (**`09:00` Morning**, **`13:00` Noon**, **`17:00` Afternoon**, **`22:00` Night**) solo si aún no registraste ese bloque | Activar/desactivar; activar opcionalmente **`Madrugada` (`03:00 AM`)** |
+| **Sueño (`Sleep Tracker`)** | Activo a las **`08:30 AM`** si no hay registro de sueño hoy | Hora personalizada + botones **Snooze 15m / 30m / 1h** |
+| **Agenda (`University` & `Personal`)** | Activo **10 min antes** para Eventos y Tareas que no estén en estado `Done` | Activar/desactivar Eventos y/o Tareas, antelación global (`0–60 min`) o aviso individual por actividad; cambiar estado Jira (**To Do** / **In Progress** / **Done**) o posponer |
+| **Revisión nocturna Word** | Activo a las **`21:30`** para revisar notas de Journal y English `.docx` | Cambiar hora o desactivar |
+| **Estudio de Inglés** | **Desactivado por defecto** (100% bajo tu control) | Activar, escoger días de la semana (`Mon–Sun`), hora y nota de repaso |
+
+### 8.3 Migrar contenedores existentes en AWS EC2
+
+Cuando hagas merge de tu rama hacia `main`, GitHub Actions reconstruye automáticamente Docker en tu EC2 y al arrancar `server.js`:
+* Se crean automáticamente `ConfiguracionUsuario` y `RecordatoriosEstado` (si no existían).
+* Se añaden las columnas `tipo`, `categoria`, `estado` y `recordatorio_min` a `RegistrosAgenda` sin borrar ni afectar ningún dato anterior.

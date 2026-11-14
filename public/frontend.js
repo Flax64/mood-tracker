@@ -209,6 +209,20 @@ const homeSummaryTracker = createRequestTracker();
 const resumenTracker = createRequestTracker();
 const agendaLoadTracker = createRequestTracker();
 const medicosTracker = createRequestTracker();
+const settingsLoadTracker = createRequestTracker();
+const remindersTracker = createRequestTracker();
+
+function getAgendaItemStatus(item = {}) {
+    const raw = String(item.estado || '').trim().toLowerCase();
+    if (raw === 'todo' || raw === 'in_progress' || raw === 'done') return raw;
+    return Number(item.completada) === 1 ? 'done' : 'todo';
+}
+
+function nextAgendaStatus(currentStatus) {
+    if (currentStatus === 'todo') return 'in_progress';
+    if (currentStatus === 'in_progress') return 'done';
+    return 'todo';
+}
 
 // ==========================================
 // E2EE CLIENT CRYPTO HELPERS (SHARED BY JOURNAL & ENGLISH NOTEBOOK)
@@ -242,9 +256,12 @@ function encriptarTextoE2EE(textoPlano, llaveTexto) {
 // ==========================================
 // MAIN NAVIGATION & FIXED SIDEBAR
 // ==========================================
-const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'english', 'agenda', 'resumen', 'medico']);
+const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'english', 'agenda', 'resumen', 'medico', 'settings']);
 let currentUser = null;
 let sundayWatcherInterval = null;
+let reminderPollInterval = null;
+let currentSettings = null;
+const lastDesktopNotifiedKeys = new Set();
 const authOverlay = document.getElementById('authOverlay');
 const appShell = document.getElementById('appShell');
 const sidebar = document.getElementById('sidebar');
@@ -315,6 +332,11 @@ function showView(viewName, updateHash = true) {
         cargarAgendaSemana();
     } else if (targetView === 'medico') {
         cargarMedicos();
+    } else if (targetView === 'settings') {
+        cargarSettingsVista();
+    }
+    if (currentUser && currentUser.rol === 'admin') {
+        cargarRecordatoriosActivos();
     }
 }
 
@@ -510,22 +532,30 @@ function cargarInicioResumen() {
                 agendaBox.appendChild(p);
                 return;
             }
-            const completadas = items.filter(i => Number(i.completada) === 1).length;
+            const doneItems = items.filter(i => getAgendaItemStatus(i) === 'done').length;
+            const inProgItems = items.filter(i => getAgendaItemStatus(i) === 'in_progress').length;
+            const uniCount = items.filter(i => (i.categoria || 'personal') === 'universidad').length;
+            const perCount = items.length - uniCount;
+
             const summary = document.createElement('p');
             summary.style.margin = '0';
-            summary.innerHTML = `<strong>${completadas} of ${items.length}</strong> activities completed today.`;
+            summary.textContent = `${doneItems} of ${items.length} done (${uniCount} University · ${perCount} Personal${inProgItems ? ` · ${inProgItems} In Progress` : ''}).`;
             agendaBox.appendChild(summary);
 
             const ul = document.createElement('ul');
             ul.className = 'home-agenda-list';
             items.slice(0, 4).forEach(item => {
                 const li = document.createElement('li');
-                if (Number(item.completada) === 1) li.className = 'done';
+                if (getAgendaItemStatus(item) === 'done') li.className = 'done';
                 const timeSpan = document.createElement('strong');
                 timeSpan.textContent = item.hora;
+                const catTag = document.createElement('span');
+                const isUni = (item.categoria || 'personal') === 'universidad';
+                catTag.className = `agenda-cat-pill ${isUni ? 'is-uni' : 'is-personal'}`;
+                catTag.textContent = isUni ? 'Uni' : 'Personal';
                 const textSpan = document.createElement('span');
                 textSpan.textContent = item.actividad;
-                li.append(timeSpan, textSpan);
+                li.append(timeSpan, catTag, textSpan);
                 ul.appendChild(li);
             });
             agendaBox.appendChild(ul);
@@ -627,6 +657,7 @@ if (formRegistro) {
                 estadoSeleccionado = '';
                 colorSeleccionado = '';
                 document.getElementById('momento').value = '';
+                cargarRecordatoriosActivos();
             } catch (error) {
                 alert('Error: ' + error.message);
             }
@@ -885,6 +916,7 @@ if (formSleep) {
                 hoursInput.value = '';
                 delete hoursInput.dataset.decimal;
                 document.getElementById('quality-sleep').value = '';
+                cargarRecordatoriosActivos();
             } catch (error) {
                 alert('Error: ' + error.message);
             }
@@ -1207,8 +1239,43 @@ const agendaState = {
     showWeekend: true,
     layoutMode: window.innerWidth <= 820 ? 'day' : 'grid',
     selectedDate: formatLocalDate(new Date()),
+    filterCategory: 'all',
+    filterType: 'all',
     items: []
 };
+
+function matchesAgendaFilters(item) {
+    const cat = item.categoria === 'universidad' ? 'universidad' : 'personal';
+    const tipo = item.tipo === 'tarea' ? 'tarea' : 'evento';
+    if (agendaState.filterCategory !== 'all' && cat !== agendaState.filterCategory) return false;
+    if (agendaState.filterType !== 'all' && tipo !== agendaState.filterType) return false;
+    return true;
+}
+
+function appendCategorizedAgendaItems(container, listItems) {
+    const uniItems = listItems.filter(i => (i.categoria || 'personal') === 'universidad');
+    const personalItems = listItems.filter(i => (i.categoria || 'personal') !== 'universidad');
+
+    if (agendaState.filterCategory === 'all' && listItems.length > 0) {
+        if (uniItems.length > 0) {
+            const uniHead = document.createElement('div');
+            uniHead.className = 'agenda-cat-divider is-uni';
+            uniHead.textContent = `🎓 University (${uniItems.length})`;
+            container.appendChild(uniHead);
+            uniItems.forEach(item => container.appendChild(crearElementoActividad(item)));
+        }
+        if (personalItems.length > 0) {
+            const perHead = document.createElement('div');
+            perHead.className = 'agenda-cat-divider is-personal';
+            perHead.textContent = `👤 Personal (${personalItems.length})`;
+            container.appendChild(perHead);
+            personalItems.forEach(item => container.appendChild(crearElementoActividad(item)));
+        }
+        return;
+    }
+
+    listItems.forEach(item => container.appendChild(crearElementoActividad(item)));
+}
 
 function getMondayOfOffset(offsetWeeks) {
     const now = new Date();
@@ -1231,27 +1298,70 @@ function getVisibleAgendaDays() {
 }
 
 function crearElementoActividad(item) {
+    const tipo = item.tipo === 'tarea' ? 'tarea' : 'evento';
+    const categoria = item.categoria === 'universidad' ? 'universidad' : 'personal';
+    const estado = getAgendaItemStatus(item);
+    const isDone = estado === 'done';
+
     const row = document.createElement('div');
-    row.className = `agenda-item${Number(item.completada) === 1 ? ' is-done' : ''}`;
+    row.className = `agenda-item${isDone ? ' is-done' : ''}`;
 
     const checkBtn = document.createElement('button');
     checkBtn.type = 'button';
-    checkBtn.className = 'agenda-check-circle';
-    checkBtn.setAttribute('aria-label', Number(item.completada) === 1 ? 'Mark as pending' : 'Mark as completed');
-    checkBtn.textContent = Number(item.completada) === 1 ? '✓' : '';
+    checkBtn.className = `agenda-check-circle status-${estado}`;
+    const checkLabels = {
+        todo: 'To Do — click to mark In Progress',
+        in_progress: 'In Progress — click to mark Done',
+        done: 'Done — click to reset to To Do'
+    };
+    checkBtn.title = checkLabels[estado] || 'Toggle workflow status';
+    checkBtn.setAttribute('aria-label', checkLabels[estado] || 'Toggle workflow status');
+    checkBtn.textContent = estado === 'done' ? '✓' : estado === 'in_progress' ? '◐' : '';
 
     const content = document.createElement('div');
     content.className = 'agenda-item-content';
+
+    const metaRow = document.createElement('div');
+    metaRow.className = 'agenda-item-meta-row';
 
     const timePill = document.createElement('span');
     timePill.className = 'agenda-time-pill';
     timePill.textContent = item.hora;
 
+    const catPill = document.createElement('span');
+    catPill.className = `agenda-cat-pill ${categoria === 'universidad' ? 'is-uni' : 'is-personal'}`;
+    catPill.textContent = categoria === 'universidad' ? '🎓 Uni' : '👤 Personal';
+
+    const typePill = document.createElement('span');
+    typePill.className = 'agenda-type-pill';
+    typePill.textContent = tipo === 'tarea' ? 'Task' : 'Event';
+
+    metaRow.append(timePill, catPill, typePill);
+
     const text = document.createElement('span');
     text.className = 'agenda-item-text';
     text.textContent = item.actividad;
 
-    content.append(timePill, text);
+    const jiraRow = document.createElement('div');
+    jiraRow.className = 'jira-status-row';
+
+    const statusSelect = document.createElement('select');
+    statusSelect.className = `jira-status-select status-${estado}`;
+    statusSelect.setAttribute('aria-label', 'Workflow status (Jira)');
+    [
+        { value: 'todo', label: 'To Do' },
+        { value: 'in_progress', label: 'In Progress' },
+        { value: 'done', label: 'Done' }
+    ].forEach(optDef => {
+        const opt = document.createElement('option');
+        opt.value = optDef.value;
+        opt.textContent = optDef.label;
+        statusSelect.appendChild(opt);
+    });
+    statusSelect.value = estado;
+
+    jiraRow.appendChild(statusSelect);
+    content.append(metaRow, text, jiraRow);
 
     const actions = document.createElement('div');
     actions.className = 'agenda-item-actions';
@@ -1261,7 +1371,7 @@ function crearElementoActividad(item) {
     editBtn.className = 'agenda-mini-btn';
     editBtn.title = 'Edit activity';
     editBtn.setAttribute('aria-label', 'Edit activity');
-    editBtn.textContent = '✏️';
+    editBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
     editBtn.addEventListener('click', () => abrirAgendaModal(item));
 
     const delBtn = document.createElement('button');
@@ -1269,10 +1379,11 @@ function crearElementoActividad(item) {
     delBtn.className = 'agenda-mini-btn';
     delBtn.title = 'Delete activity';
     delBtn.setAttribute('aria-label', 'Delete activity');
-    delBtn.textContent = '🗑️';
+    delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
 
-    const uiRefs = { row, checkBtn, editBtn, delBtn };
-    checkBtn.addEventListener('click', () => toggleAgendaItem(item, uiRefs));
+    const uiRefs = { row, checkBtn, statusSelect, editBtn, delBtn };
+    checkBtn.addEventListener('click', () => toggleAgendaItem(item, uiRefs, nextAgendaStatus(getAgendaItemStatus(item))));
+    statusSelect.addEventListener('change', () => toggleAgendaItem(item, uiRefs, statusSelect.value));
     delBtn.addEventListener('click', () => eliminarAgendaItem(item.id, uiRefs));
 
     actions.append(editBtn, delBtn);
@@ -1292,6 +1403,13 @@ function renderAgendaBoard() {
 
     if (!weekBoard || !dayTabs || !dayBoard || !tableScroll) return;
 
+    document.querySelectorAll('#agendaCategoryFilters .agenda-filter-pill[data-agenda-cat]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-agenda-cat') === agendaState.filterCategory);
+    });
+    document.querySelectorAll('#agendaTypeFilters .agenda-filter-pill[data-agenda-type]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-agenda-type') === agendaState.filterType);
+    });
+
     const diasVisibles = getVisibleAgendaDays();
     const hoyStr = formatLocalDate(new Date());
 
@@ -1309,12 +1427,18 @@ function renderAgendaBoard() {
     }
 
     const visibleDatesSet = new Set(diasVisibles.map(d => d.fecha));
-    const visibleItems = agendaState.items.filter(i => visibleDatesSet.has(i.fecha));
-    const completadas = visibleItems.filter(i => Number(i.completada) === 1).length;
+    const filteredItems = agendaState.items.filter(matchesAgendaFilters);
+    const visibleItems = filteredItems.filter(i => visibleDatesSet.has(i.fecha));
+    const doneCount = visibleItems.filter(i => getAgendaItemStatus(i) === 'done').length;
+    const inProgCount = visibleItems.filter(i => getAgendaItemStatus(i) === 'in_progress').length;
+    const todoCount = visibleItems.length - doneCount - inProgCount;
+    const uniCount = visibleItems.filter(i => (i.categoria || 'personal') === 'universidad').length;
+    const perCount = visibleItems.length - uniCount;
+
     if (weekStats) {
         weekStats.textContent = visibleItems.length
-            ? `Weekly progress: ${completadas} of ${visibleItems.length} activities completed`
-            : 'Organize your activities and schedule by time of day';
+            ? `${doneCount} Done · ${inProgCount} In Progress · ${todoCount} To Do (${uniCount} University · ${perCount} Personal)`
+            : 'Organize University & Personal events and Jira-style tasks';
     }
 
     if (btnToggleWeekend) {
@@ -1331,11 +1455,18 @@ function renderAgendaBoard() {
     dayBoard.hidden = !isDayLayout;
     tableScroll.hidden = isDayLayout;
 
+    const defaultModalCategory = agendaState.filterCategory !== 'all'
+        ? agendaState.filterCategory
+        : (currentSettings && currentSettings.defaultAgendaCategory && currentSettings.defaultAgendaCategory !== 'all'
+            ? currentSettings.defaultAgendaCategory
+            : 'personal');
+    const defaultModalType = agendaState.filterType !== 'all' ? agendaState.filterType : 'evento';
+
     // 1. Day View (mobile / focus mode)
     if (isDayLayout) {
         dayTabs.innerHTML = '';
         diasVisibles.forEach(dia => {
-            const count = agendaState.items.filter(i => i.fecha === dia.fecha).length;
+            const count = filteredItems.filter(i => i.fecha === dia.fecha).length;
             const tab = document.createElement('button');
             tab.type = 'button';
             tab.className = `agenda-day-tab day-${dia.key}${dia.fecha === agendaState.selectedDate ? ' active' : ''}`;
@@ -1355,7 +1486,7 @@ function renderAgendaBoard() {
         const activeDay = diasVisibles.find(d => d.fecha === agendaState.selectedDate) || diasVisibles[0];
 
         AGENDA_BLOQUES.forEach(bloque => {
-            const blockItems = agendaState.items.filter(
+            const blockItems = filteredItems.filter(
                 i => i.fecha === activeDay.fecha && i.bloque === bloque.id
             );
 
@@ -1378,10 +1509,10 @@ function renderAgendaBoard() {
             if (!blockItems.length) {
                 const empty = document.createElement('p');
                 empty.className = 'agenda-empty-block';
-                empty.textContent = 'No activities scheduled';
+                empty.textContent = 'No activities matching active filters';
                 body.appendChild(empty);
             } else {
-                blockItems.forEach(item => body.appendChild(crearElementoActividad(item)));
+                appendCategorizedAgendaItems(body, blockItems);
             }
 
             const addBtn = document.createElement('button');
@@ -1391,7 +1522,9 @@ function renderAgendaBoard() {
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: activeDay.fecha,
                 bloque: bloque.id,
-                hora: bloque.defaultHora
+                hora: bloque.defaultHora,
+                categoria: defaultModalCategory,
+                tipo: defaultModalType
             }));
 
             body.appendChild(addBtn);
@@ -1438,11 +1571,11 @@ function renderAgendaBoard() {
             const list = document.createElement('div');
             list.className = 'agenda-items-list';
 
-            const cellItems = agendaState.items.filter(
+            const cellItems = filteredItems.filter(
                 i => i.fecha === dia.fecha && i.bloque === bloque.id
             );
 
-            cellItems.forEach(item => list.appendChild(crearElementoActividad(item)));
+            appendCategorizedAgendaItems(list, cellItems);
 
             const addBtn = document.createElement('button');
             addBtn.type = 'button';
@@ -1451,7 +1584,9 @@ function renderAgendaBoard() {
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: dia.fecha,
                 bloque: bloque.id,
-                hora: bloque.defaultHora
+                hora: bloque.defaultHora,
+                categoria: defaultModalCategory,
+                tipo: defaultModalType
             }));
 
             cell.append(list, addBtn);
@@ -1516,25 +1651,33 @@ function cargarAgendaSemana() {
         });
 }
 
-function toggleAgendaItem(item, ui = {}) {
-    const nuevoEstado = Number(item.completada) === 1 ? 0 : 1;
-    const lockBtn = ui.checkBtn || ui.row || document.createElement('button');
+function toggleAgendaItem(item, ui = {}, targetEstado = null) {
+    const prevEstado = getAgendaItemStatus(item);
+    const nextEstado = targetEstado && ['todo', 'in_progress', 'done'].includes(targetEstado)
+        ? targetEstado
+        : nextAgendaStatus(prevEstado);
+    const nuevoCompletada = nextEstado === 'done' ? 1 : 0;
+    const lockBtn = ui.checkBtn || ui.statusSelect || ui.row || document.createElement('button');
+
     runWithButtonLock(lockBtn, async () => {
         try {
             await submitMutationRequest({
                 url: `/api/toggle-agenda/${item.id}`,
                 method: 'PATCH',
                 scopeKey: `agenda-toggle:${item.id}`,
-                signature: String(nuevoEstado),
-                buildBody: () => ({ completada: nuevoEstado }),
+                signature: nextEstado,
+                buildBody: () => ({ estado: nextEstado, completada: nuevoCompletada }),
                 parseJson: true
             });
-            item.completada = nuevoEstado;
+            item.estado = nextEstado;
+            item.completada = nuevoCompletada;
             renderAgendaBoard();
+            cargarRecordatoriosActivos();
         } catch (err) {
+            if (ui.statusSelect) ui.statusSelect.value = prevEstado;
             alert('Failed to update activity status: ' + err.message);
         }
-    }, { extraDisable: [ui.row, ui.editBtn, ui.delBtn] });
+    }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn, ui.delBtn] });
 }
 
 function eliminarAgendaItem(id, ui = {}) {
@@ -1551,10 +1694,11 @@ function eliminarAgendaItem(id, ui = {}) {
             });
             agendaState.items = agendaState.items.filter(i => i.id !== id);
             renderAgendaBoard();
+            cargarRecordatoriosActivos();
         } catch (err) {
             alert('Failed to delete activity: ' + err.message);
         }
-    }, { extraDisable: [ui.row, ui.checkBtn, ui.editBtn] });
+    }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn] });
 }
 
 const agendaModal = document.getElementById('agendaModal');
@@ -1577,6 +1721,16 @@ function abrirAgendaModal(prefill = {}) {
     const resolvedBloque = prefill.bloque || info.agendaBloque;
     const resolvedHora = String(prefill.hora || defaultTime).slice(0, 5);
     const resolvedActividad = String(prefill.actividad || '').trim();
+    const resolvedTipo = prefill.tipo === 'tarea' ? 'tarea' : 'evento';
+    const resolvedCategoria = prefill.categoria === 'universidad'
+        ? 'universidad'
+        : prefill.categoria === 'personal'
+            ? 'personal'
+            : (agendaState.filterCategory !== 'all' ? agendaState.filterCategory : 'personal');
+    const resolvedEstado = getAgendaItemStatus(prefill);
+    const resolvedRemMin = prefill.recordatorio_min !== undefined && prefill.recordatorio_min !== null && prefill.recordatorio_min !== ''
+        ? String(prefill.recordatorio_min)
+        : '';
 
     document.getElementById('agendaModalTitle').textContent = isEdit ? 'Edit Activity' : 'New Activity';
     document.getElementById('agendaEditId').value = isEdit ? String(prefill.id) : '';
@@ -1585,8 +1739,26 @@ function abrirAgendaModal(prefill = {}) {
     document.getElementById('agendaHora').value = resolvedHora;
     document.getElementById('agendaActividad').value = resolvedActividad;
 
+    const tipoEl = document.getElementById('agendaTipo');
+    const catEl = document.getElementById('agendaCategoria');
+    const estadoEl = document.getElementById('agendaEstado');
+    const remEl = document.getElementById('agendaRecordatorioMin');
+    if (tipoEl) tipoEl.value = resolvedTipo;
+    if (catEl) catEl.value = resolvedCategoria;
+    if (estadoEl) estadoEl.value = resolvedEstado;
+    if (remEl) remEl.value = resolvedRemMin;
+
     agendaOriginalSnapshot = isEdit
-        ? { fecha: resolvedFecha, bloque: resolvedBloque, hora: resolvedHora, actividad: resolvedActividad.replace(/\s+/g, ' ') }
+        ? {
+            fecha: resolvedFecha,
+            bloque: resolvedBloque,
+            hora: resolvedHora,
+            actividad: resolvedActividad.replace(/\s+/g, ' '),
+            tipo: resolvedTipo,
+            categoria: resolvedCategoria,
+            estado: resolvedEstado,
+            recordatorio_min: resolvedRemMin
+        }
         : null;
 
     agendaModal.hidden = false;
@@ -1654,6 +1826,20 @@ if (agendaForm) {
         });
     }
 
+    document.querySelectorAll('#agendaCategoryFilters .agenda-filter-pill[data-agenda-cat]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            agendaState.filterCategory = btn.getAttribute('data-agenda-cat') || 'all';
+            renderAgendaBoard();
+        });
+    });
+
+    document.querySelectorAll('#agendaTypeFilters .agenda-filter-pill[data-agenda-type]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            agendaState.filterType = btn.getAttribute('data-agenda-type') || 'all';
+            renderAgendaBoard();
+        });
+    });
+
     document.querySelectorAll('#agendaSuggestions .suggestion-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             const input = document.getElementById('agendaActividad');
@@ -1670,11 +1856,21 @@ if (agendaForm) {
         if (!btnSave || busyActionElements.has(btnSave) || btnSave.disabled) return;
 
         const editId = document.getElementById('agendaEditId').value;
+        const tipoVal = document.getElementById('agendaTipo')?.value || 'evento';
+        const catVal = document.getElementById('agendaCategoria')?.value || 'personal';
+        const estadoVal = document.getElementById('agendaEstado')?.value || 'todo';
+        const remRaw = document.getElementById('agendaRecordatorioMin')?.value ?? '';
+        const remVal = remRaw === '' ? null : Number(remRaw);
+
         const payload = {
             fecha: document.getElementById('agendaFecha').value,
             bloque: document.getElementById('agendaBloque').value,
             hora: String(document.getElementById('agendaHora').value || '').slice(0, 5),
-            actividad: document.getElementById('agendaActividad').value.replace(/\s+/g, ' ').trim()
+            actividad: document.getElementById('agendaActividad').value.replace(/\s+/g, ' ').trim(),
+            tipo: tipoVal,
+            categoria: catVal,
+            estado: estadoVal,
+            recordatorio_min: remVal
         };
 
         if (!payload.fecha || !payload.bloque || !payload.hora || !payload.actividad) {
@@ -1688,7 +1884,11 @@ if (agendaForm) {
             payload.fecha === agendaOriginalSnapshot.fecha &&
             payload.bloque === agendaOriginalSnapshot.bloque &&
             payload.hora === String(agendaOriginalSnapshot.hora || '').slice(0, 5) &&
-            payload.actividad === agendaOriginalSnapshot.actividad
+            payload.actividad === agendaOriginalSnapshot.actividad &&
+            payload.tipo === agendaOriginalSnapshot.tipo &&
+            payload.categoria === agendaOriginalSnapshot.categoria &&
+            payload.estado === agendaOriginalSnapshot.estado &&
+            remRaw === agendaOriginalSnapshot.recordatorio_min
         ) {
             cerrarAgendaModal();
             return;
@@ -1699,10 +1899,12 @@ if (agendaForm) {
             item.fecha === payload.fecha &&
             item.bloque === payload.bloque &&
             String(item.hora || '').slice(0, 5) === payload.hora &&
+            (item.tipo || 'evento') === payload.tipo &&
+            (item.categoria || 'personal') === payload.categoria &&
             String(item.actividad || '').trim().toLowerCase().replace(/\s+/g, ' ') === payload.actividad.toLowerCase()
         );
         if (duplicateExists) {
-            alert('This exact activity is already scheduled for that date, block, and time.');
+            alert('This exact activity is already scheduled for that date, category, block, and time.');
             return;
         }
 
@@ -1723,6 +1925,7 @@ if (agendaForm) {
                 agendaState.selectedDate = payload.fecha;
                 cerrarAgendaModal();
                 cargarAgendaSemana();
+                cargarRecordatoriosActivos();
             } catch (err) {
                 alert('Error: ' + err.message);
             }
@@ -1770,6 +1973,17 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
     if (sundayWatcherInterval) {
         clearInterval(sundayWatcherInterval);
         sundayWatcherInterval = null;
+    }
+    if (reminderPollInterval) {
+        clearInterval(reminderPollInterval);
+        reminderPollInterval = null;
+    }
+    currentSettings = null;
+    lastDesktopNotifiedKeys.clear();
+    const trayEl = document.getElementById('reminderTray');
+    if (trayEl) {
+        trayEl.hidden = true;
+        trayEl.innerHTML = '';
     }
 
     const subtitles = {
@@ -1836,6 +2050,23 @@ function enterAppSession(user) {
     if (isPsiquiatra) {
         showView('resumen', true);
     } else {
+        fetch('/api/settings', { cache: 'no-store' })
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+                if (data && data.settings) {
+                    aplicarSettingsEnEstado(data.settings, { syncAgendaDefaults: true });
+                }
+            })
+            .catch(() => {});
+
+        cargarRecordatoriosActivos();
+        if (reminderPollInterval) clearInterval(reminderPollInterval);
+        reminderPollInterval = setInterval(() => {
+            if (currentUser && currentUser.rol === 'admin') {
+                cargarRecordatoriosActivos();
+            }
+        }, 60 * 1000);
+
         const initialHash = window.location.hash.replace('#', '');
         const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
         showView(startView, false);
@@ -2314,6 +2545,7 @@ function applyTheme(theme) {
     const authBtn = document.getElementById('btnThemeToggleAuth');
     const mobileBtn = document.getElementById('btnThemeToggleMobile');
     const sidebarBtn = document.getElementById('btnThemeToggleSidebar');
+    const settingsBtn = document.getElementById('btnSettingsThemeToggle');
 
     if (authBtn) {
         authBtn.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
@@ -2328,13 +2560,16 @@ function applyTheme(theme) {
         if (iconEl) iconEl.textContent = isDark ? '☀️' : '🌙';
         if (labelEl) labelEl.textContent = isDark ? 'Light Theme' : 'Dark Theme';
     }
+    if (settingsBtn) {
+        settingsBtn.textContent = isDark ? '☀️ Switch to Light Theme' : '🌙 Switch to Dark Theme';
+    }
 }
 
 function initTheme() {
     const savedTheme = localStorage.getItem('mt_theme') || 'dark';
     applyTheme(savedTheme);
 
-    ['btnThemeToggleAuth', 'btnThemeToggleMobile', 'btnThemeToggleSidebar'].forEach(id => {
+    ['btnThemeToggleAuth', 'btnThemeToggleMobile', 'btnThemeToggleSidebar', 'btnSettingsThemeToggle'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) {
             btn.addEventListener('click', () => {
@@ -2346,6 +2581,521 @@ function initTheme() {
 }
 
 // ==========================================
+// IN-APP REMINDER TRAY, SNOOZE & PHONE SETTINGS
+// ==========================================
+function renderReminderTray(data) {
+    const tray = document.getElementById('reminderTray');
+    if (!tray) return;
+
+    if (!currentUser || currentUser.rol !== 'admin' || !data) {
+        tray.hidden = true;
+        tray.innerHTML = '';
+        return;
+    }
+
+    const activeList = Array.isArray(data.active) ? data.active : [];
+    const snoozedList = Array.isArray(data.snoozed) ? data.snoozed : [];
+
+    if (activeList.length === 0 && snoozedList.length === 0) {
+        tray.hidden = true;
+        tray.innerHTML = '';
+        return;
+    }
+
+    tray.innerHTML = '';
+    const viewLabels = {
+        mood: 'Log Mood',
+        sleep: 'Log Sleep',
+        sueno: 'Log Sleep',
+        agenda: 'Open Agenda',
+        journal: 'Open Journal',
+        english: 'Open English'
+    };
+
+    activeList.forEach(reminder => {
+        const card = document.createElement('div');
+        card.className = `reminder-card type-${reminder.type || 'general'}`;
+
+        const info = document.createElement('div');
+        info.className = 'reminder-card-info';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'reminder-card-title';
+        titleEl.textContent = reminder.title || 'Reminder';
+
+        const msgEl = document.createElement('div');
+        msgEl.className = 'reminder-card-msg';
+        msgEl.textContent = reminder.message || '';
+
+        info.append(titleEl, msgEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'reminder-card-actions';
+
+        if (reminder.targetView) {
+            const goBtn = document.createElement('button');
+            goBtn.type = 'button';
+            goBtn.className = 'reminder-btn primary';
+            goBtn.textContent = viewLabels[reminder.targetView] || 'Open';
+            goBtn.addEventListener('click', () => showView(reminder.targetView, true));
+            actions.appendChild(goBtn);
+        }
+
+        if (reminder.canComplete && reminder.refId) {
+            const doneBtn = document.createElement('button');
+            doneBtn.type = 'button';
+            doneBtn.className = 'reminder-btn done';
+            doneBtn.textContent = '✓ Mark Done';
+            doneBtn.addEventListener('click', () => completeReminderAgendaItem(reminder, doneBtn));
+            actions.appendChild(doneBtn);
+        }
+
+        if (reminder.canSnooze) {
+            [15, 30, 60].forEach(mins => {
+                const snzBtn = document.createElement('button');
+                snzBtn.type = 'button';
+                snzBtn.className = 'reminder-btn';
+                snzBtn.textContent = mins === 60 ? 'Snooze 1h' : `Snooze ${mins}m`;
+                snzBtn.title = `Postpone this reminder for ${mins} minutes`;
+                snzBtn.addEventListener('click', () => snoozeOrDismissReminder(reminder, 'snooze', mins, snzBtn));
+                actions.appendChild(snzBtn);
+            });
+        }
+
+        const dismissBtn = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'reminder-btn';
+        dismissBtn.textContent = 'Dismiss';
+        dismissBtn.addEventListener('click', () => snoozeOrDismissReminder(reminder, 'dismiss', 0, dismissBtn));
+        actions.appendChild(dismissBtn);
+
+        card.append(info, actions);
+        tray.appendChild(card);
+
+        if (
+            currentSettings &&
+            currentSettings.desktopNotificationsEnabled === true &&
+            'Notification' in window &&
+            Notification.permission === 'granted' &&
+            !lastDesktopNotifiedKeys.has(reminder.key)
+        ) {
+            lastDesktopNotifiedKeys.add(reminder.key);
+            try {
+                new Notification(reminder.title || 'Personal Control Hub', {
+                    body: reminder.message || '',
+                    tag: reminder.key
+                });
+            } catch (_) {
+                // Ignore browser Notification runtime error
+            }
+        }
+    });
+
+    if (snoozedList.length > 0) {
+        const snoozeSummary = document.createElement('div');
+        snoozeSummary.className = 'reminder-snoozed-summary';
+        const itemsText = snoozedList.slice(0, 3).map(s => {
+            const until = s.snoozeUntil
+                ? new Date(s.snoozeUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'later';
+            return `${s.title} (until ${until})`;
+        }).join(' · ');
+        snoozeSummary.textContent = `⏱️ Postponed (${snoozedList.length}): ${itemsText}`;
+        tray.appendChild(snoozeSummary);
+    }
+
+    tray.hidden = false;
+}
+
+function snoozeOrDismissReminder(reminder, action, minutes, triggerBtn) {
+    runWithButtonLock(triggerBtn, async () => {
+        try {
+            await submitMutationRequest({
+                url: '/api/reminders/snooze',
+                method: 'POST',
+                scopeKey: `reminder-${action}:${reminder.key}`,
+                signature: `${action}:${minutes}`,
+                buildBody: () => ({
+                    key: reminder.key,
+                    action,
+                    minutes,
+                    type: reminder.type,
+                    refId: reminder.refId || null,
+                    title: reminder.title,
+                    message: reminder.message
+                }),
+                parseJson: true
+            });
+            cargarRecordatoriosActivos();
+        } catch (err) {
+            alert('Error updating reminder: ' + err.message);
+        }
+    }, { loadingText: action === 'dismiss' ? 'Dismissing...' : 'Postponing...' });
+}
+
+function completeReminderAgendaItem(reminder, triggerBtn) {
+    if (!reminder.refId) return;
+    runWithButtonLock(triggerBtn, async () => {
+        try {
+            await submitMutationRequest({
+                url: `/api/toggle-agenda/${reminder.refId}`,
+                method: 'PATCH',
+                scopeKey: `agenda-toggle:${reminder.refId}`,
+                signature: 'done',
+                buildBody: () => ({ estado: 'done', completada: 1 }),
+                parseJson: true
+            });
+            const found = agendaState.items.find(i => Number(i.id) === Number(reminder.refId));
+            if (found) {
+                found.estado = 'done';
+                found.completada = 1;
+                renderAgendaBoard();
+            }
+            cargarRecordatoriosActivos();
+        } catch (err) {
+            alert('Error marking task as Done: ' + err.message);
+        }
+    }, { loadingText: 'Completing...' });
+}
+
+function cargarRecordatoriosActivos() {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    const reqToken = remindersTracker.begin();
+    const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
+
+    fetch('/api/reminders/active', fetchOpts)
+        .then(res => (res.ok ? res.json() : Promise.reject(new Error('Failed to load reminders'))))
+        .then(data => {
+            if (!remindersTracker.isCurrent(reqToken.seq)) return;
+            renderReminderTray(data);
+        })
+        .catch(err => {
+            if (!isAbortError(err)) {
+                console.warn('Reminder check skipped:', err.message);
+            }
+        });
+}
+
+function aplicarSettingsEnEstado(settings, { syncAgendaDefaults = false } = {}) {
+    if (!settings) return;
+    currentSettings = settings;
+
+    if (syncAgendaDefaults) {
+        if (settings.defaultAgendaCategory) {
+            agendaState.filterCategory = settings.defaultAgendaCategory;
+        }
+        if (settings.defaultAgendaLayout === 'grid' || settings.defaultAgendaLayout === 'day') {
+            agendaState.layoutMode = settings.defaultAgendaLayout;
+        } else {
+            agendaState.layoutMode = window.innerWidth <= 820 ? 'day' : 'grid';
+        }
+        if (typeof settings.agendaShowWeekend === 'boolean') {
+            agendaState.showWeekend = settings.agendaShowWeekend;
+        }
+        renderAgendaBoard();
+    }
+}
+
+function updateE2eeKeyStatusUI() {
+    const statusEl = document.getElementById('settingsE2eeStatus');
+    if (!statusEl) return;
+    const keyVal = localStorage.getItem('diario_llave_secreta') || '';
+    if (keyVal.length === 32) {
+        statusEl.textContent = 'Configured on this browser (32-character AES key active).';
+    } else {
+        statusEl.textContent = 'Not set on this browser yet (will be requested when writing Journal or English notes).';
+    }
+}
+
+function setSettingsBanner(type, message) {
+    const banner = document.getElementById('settingsStatusBanner');
+    if (!banner) return;
+    if (!message) {
+        banner.hidden = true;
+        banner.textContent = '';
+        banner.className = 'english-status-banner';
+        return;
+    }
+    banner.className = `english-status-banner ${type === 'err' ? 'err' : 'ok'}`;
+    banner.textContent = message;
+    banner.hidden = false;
+}
+
+function populateSettingsForm(settings = {}) {
+    const setCheck = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = Boolean(val);
+    };
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && val !== undefined && val !== null) el.value = String(val);
+    };
+
+    setCheck('setPhoneEnabled', settings.phoneNotificationsEnabled);
+    setVal('setNtfyTopic', settings.ntfyTopic || '');
+    setVal('setNtfyServerUrl', settings.ntfyServerUrl || 'https://ntfy.sh');
+    setVal('setNtfyPriority', settings.ntfyPriority ?? 4);
+    setVal('setPublicBaseUrl', settings.publicBaseUrl || '');
+    setCheck('setDesktopNotify', settings.desktopNotificationsEnabled);
+
+    setCheck('setMoodEnabled', settings.moodRemindersEnabled !== false);
+    setCheck('setMoodLateNight', settings.moodIncludeLateNight === true);
+    setCheck('setSleepEnabled', settings.sleepReminderEnabled !== false);
+    setVal('setSleepTime', settings.sleepReminderTime || '08:30');
+
+    setCheck('setAgendaRemEnabled', settings.agendaRemindersEnabled !== false);
+    setCheck('setAgendaEvents', settings.agendaNotifyEvents !== false);
+    setCheck('setAgendaTasks', settings.agendaNotifyTasks !== false);
+    setVal('setAgendaLeadMin', settings.agendaLeadMinutes ?? 10);
+
+    setCheck('setWordEodEnabled', settings.wordEodReminderEnabled !== false);
+    setVal('setWordEodTime', settings.wordEodReminderTime || '21:30');
+
+    setCheck('setEnglishEnabled', settings.englishReminderEnabled === true);
+    setVal('setEnglishTime', settings.englishReminderTime || '19:00');
+    setVal('setEnglishTopic', settings.englishReminderTopic || '');
+
+    const activeDays = new Set(Array.isArray(settings.englishReminderDays) ? settings.englishReminderDays.map(Number) : [1, 2, 3, 4, 5]);
+    document.querySelectorAll('#setEnglishDaysGroup input[type="checkbox"]').forEach(cb => {
+        cb.checked = activeDays.has(Number(cb.value));
+    });
+
+    setVal('setDefaultCat', settings.defaultAgendaCategory || 'all');
+    setVal('setDefaultLayout', settings.defaultAgendaLayout || 'auto');
+    setVal('setTimezone', settings.timezone || 'America/Monterrey');
+    setCheck('setShowWeekend', settings.agendaShowWeekend !== false);
+
+    updateE2eeKeyStatusUI();
+}
+
+function collectSettingsFormPayload() {
+    const selectedDays = Array.from(document.querySelectorAll('#setEnglishDaysGroup input[type="checkbox"]:checked'))
+        .map(cb => Number(cb.value));
+
+    return {
+        phoneNotificationsEnabled: Boolean(document.getElementById('setPhoneEnabled')?.checked),
+        ntfyTopic: String(document.getElementById('setNtfyTopic')?.value || '').trim(),
+        ntfyServerUrl: String(document.getElementById('setNtfyServerUrl')?.value || 'https://ntfy.sh').trim(),
+        ntfyPriority: Number(document.getElementById('setNtfyPriority')?.value || 4),
+        publicBaseUrl: String(document.getElementById('setPublicBaseUrl')?.value || '').trim(),
+        desktopNotificationsEnabled: Boolean(document.getElementById('setDesktopNotify')?.checked),
+
+        moodRemindersEnabled: Boolean(document.getElementById('setMoodEnabled')?.checked),
+        moodIncludeLateNight: Boolean(document.getElementById('setMoodLateNight')?.checked),
+        sleepReminderEnabled: Boolean(document.getElementById('setSleepEnabled')?.checked),
+        sleepReminderTime: String(document.getElementById('setSleepTime')?.value || '08:30').slice(0, 5),
+
+        agendaRemindersEnabled: Boolean(document.getElementById('setAgendaRemEnabled')?.checked),
+        agendaNotifyEvents: Boolean(document.getElementById('setAgendaEvents')?.checked),
+        agendaNotifyTasks: Boolean(document.getElementById('setAgendaTasks')?.checked),
+        agendaLeadMinutes: Number(document.getElementById('setAgendaLeadMin')?.value ?? 10),
+
+        wordEodReminderEnabled: Boolean(document.getElementById('setWordEodEnabled')?.checked),
+        wordEodReminderTime: String(document.getElementById('setWordEodTime')?.value || '21:30').slice(0, 5),
+
+        englishReminderEnabled: Boolean(document.getElementById('setEnglishEnabled')?.checked),
+        englishReminderTime: String(document.getElementById('setEnglishTime')?.value || '19:00').slice(0, 5),
+        englishReminderDays: selectedDays,
+        englishReminderTopic: String(document.getElementById('setEnglishTopic')?.value || '').trim(),
+
+        defaultAgendaCategory: document.getElementById('setDefaultCat')?.value || 'all',
+        defaultAgendaLayout: document.getElementById('setDefaultLayout')?.value || 'auto',
+        timezone: String(document.getElementById('setTimezone')?.value || 'America/Monterrey').trim(),
+        agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked)
+    };
+}
+
+function cargarSettingsVista() {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    setSettingsBanner('', '');
+    updateE2eeKeyStatusUI();
+
+    const loadingBanner = document.getElementById('settingsLoadingBanner');
+    if (loadingBanner) {
+        loadingBanner.replaceChildren(createLoadingBanner('Loading settings...', 'sm'));
+        loadingBanner.hidden = false;
+    }
+
+    const reqToken = settingsLoadTracker.begin();
+    const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
+
+    fetch('/api/settings', fetchOpts)
+        .then(res => (res.ok ? res.json() : Promise.reject(new Error('Could not load settings'))))
+        .then(data => {
+            if (!settingsLoadTracker.isCurrent(reqToken.seq)) return;
+            if (loadingBanner) {
+                loadingBanner.hidden = true;
+                loadingBanner.innerHTML = '';
+            }
+            const settings = data && data.settings ? data.settings : {};
+            aplicarSettingsEnEstado(settings);
+            populateSettingsForm(settings);
+        })
+        .catch(err => {
+            if (isAbortError(err) || !settingsLoadTracker.isCurrent(reqToken.seq)) return;
+            if (loadingBanner) {
+                loadingBanner.hidden = true;
+                loadingBanner.innerHTML = '';
+            }
+            setSettingsBanner('err', 'Failed to load settings: ' + err.message);
+        });
+}
+
+function initSettingsHandlers() {
+    const settingsForm = document.getElementById('settingsForm');
+    if (!settingsForm) return;
+
+    const btnGenTopic = document.getElementById('btnGenerateNtfyTopic');
+    const btnCopyTopic = document.getElementById('btnCopyNtfyTopic');
+    const btnTestPush = document.getElementById('btnTestPhonePush');
+    const desktopCheck = document.getElementById('setDesktopNotify');
+    const btnSetE2ee = document.getElementById('btnSetE2eeKey');
+    const btnClearE2ee = document.getElementById('btnClearE2eeKey');
+    const btnSaveSettings = document.getElementById('btnSaveSettings');
+
+    if (btnGenTopic) {
+        btnGenTopic.addEventListener('click', () => {
+            const input = document.getElementById('setNtfyTopic');
+            const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+            let suffix = '';
+            if (window.crypto && window.crypto.getRandomValues) {
+                const bytes = new Uint8Array(12);
+                window.crypto.getRandomValues(bytes);
+                bytes.forEach(b => { suffix += alphabet[b % alphabet.length]; });
+            } else {
+                for (let i = 0; i < 12; i += 1) {
+                    suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+                }
+            }
+            if (input) {
+                input.value = `hub_personal_${suffix}`;
+                setSettingsBanner('ok', 'Generated a private topic. Subscribe to it in the ntfy phone app and save settings.');
+            }
+        });
+    }
+
+    if (btnCopyTopic) {
+        btnCopyTopic.addEventListener('click', () => {
+            const topic = String(document.getElementById('setNtfyTopic')?.value || '').trim();
+            if (!topic) {
+                setSettingsBanner('err', 'Enter or generate a topic first before copying.');
+                return;
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(topic).then(() => {
+                    const prev = btnCopyTopic.textContent;
+                    btnCopyTopic.textContent = 'Copied!';
+                    setTimeout(() => { btnCopyTopic.textContent = prev; }, 1400);
+                }).catch(() => {
+                    prompt('Copy your private ntfy topic:', topic);
+                });
+            } else {
+                prompt('Copy your private ntfy topic:', topic);
+            }
+        });
+    }
+
+    if (desktopCheck) {
+        desktopCheck.addEventListener('change', () => {
+            if (desktopCheck.checked && 'Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission().then(perm => {
+                    if (perm === 'denied') {
+                        desktopCheck.checked = false;
+                        setSettingsBanner('err', 'Browser denied desktop notifications. Phone notifications remain independent via ntfy.');
+                    }
+                }).catch(() => {});
+            }
+        });
+    }
+
+    if (btnTestPush) {
+        btnTestPush.addEventListener('click', () => {
+            const payload = collectSettingsFormPayload();
+            if (!payload.phoneNotificationsEnabled || !payload.ntfyTopic) {
+                setSettingsBanner('err', 'Enable phone notifications and set a private ntfy topic (8+ chars) first.');
+                return;
+            }
+            runWithButtonLock(btnTestPush, async () => {
+                try {
+                    const saved = await submitMutationRequest({
+                        url: '/api/settings',
+                        method: 'PUT',
+                        scopeKey: 'settings-save-before-test',
+                        signature: JSON.stringify(payload),
+                        buildBody: () => payload,
+                        parseJson: true
+                    });
+                    if (saved && saved.settings) {
+                        aplicarSettingsEnEstado(saved.settings, { syncAgendaDefaults: true });
+                    }
+                    const resData = await submitMutationRequest({
+                        url: '/api/settings/test-notification',
+                        method: 'POST',
+                        scopeKey: 'settings-test-push',
+                        signature: String(Date.now()),
+                        buildBody: () => ({}),
+                        parseJson: true
+                    });
+                    setSettingsBanner('ok', resData.message || 'Test push notification sent to your phone!');
+                } catch (err) {
+                    setSettingsBanner('err', 'Failed to send test push: ' + err.message);
+                }
+            }, { loadingText: 'Sending...' });
+        });
+    }
+
+    if (btnSetE2ee) {
+        btnSetE2ee.addEventListener('click', () => {
+            const newKey = prompt('🔒 Enter your 32-character E2EE secret key (stored only in this browser):');
+            if (newKey === null) return;
+            if (newKey.length !== 32) {
+                setSettingsBanner('err', 'Canceled: Key must be exactly 32 characters long.');
+                return;
+            }
+            localStorage.setItem('diario_llave_secreta', newKey);
+            updateE2eeKeyStatusUI();
+            setSettingsBanner('ok', 'E2EE secret key updated on this browser.');
+        });
+    }
+
+    if (btnClearE2ee) {
+        btnClearE2ee.addEventListener('click', () => {
+            if (!confirm('Remove the local 32-character E2EE key from this browser?')) return;
+            localStorage.removeItem('diario_llave_secreta');
+            updateE2eeKeyStatusUI();
+            setSettingsBanner('ok', 'Local E2EE key cleared from this browser.');
+        });
+    }
+
+    settingsForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!btnSaveSettings) return;
+        const payload = collectSettingsFormPayload();
+
+        runWithButtonLock(btnSaveSettings, async () => {
+            try {
+                const resData = await submitMutationRequest({
+                    url: '/api/settings',
+                    method: 'PUT',
+                    scopeKey: 'settings-save',
+                    signature: JSON.stringify(payload),
+                    buildBody: () => payload,
+                    parseJson: true
+                });
+                if (resData && resData.settings) {
+                    aplicarSettingsEnEstado(resData.settings, { syncAgendaDefaults: true });
+                    populateSettingsForm(resData.settings);
+                }
+                setSettingsBanner('ok', resData.message || 'Settings saved successfully.');
+                cargarRecordatoriosActivos();
+            } catch (err) {
+                setSettingsBanner('err', 'Error saving settings: ' + err.message);
+            }
+        }, { loadingText: 'Saving...' });
+    });
+}
+
+// ==========================================
 // APP INITIALIZATION
 // ==========================================
 function initApp() {
@@ -2353,6 +3103,7 @@ function initApp() {
     actualizarCabecerasDeFecha();
     initPasswordToggles();
     initAuthHandlers();
+    initSettingsHandlers();
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('resetToken') && params.get('email')) {
