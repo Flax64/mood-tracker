@@ -12,6 +12,7 @@ respaldos
 sincronitation
 scripts
 test
+tests
 README.md
 *.sql.gz
 *.log

@@ -1,0 +1,60 @@
+name: CI - Pruebas y Validación
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-lint:
+    name: Pruebas y Validación
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Validar sintaxis (JS, Bash, Python, YAML)
+        id: syntax_checks
+        run: |
+          node --check server.js
+          node --check public/frontend.js
+          node --check tests/ci-summary.js
+          bash -n scripts/*.sh
+          if [ -f "sincronitation/sincronizador.py" ]; then
+            python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' sincronitation/sincronizador.py
+          fi
+          ruby -ryaml -e "['.github/workflows/ci.yml', '.github/workflows/deploy.yml', 'docker-compose.yml'].each { |f| YAML.load_file(f) }"
+
+      - name: Ejecutar pruebas automatizadas
+        id: unit_tests
+        run: |
+          set -o pipefail
+          node --test --test-reporter=spec tests/*.test.js 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
+
+      - name: Publicar resumen de pruebas en GitHub Actions
+        if: always()
+        env:
+          SYNTAX_OUTCOME: ${{ steps.syntax_checks.outcome }}
+          TESTS_OUTCOME: ${{ steps.unit_tests.outcome }}
+        run: node tests/ci-summary.js "$RUNNER_TEMP/test-output.txt"
