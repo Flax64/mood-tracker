@@ -1052,9 +1052,25 @@ select {
     background: #555;
 }
 
-.btn-submit:disabled {
-    opacity: 0.65;
+.btn-submit:disabled,
+.btn-send-code:disabled,
+.btn-agenda-add-main:disabled,
+.btn-revoke-medico:disabled,
+.btn-logout-sidebar:disabled,
+.agenda-check-circle:disabled,
+.agenda-mini-btn:disabled {
+    opacity: 0.6;
     cursor: not-allowed;
+    pointer-events: none;
+}
+
+.is-busy,
+[aria-busy="true"] {
+    cursor: wait !important;
+}
+
+.agenda-item.is-busy {
+    opacity: 0.65;
 }
 
 .btn-view {

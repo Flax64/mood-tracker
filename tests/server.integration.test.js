@@ -471,6 +471,148 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         const pull2 = await request({ port, reqPath: '/api/pull-english' });
         assert.strictEqual(pull2.status, 200);
         assert.deepStrictEqual(JSON.parse(pull2.body), []);
+    });
+
+    it('evita envíos duplicados, aplica X-Idempotency-Key, detecta cola repetida y bloquea concurrencia en vuelo', async () => {
+        // 1. Sleep: replay con misma X-Idempotency-Key devuelve 200 cacheado sin duplicar inserción y 409 sin clave
+        const sleepCountBefore = sleepInserts.length;
+        const sleepPayload = { fecha: '2026-11-15', horas: 8.25, calidad: 'Good' };
+
+        const s1 = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'sleep-idem-key-1' },
+            body: sleepPayload
+        });
+        assert.strictEqual(s1.status, 200);
+        assert.strictEqual(sleepInserts.length, sleepCountBefore + 1);
+
+        const sReplay = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'sleep-idem-key-1' },
+            body: sleepPayload
+        });
+        assert.strictEqual(sReplay.status, 200);
+        assert.strictEqual(sReplay.headers['x-idempotent-replay'], 'true');
+        assert.strictEqual(sleepInserts.length, sleepCountBefore + 1);
+
+        const sMismatch = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'sleep-idem-key-1' },
+            body: { fecha: '2026-11-15', horas: 6, calidad: 'Regular' }
+        });
+        assert.strictEqual(sMismatch.status, 409);
+
+        const sDup = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'sleep-idem-key-2' },
+            body: sleepPayload
+        });
+        assert.strictEqual(sDup.status, 409);
+        assert.strictEqual(sleepInserts.length, sleepCountBefore + 1);
+
+        // 2. Agenda: replay 201 cacheado y bloqueo 409 de actividad idéntica repetida
+        const agendaCountBefore = agendaInserts.length;
+        const agendaPayload = { fecha: '2026-11-15', bloque: 'tarde', hora: '16:00', actividad: 'Practice Speaking' };
+
+        const a1 = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'agenda-idem-key-1' },
+            body: agendaPayload
+        });
+        assert.strictEqual(a1.status, 201);
+        assert.strictEqual(agendaInserts.length, agendaCountBefore + 1);
+
+        const aReplay = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'agenda-idem-key-1' },
+            body: agendaPayload
+        });
+        assert.strictEqual(aReplay.status, 201);
+        assert.strictEqual(aReplay.headers['x-idempotent-replay'], 'true');
+        assert.strictEqual(agendaInserts.length, agendaCountBefore + 1);
+
+        const aDup = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie },
+            body: agendaPayload
+        });
+        assert.strictEqual(aDup.status, 409);
+        assert.strictEqual(agendaInserts.length, agendaCountBefore + 1);
+
+        // 3. Colas E2EE (/api/send-to-pc y /api/send-english): replay 200 y rechazo 409 de duplicados
+        const pc1 = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-to-pc',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'pc-idem-1' },
+            body: { texto: 'cipher-unique-note' }
+        });
+        assert.strictEqual(pc1.status, 200);
+
+        const pcReplay = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-to-pc',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'pc-idem-1' },
+            body: { texto: 'cipher-unique-note' }
+        });
+        assert.strictEqual(pcReplay.status, 200);
+        assert.strictEqual(pcReplay.headers['x-idempotent-replay'], 'true');
+
+        const pcDup = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-to-pc',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'pc-idem-2' },
+            body: { texto: 'cipher-unique-note' }
+        });
+        assert.strictEqual(pcDup.status, 409);
+
+        const pcPull = await request({ port, reqPath: '/api/pull-text' });
+        assert.deepStrictEqual(JSON.parse(pcPull.body), ['cipher-unique-note']);
+
+        const eng1 = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'eng-idem-1' },
+            body: { texto: 'english-unique-entry' }
+        });
+        assert.strictEqual(eng1.status, 200);
+
+        const engDup = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'eng-idem-2' },
+            body: { texto: 'english-unique-entry' }
+        });
+        assert.strictEqual(engDup.status, 409);
+
+        const engPull = await request({ port, reqPath: '/api/pull-english' });
+        assert.deepStrictEqual(JSON.parse(engPull.body), ['english-unique-entry']);
+
+        // 4. Concurrencia simultánea en vuelo (bcrypt async): solo 1 procede y la 2ª recibe 409
+        const medicoPayload = { nombre: 'Dra. Concurrencia', email: 'concurrencia@example.com', password: 'ClaveMedico2026!' };
+        const [concA, concB] = await Promise.all([
+            request({ port, method: 'POST', reqPath: '/api/auth/create-medico', headers: { Cookie: adminCookie }, body: medicoPayload }),
+            request({ port, method: 'POST', reqPath: '/api/auth/create-medico', headers: { Cookie: adminCookie }, body: medicoPayload })
+        ]);
+        assert.deepStrictEqual([concA.status, concB.status].sort(), [200, 409]);
 
         // Cierre de sesión limpia la cookie y elimina sesión
         const logout = await request({ port, method: 'POST', reqPath: '/api/auth/logout', headers: { Cookie: adminCookie } });
