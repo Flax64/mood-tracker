@@ -243,4 +243,89 @@ describe('Bóveda local (.env / .env.enc)', () => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
     });
+
+    test('formateo de vocabulario, gramática, phrasal verbs y ruta automática en sincronizador.py', () => {
+        if (!fs.existsSync(PY_SYNC)) {
+            return;
+        }
+
+        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
+        if (pyCheck.error || pyCheck.status !== 0) {
+            return;
+        }
+
+        const pyCode = [
+            'import base64, json, os, sys',
+            'from datetime import datetime',
+            'from Crypto.Cipher import AES',
+            'sys.dont_write_bytecode = True',
+            'sync_dir = sys.argv[1]',
+            'sys.path.insert(0, sync_dir)',
+            'import sincronizador',
+            '',
+            'sincronizador.LLAVE_SECRETA = b"12345678901234567890123456789012"',
+            'payload_obj = {"category": "phrasal_verb", "verb": "work out", "grammar_type": "Separable", "meaning_es": "Hacer ejercicio / resolver", "meaning_en": "Exercise or find a solution", "example": "Things will work out.", "notes": "Common daily verb."}',
+            'raw_json = json.dumps(payload_obj).encode("utf-8")',
+            'pad_len = 16 - (len(raw_json) % 16)',
+            'padded = raw_json + bytes([pad_len] * pad_len)',
+            'iv = b"abcdef0123456789"',
+            'cipher = AES.new(sincronizador.LLAVE_SECRETA, AES.MODE_CBC, iv).encrypt(padded)',
+            'wire_text = iv.hex() + ":" + base64.b64encode(cipher).decode("utf-8")',
+            'decrypted = sincronizador.desencriptar_texto(wire_text)',
+            'parsed_pv = sincronizador.parsear_entrada_ingles(decrypted)',
+            '',
+            'vocab = sincronizador.parsear_entrada_ingles(json.dumps({"category": "vocabulary", "word": "Resilience", "part_of_speech": "Noun", "spanish": "Resiliencia", "example": "Build resilience."}))',
+            'grammar = sincronizador.parsear_entrada_ingles(json.dumps({"category": "grammar", "title": "Make vs Do", "notes": "Line one\\nLine two", "example": "Make progress\\nDo homework"}))',
+            'dt = datetime(2026, 11, 14, 15, 30)',
+            'specs = {',
+            '  "vocab": sincronizador.formatear_entrada_ingles(vocab, dt),',
+            '  "grammar": sincronizador.formatear_entrada_ingles(grammar, dt),',
+            '  "pv": sincronizador.formatear_entrada_ingles(parsed_pv, dt),',
+            '}',
+            'no_internal_newlines = all("\\n" not in line["text"] and "\\r" not in line["text"] for s in specs.values() for line in s["lines"])',
+            '',
+            'os.environ.pop("GITHUB_TOKEN", None)',
+            'os.environ.pop("URL_AWS", None)',
+            'os.environ["AWS_HOST"] = "1.2.3.4"',
+            'os.environ["PORT"] = "3000"',
+            'url_host = sincronizador.obtener_url_aws("/api/pull-english")',
+            'os.environ["URL_AWS"] = "http://5.6.7.8:3000/api/pull-text"',
+            'url_direct = sincronizador.obtener_url_aws("/api/pull-english")',
+            '',
+            'print(json.dumps({',
+            '  "default_path": os.path.normpath(sincronizador.DEFAULT_ENGLISH_WORD_PATH),',
+            '  "specs": specs,',
+            '  "no_internal_newlines": no_internal_newlines,',
+            '  "url_host": url_host,',
+            '  "url_direct": url_direct,',
+            '}))'
+        ].join('\n');
+
+        const pyEnv = { ...process.env };
+        delete pyEnv.GITHUB_TOKEN;
+        delete pyEnv.URL_AWS;
+        delete pyEnv.AWS_HOST;
+
+        const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC)], {
+            cwd: ROOT_DIR,
+            env: pyEnv,
+            encoding: 'utf8'
+        });
+        assert.equal(res.status, 0, res.stderr || res.stdout);
+
+        const out = JSON.parse(res.stdout.trim());
+        assert.equal(
+            out.default_path,
+            path.join(ROOT_DIR, 'english-notes', 'English_Learning_Notebook.docx')
+        );
+        assert.equal(out.no_internal_newlines, true);
+        assert.equal(out.specs.vocab.section_title, '1. Glossary & New Words');
+        assert.equal(out.specs.vocab.heading, 'Resilience (Noun) — Resiliencia');
+        assert.equal(out.specs.grammar.section_title, '2. Grammar & Usage Notes');
+        assert.equal(out.specs.grammar.heading, 'Make vs Do');
+        assert.equal(out.specs.pv.section_title, '3. Phrasal Verbs');
+        assert.equal(out.specs.pv.heading, 'work out — Hacer ejercicio / resolver');
+        assert.equal(out.url_host, 'http://1.2.3.4:3000/api/pull-english');
+        assert.equal(out.url_direct, 'http://5.6.7.8:3000/api/pull-english');
+    });
 });

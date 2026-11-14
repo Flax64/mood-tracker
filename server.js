@@ -254,7 +254,7 @@ function crearTransporterCorreo() {
 async function enviarCorreo({ to, subject, html }) {
     const transporter = crearTransporterCorreo();
     if (!transporter) {
-        throw new Error('Falta configurar SMTP_USER y SMTP_PASS (Contraseña de aplicación de Gmail) en .env o GitHub Secrets');
+        throw new Error('SMTP_USER and SMTP_PASS (Gmail App Password) are missing in .env or GitHub Secrets.');
     }
     const fromUser = (process.env.SMTP_USER || ADMIN_EMAIL).trim();
     try {
@@ -266,7 +266,7 @@ async function enviarCorreo({ to, subject, html }) {
         });
     } catch (err) {
         if (err && (err.code === 'EAUTH' || err.responseCode === 535)) {
-            throw new Error('Gmail rechazó las credenciales SMTP. Verifica que SMTP_USER y la Contraseña de Aplicación (SMTP_PASS de 16 letras) coincidan.');
+            throw new Error('Gmail rejected the SMTP credentials. Check that SMTP_USER and the 16-character App Password (SMTP_PASS) match.');
         }
         throw err;
     }
@@ -277,7 +277,7 @@ function requireAuth(req, res, next) {
     const cookies = parseCookies(req);
     const rawToken = cookies.mt_session;
     if (!rawToken || rawToken.length < 32) {
-        return res.status(401).send('Sesión no iniciada o expirada');
+        return res.status(401).send('Session not started or expired.');
     }
 
     const tokenHash = sha256Hex(rawToken);
@@ -294,11 +294,11 @@ function requireAuth(req, res, next) {
     db.query(sql, [tokenHash, nowSql], (err, rows) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al verificar sesión');
+            return res.status(500).send('Error verifying session.');
         }
         if (!rows || rows.length === 0) {
             clearSessionCookie(res);
-            return res.status(401).send('Tu sesión ha expirado. Por favor inicia sesión nuevamente.');
+            return res.status(401).send('Your session has expired. Please sign in again.');
         }
 
         req.user = {
@@ -316,7 +316,7 @@ function requireAuth(req, res, next) {
 function requireAdmin(req, res, next) {
     requireAuth(req, res, () => {
         if (req.user.rol !== 'admin') {
-            return res.status(403).send('Acceso de solo lectura: esta cuenta solo puede visualizar el resumen.');
+            return res.status(403).send('Read-only access: this account can only view the weekly summary.');
         }
         next();
     });
@@ -335,12 +335,12 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 app.post('/api/auth/send-register-code', async (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`regcode:${ip}`, 6, 15 * 60 * 1000)) {
-        return res.status(429).send('Demasiados intentos. Espera unos minutos.');
+        return res.status(429).send('Too many attempts. Please wait a few minutes.');
     }
 
     const emailSolicitante = String(req.body.email || '').trim().toLowerCase();
     if (!EMAIL_REGEX.test(emailSolicitante)) {
-        return res.status(400).send('Ingresa un correo electrónico válido.');
+        return res.status(400).send('Please enter a valid email address.');
     }
 
     const codigo = String(crypto.randomInt(100000, 999999));
@@ -354,30 +354,30 @@ app.post('/api/auth/send-register-code', async (req, res) => {
         async (err) => {
             if (err) {
                 console.error(err);
-                return res.status(500).send('Error al generar código de verificación');
+                return res.status(500).send('Error generating verification code.');
             }
 
             try {
-                const rolSolicitado = emailSolicitante === ADMIN_EMAIL ? 'Administrador (Propietario)' : 'Psiquiatra (Solo lectura)';
+                const rolSolicitado = emailSolicitante === ADMIN_EMAIL ? 'Administrator (Owner)' : 'Psychiatrist (Read-only)';
                 await enviarCorreo({
                     to: ADMIN_EMAIL,
-                    subject: 'Código de verificación - Personal Mood Tracker',
+                    subject: 'Verification Code - Personal Mood Tracker',
                     html: `
                         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
-                            <h2 style="color: #1e2430; margin-top: 0;">Verificación de Registro</h2>
-                            <p>Se solicitó registrar la cuenta <strong>${emailSolicitante}</strong> con rol <strong>${rolSolicitado}</strong>.</p>
-                            <p>Tu código de autorización (válido por 15 minutos) es:</p>
+                            <h2 style="color: #1e2430; margin-top: 0;">Registration Verification</h2>
+                            <p>A registration request was submitted for <strong>${emailSolicitante}</strong> with role <strong>${rolSolicitado}</strong>.</p>
+                            <p>Your authorization code (valid for 15 minutes) is:</p>
                             <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; text-align: center; padding: 14px; background: #f3f4f6; border-radius: 8px; color: #111827;">
                                 ${codigo}
                             </div>
                         </div>
                     `
                 });
-                res.json({ message: 'Código de verificación enviado al correo propietario configurado en el servidor.' });
+                res.json({ message: 'Verification code sent to the owner email configured on the server.' });
             } catch (mailErr) {
                 console.error(mailErr.message);
                 res.status(500).send(
-                    mailErr.message + '. También puedes registrarte ingresando tu clave secreta personal en el campo de validación.'
+                    mailErr.message + ' You can also register using your personal secret key in the validation field.'
                 );
             }
         }
@@ -388,7 +388,7 @@ app.post('/api/auth/send-register-code', async (req, res) => {
 app.post('/api/auth/register', (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`register:${ip}`, 8, 15 * 60 * 1000)) {
-        return res.status(429).send('Demasiados intentos de registro. Espera 15 minutos.');
+        return res.status(429).send('Too many registration attempts. Please wait 15 minutes.');
     }
 
     const nombre = String(req.body.nombre || '').trim();
@@ -397,16 +397,16 @@ app.post('/api/auth/register', (req, res) => {
     const codigoValidacion = String(req.body.codigoValidacion || '').trim();
 
     if (!nombre || nombre.length < 2 || nombre.length > 80) {
-        return res.status(400).send('El nombre debe tener entre 2 y 80 caracteres.');
+        return res.status(400).send('Name must be between 2 and 80 characters.');
     }
     if (!EMAIL_REGEX.test(email) || email.length > 150) {
-        return res.status(400).send('Correo electrónico no válido.');
+        return res.status(400).send('Invalid email address.');
     }
     if (password.length < 8 || password.length > 128) {
-        return res.status(400).send('La contraseña debe tener al menos 8 caracteres.');
+        return res.status(400).send('Password must be at least 8 characters long.');
     }
     if (!codigoValidacion) {
-        return res.status(400).send('Ingresa el código de verificación o tu clave secreta personal.');
+        return res.status(400).send('Enter the verification code or your personal secret key.');
     }
 
     // Asignación estricta de rol: únicamente flavio.flax1234@gmail.com puede ser admin
@@ -425,10 +425,10 @@ app.post('/api/auth/register', (req, res) => {
         db.query('SELECT id FROM Usuarios WHERE email = ? LIMIT 1', [email], async (errExist, rowsExist) => {
             if (errExist) {
                 console.error(errExist);
-                return res.status(500).send('Error al consultar usuarios');
+                return res.status(500).send('Error querying users.');
             }
             if (rowsExist && rowsExist.length > 0) {
-                return res.status(400).send('Este correo ya está registrado. Inicia sesión o recupera tu contraseña.');
+                return res.status(400).send('This email is already registered. Sign in or reset your password.');
             }
 
             try {
@@ -439,7 +439,7 @@ app.post('/api/auth/register', (req, res) => {
                     (errIns, result) => {
                         if (errIns) {
                             console.error(errIns);
-                            return res.status(500).send('Error al registrar el usuario');
+                            return res.status(500).send('Error registering user.');
                         }
 
                         // Iniciar sesión automáticamente hasta el próximo domingo 00:00
@@ -454,11 +454,11 @@ app.post('/api/auth/register', (req, res) => {
                             (errSes) => {
                                 if (errSes) {
                                     console.error(errSes);
-                                    return res.status(500).send('Cuenta creada, pero ocurrió un error al iniciar sesión.');
+                                    return res.status(500).send('Account created, but an error occurred while signing in.');
                                 }
                                 setSessionCookie(res, rawToken, expiresAt);
                                 res.status(201).json({
-                                    message: 'Cuenta verificada y creada exitosamente',
+                                    message: 'Account verified and created successfully.',
                                     user: {
                                         id: result.insertId,
                                         nombre,
@@ -473,7 +473,7 @@ app.post('/api/auth/register', (req, res) => {
                 );
             } catch (hashErr) {
                 console.error(hashErr);
-                res.status(500).send('Error al procesar la contraseña');
+                res.status(500).send('Error processing password.');
             }
         });
     };
@@ -494,10 +494,10 @@ app.post('/api/auth/register', (req, res) => {
     db.query(sqlCodigo, [email, codigoHash, nowSql], (errCod, rowsCod) => {
         if (errCod) {
             console.error(errCod);
-            return res.status(500).send('Error al validar código de seguridad');
+            return res.status(500).send('Error validating security code.');
         }
         if (!rowsCod || rowsCod.length === 0) {
-            return res.status(400).send('Código de verificación o clave secreta incorrecta o expirada.');
+            return res.status(400).send('Incorrect or expired verification code / secret key.');
         }
 
         db.query('UPDATE CodigosSeguridad SET usado = 1 WHERE id = ?', [rowsCod[0].id], () => {
@@ -513,26 +513,26 @@ app.post('/api/auth/login', (req, res) => {
     const password = String(req.body.password || '');
 
     if (!checkRateLimit(`login:${ip}:${email}`, 10, 15 * 60 * 1000)) {
-        return res.status(429).send('Demasiados intentos fallidos. Por seguridad, espera 15 minutos.');
+        return res.status(429).send('Too many failed attempts. Please wait 15 minutes.');
     }
 
     if (!EMAIL_REGEX.test(email) || !password) {
-        return res.status(400).send('Ingresa tu correo y contraseña.');
+        return res.status(400).send('Enter your email and password.');
     }
 
     db.query('SELECT id, nombre, email, password_hash, rol FROM Usuarios WHERE email = ? LIMIT 1', [email], async (err, rows) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al consultar la base de datos');
+            return res.status(500).send('Database query error.');
         }
         if (!rows || rows.length === 0) {
-            return res.status(401).send('Correo o contraseña incorrectos.');
+            return res.status(401).send('Incorrect email or password.');
         }
 
         const user = rows[0];
         const match = await bcrypt.compare(password, user.password_hash);
         if (!match) {
-            return res.status(401).send('Correo o contraseña incorrectos.');
+            return res.status(401).send('Incorrect email or password.');
         }
 
         resetRateLimit(`login:${ip}:${email}`);
@@ -551,11 +551,11 @@ app.post('/api/auth/login', (req, res) => {
             (errSes) => {
                 if (errSes) {
                     console.error(errSes);
-                    return res.status(500).send('Error al crear la sesión');
+                    return res.status(500).send('Error creating session.');
                 }
                 setSessionCookie(res, rawToken, expiresAt);
                 res.json({
-                    message: 'Sesión iniciada correctamente',
+                    message: 'Signed in successfully.',
                     user: {
                         id: user.id,
                         nombre: user.nombre,
@@ -576,12 +576,12 @@ app.post('/api/auth/logout', (req, res) => {
     clearSessionCookie(res);
 
     if (!rawToken) {
-        return res.json({ message: 'Sesión cerrada' });
+        return res.json({ message: 'Signed out.' });
     }
 
     const tokenHash = sha256Hex(rawToken);
     db.query('DELETE FROM SesionesAuth WHERE token_hash = ?', [tokenHash], () => {
-        res.json({ message: 'Sesión cerrada correctamente' });
+        res.json({ message: 'Signed out successfully.' });
     });
 });
 
@@ -589,27 +589,27 @@ app.post('/api/auth/logout', (req, res) => {
 app.post('/api/auth/forgot-password', (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`forgot:${ip}`, 5, 15 * 60 * 1000)) {
-        return res.status(429).send('Demasiadas solicitudes. Espera 15 minutos.');
+        return res.status(429).send('Too many requests. Please wait 15 minutes.');
     }
 
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!EMAIL_REGEX.test(email)) {
-        return res.status(400).send('Ingresa un correo electrónico válido.');
+        return res.status(400).send('Please enter a valid email address.');
     }
 
     db.query('SELECT id, nombre, email FROM Usuarios WHERE email = ? LIMIT 1', [email], (err, rows) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al procesar la solicitud');
+            return res.status(500).send('Error processing request.');
         }
         if (!rows || rows.length === 0) {
-            return res.json({ message: 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.' });
+            return res.json({ message: 'If this email is registered, you will receive a password reset link.' });
         }
 
         const user = rows[0];
         const rawResetToken = crypto.randomBytes(32).toString('hex');
         const tokenHash = sha256Hex(rawResetToken);
-        const expira = new Date(Date.now() + 30 * 60 * 1000); // 30 minutos
+        const expira = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
         const expiraSql = formatMySqlDateTime(expira);
 
         db.query(
@@ -618,7 +618,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
             async (errIns) => {
                 if (errIns) {
                     console.error(errIns);
-                    return res.status(500).send('Error al generar el enlace de recuperación');
+                    return res.status(500).send('Error generating recovery link.');
                 }
 
                 const baseUrl = getResetBaseUrl(req);
@@ -627,22 +627,22 @@ app.post('/api/auth/forgot-password', (req, res) => {
                 try {
                     await enviarCorreo({
                         to: user.email,
-                        subject: 'Recuperación de contraseña - Personal Mood Tracker',
+                        subject: 'Password Recovery - Personal Mood Tracker',
                         html: `
                             <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 22px; border: 1px solid #e5e7eb; border-radius: 12px;">
-                                <h2 style="color: #1e2430; margin-top: 0;">Restablecer Contraseña</h2>
-                                <p>Hola <strong>${escapeHtml(user.nombre)}</strong>,</p>
-                                <p>Solicitaste cambiar tu contraseña en Personal Mood Tracker. Haz clic en el siguiente botón (válido por 30 minutos):</p>
+                                <h2 style="color: #1e2430; margin-top: 0;">Reset Password</h2>
+                                <p>Hello <strong>${escapeHtml(user.nombre)}</strong>,</p>
+                                <p>You requested a password reset on Personal Mood Tracker. Click the button below (valid for 30 minutes):</p>
                                 <p style="text-align: center; margin: 26px 0;">
                                     <a href="${resetUrl}" style="background: #1e2430; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: bold; display: inline-block;">
-                                        Cambiar mi contraseña
+                                        Reset My Password
                                     </a>
                                 </p>
-                                <p style="font-size: 12px; color: #6b7280;">Si no solicitaste este cambio, puedes ignorar este mensaje.</p>
+                                <p style="font-size: 12px; color: #6b7280;">If you did not request this change, you can safely ignore this message.</p>
                             </div>
                         `
                     });
-                    res.json({ message: 'Te enviamos un enlace a tu correo para restablecer tu contraseña.' });
+                    res.json({ message: 'We sent a reset link to your email address.' });
                 } catch (mailErr) {
                     console.error(mailErr.message);
                     res.status(500).send(mailErr.message);
@@ -656,7 +656,7 @@ app.post('/api/auth/forgot-password', (req, res) => {
 app.post('/api/auth/reset-password', (req, res) => {
     const ip = req.ip || 'unknown';
     if (!checkRateLimit(`reset:${ip}`, 8, 15 * 60 * 1000)) {
-        return res.status(429).send('Demasiados intentos. Espera 15 minutos.');
+        return res.status(429).send('Too many attempts. Please wait 15 minutes.');
     }
 
     const email = String(req.body.email || '').trim().toLowerCase();
@@ -664,10 +664,10 @@ app.post('/api/auth/reset-password', (req, res) => {
     const newPassword = String(req.body.newPassword || '');
 
     if (!EMAIL_REGEX.test(email) || !token || token.length < 32) {
-        return res.status(400).send('Enlace de recuperación inválido.');
+        return res.status(400).send('Invalid recovery link.');
     }
     if (newPassword.length < 8 || newPassword.length > 128) {
-        return res.status(400).send('La nueva contraseña debe tener al menos 8 caracteres.');
+        return res.status(400).send('New password must be at least 8 characters long.');
     }
 
     const tokenHash = sha256Hex(token);
@@ -681,10 +681,10 @@ app.post('/api/auth/reset-password', (req, res) => {
     db.query(sqlCheck, [email, tokenHash, nowSql], async (err, rows) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al verificar el enlace');
+            return res.status(500).send('Error verifying recovery link.');
         }
         if (!rows || rows.length === 0) {
-            return res.status(400).send('El enlace de recuperación es inválido o ya expiró.');
+            return res.status(400).send('The recovery link is invalid or has expired.');
         }
 
         const codigoId = rows[0].id;
@@ -692,7 +692,7 @@ app.post('/api/auth/reset-password', (req, res) => {
             const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
             db.query('UPDATE Usuarios SET password_hash = ? WHERE email = ?', [passwordHash, email], (errUpd, resultUpd) => {
                 if (errUpd || resultUpd.affectedRows === 0) {
-                    return res.status(500).send('No se pudo actualizar la contraseña');
+                    return res.status(500).send('Could not update password.');
                 }
 
                 db.query('UPDATE CodigosSeguridad SET usado = 1 WHERE id = ?', [codigoId], () => {});
@@ -702,11 +702,11 @@ app.post('/api/auth/reset-password', (req, res) => {
                     () => {}
                 );
 
-                res.json({ message: 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.' });
+                res.json({ message: 'Password updated successfully. You can now sign in.' });
             });
         } catch (e) {
             console.error(e);
-            res.status(500).send('Error al cifrar la nueva contraseña');
+            res.status(500).send('Error hashing the new password.');
         }
     });
 });
@@ -714,7 +714,7 @@ app.post('/api/auth/reset-password', (req, res) => {
 // Gestión de cuenta del Psiquiatra desde la cuenta de Flavio (admin)
 app.get('/api/auth/medicos', requireAdmin, (req, res) => {
     db.query('SELECT id, nombre, email, fecha_registro FROM Usuarios WHERE rol = "psiquiatra" ORDER BY id DESC', (err, rows) => {
-        if (err) return res.status(500).send('Error al consultar cuentas de psiquiatra');
+        if (err) return res.status(500).send('Error loading psychiatrist accounts.');
         res.json(rows);
     });
 });
@@ -725,13 +725,13 @@ app.post('/api/auth/create-medico', requireAdmin, async (req, res) => {
     const password = String(req.body.password || '');
 
     if (!nombre || nombre.length < 2 || nombre.length > 80) {
-        return res.status(400).send('El nombre del psiquiatra debe tener entre 2 y 80 caracteres.');
+        return res.status(400).send('Doctor name must be between 2 and 80 characters.');
     }
     if (!EMAIL_REGEX.test(email) || email === ADMIN_EMAIL) {
-        return res.status(400).send('Ingresa un correo válido para el psiquiatra (distinto al correo propietario).');
+        return res.status(400).send('Enter a valid psychiatrist email (different from owner email).');
     }
     if (password.length < 8 || password.length > 128) {
-        return res.status(400).send('La contraseña debe tener al menos 8 caracteres.');
+        return res.status(400).send('Password must be at least 8 characters long.');
     }
 
     try {
@@ -744,23 +744,23 @@ app.post('/api/auth/create-medico', requireAdmin, async (req, res) => {
         db.query(sql, [nombre, email, passwordHash], (err) => {
             if (err) {
                 console.error(err);
-                return res.status(500).send('Error al guardar la cuenta del psiquiatra');
+                return res.status(500).send('Error saving psychiatrist account.');
             }
-            res.json({ message: 'Cuenta de psiquiatra (solo lectura) creada/actualizada correctamente.' });
+            res.json({ message: 'Psychiatrist account (read-only) saved successfully.' });
         });
     } catch (e) {
-        res.status(500).send('Error al cifrar la contraseña');
+        res.status(500).send('Error hashing password.');
     }
 });
 
 app.delete('/api/auth/medicos/:id', requireAdmin, (req, res) => {
     const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) return res.status(400).send('ID inválido');
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).send('Invalid ID.');
 
     db.query('DELETE FROM Usuarios WHERE id = ? AND rol = "psiquiatra"', [id], (err, result) => {
-        if (err) return res.status(500).send('Error al eliminar cuenta');
-        if (result.affectedRows === 0) return res.status(404).send('Cuenta no encontrada');
-        res.json({ message: 'Acceso de psiquiatra revocado correctamente' });
+        if (err) return res.status(500).send('Error deleting account.');
+        if (result.affectedRows === 0) return res.status(404).send('Account not found.');
+        res.json({ message: 'Psychiatrist access revoked successfully.' });
     });
 });
 
@@ -777,16 +777,16 @@ app.post('/api/insert-mood', requireAdmin, (req, res) => {
     const { fecha, momento_dia, estado_animo, color_hex } = req.body;
 
     if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
-        return res.status(400).send('Fecha inválida (formato esperado YYYY-MM-DD).');
+        return res.status(400).send('Invalid date (expected YYYY-MM-DD).');
     }
     if (!momento_dia || !MOMENTOS_VALIDOS.has(momento_dia)) {
-        return res.status(400).send('Momento del día inválido.');
+        return res.status(400).send('Invalid time of day.');
     }
     if (typeof estado_animo !== 'string' || !estado_animo.trim() || estado_animo.trim().length > 50) {
-        return res.status(400).send('Estado de ánimo inválido.');
+        return res.status(400).send('Invalid mood value.');
     }
     if (typeof color_hex !== 'string' || !HEX_COLOR_REGEX.test(color_hex)) {
-        return res.status(400).send('Color hexadecimal inválido.');
+        return res.status(400).send('Invalid hex color.');
     }
 
     const checkSql = 'SELECT * FROM RegistrosMood WHERE fecha = ? AND momento_dia = ?';
@@ -794,7 +794,7 @@ app.post('/api/insert-mood', requireAdmin, (req, res) => {
     db.query(checkSql, [fecha, momento_dia], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al consultar la base de datos');
+            return res.status(500).send('Database query error.');
         }
 
         if (result.length > 0) {
@@ -803,22 +803,22 @@ app.post('/api/insert-mood', requireAdmin, (req, res) => {
                 db.query(sqlUpdate, [estado_animo.trim(), color_hex, fecha, momento_dia], (errUpdate) => {
                     if (errUpdate) {
                         console.error(errUpdate);
-                        return res.status(500).send('Error al actualizar el registro');
+                        return res.status(500).send('Error updating record.');
                     }
-                    res.send('Registro actualizado correctamente \nAún estabas a tiempo');
+                    res.send('Record updated successfully\nYou were still within the edit window.');
                 });
             } else {
-                res.status(400).send('El lapso de tiempo para modificar este momento del día ya expiró');
+                res.status(400).send('The time window to edit this time of day has already expired.');
             }
         } else {
             const sqlInsert = 'INSERT INTO RegistrosMood (fecha, momento_dia, estado_animo, color_hex) VALUES (?, ?, ?, ?)';
             db.query(sqlInsert, [fecha, momento_dia, estado_animo.trim(), color_hex], (errInsert) => {
                 if (errInsert) {
                     console.error(errInsert);
-                    return res.status(500).send('Error al guardar en la base de datos');
+                    return res.status(500).send('Error saving to database.');
                 }
 
-                res.send('Estado de ánimo registrado correctamente');
+                res.send('Mood saved successfully.');
             });
         }
     });
@@ -830,22 +830,22 @@ app.post('/api/insert-sleep', requireAdmin, (req, res) => {
     const horasNum = Number(horas);
 
     if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
-        return res.status(400).send('Fecha inválida (formato esperado YYYY-MM-DD).');
+        return res.status(400).send('Invalid date (expected YYYY-MM-DD).');
     }
     if (!Number.isFinite(horasNum) || horasNum <= 0 || horasNum > 24) {
-        return res.status(400).send('Las horas de sueño deben ser un número entre 0.1 y 24.');
+        return res.status(400).send('Sleep hours must be a number between 0.1 and 24.');
     }
     if (!calidad || !CALIDADES_SUENO_VALIDAS.has(calidad)) {
-        return res.status(400).send('Calidad de sueño inválida.');
+        return res.status(400).send('Invalid sleep quality.');
     }
 
     const sql = 'INSERT INTO RegistrosSleep (fecha, horas, calidad) VALUES (?, ?, ?)';
     db.query(sql, [fecha, horasNum, calidad], (err) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al guardar el registro de sueño');
+            return res.status(500).send('Error saving sleep record.');
         }
-        res.send('Registro de sueño gruardado con éxito');
+        res.send('Sleep record saved successfully.');
     });
 });
 
@@ -853,7 +853,7 @@ app.post('/api/insert-sleep', requireAdmin, (req, res) => {
 app.get('/api/get-moods', requireAuth, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
-        return res.status(400).send('Parámetros begin y end requeridos (YYYY-MM-DD).');
+        return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
     }
 
     const sql = 'SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
@@ -861,7 +861,7 @@ app.get('/api/get-moods', requireAuth, (req, res) => {
     db.query(sql, [begin, end], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al consultar la base de datos');
+            return res.status(500).send('Database query error.');
         }
         res.json(result);
     });
@@ -871,7 +871,7 @@ app.get('/api/get-moods', requireAuth, (req, res) => {
 app.get('/api/get-sleep', requireAuth, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
-        return res.status(400).send('Parámetros begin y end requeridos (YYYY-MM-DD).');
+        return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
     }
 
     const sql = 'SELECT fecha, horas, calidad FROM RegistrosSleep WHERE fecha BETWEEN ? AND ?';
@@ -879,7 +879,7 @@ app.get('/api/get-sleep', requireAuth, (req, res) => {
     db.query(sql, [begin, end], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al consultar la base de datos');
+            return res.status(500).send('Database query error.');
         }
         res.json(result);
     });
@@ -917,29 +917,57 @@ function puedeModificar(fecha, momento_dia) {
     }
 }
 
-// Memoria temporal acotada para guardar los textos cifrados hacia Word PC
+// Colas temporales acotadas en RAM hacia Word PC (Journal privado + English Notebook)
 const MAX_COLA_TEXTOS = 100;
-let colaDeTextos = [];
 
-// Enviar nota cifrada a la cola (SOLO ADMIN)
-app.post('/api/send-to-pc', requireAdmin, (req, res) => {
-    const { texto } = req.body;
-    if (typeof texto === 'string' && texto.trim()) {
-        if (colaDeTextos.length >= MAX_COLA_TEXTOS) {
-            return res.status(429).send('La cola de sincronización está llena; espera a que tu PC la descargue.');
+function createEncryptedPcQueue({ maxSize = MAX_COLA_TEXTOS, okMessage, emptyMessage, fullMessage }) {
+    let queue = [];
+
+    return {
+        enqueue(req, res) {
+            const { texto } = req.body || {};
+            if (typeof texto !== 'string' || !texto.trim()) {
+                return res.status(400).send(emptyMessage);
+            }
+            if (queue.length >= maxSize) {
+                return res.status(429).send(fullMessage);
+            }
+            queue.push(texto);
+            return res.send(okMessage);
+        },
+        pull(req, res) {
+            const items = queue;
+            queue = [];
+            return res.json(items);
         }
-        colaDeTextos.push(texto);
-        res.send('Texto encolado esperando a tu PC');
-    } else {
-        res.status(400).send('El texto no puede estar vacío');
-    }
+    };
+}
+
+const journalQueue = createEncryptedPcQueue({
+    maxSize: MAX_COLA_TEXTOS,
+    okMessage: 'Text queued for your PC.',
+    emptyMessage: 'Text cannot be empty.',
+    fullMessage: 'Sync queue is full; please wait for your PC to pull pending entries.'
 });
 
-// Ruta para que tu PC consulte si hay textos nuevos (el contenido viaja cifrado en AES-256)
-app.get('/api/pull-text', (req, res) => {
-    res.json(colaDeTextos);
-    colaDeTextos = [];
+const englishQueue = createEncryptedPcQueue({
+    maxSize: MAX_COLA_TEXTOS,
+    okMessage: 'English entry queued for your PC Word notebook.',
+    emptyMessage: 'Entry payload cannot be empty.',
+    fullMessage: 'English sync queue is full; please wait for your PC to pull pending entries.'
 });
+
+// Enviar nota de Journal cifrada a la cola (SOLO ADMIN)
+app.post('/api/send-to-pc', requireAdmin, journalQueue.enqueue);
+
+// Ruta para que tu PC consulte notas de Journal pendientes (el contenido viaja cifrado E2EE)
+app.get('/api/pull-text', journalQueue.pull);
+
+// Enviar entrada cifrada de English Learning Notebook a la cola (SOLO ADMIN, sin guardar en MySQL)
+app.post('/api/send-english', requireAdmin, englishQueue.enqueue);
+
+// Ruta para que tu PC consulte entradas de inglés pendientes (el contenido viaja cifrado E2EE)
+app.get('/api/pull-english', englishQueue.pull);
 
 // ==========================================
 // RUTAS PARA LA AGENDA PERSONAL SEMANAL (SOLO ADMIN)
@@ -948,19 +976,19 @@ const BLOQUES_VALIDOS = new Set(['manana', 'cole', 'tarde', 'noche']);
 
 function validarDatosAgenda({ fecha, bloque, hora, actividad }) {
     if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-        return 'La fecha debe tener el formato YYYY-MM-DD.';
+        return 'Date must use YYYY-MM-DD format.';
     }
     if (!bloque || !BLOQUES_VALIDOS.has(bloque)) {
-        return 'Bloque del día no válido.';
+        return 'Invalid day block.';
     }
     if (!hora || !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(hora)) {
-        return 'La hora debe tener el formato HH:MM.';
+        return 'Time must use HH:MM format.';
     }
     if (typeof actividad !== 'string' || !actividad.trim()) {
-        return 'La descripción de la actividad es obligatoria.';
+        return 'Activity description is required.';
     }
     if (actividad.trim().length > 255) {
-        return 'La actividad no puede exceder 255 caracteres.';
+        return 'Activity cannot exceed 255 characters.';
     }
     return null;
 }
@@ -973,7 +1001,7 @@ function parseAgendaId(rawId) {
 app.get('/api/get-agenda', requireAdmin, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !/^\d{4}-\d{2}-\d{2}$/.test(begin) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
-        return res.status(400).send('Parámetros begin y end requeridos (YYYY-MM-DD).');
+        return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
     }
 
     const sql = `
@@ -987,7 +1015,7 @@ app.get('/api/get-agenda', requireAdmin, (req, res) => {
     db.query(sql, [begin, end], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al consultar la agenda en la base de datos');
+            return res.status(500).send('Error querying agenda from database.');
         }
         res.json(result);
     });
@@ -1007,10 +1035,10 @@ app.post('/api/insert-agenda', requireAdmin, (req, res) => {
     db.query(sql, [fecha, bloque, horaNormalizada, actividad], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al guardar la actividad en la agenda');
+            return res.status(500).send('Error saving agenda activity.');
         }
         res.status(201).json({
-            message: 'Actividad registrada correctamente',
+            message: 'Activity saved successfully.',
             item: {
                 id: result.insertId,
                 fecha,
@@ -1025,7 +1053,7 @@ app.post('/api/insert-agenda', requireAdmin, (req, res) => {
 
 app.put('/api/update-agenda/:id', requireAdmin, (req, res) => {
     const id = parseAgendaId(req.params.id);
-    if (!id) return res.status(400).send('ID de actividad no válido.');
+    if (!id) return res.status(400).send('Invalid activity ID.');
 
     const errorValidacion = validarDatosAgenda(req.body);
     if (errorValidacion) {
@@ -1040,13 +1068,13 @@ app.put('/api/update-agenda/:id', requireAdmin, (req, res) => {
     db.query(sql, [fecha, bloque, horaNormalizada, actividad, id], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al actualizar la actividad');
+            return res.status(500).send('Error updating activity.');
         }
         if (result.affectedRows === 0) {
-            return res.status(404).send('Actividad no encontrada');
+            return res.status(404).send('Activity not found.');
         }
         res.json({
-            message: 'Actividad actualizada correctamente',
+            message: 'Activity updated successfully.',
             item: { id, fecha, bloque, hora: horaNormalizada, actividad }
         });
     });
@@ -1054,7 +1082,7 @@ app.put('/api/update-agenda/:id', requireAdmin, (req, res) => {
 
 app.patch('/api/toggle-agenda/:id', requireAdmin, (req, res) => {
     const id = parseAgendaId(req.params.id);
-    if (!id) return res.status(400).send('ID de actividad no válido.');
+    if (!id) return res.status(400).send('Invalid activity ID.');
 
     const completada = req.body && req.body.completada !== undefined
         ? (req.body.completada ? 1 : 0)
@@ -1068,45 +1096,45 @@ app.patch('/api/toggle-agenda/:id', requireAdmin, (req, res) => {
     db.query(sql, params, (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al actualizar el estado de la actividad');
+            return res.status(500).send('Error updating activity status.');
         }
         if (result.affectedRows === 0) {
-            return res.status(404).send('Actividad no encontrada');
+            return res.status(404).send('Activity not found.');
         }
-        res.json({ message: 'Estado actualizado', id, completada });
+        res.json({ message: 'Status updated.', id, completada });
     });
 });
 
 app.delete('/api/delete-agenda/:id', requireAdmin, (req, res) => {
     const id = parseAgendaId(req.params.id);
-    if (!id) return res.status(400).send('ID de actividad no válido.');
+    if (!id) return res.status(400).send('Invalid activity ID.');
 
     const sql = 'DELETE FROM RegistrosAgenda WHERE id = ?';
     db.query(sql, [id], (err, result) => {
         if (err) {
             console.error(err);
-            return res.status(500).send('Error al eliminar la actividad');
+            return res.status(500).send('Error deleting activity.');
         }
         if (result.affectedRows === 0) {
-            return res.status(404).send('Actividad no encontrada');
+            return res.status(404).send('Activity not found.');
         }
-        res.json({ message: 'Actividad eliminada correctamente', id });
+        res.json({ message: 'Activity deleted successfully.', id });
     });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor backend corriendo en http://localhost:${PORT}`);
+    console.log(`Backend server running at http://localhost:${PORT}`);
 });
 
 // Capturar errores imprevistos para saber por qué se cayó
 process.on('uncaughtException', (err) => {
-    console.error(`\n[CRASH] ${new Date().toISOString()} - El servidor se cayó por este error:`);
+    console.error(`\n[CRASH] ${new Date().toISOString()} - Server crashed with uncaughtException:`);
     console.error(err);
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-    console.error(`\n[CRASH] ${new Date().toISOString()} - Promesa no manejada:`, reason);
+    console.error(`\n[CRASH] ${new Date().toISOString()} - Unhandled promise rejection:`, reason);
     process.exit(1);
 });

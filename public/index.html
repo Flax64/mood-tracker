@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="dark">
+<html lang="en" data-theme="dark">
 
 <head>
     <meta charset="UTF-8">
@@ -14,205 +14,207 @@
 
 <body>
     <!-- ==========================================
-         PANTALLA DE AUTENTICACIÓN (LOGIN / REGISTRO / RECUPERACIÓN)
+         AUTHENTICATION SCREEN (LOGIN / REGISTER / RECOVERY)
     ========================================== -->
     <div class="auth-screen" id="authOverlay">
         <div class="auth-card">
             <div class="auth-top-bar">
                 <button type="button" class="theme-toggle-pill" id="btnThemeToggleAuth"
-                    aria-label="Cambiar tema claro u oscuro">☀️ Modo Claro</button>
+                    aria-label="Toggle light or dark theme">☀️ Light Mode</button>
             </div>
             <div class="auth-brand">
                 <span class="auth-logo" aria-hidden="true">🌈</span>
                 <h1>Personal Mood Tracker</h1>
-                <p id="authSubtitle">Inicia sesión para acceder a tu espacio</p>
+                <p id="authSubtitle">Sign in to access your workspace</p>
             </div>
 
-            <!-- 1. FORMULARIO DE LOGIN -->
+            <!-- 1. LOGIN FORM -->
             <form id="authLoginForm" class="auth-form">
                 <div class="form-group">
-                    <label for="loginEmail">Correo electrónico:</label>
-                    <input type="email" id="loginEmail" autocomplete="email" placeholder="ejemplo@correo.com" required>
+                    <label for="loginEmail">Email address:</label>
+                    <input type="email" id="loginEmail" autocomplete="email" placeholder="example@email.com" required>
                 </div>
                 <div class="form-group">
-                    <label for="loginPassword">Contraseña:</label>
+                    <label for="loginPassword">Password:</label>
                     <input type="password" id="loginPassword" autocomplete="current-password"
-                        placeholder="Tu contraseña" required>
+                        placeholder="Your password" required>
                 </div>
-                <button type="submit" class="btn-submit" id="btnLoginSubmit">Iniciar Sesión</button>
+                <button type="submit" class="btn-submit" id="btnLoginSubmit">Sign In</button>
                 <div class="auth-links">
-                    <button type="button" class="auth-link-btn" id="linkGoForgot">¿Olvidaste tu contraseña?</button>
-                    <button type="button" class="auth-link-btn" id="linkGoRegister">Registro por primera vez</button>
+                    <button type="button" class="auth-link-btn" id="linkGoForgot">Forgot your password?</button>
+                    <button type="button" class="auth-link-btn" id="linkGoRegister">First-time registration</button>
                 </div>
             </form>
 
-            <!-- 2. FORMULARIO DE REGISTRO POR PRIMERA VEZ -->
+            <!-- 2. FIRST-TIME REGISTRATION FORM -->
             <form id="authRegisterForm" class="auth-form" hidden>
                 <div class="form-group">
-                    <label for="regNombre">Nombre:</label>
-                    <input type="text" id="regNombre" maxlength="80" placeholder="Ej. Flavio / Dr. Psiquiatra" required>
+                    <label for="regNombre">Full name:</label>
+                    <input type="text" id="regNombre" maxlength="80" placeholder="e.g. Flavio / Dr. Smith" required>
                 </div>
                 <div class="form-group">
-                    <label for="regEmail">Correo electrónico:</label>
-                    <input type="email" id="regEmail" autocomplete="email" placeholder="correo@gmail.com"
+                    <label for="regEmail">Email address:</label>
+                    <input type="email" id="regEmail" autocomplete="email" placeholder="email@gmail.com"
                         required>
                     <small class="form-hint">
-                        El correo configurado como propietario (<strong>ADMIN_EMAIL</strong>) recibe permisos totales. Cualquier otro correo autorizado se registra como <strong>Psiquiatra (solo lectura)</strong>.
+                        The email configured as owner (<strong>ADMIN_EMAIL</strong>) gets full access. Any other authorized email is registered as <strong>Psychiatrist (read-only)</strong>.
                     </small>
                 </div>
                 <div class="form-group">
-                    <label for="regPassword">Crear contraseña (mín. 8 caracteres):</label>
+                    <label for="regPassword">Create password (min. 8 characters):</label>
                     <input type="password" id="regPassword" minlength="8" autocomplete="new-password"
-                        placeholder="Mínimo 8 caracteres" required>
+                        placeholder="Minimum 8 characters" required>
                 </div>
                 <div class="form-group">
-                    <label for="regCodigoValidacion">Validación de identidad (propietario):</label>
+                    <label for="regCodigoValidacion">Identity verification (owner):</label>
                     <div class="code-send-row">
                         <button type="button" class="btn-send-code" id="btnSendRegCode">
-                            📧 Enviar código al correo del propietario
+                            📧 Send code to owner email
                         </button>
                     </div>
                     <input type="password" id="regCodigoValidacion"
-                        placeholder="Código de 6 dígitos del correo o tu clave secreta personal" required>
+                        placeholder="6-digit email code or your personal secret key" required>
                     <small class="form-hint">
-                        Ingresa el código enviado a tu correo propietario (<strong>ADMIN_EMAIL</strong>) o tu clave secreta personal (<strong>ADMIN_SECRET</strong> / Word).
+                        Enter the code sent to your owner email (<strong>ADMIN_EMAIL</strong>) or your personal secret key (<strong>ADMIN_SECRET</strong> / Word key).
                     </small>
                 </div>
-                <button type="submit" class="btn-submit" id="btnRegSubmit">Validar y Crear Cuenta</button>
+                <button type="submit" class="btn-submit" id="btnRegSubmit">Verify &amp; Create Account</button>
                 <div class="auth-links">
-                    <button type="button" class="auth-link-btn" id="linkBackLoginFromReg">⬅ Volver a Iniciar
-                        Sesión</button>
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromReg">⬅ Back to Sign In</button>
                 </div>
             </form>
 
-            <!-- 3. FORMULARIO OLVIDÉ MI CONTRASEÑA -->
+            <!-- 3. FORGOT PASSWORD FORM -->
             <form id="authForgotForm" class="auth-form" hidden>
                 <div class="form-group">
-                    <label for="forgotEmail">Tu correo registrado:</label>
-                    <input type="email" id="forgotEmail" autocomplete="email" placeholder="tu_correo@gmail.com"
+                    <label for="forgotEmail">Your registered email:</label>
+                    <input type="email" id="forgotEmail" autocomplete="email" placeholder="your_email@gmail.com"
                         required>
                     <small class="form-hint">
-                        Te enviaremos un enlace seguro válido por 30 minutos para restablecer tu contraseña.
+                        We will send a secure link valid for 30 minutes to reset your password.
                     </small>
                 </div>
-                <button type="submit" class="btn-submit" id="btnForgotSubmit">Enviar enlace a mi correo</button>
+                <button type="submit" class="btn-submit" id="btnForgotSubmit">Send reset link to my email</button>
                 <div class="auth-links">
-                    <button type="button" class="auth-link-btn" id="linkBackLoginFromForgot">⬅ Volver a Iniciar
-                        Sesión</button>
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromForgot">⬅ Back to Sign In</button>
                 </div>
             </form>
 
-            <!-- 4. FORMULARIO RESTABLECER CONTRASEÑA (DESDE ENLACE DE CORREO) -->
+            <!-- 4. RESET PASSWORD FORM (FROM EMAIL LINK) -->
             <form id="authResetForm" class="auth-form" hidden>
                 <input type="hidden" id="resetTokenInput">
                 <div class="form-group">
-                    <label for="resetEmail">Correo:</label>
+                    <label for="resetEmail">Email:</label>
                     <input type="email" id="resetEmail" readonly>
                 </div>
                 <div class="form-group">
-                    <label for="resetNewPassword">Nueva contraseña (mín. 8 caracteres):</label>
+                    <label for="resetNewPassword">New password (min. 8 characters):</label>
                     <input type="password" id="resetNewPassword" minlength="8" autocomplete="new-password"
-                        placeholder="Nueva contraseña" required>
+                        placeholder="New password" required>
                 </div>
                 <div class="form-group">
-                    <label for="resetConfirmPassword">Confirmar nueva contraseña:</label>
+                    <label for="resetConfirmPassword">Confirm new password:</label>
                     <input type="password" id="resetConfirmPassword" minlength="8" autocomplete="new-password"
-                        placeholder="Repite la contraseña" required>
+                        placeholder="Repeat password" required>
                 </div>
-                <button type="submit" class="btn-submit" id="btnResetSubmit">Guardar Nueva Contraseña</button>
+                <button type="submit" class="btn-submit" id="btnResetSubmit">Save New Password</button>
                 <div class="auth-links">
-                    <button type="button" class="auth-link-btn" id="linkBackLoginFromReset">⬅ Cancelar</button>
+                    <button type="button" class="auth-link-btn" id="linkBackLoginFromReset">⬅ Cancel</button>
                 </div>
             </form>
         </div>
     </div>
 
     <!-- ==========================================
-         APLICACIÓN PRINCIPAL (PROTEGIDA POR SESIÓN)
+         MAIN APPLICATION (SESSION PROTECTED)
     ========================================== -->
     <div class="app-shell" id="appShell" hidden>
-        <!-- Barra superior móvil (visible en celular / tablet) -->
+        <!-- Mobile top bar (visible on phone / tablet) -->
         <header class="mobile-topbar">
-            <button type="button" class="icon-btn" id="mobileMenuBtn" aria-label="Abrir menú" aria-expanded="false"
+            <button type="button" class="icon-btn" id="mobileMenuBtn" aria-label="Open menu" aria-expanded="false"
                 aria-controls="sidebar">
                 <span class="hamburger-lines" aria-hidden="true">☰</span>
             </button>
-            <div class="mobile-topbar-title" id="mobileViewTitle">Inicio</div>
+            <div class="mobile-topbar-title" id="mobileViewTitle">Home</div>
             <div class="mobile-topbar-right">
                 <button type="button" class="icon-btn theme-icon-btn" id="btnThemeToggleMobile"
-                    title="Cambiar tema claro u oscuro" aria-label="Cambiar tema">☀️</button>
+                    title="Toggle light or dark theme" aria-label="Toggle theme">☀️</button>
                 <span class="moment-pill" id="mobileMomentBadge">--</span>
             </div>
         </header>
 
-        <!-- Fondo oscuro al desplegar menú en celular -->
+        <!-- Dark backdrop when opening mobile menu -->
         <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-        <!-- Barra lateral fija izquierda (desplegable en PC y celular) -->
-        <aside class="sidebar" id="sidebar" aria-label="Menú principal">
+        <!-- Fixed left sidebar (collapsible on desktop and mobile) -->
+        <aside class="sidebar" id="sidebar" aria-label="Main menu">
             <div class="sidebar-header">
                 <div class="sidebar-brand">
                     <span class="brand-logo" aria-hidden="true">🌈</span>
                     <div class="sidebar-brand-text">
                         <span class="brand-name">Mood Tracker</span>
-                        <span class="brand-sub" id="sidebarRoleLabel">Espacio Personal</span>
+                        <span class="brand-sub" id="sidebarRoleLabel">Personal Space</span>
                     </div>
                 </div>
                 <button type="button" class="sidebar-toggle-btn desktop-only" id="desktopSidebarToggle"
-                    title="Plegar o desplegar barra lateral" aria-label="Plegar o desplegar barra lateral">
+                    title="Collapse or expand sidebar" aria-label="Collapse or expand sidebar">
                     <span id="desktopToggleIcon">◀</span>
                 </button>
                 <button type="button" class="sidebar-toggle-btn mobile-only" id="mobileSidebarClose"
-                    aria-label="Cerrar menú">
+                    aria-label="Close menu">
                     ✕
                 </button>
             </div>
 
             <nav class="sidebar-nav">
-                <button type="button" class="nav-item active admin-only-nav" data-view="inicio" title="Inicio">
+                <button type="button" class="nav-item active admin-only-nav" data-view="inicio" title="Home">
                     <span class="nav-icon" aria-hidden="true">🏠</span>
-                    <span class="nav-label">Inicio</span>
+                    <span class="nav-label">Home</span>
                 </button>
 
                 <div class="nav-group open admin-only-nav">
                     <button type="button" class="nav-group-toggle" aria-expanded="true">
-                        <span class="nav-group-title">Registros Diarios</span>
+                        <span class="nav-group-title">Daily Logs</span>
                         <span class="nav-group-arrow" aria-hidden="true">▾</span>
                     </button>
                     <div class="nav-group-items">
-                        <button type="button" class="nav-item" data-view="mood" title="Estado de Ánimo">
+                        <button type="button" class="nav-item" data-view="mood" title="Mood Tracker">
                             <span class="nav-icon" aria-hidden="true">😊</span>
-                            <span class="nav-label">Estado de Ánimo</span>
+                            <span class="nav-label">Mood Tracker</span>
                         </button>
-                        <button type="button" class="nav-item" data-view="sueno" title="Control de Sueño">
+                        <button type="button" class="nav-item" data-view="sueno" title="Sleep Tracker">
                             <span class="nav-icon" aria-hidden="true">😴</span>
-                            <span class="nav-label">Control de Sueño</span>
+                            <span class="nav-label">Sleep Tracker</span>
                         </button>
                         <button type="button" class="nav-item" data-view="journal" title="Journal Notes">
                             <span class="nav-icon" aria-hidden="true">📝</span>
                             <span class="nav-label">Journal Notes</span>
+                        </button>
+                        <button type="button" class="nav-item" data-view="english" title="English Notebook">
+                            <span class="nav-icon" aria-hidden="true">📚</span>
+                            <span class="nav-label">English Notebook</span>
                         </button>
                     </div>
                 </div>
 
                 <div class="nav-group open">
                     <button type="button" class="nav-group-toggle" aria-expanded="true">
-                        <span class="nav-group-title">Organización y Reportes</span>
+                        <span class="nav-group-title">Planning &amp; Reports</span>
                         <span class="nav-group-arrow" aria-hidden="true">▾</span>
                     </button>
                     <div class="nav-group-items">
-                        <button type="button" class="nav-item admin-only-nav" data-view="agenda" title="Agenda Semanal">
+                        <button type="button" class="nav-item admin-only-nav" data-view="agenda" title="Weekly Agenda">
                             <span class="nav-icon" aria-hidden="true">📅</span>
-                            <span class="nav-label">Agenda Semanal</span>
+                            <span class="nav-label">Weekly Agenda</span>
                         </button>
-                        <button type="button" class="nav-item" data-view="resumen" title="Resumen Semanal">
+                        <button type="button" class="nav-item" data-view="resumen" title="Weekly Summary">
                             <span class="nav-icon" aria-hidden="true">📊</span>
-                            <span class="nav-label">Resumen Semanal</span>
+                            <span class="nav-label">Weekly Summary</span>
                         </button>
                         <button type="button" class="nav-item admin-only-nav" data-view="medico"
-                            title="Acceso Psiquiatra">
+                            title="Psychiatrist Access">
                             <span class="nav-icon" aria-hidden="true">👨‍⚕️</span>
-                            <span class="nav-label">Acceso Psiquiatra</span>
+                            <span class="nav-label">Psychiatrist Access</span>
                         </button>
                     </div>
                 </div>
@@ -220,96 +222,96 @@
 
             <div class="sidebar-footer">
                 <div class="sidebar-user-box">
-                    <strong class="sidebar-user-name" id="sidebarUserName">Usuario</strong>
+                    <strong class="sidebar-user-name" id="sidebarUserName">User</strong>
                     <span class="sidebar-user-role" id="sidebarUserEmail">--</span>
                 </div>
                 <div class="sidebar-status-row">
                     <span class="status-dot"></span>
-                    <span class="sidebar-status-text" id="sidebarMomentoActual">Momento: --</span>
+                    <span class="sidebar-status-text" id="sidebarMomentoActual">Moment: --</span>
                 </div>
                 <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
-                <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Cambiar tema">
+                <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Toggle theme">
                     <span class="theme-icon" aria-hidden="true">☀️</span>
-                    <span class="theme-label">Tema Claro</span>
+                    <span class="theme-label">Light Theme</span>
                 </button>
-                <button type="button" class="btn-logout-sidebar" id="btnLogout" title="Cerrar Sesión">
+                <button type="button" class="btn-logout-sidebar" id="btnLogout" title="Sign Out">
                     <span aria-hidden="true">🚪</span>
-                    <span class="logout-text">Cerrar Sesión</span>
+                    <span class="logout-text">Sign Out</span>
                 </button>
             </div>
         </aside>
 
-        <!-- Área principal de contenido -->
+        <!-- Main content area -->
         <main class="main-content" id="mainContent">
 
             <!-- ==========================================
-                 VISTA 1: INTERFAZ PRINCIPAL (INICIO)
+                 VIEW 1: HOME DASHBOARD
             ========================================== -->
-            <section class="app-view active" id="view-inicio" data-title="Inicio">
+            <section class="app-view active" id="view-inicio" data-title="Home">
                 <div class="home-container">
                     <div class="home-hero">
                         <div class="home-hero-info">
-                            <span class="home-badge" id="homeMomentBadge">Momento actual</span>
-                            <h1 id="homeGreeting">¡Bienvenido!</h1>
+                            <span class="home-badge" id="homeMomentBadge">Current moment</span>
+                            <h1 id="homeGreeting">Welcome!</h1>
                             <p class="home-date" id="homeDate">--</p>
                         </div>
                         <div class="home-hero-actions">
-                            <button type="button" class="btn-primary-pill" data-go-view="mood">+ Registrar Ánimo</button>
-                            <button type="button" class="btn-secondary-pill" data-go-view="agenda">📅 Ver Agenda</button>
+                            <button type="button" class="btn-primary-pill" data-go-view="mood">+ Log Mood</button>
+                            <button type="button" class="btn-secondary-pill" data-go-view="agenda">📅 View Agenda</button>
                         </div>
                     </div>
 
-                    <h2 class="section-heading">Resumen de Hoy</h2>
+                    <h2 class="section-heading">Today's Summary</h2>
                     <div class="home-summary-grid">
                         <article class="summary-card">
                             <div class="summary-card-header">
                                 <span class="summary-icon">😊</span>
-                                <h3>Estado de Ánimo</h3>
+                                <h3>Mood Tracker</h3>
                             </div>
                             <div class="summary-card-body" id="homeMoodSummary">
-                                <p class="muted-text">Cargando registros de hoy...</p>
+                                <p class="muted-text">Loading today's records...</p>
                             </div>
-                            <button type="button" class="summary-action" data-go-view="mood">Ir a Mood Tracker →</button>
+                            <button type="button" class="summary-action" data-go-view="mood">Go to Mood Tracker →</button>
                         </article>
 
                         <article class="summary-card">
                             <div class="summary-card-header">
                                 <span class="summary-icon">😴</span>
-                                <h3>Descanso</h3>
+                                <h3>Sleep</h3>
                             </div>
                             <div class="summary-card-body" id="homeSleepSummary">
-                                <p class="muted-text">Cargando descanso de hoy...</p>
+                                <p class="muted-text">Loading today's sleep log...</p>
                             </div>
-                            <button type="button" class="summary-action" data-go-view="sueno">Ir a Control de Sueño →</button>
+                            <button type="button" class="summary-action" data-go-view="sueno">Go to Sleep Tracker →</button>
                         </article>
 
                         <article class="summary-card">
                             <div class="summary-card-header">
                                 <span class="summary-icon">📅</span>
-                                <h3>Agenda de Hoy</h3>
+                                <h3>Today's Agenda</h3>
                             </div>
                             <div class="summary-card-body" id="homeAgendaSummary">
-                                <p class="muted-text">Cargando actividades de hoy...</p>
+                                <p class="muted-text">Loading today's activities...</p>
                             </div>
-                            <button type="button" class="summary-action" data-go-view="agenda">Ir a Agenda Semanal →</button>
+                            <button type="button" class="summary-action" data-go-view="agenda">Go to Weekly Agenda →</button>
                         </article>
                     </div>
 
-                    <h2 class="section-heading">Todas las Funciones</h2>
+                    <h2 class="section-heading">All Features</h2>
                     <div class="home-shortcuts-grid">
                         <button type="button" class="shortcut-card" data-go-view="mood">
                             <span class="shortcut-emoji">😊</span>
                             <div>
-                                <strong>Estado de Ánimo</strong>
-                                <p>Registra cómo te sientes en cada momento del día (incluyendo madrugada).</p>
+                                <strong>Mood Tracker</strong>
+                                <p>Log how you feel at each time of day (including late night).</p>
                             </div>
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="sueno">
                             <span class="shortcut-emoji">😴</span>
                             <div>
-                                <strong>Control de Sueño</strong>
-                                <p>Calcula tus horas de descanso y calidad al despertar.</p>
+                                <strong>Sleep Tracker</strong>
+                                <p>Calculate your sleep duration and rest quality upon waking.</p>
                             </div>
                         </button>
 
@@ -317,31 +319,39 @@
                             <span class="shortcut-emoji">📝</span>
                             <div>
                                 <strong>Journal Notes</strong>
-                                <p>Envía tus notas cifradas E2EE directamente a Word en tu PC.</p>
+                                <p>Send your E2EE encrypted thoughts directly to Word on your PC.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="english">
+                            <span class="shortcut-emoji">📚</span>
+                            <div>
+                                <strong>English Notebook</strong>
+                                <p>Save new vocabulary, grammar notes, and phrasal verbs to your Word notebook.</p>
                             </div>
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="agenda">
                             <span class="shortcut-emoji">📅</span>
                             <div>
-                                <strong>Agenda Semanal</strong>
-                                <p>Organiza tus actividades y horarios por bloque del día.</p>
+                                <strong>Weekly Agenda</strong>
+                                <p>Organize your daily activities and schedule by time block.</p>
                             </div>
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="resumen">
                             <span class="shortcut-emoji">📊</span>
                             <div>
-                                <strong>Resumen Semanal</strong>
-                                <p>Visualiza tu matriz de colores de ánimo y descanso.</p>
+                                <strong>Weekly Summary</strong>
+                                <p>View your weekly mood color grid and sleep overview.</p>
                             </div>
                         </button>
 
                         <button type="button" class="shortcut-card" data-go-view="medico">
                             <span class="shortcut-emoji">👨‍⚕️</span>
                             <div>
-                                <strong>Acceso Psiquiatra</strong>
-                                <p>Administra la cuenta de solo lectura para tu médico.</p>
+                                <strong>Psychiatrist Access</strong>
+                                <p>Manage read-only accounts for your doctor or clinician.</p>
                             </div>
                         </button>
                     </div>
@@ -349,129 +359,129 @@
             </section>
 
             <!-- ==========================================
-                 VISTA 2: MI MOOD TRACKER
+                 VIEW 2: MY MOOD TRACKER
             ========================================== -->
-            <section class="app-view" id="view-mood" data-title="Estado de Ánimo">
+            <section class="app-view" id="view-mood" data-title="Mood Tracker">
                 <div class="card">
-                    <h2>Mi Mood Tracker</h2>
+                    <h2>My Mood Tracker</h2>
                     <form id="moodForm">
                         <div class="form-group">
-                            <label for="fecha">Fecha:</label>
+                            <label for="fecha">Date:</label>
                             <input type="date" id="fecha" required>
                         </div>
 
                         <div class="form-group">
-                            <label for="momento">Momento del día:</label>
+                            <label for="momento">Time of day:</label>
                             <select id="momento" required>
-                                <option value="" disabled selected>Selecciona un momento...</option>
-                                <option value="Madrugada">Madrugada (00:00 - 05:59)</option>
-                                <option value="Morning">Mañana (06:00 - 11:59)</option>
-                                <option value="Noon">Mediodía (12:00 - 13:59)</option>
-                                <option value="Afternoon">Tarde (14:00 - 19:59)</option>
-                                <option value="Night">Noche (20:00 - 23:59)</option>
+                                <option value="" disabled selected>Select a time of day...</option>
+                                <option value="Madrugada">Late Night (00:00 - 05:59)</option>
+                                <option value="Morning">Morning (06:00 - 11:59)</option>
+                                <option value="Noon">Noon (12:00 - 13:59)</option>
+                                <option value="Afternoon">Afternoon (14:00 - 19:59)</option>
+                                <option value="Night">Night (20:00 - 23:59)</option>
                             </select>
                         </div>
 
-                        <label>Mi estado de ánimo:</label>
+                        <label>My current mood:</label>
                         <div class="mood-grid" id="moodOptions">
                             <div class="mood-btn" data-mood="Happy" data-color="#FDE047">
-                                <div class="color-dot" style="background: #FDE047;"></div>Feliz
+                                <div class="color-dot" style="background: #FDE047;"></div>Happy
                             </div>
                             <div class="mood-btn" data-mood="Calm" data-color="#4ADE80">
-                                <div class="color-dot" style="background: #4ADE80;"></div>Tranquilo
+                                <div class="color-dot" style="background: #4ADE80;"></div>Calm
                             </div>
                             <div class="mood-btn" data-mood="Excited" data-color="#7DD3FC">
-                                <div class="color-dot" style="background: #7DD3FC;"></div>Emocionado
+                                <div class="color-dot" style="background: #7DD3FC;"></div>Excited
                             </div>
                             <div class="mood-btn" data-mood="Tired" data-color="#D8B4FE">
-                                <div class="color-dot" style="background: #D8B4FE;"></div>Cansado
+                                <div class="color-dot" style="background: #D8B4FE;"></div>Tired
                             </div>
                             <div class="mood-btn" data-mood="Sad" data-color="#3B82F6">
-                                <div class="color-dot" style="background: #3B82F6;"></div>Triste
+                                <div class="color-dot" style="background: #3B82F6;"></div>Sad
                             </div>
                             <div class="mood-btn" data-mood="Angry" data-color="#EF4444">
-                                <div class="color-dot" style="background: #EF4444;"></div>Enojado
+                                <div class="color-dot" style="background: #EF4444;"></div>Angry
                             </div>
                             <div class="mood-btn" data-mood="Worried" data-color="#F97316">
-                                <div class="color-dot" style="background: #F97316;"></div>Preocupado
+                                <div class="color-dot" style="background: #F97316;"></div>Worried
                             </div>
                             <div class="mood-btn" data-mood="Scared" data-color="#9CA3AF">
-                                <div class="color-dot" style="background: #9CA3AF;"></div>Asustado
+                                <div class="color-dot" style="background: #9CA3AF;"></div>Scared
                             </div>
                             <div class="mood-btn" data-mood="Focused" data-color="#14B8A6">
-                                <div class="color-dot" style="background-color: #14B8A6;"></div>Enfocado
+                                <div class="color-dot" style="background-color: #14B8A6;"></div>Focused
                             </div>
                             <div class="mood-btn" data-mood="Motivated" data-color="#F59E0B">
-                                <div class="color-dot" style="background-color: #F59E0B;"></div>Motivado
+                                <div class="color-dot" style="background-color: #F59E0B;"></div>Motivated
                             </div>
                             <div class="mood-btn" data-mood="Stressed" data-color="#991B1B">
-                                <div class="color-dot" style="background-color: #991B1B;"></div>Estresado
+                                <div class="color-dot" style="background-color: #991B1B;"></div>Stressed
                             </div>
                             <div class="mood-btn" data-mood="Frustrated" data-color="#D946EF">
-                                <div class="color-dot" style="background-color: #D946EF;"></div>Frustrado
+                                <div class="color-dot" style="background-color: #D946EF;"></div>Frustrated
                             </div>
                             <div class="mood-btn" data-mood="Bored" data-color="#D1D5DB">
-                                <div class="color-dot" style="background-color: #D1D5DB;"></div>Aburrido
+                                <div class="color-dot" style="background-color: #D1D5DB;"></div>Bored
                             </div>
                             <div class="mood-btn" data-mood="Anxious" data-color="#A3E635">
-                                <div class="color-dot" style="background-color: #A3E635;"></div>Ansioso
+                                <div class="color-dot" style="background-color: #A3E635;"></div>Anxious
                             </div>
                             <div class="mood-btn" data-mood="Distracted" data-color="#F9A8D4">
-                                <div class="color-dot" style="background-color: #F9A8D4;"></div>Distraído
+                                <div class="color-dot" style="background-color: #F9A8D4;"></div>Distracted
                             </div>
                             <div class="mood-btn" data-mood="Desperation" data-color="#6B21A8">
-                                <div class="color-dot" style="background-color: #6B21A8;"></div>Desesperado
+                                <div class="color-dot" style="background-color: #6B21A8;"></div>Desperate
                             </div>
                         </div>
 
-                        <button type="submit" class="btn-submit" id="btn-save-mood">Guardar Registro</button>
-                        <button type="button" class="btn-view" data-go-view="resumen">Ver Registro Semanal</button>
+                        <button type="submit" class="btn-submit" id="btn-save-mood">Save Entry</button>
+                        <button type="button" class="btn-view" data-go-view="resumen">View Weekly Summary</button>
                     </form>
                 </div>
             </section>
 
             <!-- ==========================================
-                 VISTA 3: CONTROL DE SUEÑO
+                 VIEW 3: SLEEP TRACKER
             ========================================== -->
-            <section class="app-view" id="view-sueno" data-title="Control de Sueño">
+            <section class="app-view" id="view-sueno" data-title="Sleep Tracker">
                 <div class="card">
                     <form id="sleepForm">
-                        <h3>De preferencia registrar al despertar</h3>
-                        <h2>😴 Control de Sueño</h2>
+                        <h3>Best logged right after waking up</h3>
+                        <h2>😴 Sleep Tracker</h2>
 
                         <div class="form-group">
-                            <label for="sleepTime">¿A qué hora te dormiste?</label>
+                            <label for="sleepTime">What time did you fall asleep?</label>
                             <input type="time" id="sleepTime" class="hour-picker" required>
                         </div>
 
                         <div class="form-group">
-                            <label for="wakeupTime">¿A qué hora despertaste?</label>
+                            <label for="wakeupTime">What time did you wake up?</label>
                             <input type="time" id="wakeupTime" class="hour-picker" required>
                         </div>
 
                         <div class="form-group">
-                            <label for="sleepHours">Horas totales de sueño:</label>
+                            <label for="sleepHours">Total hours of sleep:</label>
                             <input type="text" id="sleepHours" step="0.1" readonly>
                         </div>
 
                         <div class="form-group">
-                            <label for="quality-sleep">¿Cómo sentiste este descanso?</label>
+                            <label for="quality-sleep">How did this sleep feel?</label>
                             <select id="quality-sleep" required>
-                                <option value="" disabled selected>Selecciona una opcion...</option>
-                                <option value="Good">🟢 Bueno / Reparador</option>
-                                <option value="Regular">🟡 Regular / Intermitente</option>
-                                <option value="Bad">🔴 Malo / Pesado</option>
+                                <option value="" disabled selected>Select an option...</option>
+                                <option value="Good">🟢 Good / Restorative</option>
+                                <option value="Regular">🟡 Fair / Light</option>
+                                <option value="Bad">🔴 Poor / Heavy</option>
                             </select>
                         </div>
 
-                        <button type="submit" class="btn-submit" id="btn-save-sleep">Registrar Sueño</button>
-                        <button type="button" class="btn-view" data-go-view="resumen">Ver Registro Semanal</button>
+                        <button type="submit" class="btn-submit" id="btn-save-sleep">Log Sleep</button>
+                        <button type="button" class="btn-view" data-go-view="resumen">View Weekly Summary</button>
                     </form>
                 </div>
             </section>
 
             <!-- ==========================================
-                 VISTA 4: JOURNAL NOTES
+                 VIEW 4: JOURNAL NOTES
             ========================================== -->
             <section class="app-view" id="view-journal" data-title="Journal Notes">
                 <div class="card">
@@ -481,41 +491,185 @@
                             <textarea id="journalText" lang="en" spellcheck="true"
                                 placeholder="Write your thoughts here in English..." required></textarea>
                         </div>
-                        <button type="submit" class="btn-submit" id="btn-send-word">Enviar a Word (PC)</button>
+                        <button type="submit" class="btn-submit" id="btn-send-word">Send to Word (PC)</button>
                     </form>
                 </div>
             </section>
 
             <!-- ==========================================
-                 VISTA 5: AGENDA PERSONAL SEMANAL
+                 VIEW 4B: ENGLISH LEARNING NOTEBOOK
             ========================================== -->
-            <section class="app-view" id="view-agenda" data-title="Agenda Semanal">
+            <section class="app-view" id="view-english" data-title="English Notebook">
+                <div class="card english-card">
+                    <h2>📚 English Learning Notebook</h2>
+                    <p class="english-subtitle">
+                        Save new vocabulary, grammar rules, and phrasal verbs directly to your local Word notebook (<code>english-notes/</code>) without storing them in MySQL. Every entry updates the Table of Contents automatically.
+                    </p>
+
+                    <div class="english-tabs" role="tablist" aria-label="Notebook section">
+                        <button type="button" class="english-tab-btn active" data-english-cat="vocabulary" role="tab"
+                            aria-selected="true">📖 Glossary / New Word</button>
+                        <button type="button" class="english-tab-btn" data-english-cat="grammar" role="tab"
+                            aria-selected="false">📝 Grammar &amp; Usage Note</button>
+                        <button type="button" class="english-tab-btn" data-english-cat="phrasal_verb" role="tab"
+                            aria-selected="false">🚀 Phrasal Verb</button>
+                    </div>
+
+                    <form id="englishForm">
+                        <input type="hidden" id="englishCategoryInput" value="vocabulary">
+
+                        <!-- Section 1: Glossary / New Word -->
+                        <fieldset class="english-fieldset" id="englishFieldsVocabulary">
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="engWord">Word / Expression (English) *</label>
+                                    <input type="text" id="engWord" maxlength="120"
+                                        placeholder="e.g. Resilience" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="engPos">Part of speech (optional)</label>
+                                    <select id="engPos">
+                                        <option value="">Optional...</option>
+                                        <option value="Noun">Noun</option>
+                                        <option value="Verb">Verb</option>
+                                        <option value="Adjective">Adjective</option>
+                                        <option value="Adverb">Adverb</option>
+                                        <option value="Expression">Expression</option>
+                                        <option value="Idiom">Idiom</option>
+                                        <option value="Connector / Preposition">Connector / Preposition</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engSpanish">Spanish Meaning / Translation *</label>
+                                <input type="text" id="engSpanish" maxlength="250"
+                                    placeholder="e.g. Resiliencia / capacidad de recuperarse" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engVocabExample">Example sentence (optional)</label>
+                                <textarea id="engVocabExample" class="english-textarea" rows="2" maxlength="500"
+                                    placeholder="e.g. She showed great resilience during the project."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engVocabNotes">Context / Usage notes (optional)</label>
+                                <textarea id="engVocabNotes" class="english-textarea" rows="2" maxlength="500"
+                                    placeholder="e.g. Often used with 'build resilience' or 'show resilience'."></textarea>
+                            </div>
+                        </fieldset>
+
+                        <!-- Section 2: Grammar & Usage Notes -->
+                        <fieldset class="english-fieldset" id="englishFieldsGrammar" hidden>
+                            <div class="form-group">
+                                <label for="engGrammarTitle">Topic / Rule Title *</label>
+                                <input type="text" id="engGrammarTitle" maxlength="150"
+                                    placeholder="e.g. When to use 'Make' vs 'Do'">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engGrammarNotes">Grammar / Usage Notes *</label>
+                                <textarea id="engGrammarNotes" class="english-textarea" rows="4" maxlength="3000"
+                                    placeholder="Explain the rule, when to use certain words, or nuances..."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engGrammarExample">Examples (optional)</label>
+                                <textarea id="engGrammarExample" class="english-textarea" rows="2" maxlength="1000"
+                                    placeholder="e.g. Make a decision / Do homework / Make progress"></textarea>
+                            </div>
+                        </fieldset>
+
+                        <!-- Section 3: Phrasal Verbs -->
+                        <fieldset class="english-fieldset" id="englishFieldsPhrasal" hidden>
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="engPvVerb">Phrasal Verb *</label>
+                                    <input type="text" id="engPvVerb" maxlength="120"
+                                        placeholder="e.g. work out">
+                                </div>
+                                <div class="form-group">
+                                    <label for="engPvType">Grammar pattern (optional)</label>
+                                    <select id="engPvType">
+                                        <option value="">Optional...</option>
+                                        <option value="Separable">Separable (work it out)</option>
+                                        <option value="Inseparable">Inseparable</option>
+                                        <option value="Intransitive">Intransitive (no object)</option>
+                                        <option value="Three-part phrasal verb">Three-part (e.g. look forward to)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engPvMeaningEs">Spanish Meaning *</label>
+                                <input type="text" id="engPvMeaningEs" maxlength="250"
+                                    placeholder="e.g. Hacer ejercicio / resolver un problema / salir bien">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engPvMeaningEn">English Explanation (optional)</label>
+                                <input type="text" id="engPvMeaningEn" maxlength="300"
+                                    placeholder="e.g. To exercise, find a solution, or turn out well">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engPvExample">Example sentence (optional)</label>
+                                <textarea id="engPvExample" class="english-textarea" rows="2" maxlength="500"
+                                    placeholder="e.g. Don't worry, everything will work out in the end."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engPvNotes">Additional notes (optional)</label>
+                                <textarea id="engPvNotes" class="english-textarea" rows="2" maxlength="500"
+                                    placeholder="e.g. Has multiple meanings depending on context."></textarea>
+                            </div>
+                        </fieldset>
+
+                        <div id="englishStatusBanner" class="english-status-banner" hidden></div>
+
+                        <button type="submit" class="btn-submit" id="btnSendEnglish">Save to English Word Notebook (PC)</button>
+                    </form>
+
+                    <div class="english-recent-box">
+                        <h3>Sent in this session</h3>
+                        <div id="englishRecentList" class="english-recent-list">
+                            <p class="muted-text">No entries queued in this session yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VIEW 5: WEEKLY PERSONAL AGENDA
+            ========================================== -->
+            <section class="app-view" id="view-agenda" data-title="Weekly Agenda">
                 <div class="agenda-wrapper">
                     <div class="agenda-header">
                         <div class="agenda-title-block">
                             <span class="agenda-calendar-icon" aria-hidden="true">📅</span>
                             <div>
-                                <h1 class="agenda-title">ORGANIZA TU SEMANA</h1>
-                                <p class="agenda-subtitle" id="agendaWeekStats">Cargando actividades...</p>
+                                <h1 class="agenda-title">ORGANIZE YOUR WEEK</h1>
+                                <p class="agenda-subtitle" id="agendaWeekStats">Loading activities...</p>
                             </div>
                         </div>
                         <button type="button" class="btn-agenda-add-main" id="btnOpenAgendaModal">
-                            + Nueva Actividad
+                            + New Activity
                         </button>
                     </div>
 
                     <div class="agenda-toolbar">
                         <div class="agenda-week-nav">
                             <button type="button" class="agenda-nav-btn" id="btnAgendaPrevWeek"
-                                aria-label="Semana anterior">◀</button>
+                                aria-label="Previous week">◀</button>
                             <span class="agenda-week-label" id="agendaWeekLabel">--</span>
                             <button type="button" class="agenda-nav-btn" id="btnAgendaNextWeek"
-                                aria-label="Semana siguiente">▶</button>
-                            <button type="button" class="agenda-chip-btn" id="btnAgendaToday">Hoy</button>
+                                aria-label="Next week">▶</button>
+                            <button type="button" class="agenda-chip-btn" id="btnAgendaToday">Today</button>
                         </div>
                         <div class="agenda-view-controls">
-                            <button type="button" class="agenda-chip-btn" id="btnToggleWeekend">Solo Lun - Vie</button>
-                            <button type="button" class="agenda-chip-btn" id="btnToggleAgendaLayout">Vista Día</button>
+                            <button type="button" class="agenda-chip-btn" id="btnToggleWeekend">Mon - Fri Only</button>
+                            <button type="button" class="agenda-chip-btn" id="btnToggleAgendaLayout">Day View</button>
                         </div>
                     </div>
 
@@ -529,21 +683,21 @@
             </section>
 
             <!-- ==========================================
-                 VISTA 6: RESUMEN SEMANAL (MOOD + SUEÑO)
+                 VIEW 6: WEEKLY SUMMARY (MOOD + SLEEP)
             ========================================== -->
-            <section class="app-view" id="view-resumen" data-title="Resumen Semanal">
+            <section class="app-view" id="view-resumen" data-title="Weekly Summary">
                 <div class="tracker-container">
                     <button type="button" class="btn-back admin-only-nav" id="btnBackToHome" data-go-view="inicio">⬅
-                        Volver al inicio</button>
+                        Back to Home</button>
 
                     <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
-                        👨‍⚕️ <strong>Vista Clínica (Solo Lectura):</strong> Visualización autorizada de Estado de Ánimo y Horas de Sueño.
+                        👨‍⚕️ <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker &amp; Sleep Hours.
                     </div>
 
-                    <h1 class="tracker-title">MI MOOD TRACKER SEMANAL</h1>
+                    <h1 class="tracker-title">MY WEEKLY MOOD TRACKER</h1>
 
                     <div class="controls">
-                        <label for="semanaSeleccionada">Elige una semana:</label>
+                        <label for="semanaSeleccionada">Select a week:</label>
                         <select id="semanaSeleccionada"></select>
                     </div>
 
@@ -555,18 +709,18 @@
                                 <thead>
                                     <tr>
                                         <th></th>
-                                        <th>Domingo</th>
-                                        <th>Lunes</th>
-                                        <th>Martes</th>
-                                        <th>Miércoles</th>
-                                        <th>Jueves</th>
-                                        <th>Viernes</th>
-                                        <th>Sábado</th>
+                                        <th>Sunday</th>
+                                        <th>Monday</th>
+                                        <th>Tuesday</th>
+                                        <th>Wednesday</th>
+                                        <th>Thursday</th>
+                                        <th>Friday</th>
+                                        <th>Saturday</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td class="row-label">Madrugada</td>
+                                        <td class="row-label">Late Night</td>
                                         <td class="mood-cell" data-day="Sunday" data-time="Madrugada"></td>
                                         <td class="mood-cell" data-day="Monday" data-time="Madrugada"></td>
                                         <td class="mood-cell" data-day="Tuesday" data-time="Madrugada"></td>
@@ -576,7 +730,7 @@
                                         <td class="mood-cell" data-day="Saturday" data-time="Madrugada"></td>
                                     </tr>
                                     <tr>
-                                        <td class="row-label">Mañana</td>
+                                        <td class="row-label">Morning</td>
                                         <td class="mood-cell" data-day="Sunday" data-time="Morning"></td>
                                         <td class="mood-cell" data-day="Monday" data-time="Morning"></td>
                                         <td class="mood-cell" data-day="Tuesday" data-time="Morning"></td>
@@ -586,7 +740,7 @@
                                         <td class="mood-cell" data-day="Saturday" data-time="Morning"></td>
                                     </tr>
                                     <tr>
-                                        <td class="row-label">Mediodía</td>
+                                        <td class="row-label">Noon</td>
                                         <td class="mood-cell" data-day="Sunday" data-time="Noon"></td>
                                         <td class="mood-cell" data-day="Monday" data-time="Noon"></td>
                                         <td class="mood-cell" data-day="Tuesday" data-time="Noon"></td>
@@ -596,7 +750,7 @@
                                         <td class="mood-cell" data-day="Saturday" data-time="Noon"></td>
                                     </tr>
                                     <tr>
-                                        <td class="row-label">Tarde</td>
+                                        <td class="row-label">Afternoon</td>
                                         <td class="mood-cell" data-day="Sunday" data-time="Afternoon"></td>
                                         <td class="mood-cell" data-day="Monday" data-time="Afternoon"></td>
                                         <td class="mood-cell" data-day="Tuesday" data-time="Afternoon"></td>
@@ -606,7 +760,7 @@
                                         <td class="mood-cell" data-day="Saturday" data-time="Afternoon"></td>
                                     </tr>
                                     <tr>
-                                        <td class="row-label">Noche</td>
+                                        <td class="row-label">Night</td>
                                         <td class="mood-cell" data-day="Sunday" data-time="Night"></td>
                                         <td class="mood-cell" data-day="Monday" data-time="Night"></td>
                                         <td class="mood-cell" data-day="Tuesday" data-time="Night"></td>
@@ -620,30 +774,30 @@
                         </div>
 
                         <aside class="mood-legend">
-                            <h3 class="legend-title">MI ESTADO DE ÁNIMO</h3>
+                            <h3 class="legend-title">MY MOOD STATES</h3>
                             <hr class="legend-divider">
                             <ul class="legend-list">
-                                <li><span class="color-dot" style="background-color: #FDE047;"></span> FELIZ</li>
-                                <li><span class="color-dot" style="background-color: #4ADE80;"></span> TRANQUILO</li>
-                                <li><span class="color-dot" style="background-color: #7DD3FC;"></span> EMOCIONADO</li>
-                                <li><span class="color-dot" style="background-color: #D8B4FE;"></span> CANSADO</li>
-                                <li><span class="color-dot" style="background-color: #3B82F6;"></span> TRISTE</li>
-                                <li><span class="color-dot" style="background-color: #EF4444;"></span> ENOJADO</li>
-                                <li><span class="color-dot" style="background-color: #F97316;"></span> PREOCUPADO</li>
-                                <li><span class="color-dot" style="background-color: #9CA3AF;"></span> ASUSTADO</li>
-                                <li><span class="color-dot" style="background-color: #14B8A6;"></span> ENFOCADO</li>
-                                <li><span class="color-dot" style="background-color: #F59E0B;"></span> MOTIVADO</li>
-                                <li><span class="color-dot" style="background-color: #991B1B;"></span> ESTRESADO</li>
-                                <li><span class="color-dot" style="background-color: #D946EF;"></span> FRUSTRADO</li>
-                                <li><span class="color-dot" style="background-color: #D1D5DB;"></span> ABURRIDO</li>
-                                <li><span class="color-dot" style="background-color: #A3E635;"></span> ANSIOSO</li>
-                                <li><span class="color-dot" style="background-color: #F9A8D4;"></span> DISTRAIDO</li>
-                                <li><span class="color-dot" style="background-color: #6B21A8;"></span> DESESPERADO</li>
+                                <li><span class="color-dot" style="background-color: #FDE047;"></span> HAPPY</li>
+                                <li><span class="color-dot" style="background-color: #4ADE80;"></span> CALM</li>
+                                <li><span class="color-dot" style="background-color: #7DD3FC;"></span> EXCITED</li>
+                                <li><span class="color-dot" style="background-color: #D8B4FE;"></span> TIRED</li>
+                                <li><span class="color-dot" style="background-color: #3B82F6;"></span> SAD</li>
+                                <li><span class="color-dot" style="background-color: #EF4444;"></span> ANGRY</li>
+                                <li><span class="color-dot" style="background-color: #F97316;"></span> WORRIED</li>
+                                <li><span class="color-dot" style="background-color: #9CA3AF;"></span> SCARED</li>
+                                <li><span class="color-dot" style="background-color: #14B8A6;"></span> FOCUSED</li>
+                                <li><span class="color-dot" style="background-color: #F59E0B;"></span> MOTIVATED</li>
+                                <li><span class="color-dot" style="background-color: #991B1B;"></span> STRESSED</li>
+                                <li><span class="color-dot" style="background-color: #D946EF;"></span> FRUSTRATED</li>
+                                <li><span class="color-dot" style="background-color: #D1D5DB;"></span> BORED</li>
+                                <li><span class="color-dot" style="background-color: #A3E635;"></span> ANXIOUS</li>
+                                <li><span class="color-dot" style="background-color: #F9A8D4;"></span> DISTRACTED</li>
+                                <li><span class="color-dot" style="background-color: #6B21A8;"></span> DESPERATE</li>
                             </ul>
                         </aside>
 
                         <div class="sleep-container">
-                            <h3>😴Resumen de Sueño</h3>
+                            <h3>😴 Sleep Summary</h3>
                             <div class="sleep-grid" id="sleepGrid"></div>
                         </div>
                     </div>
@@ -651,90 +805,88 @@
             </section>
 
             <!-- ==========================================
-                 VISTA 7: GESTIÓN DE ACCESO PARA PSIQUIATRA (SOLO ADMIN)
+                 VIEW 7: PSYCHIATRIST ACCESS MANAGEMENT (ADMIN ONLY)
             ========================================== -->
-            <section class="app-view" id="view-medico" data-title="Acceso Psiquiatra">
+            <section class="app-view" id="view-medico" data-title="Psychiatrist Access">
                 <div class="card">
-                    <h2>👨‍⚕️ Acceso para Psiquiatra</h2>
+                    <h2>👨‍⚕️ Psychiatrist Access</h2>
                     <p class="muted-text" style="margin-bottom: 20px; text-align: center;">
-                        Crea o actualiza una cuenta de <strong>solo lectura</strong> para tu psiquiatra. Esta cuenta únicamente puede ver el Resumen Semanal de Estado de Ánimo y Sueño (sin acceso a notas, agenda ni edición).
+                        Create or update a <strong>read-only</strong> account for your psychiatrist. This account can only view the Weekly Mood &amp; Sleep Summary (no access to notes, agenda, or editing).
                     </p>
                     <form id="medicoForm">
                         <div class="form-group">
-                            <label for="medicoNombre">Nombre del médico:</label>
-                            <input type="text" id="medicoNombre" maxlength="80" placeholder="Ej. Dr. García" required>
+                            <label for="medicoNombre">Doctor's name:</label>
+                            <input type="text" id="medicoNombre" maxlength="80" placeholder="e.g. Dr. Garcia" required>
                         </div>
                         <div class="form-group">
-                            <label for="medicoEmail">Correo electrónico del médico:</label>
-                            <input type="email" id="medicoEmail" placeholder="medico@correo.com" required>
+                            <label for="medicoEmail">Doctor's email address:</label>
+                            <input type="email" id="medicoEmail" placeholder="doctor@email.com" required>
                         </div>
                         <div class="form-group">
-                            <label for="medicoPassword">Contraseña asignada (mín. 8 caracteres):</label>
+                            <label for="medicoPassword">Assigned password (min. 8 characters):</label>
                             <input type="password" id="medicoPassword" minlength="8"
-                                placeholder="Mínimo 8 caracteres" required>
+                                placeholder="Minimum 8 characters" required>
                         </div>
-                        <button type="submit" class="btn-submit" id="btnSaveMedico">Guardar Cuenta de
-                            Psiquiatra</button>
+                        <button type="submit" class="btn-submit" id="btnSaveMedico">Save Psychiatrist Account</button>
                     </form>
 
                     <hr class="section-divider">
-                    <h3 class="medicos-heading">Cuentas de psiquiatra activas</h3>
+                    <h3 class="medicos-heading">Active psychiatrist accounts</h3>
                     <div id="medicosList" class="medicos-list">
-                        <p class="muted-text">Cargando...</p>
+                        <p class="muted-text">Loading...</p>
                     </div>
                 </div>
             </section>
         </main>
     </div>
 
-    <!-- Modal para agregar / editar actividad de la Agenda -->
+    <!-- Modal to add / edit Agenda activity -->
     <div class="modal-overlay" id="agendaModal" hidden aria-modal="true" role="dialog"
         aria-labelledby="agendaModalTitle">
         <div class="modal-card">
             <div class="modal-header">
-                <h3 id="agendaModalTitle">Nueva Actividad</h3>
-                <button type="button" class="modal-close-btn" id="btnCloseAgendaModal" aria-label="Cerrar">✕</button>
+                <h3 id="agendaModalTitle">New Activity</h3>
+                <button type="button" class="modal-close-btn" id="btnCloseAgendaModal" aria-label="Close">✕</button>
             </div>
             <form id="agendaForm">
                 <input type="hidden" id="agendaEditId" value="">
                 <div class="form-row-2">
                     <div class="form-group">
-                        <label for="agendaFecha">Fecha:</label>
+                        <label for="agendaFecha">Date:</label>
                         <input type="date" id="agendaFecha" required>
                     </div>
                     <div class="form-group">
-                        <label for="agendaHora">Hora:</label>
+                        <label for="agendaHora">Time:</label>
                         <input type="time" id="agendaHora" required>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="agendaBloque">Momento (punto del día):</label>
+                    <label for="agendaBloque">Time block (part of day):</label>
                     <select id="agendaBloque" required>
-                        <option value="manana">☕ Por la mañana</option>
-                        <option value="cole">📖 En el cole</option>
-                        <option value="tarde">☀️ Por la tarde</option>
-                        <option value="noche">🌙 Por la noche</option>
+                        <option value="manana">☕ Morning</option>
+                        <option value="cole">📖 At School / Classes</option>
+                        <option value="tarde">☀️ Afternoon</option>
+                        <option value="noche">🌙 Night</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="agendaActividad">Actividad:</label>
+                    <label for="agendaActividad">Activity:</label>
                     <input type="text" id="agendaActividad" maxlength="255"
-                        placeholder="Ej. Desayunar, Hacer deberes, Ducharme..." required>
+                        placeholder="e.g. Have breakfast, Do homework, Take a shower..." required>
                     <div class="agenda-suggestions" id="agendaSuggestions">
-                        <button type="button" class="suggestion-chip" data-text="Desayunar">Desayunar</button>
-                        <button type="button" class="suggestion-chip" data-text="Hacer deberes">Hacer deberes</button>
-                        <button type="button" class="suggestion-chip" data-text="Ducharme">Ducharme</button>
-                        <button type="button" class="suggestion-chip" data-text="Lavarme los dientes">Lavarme los
-                            dientes</button>
-                        <button type="button" class="suggestion-chip" data-text="Estudiar">Estudiar</button>
+                        <button type="button" class="suggestion-chip" data-text="Have breakfast">Have breakfast</button>
+                        <button type="button" class="suggestion-chip" data-text="Do homework">Do homework</button>
+                        <button type="button" class="suggestion-chip" data-text="Take a shower">Take a shower</button>
+                        <button type="button" class="suggestion-chip" data-text="Brush my teeth">Brush my teeth</button>
+                        <button type="button" class="suggestion-chip" data-text="Study">Study</button>
                     </div>
                 </div>
 
                 <div class="modal-actions">
-                    <button type="button" class="btn-cancel" id="btnCancelAgenda">Cancelar</button>
-                    <button type="submit" class="btn-submit btn-modal-save" id="btnSaveAgenda">Guardar Actividad</button>
+                    <button type="button" class="btn-cancel" id="btnCancelAgenda">Cancel</button>
+                    <button type="submit" class="btn-submit btn-modal-save" id="btnSaveAgenda">Save Activity</button>
                 </div>
             </form>
         </div>

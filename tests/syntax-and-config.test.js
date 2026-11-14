@@ -20,11 +20,15 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
 
     it('valida sintaxis de scripts embebidos y estructura básica de HTML', () => {
         const indexHtml = readText('public/index.html');
+        assert.match(indexHtml, /<html\s+lang=["']en["']/i);
         assert.match(indexHtml, /<script[^>]+src=["']frontend\.js["']/i);
         assert.match(indexHtml, /href=["']style\.css["']/i);
         assert.match(indexHtml, /id=["']themeToggleBtn["']|data-theme/i);
+        assert.match(indexHtml, /id=["']view-english["']/i);
+        assert.match(indexHtml, /id=["']englishForm["']/i);
 
         const dashHtml = readText('public/dashboard.html');
+        assert.match(dashHtml, /<html\s+lang=["']en["']/i);
         const scriptMatches = [...dashHtml.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
         assert.ok(scriptMatches.length > 0, 'dashboard.html debe incluir script de redirección');
         for (const m of scriptMatches) {
@@ -114,12 +118,12 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
 
     it('protege archivos secretos y optimiza Dockerfile / docker-compose.yml para t3.micro', () => {
         const gitignore = readText('.gitignore');
-        for (const entry of ['.env', '.env.enc', '.env.*.tmp']) {
+        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/']) {
             assert.ok(gitignore.includes(entry), `.gitignore debe excluir ${entry}`);
         }
 
         const dockerignore = readText('.dockerignore');
-        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests']) {
+        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'english-notes']) {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
         }
 
