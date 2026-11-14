@@ -400,6 +400,50 @@ body {
     font-size: 0.83rem;
 }
 
+.medico-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.medico-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    width: fit-content;
+    margin-top: 4px;
+}
+
+.medico-status-badge.is-active {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.medico-status-badge.is-suspended,
+.medico-status-badge.is-inactive {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.btn-status-medico {
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.btn-status-medico:hover {
+    background: #bae6fd;
+}
+
 .btn-revoke-medico {
     background: #fee2e2;
     color: #b91c1c;
@@ -1079,6 +1123,7 @@ select {
 .btn-submit:disabled,
 .btn-send-code:disabled,
 .btn-agenda-add-main:disabled,
+.btn-status-medico:disabled,
 .btn-revoke-medico:disabled,
 .btn-logout-sidebar:disabled,
 .agenda-check-circle:disabled,
@@ -2571,6 +2616,27 @@ select {
 :root[data-theme="dark"] .medico-item {
     background: #1e293b;
     border-color: #334155;
+}
+
+:root[data-theme="dark"] .medico-status-badge.is-active {
+    background: rgba(34, 197, 94, 0.2);
+    color: #86efac;
+}
+
+:root[data-theme="dark"] .medico-status-badge.is-suspended,
+:root[data-theme="dark"] .medico-status-badge.is-inactive {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+}
+
+:root[data-theme="dark"] .btn-status-medico {
+    background: rgba(14, 165, 233, 0.18);
+    color: #7dd3fc;
+    border-color: rgba(56, 189, 248, 0.35);
+}
+
+:root[data-theme="dark"] .btn-status-medico:hover {
+    background: rgba(14, 165, 233, 0.3);
 }
 
 :root[data-theme="dark"] .btn-revoke-medico {

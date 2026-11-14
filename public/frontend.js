@@ -1733,13 +1733,29 @@ if (agendaForm) {
 // ==========================================
 // AUTHENTICATION, ROLES, SESSION & PSYCHIATRIST ACCESS
 // ==========================================
+let pendingMfaState = { token: '', email: '' };
+
+function validateEmailClient(email) {
+    return typeof email === 'string' && email.length <= 150 && /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
+}
+
+function validatePasswordFormatClient(password) {
+    if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+        return 'Password must be between 8 and 128 characters long.';
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+        return 'Password must include at least one letter and one number.';
+    }
+    return null;
+}
+
 function hideBootScreen() {
     const bootScreen = document.getElementById('appBootScreen');
     if (bootScreen) bootScreen.hidden = true;
 }
 
 function showAuthForm(formId, subtitleText) {
-    ['authLoginForm', 'authRegisterForm', 'authForgotForm', 'authResetForm'].forEach(id => {
+    ['authLoginForm', 'authRegisterForm', 'authForgotForm', 'authResetForm', 'authMfaForm'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.hidden = id !== formId;
     });
@@ -1750,6 +1766,7 @@ function showAuthForm(formId, subtitleText) {
 
 function showAuthScreen(defaultForm = 'authLoginForm') {
     currentUser = null;
+    pendingMfaState = { token: '', email: '' };
     if (sundayWatcherInterval) {
         clearInterval(sundayWatcherInterval);
         sundayWatcherInterval = null;
@@ -1759,7 +1776,8 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
         authLoginForm: 'Sign in to continue',
         authRegisterForm: 'Verified account registration',
         authForgotForm: 'Email password recovery',
-        authResetForm: 'Create your new secure password'
+        authResetForm: 'Create your new secure password',
+        authMfaForm: 'Two-step email verification'
     };
     showAuthForm(defaultForm, subtitles[defaultForm]);
 
@@ -1838,7 +1856,13 @@ function cargarMedicos() {
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
     fetch('/api/auth/medicos', fetchOpts)
-        .then(res => res.ok ? res.json() : Promise.reject(new Error('Could not fetch accounts')))
+        .then(res => {
+            if (res.status === 401 || res.status === 403) {
+                showAuthScreen('authLoginForm');
+                throw new Error('Session no longer authorized');
+            }
+            return res.ok ? res.json() : Promise.reject(new Error('Could not fetch accounts'));
+        })
         .then(medicos => {
             if (!medicosTracker.isCurrent(reqToken.seq)) return;
             container.innerHTML = '';
@@ -1856,7 +1880,41 @@ function cargarMedicos() {
                 nameStrong.textContent = m.nombre;
                 const emailSpan = document.createElement('span');
                 emailSpan.textContent = `${m.email} · Read-only (Sleep & Mood Summary)`;
-                info.append(nameStrong, emailSpan);
+
+                const estado = (m.estado || 'activo').toLowerCase();
+                const statusBadge = document.createElement('span');
+                statusBadge.className = `medico-status-badge ${estado === 'activo' ? 'is-active' : (estado === 'suspendido' ? 'is-suspended' : 'is-inactive')}`;
+                statusBadge.textContent = estado === 'activo' ? 'Active' : (estado === 'suspendido' ? 'Suspended' : 'Inactive');
+
+                info.append(nameStrong, emailSpan, statusBadge);
+
+                const actions = document.createElement('div');
+                actions.className = 'medico-actions';
+
+                const nextEstado = estado === 'activo' ? 'suspendido' : 'activo';
+                const statusBtn = document.createElement('button');
+                statusBtn.type = 'button';
+                statusBtn.className = 'btn-status-medico';
+                statusBtn.textContent = estado === 'activo' ? 'Suspend' : 'Activate';
+                statusBtn.addEventListener('click', () => {
+                    runWithButtonLock(statusBtn, async () => {
+                        const verb = nextEstado === 'suspendido' ? 'Suspend' : 'Reactivate';
+                        if (!confirm(`${verb} access for ${m.nombre} (${m.email})?`)) return;
+                        try {
+                            await submitMutationRequest({
+                                url: `/api/auth/medicos/${m.id}/estado`,
+                                method: 'PATCH',
+                                scopeKey: `medico-estado:${m.id}`,
+                                signature: `${m.id}|${nextEstado}`,
+                                buildBody: () => ({ estado: nextEstado }),
+                                parseJson: true
+                            });
+                            cargarMedicos();
+                        } catch (err) {
+                            alert('Error: ' + err.message);
+                        }
+                    }, { loadingText: 'Updating...', extraDisable: [delBtn] });
+                });
 
                 const delBtn = document.createElement('button');
                 delBtn.type = 'button';
@@ -1877,10 +1935,11 @@ function cargarMedicos() {
                         } catch (err) {
                             alert('Error: ' + err.message);
                         }
-                    }, { loadingText: 'Revoking...' });
+                    }, { loadingText: 'Revoking...', extraDisable: [statusBtn] });
                 });
 
-                row.append(info, delBtn);
+                actions.append(statusBtn, delBtn);
+                row.append(info, actions);
                 container.appendChild(row);
             });
         })
@@ -1931,6 +1990,7 @@ function initAuthHandlers() {
     const btnBackFromRegister = document.getElementById('linkBackLoginFromReg');
     const btnBackFromForgot = document.getElementById('linkBackLoginFromForgot');
     const btnBackFromReset = document.getElementById('linkBackLoginFromReset');
+    const btnBackFromMfa = document.getElementById('linkBackLoginFromMfa');
     const btnSendRegCode = document.getElementById('btnSendRegCode');
     const btnLogout = document.getElementById('btnLogout');
 
@@ -1952,13 +2012,21 @@ function initAuthHandlers() {
             showAuthForm('authLoginForm', 'Sign in to continue');
         });
     }
+    if (btnBackFromMfa) {
+        btnBackFromMfa.addEventListener('click', () => {
+            pendingMfaState = { token: '', email: '' };
+            const mfaForm = document.getElementById('authMfaForm');
+            if (mfaForm) mfaForm.reset();
+            showAuthForm('authLoginForm', 'Sign in to continue');
+        });
+    }
 
     if (btnSendRegCode) {
         btnSendRegCode.addEventListener('click', () => {
             if (busyActionElements.has(btnSendRegCode) || btnSendRegCode.disabled) return;
             const email = document.getElementById('regEmail').value.trim();
-            if (!email) {
-                alert('Please enter your email address above first.');
+            if (!validateEmailClient(email)) {
+                alert('Please enter a valid email address above first.');
                 return;
             }
 
@@ -2017,9 +2085,51 @@ function initAuthHandlers() {
         getSubmission: () => {
             const email = document.getElementById('loginEmail').value.trim();
             const password = document.getElementById('loginPassword').value;
+            if (!validateEmailClient(email) || !password) {
+                alert('Please enter a valid email and password.');
+                return null;
+            }
             return { payload: { email, password }, signature: `${email.toLowerCase()}|${password}` };
         },
         onSuccess: (data, form) => {
+            pendingSubmissions.clear();
+            form.reset();
+            resetPasswordToggles();
+            if (data && data.mfaRequired && data.mfaToken) {
+                pendingMfaState = { token: data.mfaToken, email: data.email || '' };
+                const mfaEmailLabel = document.getElementById('mfaEmailLabel');
+                if (mfaEmailLabel) mfaEmailLabel.textContent = pendingMfaState.email || 'your email';
+                showAuthForm('authMfaForm', 'Two-step email verification');
+                return;
+            }
+            enterAppSession(data.user);
+        }
+    });
+
+    bindLockedFormSubmit({
+        formId: 'authMfaForm',
+        btnId: 'btnMfaSubmit',
+        url: '/api/auth/verify-login-mfa',
+        loadingText: 'Verifying code...',
+        scopeKey: 'mfa-verify',
+        getSubmission: () => {
+            const code = document.getElementById('mfaCodeInput').value.trim();
+            if (!pendingMfaState.token) {
+                alert('Your sign-in verification session expired. Please sign in again.');
+                showAuthForm('authLoginForm', 'Sign in to continue');
+                return null;
+            }
+            if (!/^\d{6}$/.test(code)) {
+                alert('Enter the 6-digit verification code from your email.');
+                return null;
+            }
+            return {
+                payload: { mfaToken: pendingMfaState.token, code },
+                signature: `${pendingMfaState.token}|${code}`
+            };
+        },
+        onSuccess: (data, form) => {
+            pendingMfaState = { token: '', email: '' };
             pendingSubmissions.clear();
             form.reset();
             resetPasswordToggles();
@@ -2040,6 +2150,23 @@ function initAuthHandlers() {
                 password: document.getElementById('regPassword').value,
                 codigoValidacion: document.getElementById('regCodigoValidacion').value.trim()
             };
+            if (payload.nombre.length < 2 || payload.nombre.length > 80) {
+                alert('Name must be between 2 and 80 characters.');
+                return null;
+            }
+            if (!validateEmailClient(payload.email)) {
+                alert('Please enter a valid email address.');
+                return null;
+            }
+            const pwErr = validatePasswordFormatClient(payload.password);
+            if (pwErr) {
+                alert(pwErr);
+                return null;
+            }
+            if (!payload.codigoValidacion) {
+                alert('Please enter the verification code or your personal secret key.');
+                return null;
+            }
             return { payload, signature: payload.email.toLowerCase() };
         },
         onSuccess: (data, form) => {
@@ -2060,6 +2187,10 @@ function initAuthHandlers() {
         errorPrefix: 'Error: ',
         getSubmission: () => {
             const email = document.getElementById('forgotEmail').value.trim();
+            if (!validateEmailClient(email)) {
+                alert('Please enter a valid email address.');
+                return null;
+            }
             return { payload: { email }, signature: email.toLowerCase() };
         },
         onSuccess: (data) => {
@@ -2081,6 +2212,11 @@ function initAuthHandlers() {
             const email = params.get('email') || '';
             const newPassword = document.getElementById('resetNewPassword').value;
             const confirmPassword = document.getElementById('resetConfirmPassword').value;
+            const pwErr = validatePasswordFormatClient(newPassword);
+            if (pwErr) {
+                alert(pwErr);
+                return null;
+            }
             if (newPassword !== confirmPassword) {
                 alert('Passwords do not match.');
                 return null;
@@ -2136,6 +2272,19 @@ function initAuthHandlers() {
                 email: document.getElementById('medicoEmail').value.trim(),
                 password: document.getElementById('medicoPassword').value
             };
+            if (payload.nombre.length < 2 || payload.nombre.length > 80) {
+                alert('Doctor name must be between 2 and 80 characters.');
+                return null;
+            }
+            if (!validateEmailClient(payload.email)) {
+                alert('Please enter a valid doctor email address.');
+                return null;
+            }
+            const pwErr = validatePasswordFormatClient(payload.password);
+            if (pwErr) {
+                alert(pwErr);
+                return null;
+            }
             const sig = `${payload.nombre}|${payload.email.toLowerCase()}|${payload.password}`;
             if (sig === lastSavedMedicoSignature) {
                 alert('These exact psychiatrist credentials were already saved.');

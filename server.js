@@ -9,6 +9,9 @@ const nodemailer = require('nodemailer');
 
 const app = express();
 app.disable('x-powered-by');
+if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'loopback') {
+    app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : 'loopback');
+}
 
 // Cabeceras de seguridad HTTP
 app.use((req, res, next) => {
@@ -16,15 +19,42 @@ app.use((req, res, next) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
     res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
     );
+    const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    if (req.secure || proto === 'https') {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
 });
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '64kb' }));
+app.use((err, req, res, next) => {
+    if (err && err.type === 'entity.parse.failed') {
+        return res.status(400).send('Invalid JSON payload.');
+    }
+    if (err && err.type === 'entity.too.large') {
+        return res.status(413).send('Request payload exceeds maximum allowed size.');
+    }
+    return next(err);
+});
+app.use('/api', (req, res, next) => {
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+        if (req.body === undefined) {
+            req.body = {};
+        } else if (req.body === null || typeof req.body !== 'object' || Array.isArray(req.body)) {
+            return res.status(400).send('Request body must be a valid JSON object.');
+        }
+    }
+    return next();
+});
 app.use(express.static(path.join(__dirname, 'public'), {
     etag: true,
     maxAge: '10m',
@@ -66,6 +96,7 @@ function inicializarTablasSeguridad() {
             email VARCHAR(150) NOT NULL UNIQUE,
             password_hash VARCHAR(255) NOT NULL,
             rol ENUM('admin', 'psiquiatra') NOT NULL DEFAULT 'psiquiatra',
+            estado ENUM('activo', 'inactivo', 'suspendido') NOT NULL DEFAULT 'activo',
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE TABLE IF NOT EXISTS SesionesAuth (
@@ -81,7 +112,7 @@ function inicializarTablasSeguridad() {
         `CREATE TABLE IF NOT EXISTS CodigosSeguridad (
             id INT AUTO_INCREMENT PRIMARY KEY,
             email VARCHAR(150) NOT NULL,
-            tipo ENUM('registro', 'reset') NOT NULL,
+            tipo ENUM('registro', 'reset', 'mfa') NOT NULL,
             token_hash CHAR(64) NOT NULL,
             expira_en DATETIME NOT NULL,
             usado TINYINT(1) NOT NULL DEFAULT 0,
@@ -93,6 +124,29 @@ function inicializarTablasSeguridad() {
         db.query(sql, err => {
             if (err) console.error('Error asegurando tabla:', err.message);
         });
+    });
+
+    // Migración automática idempotente para bases de datos ya existentes
+    db.query("SHOW COLUMNS FROM Usuarios LIKE 'estado'", (errCol, cols) => {
+        if (!errCol && Array.isArray(cols) && cols.length === 0) {
+            db.query(
+                "ALTER TABLE Usuarios ADD COLUMN estado ENUM('activo', 'inactivo', 'suspendido') NOT NULL DEFAULT 'activo' AFTER rol",
+                (errAlt) => {
+                    if (errAlt) console.error('Error migrando columna estado en Usuarios:', errAlt.message);
+                }
+            );
+        }
+    });
+
+    db.query("SHOW COLUMNS FROM CodigosSeguridad LIKE 'tipo'", (errCol, cols) => {
+        if (!errCol && Array.isArray(cols) && cols.length > 0 && !String(cols[0].Type || '').includes("'mfa'")) {
+            db.query(
+                "ALTER TABLE CodigosSeguridad MODIFY COLUMN tipo ENUM('registro', 'reset', 'mfa') NOT NULL",
+                (errAlt) => {
+                    if (errAlt) console.error('Error migrando enum tipo en CodigosSeguridad:', errAlt.message);
+                }
+            );
+        }
     });
 }
 
@@ -109,6 +163,75 @@ db.getConnection((err, connection) => {
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'flavio.flax1234@gmail.com').trim().toLowerCase();
 const BCRYPT_ROUNDS = 12;
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const ESTADOS_CUENTA_VALIDOS = new Set(['activo', 'inactivo', 'suspendido']);
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), BCRYPT_ROUNDS);
+const ENABLE_LOGIN_MFA = String(process.env.ENABLE_LOGIN_MFA || 'false').trim().toLowerCase() === 'true';
+const MFA_HMAC_SECRET = String(
+    process.env.MFA_CHALLENGE_SECRET ||
+    process.env.ADMIN_SECRET ||
+    process.env.JOURNAL_SECRET_KEY ||
+    process.env.DB_PASS ||
+    crypto.randomBytes(32).toString('hex')
+);
+
+function parsePositiveInt(rawVal, fallback) {
+    const num = Number(rawVal);
+    return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+function normalizeEmail(raw) {
+    if (typeof raw !== 'string') return '';
+    if (/[\r\n\0]/.test(raw)) return '';
+    const trimmed = raw.trim().toLowerCase();
+    if (!trimmed || trimmed.length > 150 || trimmed.includes('..') || !EMAIL_REGEX.test(trimmed)) {
+        return '';
+    }
+    return trimmed;
+}
+
+function validatePasswordFormat(password) {
+    if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+        return 'Password must be between 8 and 128 characters long.';
+    }
+    if (/[\x00-\x1f\x7f]/.test(password)) {
+        return 'Password cannot contain control characters.';
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+        return 'Password must be 8–128 characters long and include at least one letter and one number.';
+    }
+    return null;
+}
+
+function requireNonEmptyBody(req, res, next) {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length === 0) {
+        return res.status(400).send('Request body cannot be empty.');
+    }
+    return next();
+}
+
+function signMfaChallenge(payload) {
+    const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+    const sig = crypto.createHmac('sha256', MFA_HMAC_SECRET).update(encoded).digest('base64url');
+    return `${encoded}.${sig}`;
+}
+
+function verifyMfaChallenge(token) {
+    if (typeof token !== 'string' || !token.includes('.')) return null;
+    const parts = token.split('.');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+    const [encoded, sig] = parts;
+    const expectedSig = crypto.createHmac('sha256', MFA_HMAC_SECRET).update(encoded).digest('base64url');
+    if (!safeCompareStrings(sig, expectedSig)) return null;
+    try {
+        const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+        if (!parsed || typeof parsed.userId !== 'number' || !parsed.email || Date.now() > Number(parsed.exp)) {
+            return null;
+        }
+        return parsed;
+    } catch (_) {
+        return null;
+    }
+}
 
 function sha256Hex(value) {
     return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -168,45 +291,180 @@ function clearSessionCookie(res) {
     );
 }
 
-// Rate limiter en memoria con limpieza automática para evitar fugas de RAM
-const rateLimitStore = new Map();
-const MAX_RATE_LIMIT_ENTRIES = 300;
+// Rate limiters en memoria con expiración, cabeceras estándar y limpieza automática (sin saturar RAM)
+const MAX_RATE_LIMIT_ENTRIES = 1000;
+const rateLimiterStores = [];
 
-function pruneRateLimitStore(now = Date.now()) {
-    for (const [k, rec] of rateLimitStore.entries()) {
+function getClientIp(req) {
+    const raw = req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+    return String(raw).replace(/^::ffff:/, '') || 'unknown';
+}
+
+function pruneMapExpired(store, now = Date.now()) {
+    for (const [k, rec] of store.entries()) {
         if (now > rec.resetAt) {
-            rateLimitStore.delete(k);
+            store.delete(k);
         }
     }
 }
 
-setInterval(() => pruneRateLimitStore(), 15 * 60 * 1000).unref();
-
-function checkRateLimit(key, maxAttempts = 10, windowMs = 15 * 60 * 1000) {
+setInterval(() => {
     const now = Date.now();
-    if (rateLimitStore.size > MAX_RATE_LIMIT_ENTRIES) {
-        pruneRateLimitStore(now);
-        if (rateLimitStore.size > MAX_RATE_LIMIT_ENTRIES) {
-            const oldestKey = rateLimitStore.keys().next().value;
-            if (oldestKey !== undefined) rateLimitStore.delete(oldestKey);
+    rateLimiterStores.forEach(store => pruneMapExpired(store, now));
+}, 5 * 60 * 1000).unref();
+
+function createRateLimiter({
+    maxAttempts = 60,
+    windowMs = 60 * 1000,
+    message = 'Too many requests. Please slow down and try again later.',
+    keyGenerator = (req) => getClientIp(req)
+} = {}) {
+    const store = new Map();
+    rateLimiterStores.push(store);
+
+    function consume(key) {
+        const now = Date.now();
+        if (store.size >= MAX_RATE_LIMIT_ENTRIES && !store.has(key)) {
+            pruneMapExpired(store, now);
+            while (store.size >= MAX_RATE_LIMIT_ENTRIES) {
+                const oldestKey = store.keys().next().value;
+                if (oldestKey === undefined) break;
+                store.delete(oldestKey);
+            }
+        }
+
+        const record = store.get(key);
+        if (!record || now > record.resetAt) {
+            const resetAt = now + windowMs;
+            store.set(key, { count: 1, resetAt });
+            return {
+                allowed: true,
+                remaining: Math.max(0, maxAttempts - 1),
+                resetAt,
+                retryAfterSec: 0
+            };
+        }
+
+        if (record.count >= maxAttempts) {
+            return {
+                allowed: false,
+                remaining: 0,
+                resetAt: record.resetAt,
+                retryAfterSec: Math.max(1, Math.ceil((record.resetAt - now) / 1000))
+            };
+        }
+
+        record.count += 1;
+        return {
+            allowed: true,
+            remaining: Math.max(0, maxAttempts - record.count),
+            resetAt: record.resetAt,
+            retryAfterSec: 0
+        };
+    }
+
+    function applyHeaders(res, result) {
+        res.setHeader('X-RateLimit-Limit', String(maxAttempts));
+        res.setHeader('X-RateLimit-Remaining', String(result.remaining));
+        res.setHeader('X-RateLimit-Reset', String(Math.ceil(result.resetAt / 1000)));
+        if (!result.allowed) {
+            res.setHeader('Retry-After', String(result.retryAfterSec));
         }
     }
 
-    const record = rateLimitStore.get(key);
-    if (!record || now > record.resetAt) {
-        rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
-        return true;
+    function middleware(req, res, next) {
+        const key = String(keyGenerator(req) || getClientIp(req));
+        const result = consume(key);
+        applyHeaders(res, result);
+        if (!result.allowed) {
+            return res.status(429).send(message);
+        }
+        return next();
     }
-    if (record.count >= maxAttempts) {
-        return false;
+
+    function reset(key) {
+        store.delete(key);
     }
-    record.count += 1;
-    return true;
+
+    return { consume, applyHeaders, middleware, reset };
 }
 
-function resetRateLimit(key) {
-    rateLimitStore.delete(key);
-}
+const apiGlobalLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_API_MAX, 500),
+    windowMs: parsePositiveInt(process.env.RATE_LIMIT_API_WINDOW_MS, 60 * 1000),
+    message: 'Too many requests to the server. Please wait a moment and try again.'
+});
+
+const loginIpLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_LOGIN_IP_MAX, 30),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many login attempts from this IP. Please wait 15 minutes.'
+});
+
+const loginAccountLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_LOGIN_MAX, 10),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many failed attempts. Please wait 15 minutes.'
+});
+
+const regCodeLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_REGCODE_MAX, 6),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many verification code requests. Please wait a few minutes.'
+});
+
+const registerLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_REGISTER_MAX, 8),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many registration attempts. Please wait 15 minutes.'
+});
+
+const forgotPasswordLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_FORGOT_MAX, 5),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many password recovery requests. Please wait 15 minutes.'
+});
+
+const resetPasswordLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_RESET_MAX, 8),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many password reset attempts. Please wait 15 minutes.'
+});
+
+const mfaVerifyLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_MFA_MAX, 8),
+    windowMs: 15 * 60 * 1000,
+    message: 'Too many verification attempts. Please wait 15 minutes.'
+});
+
+const apiReadLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_READ_MAX, 120),
+    windowMs: 60 * 1000,
+    message: 'Too many read requests. Please slow down briefly.'
+});
+
+const apiWriteLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_WRITE_MAX, 60),
+    windowMs: 60 * 1000,
+    message: 'Too many write requests. Please slow down briefly.'
+});
+
+const pcQueueWriteLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_PC_WRITE_MAX, 120),
+    windowMs: 60 * 1000,
+    message: 'Too many PC sync enqueue requests. Please wait a moment.',
+    keyGenerator: (req) => `${getClientIp(req)}:${req.path}`
+});
+
+const pcPullLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_PC_PULL_MAX, 60),
+    windowMs: 60 * 1000,
+    message: 'Too many PC sync polling requests. Please wait a moment.',
+    keyGenerator: (req) => `${getClientIp(req)}:${req.path}`
+});
+
+// Middleware global anti-DoS sobre /api/*
+app.use('/api', apiGlobalLimiter.middleware);
 
 // Limpieza periódica de sesiones y códigos vencidos para ahorrar espacio en MySQL
 function limpiarRegistrosExpirados() {
@@ -280,7 +538,7 @@ async function enviarCorreo({ to, subject, html }) {
     }
 }
 
-// Middleware de autenticación
+// Middleware de autenticación (incluye validación de estado de cuenta)
 function requireAuth(req, res, next) {
     const cookies = parseCookies(req);
     const rawToken = cookies.mt_session;
@@ -292,7 +550,7 @@ function requireAuth(req, res, next) {
     const nowSql = formatMySqlDateTime(new Date());
 
     const sql = `
-        SELECT s.id AS sesion_id, s.expira_en, u.id, u.nombre, u.email, u.rol
+        SELECT s.id AS sesion_id, s.expira_en, u.id, u.nombre, u.email, u.rol, u.estado
         FROM SesionesAuth s
         INNER JOIN Usuarios u ON u.id = s.usuario_id
         WHERE s.token_hash = ? AND s.expira_en > ?
@@ -309,11 +567,19 @@ function requireAuth(req, res, next) {
             return res.status(401).send('Your session has expired. Please sign in again.');
         }
 
+        const estadoCuenta = rows[0].estado || 'activo';
+        if (estadoCuenta !== 'activo') {
+            clearSessionCookie(res);
+            db.query('DELETE FROM SesionesAuth WHERE token_hash = ?', [tokenHash], () => {});
+            return res.status(403).send('Your account is inactive or suspended. Contact the administrator.');
+        }
+
         req.user = {
             id: rows[0].id,
             nombre: rows[0].nombre,
             email: rows[0].email,
             rol: rows[0].rol,
+            estado: estadoCuenta,
             expira_en: rows[0].expira_en
         };
         req.sessionTokenHash = tokenHash;
@@ -491,24 +757,49 @@ function preventDuplicateSubmit(options = {}) {
     };
 }
 
+function issueUserSession(res, user, { statusCode = 200, message, errorMessage = 'Error creating session.' }) {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = sha256Hex(rawToken);
+    const expiresAt = getNextSundayMidnight();
+    const expiresSql = formatMySqlDateTime(expiresAt);
+
+    db.query(
+        'INSERT INTO SesionesAuth (usuario_id, token_hash, expira_en) VALUES (?, ?, ?)',
+        [user.id, tokenHash, expiresSql],
+        (errSes) => {
+            if (errSes) {
+                console.error(errSes);
+                return res.status(500).send(errorMessage);
+            }
+            setSessionCookie(res, rawToken, expiresAt);
+            return res.status(statusCode).json({
+                message,
+                user: {
+                    id: user.id,
+                    nombre: user.nombre,
+                    email: user.email,
+                    rol: user.rol,
+                    estado: user.estado || 'activo',
+                    expira_en: expiresAt.toISOString()
+                }
+            });
+        }
+    );
+}
+
 // ==========================================
 // RUTAS DE AUTENTICACIÓN Y SEGURIDAD
 // ==========================================
 
 // Consultar sesión activa
-app.get('/api/auth/me', requireAuth, (req, res) => {
+app.get('/api/auth/me', apiReadLimiter.middleware, requireAuth, (req, res) => {
     res.json({ authenticated: true, user: req.user });
 });
 
-// Enviar código de verificación al correo propietario (flavio.flax1234@gmail.com)
-app.post('/api/auth/send-register-code', preventDuplicateSubmit({ dedupeWindowMs: 15000 }), async (req, res) => {
-    const ip = req.ip || 'unknown';
-    if (!checkRateLimit(`regcode:${ip}`, 6, 15 * 60 * 1000)) {
-        return res.status(429).send('Too many attempts. Please wait a few minutes.');
-    }
-
-    const emailSolicitante = String(req.body.email || '').trim().toLowerCase();
-    if (!EMAIL_REGEX.test(emailSolicitante)) {
+// Enviar código de verificación al correo propietario
+app.post('/api/auth/send-register-code', regCodeLimiter.middleware, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), async (req, res) => {
+    const emailSolicitante = normalizeEmail(req.body.email);
+    if (!emailSolicitante) {
         return res.status(400).send('Please enter a valid email address.');
     }
 
@@ -534,7 +825,7 @@ app.post('/api/auth/send-register-code', preventDuplicateSubmit({ dedupeWindowMs
                     html: `
                         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
                             <h2 style="color: #1e2430; margin-top: 0;">Registration Verification</h2>
-                            <p>A registration request was submitted for <strong>${emailSolicitante}</strong> with role <strong>${rolSolicitado}</strong>.</p>
+                            <p>A registration request was submitted for <strong>${escapeHtml(emailSolicitante)}</strong> with role <strong>${rolSolicitado}</strong>.</p>
                             <p>Your authorization code (valid for 15 minutes) is:</p>
                             <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; text-align: center; padding: 14px; background: #f3f4f6; border-radius: 8px; color: #111827;">
                                 ${codigo}
@@ -544,9 +835,9 @@ app.post('/api/auth/send-register-code', preventDuplicateSubmit({ dedupeWindowMs
                 });
                 res.json({ message: 'Verification code sent to the owner email configured on the server.' });
             } catch (mailErr) {
-                console.error(mailErr.message);
+                console.error('[AUTH_MAIL_ERROR]', mailErr.message);
                 res.status(500).send(
-                    mailErr.message + ' You can also register using your personal secret key in the validation field.'
+                    'Could not send the verification email. You can register using your personal secret key in the validation field.'
                 );
             }
         }
@@ -554,31 +845,27 @@ app.post('/api/auth/send-register-code', preventDuplicateSubmit({ dedupeWindowMs
 });
 
 // Registro de usuario por primera vez (valida correo o clave secreta personal)
-app.post('/api/auth/register', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
-    const ip = req.ip || 'unknown';
-    if (!checkRateLimit(`register:${ip}`, 8, 15 * 60 * 1000)) {
-        return res.status(429).send('Too many registration attempts. Please wait 15 minutes.');
-    }
-
-    const nombre = String(req.body.nombre || '').trim();
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
-    const codigoValidacion = String(req.body.codigoValidacion || '').trim();
+app.post('/api/auth/register', registerLimiter.middleware, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
+    const nombre = typeof req.body.nombre === 'string' ? req.body.nombre.trim() : '';
+    const email = normalizeEmail(req.body.email);
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    const codigoValidacion = typeof req.body.codigoValidacion === 'string' ? req.body.codigoValidacion.trim() : '';
 
     if (!nombre || nombre.length < 2 || nombre.length > 80) {
         return res.status(400).send('Name must be between 2 and 80 characters.');
     }
-    if (!EMAIL_REGEX.test(email) || email.length > 150) {
+    if (!email) {
         return res.status(400).send('Invalid email address.');
     }
-    if (password.length < 8 || password.length > 128) {
-        return res.status(400).send('Password must be at least 8 characters long.');
+    const passwordError = validatePasswordFormat(password);
+    if (passwordError) {
+        return res.status(400).send(passwordError);
     }
     if (!codigoValidacion) {
         return res.status(400).send('Enter the verification code or your personal secret key.');
     }
 
-    // Asignación estricta de rol: únicamente flavio.flax1234@gmail.com puede ser admin
+    // Asignación estricta de rol: únicamente ADMIN_EMAIL puede ser admin
     const rolAsignado = email === ADMIN_EMAIL ? 'admin' : 'psiquiatra';
 
     // Verificar si coincide con clave secreta personal del propietario (.env)
@@ -611,31 +898,13 @@ app.post('/api/auth/register', preventDuplicateSubmit({ dedupeWindowMs: 0, cache
                             return res.status(500).send('Error registering user.');
                         }
 
-                        // Iniciar sesión automáticamente hasta el próximo domingo 00:00
-                        const rawToken = crypto.randomBytes(32).toString('hex');
-                        const tokenHash = sha256Hex(rawToken);
-                        const expiresAt = getNextSundayMidnight();
-                        const expiresSql = formatMySqlDateTime(expiresAt);
-
-                        db.query(
-                            'INSERT INTO SesionesAuth (usuario_id, token_hash, expira_en) VALUES (?, ?, ?)',
-                            [result.insertId, tokenHash, expiresSql],
-                            (errSes) => {
-                                if (errSes) {
-                                    console.error(errSes);
-                                    return res.status(500).send('Account created, but an error occurred while signing in.');
-                                }
-                                setSessionCookie(res, rawToken, expiresAt);
-                                res.status(201).json({
-                                    message: 'Account verified and created successfully.',
-                                    user: {
-                                        id: result.insertId,
-                                        nombre,
-                                        email,
-                                        rol: rolAsignado,
-                                        expira_en: expiresAt.toISOString()
-                                    }
-                                });
+                        issueUserSession(
+                            res,
+                            { id: result.insertId, nombre, email, rol: rolAsignado, estado: 'activo' },
+                            {
+                                statusCode: 201,
+                                message: 'Account verified and created successfully.',
+                                errorMessage: 'Account created, but an error occurred while signing in.'
                             }
                         );
                     }
@@ -675,26 +944,30 @@ app.post('/api/auth/register', preventDuplicateSubmit({ dedupeWindowMs: 0, cache
     });
 });
 
-// Inicio de sesión
-app.post('/api/auth/login', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
-    const ip = req.ip || 'unknown';
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
+// Inicio de sesión (con anti-enumeración, timing parity, estado de cuenta y MFA opcional)
+app.post('/api/auth/login', loginIpLimiter.middleware, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), async (req, res) => {
+    const ip = getClientIp(req);
+    const email = normalizeEmail(req.body.email);
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
 
-    if (!checkRateLimit(`login:${ip}:${email}`, 10, 15 * 60 * 1000)) {
+    if (!email || !password) {
+        return res.status(400).send('Enter a valid email and password.');
+    }
+
+    const accountLimitKey = `${ip}:${email}`;
+    const accountQuota = loginAccountLimiter.consume(accountLimitKey);
+    loginAccountLimiter.applyHeaders(res, accountQuota);
+    if (!accountQuota.allowed) {
         return res.status(429).send('Too many failed attempts. Please wait 15 minutes.');
     }
 
-    if (!EMAIL_REGEX.test(email) || !password) {
-        return res.status(400).send('Enter your email and password.');
-    }
-
-    db.query('SELECT id, nombre, email, password_hash, rol FROM Usuarios WHERE email = ? LIMIT 1', [email], async (err, rows) => {
+    db.query('SELECT id, nombre, email, password_hash, rol, estado FROM Usuarios WHERE email = ? LIMIT 1', [email], async (err, rows) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Database query error.');
         }
         if (!rows || rows.length === 0) {
+            await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
             return res.status(401).send('Incorrect email or password.');
         }
 
@@ -704,37 +977,116 @@ app.post('/api/auth/login', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheRep
             return res.status(401).send('Incorrect email or password.');
         }
 
-        resetRateLimit(`login:${ip}:${email}`);
+        if ((user.estado || 'activo') !== 'activo') {
+            return res.status(403).send('Your account is inactive or suspended. Contact the administrator.');
+        }
 
-        // Limpiar sesiones/códigos vencidos y crear nueva sesión válida hasta el próximo domingo 00:00
+        loginAccountLimiter.reset(accountLimitKey);
+
+        // Limpiar sesiones/códigos vencidos
         limpiarRegistrosExpirados();
 
-        const rawToken = crypto.randomBytes(32).toString('hex');
-        const tokenHash = sha256Hex(rawToken);
-        const expiresAt = getNextSundayMidnight();
-        const expiresSql = formatMySqlDateTime(expiresAt);
+        // MFA opcional por correo si ENABLE_LOGIN_MFA=true y SMTP está configurado
+        if (ENABLE_LOGIN_MFA && crearTransporterCorreo()) {
+            const mfaCode = String(crypto.randomInt(100000, 999999));
+            const mfaHash = sha256Hex(mfaCode);
+            const mfaExpires = new Date(Date.now() + 10 * 60 * 1000);
+            const mfaExpiresSql = formatMySqlDateTime(mfaExpires);
+            const mfaToken = signMfaChallenge({
+                userId: user.id,
+                email: user.email,
+                nonce: crypto.randomBytes(12).toString('hex'),
+                exp: mfaExpires.getTime()
+            });
 
-        db.query(
-            'INSERT INTO SesionesAuth (usuario_id, token_hash, expira_en) VALUES (?, ?, ?)',
-            [user.id, tokenHash, expiresSql],
-            (errSes) => {
-                if (errSes) {
-                    console.error(errSes);
-                    return res.status(500).send('Error creating session.');
-                }
-                setSessionCookie(res, rawToken, expiresAt);
-                res.json({
-                    message: 'Signed in successfully.',
-                    user: {
-                        id: user.id,
-                        nombre: user.nombre,
-                        email: user.email,
-                        rol: user.rol,
-                        expira_en: expiresAt.toISOString()
+            return db.query(
+                'INSERT INTO CodigosSeguridad (email, tipo, token_hash, expira_en, usado) VALUES (?, "mfa", ?, ?, 0)',
+                [user.email, mfaHash, mfaExpiresSql],
+                async (errMfa) => {
+                    if (errMfa) {
+                        console.error(errMfa);
+                        return res.status(500).send('Error generating verification challenge.');
                     }
-                });
+                    try {
+                        await enviarCorreo({
+                            to: user.email,
+                            subject: 'Login Verification Code - Personal Daily Hub',
+                            html: `
+                                <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px;">
+                                    <h2 style="color: #1e2430; margin-top: 0;">Two-Step Sign-In Verification</h2>
+                                    <p>Hello <strong>${escapeHtml(user.nombre)}</strong>, enter this 6-digit code to finish signing in (valid for 10 minutes):</p>
+                                    <div style="font-size: 28px; font-weight: bold; letter-spacing: 6px; text-align: center; padding: 14px; background: #f3f4f6; border-radius: 8px; color: #111827;">
+                                        ${mfaCode}
+                                    </div>
+                                </div>
+                            `
+                        });
+                        return res.json({
+                            mfaRequired: true,
+                            email: user.email,
+                            mfaToken,
+                            message: 'Enter the 6-digit verification code sent to your email.'
+                        });
+                    } catch (mailErr) {
+                        console.error('[MFA_MAIL_ERROR]', mailErr.message);
+                        return res.status(500).send('Verification email service is temporarily unavailable.');
+                    }
+                }
+            );
+        }
+
+        issueUserSession(res, user, {
+            statusCode: 200,
+            message: 'Signed in successfully.',
+            errorMessage: 'Error creating session.'
+        });
+    });
+});
+
+// Verificación de segundo factor por correo (MFA opcional al iniciar sesión)
+app.post('/api/auth/verify-login-mfa', mfaVerifyLimiter.middleware, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
+    const mfaToken = typeof req.body.mfaToken === 'string' ? req.body.mfaToken.trim() : '';
+    const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
+
+    const challenge = verifyMfaChallenge(mfaToken);
+    if (!challenge || !/^\d{6}$/.test(code)) {
+        return res.status(400).send('Invalid or expired verification code.');
+    }
+
+    const codeHash = sha256Hex(code);
+    const nowSql = formatMySqlDateTime(new Date());
+    const sqlCode = `
+        SELECT id FROM CodigosSeguridad
+        WHERE email = ? AND tipo = 'mfa' AND token_hash = ? AND usado = 0 AND expira_en > ?
+        ORDER BY id DESC LIMIT 1
+    `;
+
+    db.query(sqlCode, [challenge.email, codeHash, nowSql], (err, rowsCod) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error validating verification code.');
+        }
+        if (!rowsCod || rowsCod.length === 0) {
+            return res.status(400).send('Invalid or expired verification code.');
+        }
+
+        db.query('SELECT id, nombre, email, rol, estado FROM Usuarios WHERE id = ? AND email = ? LIMIT 1', [challenge.userId, challenge.email], (errUsr, userRows) => {
+            if (errUsr || !userRows || userRows.length === 0) {
+                return res.status(401).send('Account could not be verified.');
             }
-        );
+            const user = userRows[0];
+            if ((user.estado || 'activo') !== 'activo') {
+                return res.status(403).send('Your account is inactive or suspended. Contact the administrator.');
+            }
+
+            db.query('UPDATE CodigosSeguridad SET usado = 1 WHERE id = ?', [rowsCod[0].id], () => {
+                issueUserSession(res, user, {
+                    statusCode: 200,
+                    message: 'Signed in successfully.',
+                    errorMessage: 'Error creating session.'
+                });
+            });
+        });
     });
 });
 
@@ -754,25 +1106,22 @@ app.post('/api/auth/logout', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheRe
     });
 });
 
-// Solicitar enlace de recuperación de contraseña por correo
-app.post('/api/auth/forgot-password', preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
-    const ip = req.ip || 'unknown';
-    if (!checkRateLimit(`forgot:${ip}`, 5, 15 * 60 * 1000)) {
-        return res.status(429).send('Too many requests. Please wait 15 minutes.');
-    }
-
-    const email = String(req.body.email || '').trim().toLowerCase();
-    if (!EMAIL_REGEX.test(email)) {
+// Solicitar enlace de recuperación de contraseña por correo (respuesta uniforme anti-enumeración)
+app.post('/api/auth/forgot-password', forgotPasswordLimiter.middleware, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
         return res.status(400).send('Please enter a valid email address.');
     }
 
-    db.query('SELECT id, nombre, email FROM Usuarios WHERE email = ? LIMIT 1', [email], (err, rows) => {
+    const genericSuccessMsg = 'If this email is registered, you will receive a password reset link.';
+
+    db.query('SELECT id, nombre, email, estado FROM Usuarios WHERE email = ? LIMIT 1', [email], (err, rows) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Error processing request.');
         }
-        if (!rows || rows.length === 0) {
-            return res.json({ message: 'If this email is registered, you will receive a password reset link.' });
+        if (!rows || rows.length === 0 || (rows[0].estado || 'activo') !== 'activo') {
+            return res.json({ message: genericSuccessMsg });
         }
 
         const user = rows[0];
@@ -811,10 +1160,10 @@ app.post('/api/auth/forgot-password', preventDuplicateSubmit({ dedupeWindowMs: 1
                             </div>
                         `
                     });
-                    res.json({ message: 'We sent a reset link to your email address.' });
+                    res.json({ message: genericSuccessMsg });
                 } catch (mailErr) {
-                    console.error(mailErr.message);
-                    res.status(500).send(mailErr.message);
+                    console.error('[RECOVERY_MAIL_ERROR]', mailErr.message);
+                    res.status(500).send('Recovery email service is temporarily unavailable.');
                 }
             }
         );
@@ -822,21 +1171,17 @@ app.post('/api/auth/forgot-password', preventDuplicateSubmit({ dedupeWindowMs: 1
 });
 
 // Restablecer contraseña con el token enviado por correo
-app.post('/api/auth/reset-password', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
-    const ip = req.ip || 'unknown';
-    if (!checkRateLimit(`reset:${ip}`, 8, 15 * 60 * 1000)) {
-        return res.status(429).send('Too many attempts. Please wait 15 minutes.');
-    }
+app.post('/api/auth/reset-password', resetPasswordLimiter.middleware, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
+    const email = normalizeEmail(req.body.email);
+    const token = typeof req.body.token === 'string' ? req.body.token.trim() : '';
+    const newPassword = typeof req.body.newPassword === 'string' ? req.body.newPassword : '';
 
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const token = String(req.body.token || '').trim();
-    const newPassword = String(req.body.newPassword || '');
-
-    if (!EMAIL_REGEX.test(email) || !token || token.length < 32) {
+    if (!email || !token || token.length < 32) {
         return res.status(400).send('Invalid recovery link.');
     }
-    if (newPassword.length < 8 || newPassword.length > 128) {
-        return res.status(400).send('New password must be at least 8 characters long.');
+    const passwordError = validatePasswordFormat(newPassword);
+    if (passwordError) {
+        return res.status(400).send(passwordError);
     }
 
     const tokenHash = sha256Hex(token);
@@ -857,58 +1202,68 @@ app.post('/api/auth/reset-password', preventDuplicateSubmit({ dedupeWindowMs: 0,
         }
 
         const codigoId = rows[0].id;
-        try {
-            const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-            db.query('UPDATE Usuarios SET password_hash = ? WHERE email = ?', [passwordHash, email], (errUpd, resultUpd) => {
-                if (errUpd || resultUpd.affectedRows === 0) {
-                    return res.status(500).send('Could not update password.');
-                }
+        db.query('SELECT id, estado FROM Usuarios WHERE email = ? LIMIT 1', [email], async (errUsr, userRows) => {
+            if (errUsr || !userRows || userRows.length === 0) {
+                return res.status(400).send('The recovery link is invalid or has expired.');
+            }
+            if ((userRows[0].estado || 'activo') !== 'activo') {
+                return res.status(403).send('Your account is inactive or suspended. Contact the administrator.');
+            }
 
-                db.query('UPDATE CodigosSeguridad SET usado = 1 WHERE id = ?', [codigoId], () => {});
-                db.query(
-                    'DELETE FROM SesionesAuth WHERE usuario_id = (SELECT id FROM Usuarios WHERE email = ? LIMIT 1)',
-                    [email],
-                    () => {}
-                );
+            try {
+                const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+                db.query('UPDATE Usuarios SET password_hash = ? WHERE email = ?', [passwordHash, email], (errUpd, resultUpd) => {
+                    if (errUpd || resultUpd.affectedRows === 0) {
+                        return res.status(500).send('Could not update password.');
+                    }
 
-                res.json({ message: 'Password updated successfully. You can now sign in.' });
-            });
-        } catch (e) {
-            console.error(e);
-            res.status(500).send('Error hashing the new password.');
-        }
+                    db.query('UPDATE CodigosSeguridad SET usado = 1 WHERE id = ?', [codigoId], () => {});
+                    db.query(
+                        'DELETE FROM SesionesAuth WHERE usuario_id = (SELECT id FROM Usuarios WHERE email = ? LIMIT 1)',
+                        [email],
+                        () => {}
+                    );
+
+                    res.json({ message: 'Password updated successfully. You can now sign in.' });
+                });
+            } catch (e) {
+                console.error(e);
+                res.status(500).send('Error hashing the new password.');
+            }
+        });
     });
 });
 
-// Gestión de cuenta del Psiquiatra desde la cuenta de Flavio (admin)
-app.get('/api/auth/medicos', requireAdmin, (req, res) => {
-    db.query('SELECT id, nombre, email, fecha_registro FROM Usuarios WHERE rol = "psiquiatra" ORDER BY id DESC', (err, rows) => {
+// Gestión de cuenta del Psiquiatra desde la cuenta de administrador
+app.get('/api/auth/medicos', apiReadLimiter.middleware, requireAdmin, (req, res) => {
+    db.query("SELECT id, nombre, email, COALESCE(estado, 'activo') AS estado, fecha_registro FROM Usuarios WHERE rol = \"psiquiatra\" ORDER BY id DESC", (err, rows) => {
         if (err) return res.status(500).send('Error loading psychiatrist accounts.');
         res.json(rows);
     });
 });
 
-app.post('/api/auth/create-medico', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
-    const nombre = String(req.body.nombre || '').trim();
-    const email = String(req.body.email || '').trim().toLowerCase();
-    const password = String(req.body.password || '');
+app.post('/api/auth/create-medico', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
+    const nombre = typeof req.body.nombre === 'string' ? req.body.nombre.trim() : '';
+    const email = normalizeEmail(req.body.email);
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
 
     if (!nombre || nombre.length < 2 || nombre.length > 80) {
         return res.status(400).send('Doctor name must be between 2 and 80 characters.');
     }
-    if (!EMAIL_REGEX.test(email) || email === ADMIN_EMAIL) {
+    if (!email || email === ADMIN_EMAIL) {
         return res.status(400).send('Enter a valid psychiatrist email (different from owner email).');
     }
-    if (password.length < 8 || password.length > 128) {
-        return res.status(400).send('Password must be at least 8 characters long.');
+    const passwordError = validatePasswordFormat(password);
+    if (passwordError) {
+        return res.status(400).send(passwordError);
     }
 
     try {
         const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
         const sql = `
-            INSERT INTO Usuarios (nombre, email, password_hash, rol)
-            VALUES (?, ?, ?, 'psiquiatra')
-            ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), password_hash = VALUES(password_hash), rol = 'psiquiatra'
+            INSERT INTO Usuarios (nombre, email, password_hash, rol, estado)
+            VALUES (?, ?, ?, 'psiquiatra', 'activo')
+            ON DUPLICATE KEY UPDATE nombre = VALUES(nombre), password_hash = VALUES(password_hash), rol = 'psiquiatra', estado = 'activo'
         `;
         db.query(sql, [nombre, email, passwordHash], (err) => {
             if (err) {
@@ -922,7 +1277,27 @@ app.post('/api/auth/create-medico', requireAdmin, preventDuplicateSubmit({ dedup
     }
 });
 
-app.delete('/api/auth/medicos/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
+app.patch('/api/auth/medicos/:id/estado', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).send('Invalid ID.');
+
+    const estado = typeof req.body.estado === 'string' ? req.body.estado.trim().toLowerCase() : '';
+    if (!ESTADOS_CUENTA_VALIDOS.has(estado)) {
+        return res.status(400).send('Invalid account status. Allowed: activo, inactivo, suspendido.');
+    }
+
+    db.query('UPDATE Usuarios SET estado = ? WHERE id = ? AND rol = "psiquiatra"', [estado, id], (err, result) => {
+        if (err) return res.status(500).send('Error updating account status.');
+        if (result.affectedRows === 0) return res.status(404).send('Account not found.');
+
+        if (estado !== 'activo') {
+            db.query('DELETE FROM SesionesAuth WHERE usuario_id = ?', [id], () => {});
+        }
+        res.json({ message: 'Psychiatrist account status updated.', id, estado });
+    });
+});
+
+app.delete('/api/auth/medicos/:id', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return res.status(400).send('Invalid ID.');
 
@@ -942,7 +1317,7 @@ const FECHA_ISO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
 // Guardar el estado de ánimo (SOLO ADMIN)
-app.post('/api/insert-mood', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), (req, res) => {
+app.post('/api/insert-mood', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), (req, res) => {
     const { fecha, momento_dia, estado_animo, color_hex } = req.body;
 
     if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
@@ -994,7 +1369,7 @@ app.post('/api/insert-mood', requireAdmin, preventDuplicateSubmit({ dedupeWindow
 });
 
 // Dar de alta un nuevo registro de sueño (SOLO ADMIN)
-app.post('/api/insert-sleep', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
+app.post('/api/insert-sleep', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
     const { fecha, horas, calidad } = req.body;
     const horasNum = Number(horas);
 
@@ -1019,7 +1394,7 @@ app.post('/api/insert-sleep', requireAdmin, preventDuplicateSubmit({ dedupeWindo
 });
 
 // Consultar estados de ánimo (PERMITIDO A ADMIN Y PSIQUIATRA)
-app.get('/api/get-moods', requireAuth, (req, res) => {
+app.get('/api/get-moods', apiReadLimiter.middleware, requireAuth, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
         return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
@@ -1037,7 +1412,7 @@ app.get('/api/get-moods', requireAuth, (req, res) => {
 });
 
 // Consultar horas de sueño (PERMITIDO A ADMIN Y PSIQUIATRA)
-app.get('/api/get-sleep', requireAuth, (req, res) => {
+app.get('/api/get-sleep', apiReadLimiter.middleware, requireAuth, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
         return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
@@ -1098,6 +1473,9 @@ function createEncryptedPcQueue({ maxSize = MAX_COLA_TEXTOS, okMessage, emptyMes
             if (typeof texto !== 'string' || !texto.trim()) {
                 return res.status(400).send(emptyMessage);
             }
+            if (texto.length > 48000) {
+                return res.status(400).send('Encrypted payload exceeds maximum allowed length.');
+            }
             if (queue.includes(texto)) {
                 return res.status(409).send('This encrypted entry is already queued for your PC.');
             }
@@ -1130,16 +1508,16 @@ const englishQueue = createEncryptedPcQueue({
 });
 
 // Enviar nota de Journal cifrada a la cola (SOLO ADMIN)
-app.post('/api/send-to-pc', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), journalQueue.enqueue);
+app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), journalQueue.enqueue);
 
 // Ruta para que tu PC consulte notas de Journal pendientes (el contenido viaja cifrado E2EE)
-app.get('/api/pull-text', journalQueue.pull);
+app.get('/api/pull-text', pcPullLimiter.middleware, journalQueue.pull);
 
 // Enviar entrada cifrada de English Learning Notebook a la cola (SOLO ADMIN, sin guardar en MySQL)
-app.post('/api/send-english', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), englishQueue.enqueue);
+app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), englishQueue.enqueue);
 
 // Ruta para que tu PC consulte entradas de inglés pendientes (el contenido viaja cifrado E2EE)
-app.get('/api/pull-english', englishQueue.pull);
+app.get('/api/pull-english', pcPullLimiter.middleware, englishQueue.pull);
 
 // ==========================================
 // RUTAS PARA LA AGENDA PERSONAL SEMANAL (SOLO ADMIN)
@@ -1170,7 +1548,7 @@ function parseAgendaId(rawId) {
     return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-app.get('/api/get-agenda', requireAdmin, (req, res) => {
+app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !/^\d{4}-\d{2}-\d{2}$/.test(begin) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
         return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
@@ -1193,7 +1571,7 @@ app.get('/api/get-agenda', requireAdmin, (req, res) => {
     });
 });
 
-app.post('/api/insert-agenda', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
+app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
     const errorValidacion = validarDatosAgenda(req.body);
     if (errorValidacion) {
         return res.status(400).send(errorValidacion);
@@ -1223,7 +1601,7 @@ app.post('/api/insert-agenda', requireAdmin, preventDuplicateSubmit({ dedupeWind
     });
 });
 
-app.put('/api/update-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
+app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
@@ -1252,7 +1630,7 @@ app.put('/api/update-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeW
     });
 });
 
-app.patch('/api/toggle-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
+app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
@@ -1277,7 +1655,7 @@ app.patch('/api/toggle-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedup
     });
 });
 
-app.delete('/api/delete-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
+app.delete('/api/delete-agenda/:id', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
@@ -1292,6 +1670,17 @@ app.delete('/api/delete-agenda/:id', requireAdmin, preventDuplicateSubmit({ dedu
         }
         res.json({ message: 'Activity deleted successfully.', id });
     });
+});
+
+// Manejo controlado de rutas inexistentes y errores inesperados en API (sin filtrar stack traces)
+app.use('/api', (req, res) => {
+    res.status(404).send('API endpoint not found.');
+});
+
+app.use((err, req, res, _next) => {
+    console.error(`[API_ERROR] ${req.method} ${req.originalUrl}:`, err && err.message ? err.message : err);
+    if (res.headersSent) return;
+    res.status(500).send('An internal server error occurred.');
 });
 
 const PORT = process.env.PORT || 3000;
