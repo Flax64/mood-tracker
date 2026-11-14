@@ -138,6 +138,7 @@ jobs:
               printf '%s' "$RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d > "$HOME/.config/rclone/rclone.conf"
               chmod 600 "$HOME/.config/rclone/rclone.conf"
             fi
+            unset RCLONE_CONF_B64
 
             chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh
 

@@ -30,10 +30,13 @@ load_env_file() {
         local val="${line#*=}"
         key="${key//[[:space:]]/}"
         [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        case "$key" in
+            PATH|HOME|IFS|PWD|OLDPWD|SHELLOPTS) continue ;;
+        esac
         if [[ "$val" == \"*\" && "$val" == *\" ]] || [[ "$val" == \'*\' && "$val" == *\' ]]; then
             val="${val:1:${#val}-2}"
         fi
-        export "$key=$val"
+        printf -v "$key" '%s' "$val"
     done < "$env_file"
 }
 
@@ -50,14 +53,15 @@ else
     exit 1
 fi
 
-# 2. Variables de configuración (personalizables desde .env o .backup.meta sin secretos)
+# 2. Variables de configuración (evitando exportar RCLONE_* porque rclone los interpreta como flags CLI)
 CONTENEDOR="${DB_CONTAINER:-mood_db}"
 RUTA_LOCAL="${BACKUP_LOCAL_DIR:-$HOME/projects/respaldos}"
 ARCHIVO="$RUTA_LOCAL/respaldo_mood_tracker.sql.gz"
 ARCHIVO_TMP="$ARCHIVO.tmp.$$"
-RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive}"
-RCLONE_BACKUP_DIR="${RCLONE_BACKUP_DIR:-RespaldosApp}"
+REMOTE_NAME="${RCLONE_REMOTE:-gdrive}"
+REMOTE_DIR="${RCLONE_BACKUP_DIR:-RespaldosApp}"
 RCLONE_CONF_PATH="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
+unset RCLONE_BACKUP_DIR RCLONE_REMOTE RCLONE_CONF_B64
 
 trap 'rm -f "$ARCHIVO_TMP"' EXIT
 mkdir -p "$RUTA_LOCAL"
@@ -105,6 +109,6 @@ fi
 mv "$ARCHIVO_TMP" "$ARCHIVO"
 
 # 4. Subir a Google Drive con rclone
-"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copy "$ARCHIVO" "${RCLONE_REMOTE}:${RCLONE_BACKUP_DIR}"
+"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copy "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}"
 MODO_TXT=$([ "$SEALED_MODE" -eq 1 ] && echo "sellado" || echo "env")
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completado (modo=$MODO_TXT) y subido a ${RCLONE_REMOTE}:${RCLONE_BACKUP_DIR}/respaldo_mood_tracker.sql.gz"
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completado (modo=$MODO_TXT) y subido a ${REMOTE_NAME}:${REMOTE_DIR}/respaldo_mood_tracker.sql.gz"
