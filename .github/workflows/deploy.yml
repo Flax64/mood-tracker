@@ -31,6 +31,7 @@ jobs:
           SECRET_SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SECRET_APP_BASE_URL: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
           SEAL_ENV_AFTER_DEPLOY: ${{ vars.SEAL_ENV_AFTER_DEPLOY || secrets.SEAL_ENV_AFTER_DEPLOY }}
+          BACKUP_CRON_SCHEDULE: ${{ vars.BACKUP_CRON_SCHEDULE || secrets.BACKUP_CRON_SCHEDULE }}
           SECRET_RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE }}
           SECRET_RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR }}
           RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
@@ -38,21 +39,25 @@ jobs:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GITHUB_REPO,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
+          envs: GITHUB_REPO,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64
           script: |
             set -euo pipefail
 
-            # 1. Instalar dependencias base si es una instancia nueva
-            if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1; then
+            # 1. Instalar dependencias base (incluyendo cron y openssl) si es una instancia nueva
+            if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
               if command -v apt-get >/dev/null 2>&1; then
                 sudo apt-get update -y
-                sudo apt-get install -y git curl ca-certificates rclone unzip
+                sudo apt-get install -y git curl ca-certificates rclone unzip cron openssl
               elif command -v dnf >/dev/null 2>&1; then
-                sudo dnf install -y git curl unzip
+                sudo dnf install -y git curl unzip cronie openssl
                 if ! command -v rclone >/dev/null 2>&1; then
                   curl -fsSL https://rclone.org/install.sh | sudo bash
                 fi
               fi
+            fi
+
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
             fi
 
             if ! command -v docker >/dev/null 2>&1; then
@@ -142,13 +147,38 @@ jobs:
             # 6. Si es una instancia nueva / BD vacía, restaurar automáticamente el último backup de Google Drive
             ./scripts/restore.sh --if-empty
 
-            # 7. Registrar respaldo automático diario a Google Drive (3:00 AM)
-            mkdir -p "$HOME/projects/respaldos"
-            CRON_JOB="0 3 * * * $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
-            (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" || true; echo "$CRON_JOB") | crontab -
+            # 7. Limpiar imágenes huérfanas y caché viejo de Docker para no llenar el disco de la t3.micro
+            $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
+            $DOCKER_CMD builder prune -f --filter "until=24h" >/dev/null 2>&1 || true
 
-            # 8. Opcional: eliminar .env plano tras desplegar si SEAL_ENV_AFTER_DEPLOY=true
-            if [ "${SEAL_ENV_AFTER_DEPLOY:-false}" = "true" ]; then
-              shred -u .env 2>/dev/null || rm -f .env
-              echo "Archivo .env en texto plano eliminado tras el despliegue (SEAL_ENV_AFTER_DEPLOY=true)."
+            # 8. Ajustar zona horaria del host y registrar respaldo automático diario (3:30 AM hora TZ)
+            if command -v timedatectl >/dev/null 2>&1 && [ -n "${FINAL_TZ:-}" ]; then
+              CURRENT_SYS_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+              if [ "$CURRENT_SYS_TZ" != "$FINAL_TZ" ]; then
+                if sudo timedatectl set-timezone "$FINAL_TZ" 2>/dev/null; then
+                  if command -v systemctl >/dev/null 2>&1; then
+                    sudo systemctl restart cron 2>/dev/null || sudo systemctl restart crond 2>/dev/null || true
+                  fi
+                fi
+              fi
+            fi
+
+            mkdir -p "$HOME/projects/respaldos"
+            {
+              printf 'DB_CONTAINER=%s\n' 'mood_db'
+              printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
+              printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
+              printf 'BACKUP_LOCAL_DIR=%s\n' "$HOME/projects/respaldos"
+            } > "$HOME/projects/respaldos/.backup.meta"
+            chmod 600 "$HOME/projects/respaldos/.backup.meta"
+
+            FINAL_CRON_SCHEDULE="${BACKUP_CRON_SCHEDULE:-30 3 * * *}"
+            CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
+            (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" || true; printf '%s\n' "$CRON_JOB") | crontab -
+
+            # 9. Sellar .env plano si SEAL_ENV_AFTER_DEPLOY=true o si ya existe bóveda .env.enc (salvo false explícito)
+            SHOULD_SEAL="${SEAL_ENV_AFTER_DEPLOY:-}"
+            if [ "$SHOULD_SEAL" = "true" ] || { [ -z "$SHOULD_SEAL" ] && [ -f ".env.enc" ]; }; then
+              shred -u -z -n 1 .env 2>/dev/null || rm -f .env
+              echo "Archivo .env en texto plano eliminado tras el despliegue."
             fi

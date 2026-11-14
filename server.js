@@ -25,16 +25,19 @@ app.use((req, res, next) => {
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '64kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '10m' }));
 
-// Configuración de MySQL
+// Configuración de MySQL optimizada para poca RAM (t3.micro)
 const db = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
     waitForConnections: true,
-    connectionLimit: 10
+    connectionLimit: 4,
+    maxIdle: 2,
+    idleTimeout: 60000,
+    enableKeepAlive: false
 });
 
 function inicializarTablasSeguridad() {
@@ -157,10 +160,30 @@ function clearSessionCookie(res) {
     );
 }
 
-// Rate limiter en memoria contra fuerza bruta
+// Rate limiter en memoria con limpieza automática para evitar fugas de RAM
 const rateLimitStore = new Map();
+const MAX_RATE_LIMIT_ENTRIES = 300;
+
+function pruneRateLimitStore(now = Date.now()) {
+    for (const [k, rec] of rateLimitStore.entries()) {
+        if (now > rec.resetAt) {
+            rateLimitStore.delete(k);
+        }
+    }
+}
+
+setInterval(() => pruneRateLimitStore(), 15 * 60 * 1000).unref();
+
 function checkRateLimit(key, maxAttempts = 10, windowMs = 15 * 60 * 1000) {
     const now = Date.now();
+    if (rateLimitStore.size > MAX_RATE_LIMIT_ENTRIES) {
+        pruneRateLimitStore(now);
+        if (rateLimitStore.size > MAX_RATE_LIMIT_ENTRIES) {
+            const oldestKey = rateLimitStore.keys().next().value;
+            if (oldestKey !== undefined) rateLimitStore.delete(oldestKey);
+        }
+    }
+
     const record = rateLimitStore.get(key);
     if (!record || now > record.resetAt) {
         rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
@@ -176,6 +199,15 @@ function checkRateLimit(key, maxAttempts = 10, windowMs = 15 * 60 * 1000) {
 function resetRateLimit(key) {
     rateLimitStore.delete(key);
 }
+
+// Limpieza periódica de sesiones y códigos vencidos para ahorrar espacio en MySQL
+function limpiarRegistrosExpirados() {
+    const nowSql = formatMySqlDateTime(new Date());
+    db.query('DELETE FROM SesionesAuth WHERE expira_en <= ?', [nowSql], () => {});
+    db.query('DELETE FROM CodigosSeguridad WHERE usado = 1 OR expira_en <= ?', [nowSql], () => {});
+}
+
+setInterval(limpiarRegistrosExpirados, 6 * 60 * 60 * 1000).unref();
 
 // Transporte de correo (Gmail SMTP)
 function escapeHtml(str) {
@@ -505,9 +537,8 @@ app.post('/api/auth/login', (req, res) => {
 
         resetRateLimit(`login:${ip}:${email}`);
 
-        // Limpiar sesiones vencidas y crear nueva sesión válida hasta el próximo domingo 00:00
-        const nowSql = formatMySqlDateTime(new Date());
-        db.query('DELETE FROM SesionesAuth WHERE expira_en <= ?', [nowSql], () => {});
+        // Limpiar sesiones/códigos vencidos y crear nueva sesión válida hasta el próximo domingo 00:00
+        limpiarRegistrosExpirados();
 
         const rawToken = crypto.randomBytes(32).toString('hex');
         const tokenHash = sha256Hex(rawToken);
@@ -821,6 +852,9 @@ app.post('/api/insert-sleep', requireAdmin, (req, res) => {
 // Consultar estados de ánimo (PERMITIDO A ADMIN Y PSIQUIATRA)
 app.get('/api/get-moods', requireAuth, (req, res) => {
     const { begin, end } = req.query;
+    if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
+        return res.status(400).send('Parámetros begin y end requeridos (YYYY-MM-DD).');
+    }
 
     const sql = 'SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
 
@@ -836,6 +870,9 @@ app.get('/api/get-moods', requireAuth, (req, res) => {
 // Consultar horas de sueño (PERMITIDO A ADMIN Y PSIQUIATRA)
 app.get('/api/get-sleep', requireAuth, (req, res) => {
     const { begin, end } = req.query;
+    if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
+        return res.status(400).send('Parámetros begin y end requeridos (YYYY-MM-DD).');
+    }
 
     const sql = 'SELECT fecha, horas, calidad FROM RegistrosSleep WHERE fecha BETWEEN ? AND ?';
 
@@ -880,13 +917,17 @@ function puedeModificar(fecha, momento_dia) {
     }
 }
 
-// Memoria temporal para guardar los textos cifrados hacia Word PC
+// Memoria temporal acotada para guardar los textos cifrados hacia Word PC
+const MAX_COLA_TEXTOS = 100;
 let colaDeTextos = [];
 
 // Enviar nota cifrada a la cola (SOLO ADMIN)
 app.post('/api/send-to-pc', requireAdmin, (req, res) => {
     const { texto } = req.body;
-    if (texto) {
+    if (typeof texto === 'string' && texto.trim()) {
+        if (colaDeTextos.length >= MAX_COLA_TEXTOS) {
+            return res.status(429).send('La cola de sincronización está llena; espera a que tu PC la descargue.');
+        }
         colaDeTextos.push(texto);
         res.send('Texto encolado esperando a tu PC');
     } else {
