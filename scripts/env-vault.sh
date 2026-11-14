@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+if [ -z "${HOME:-}" ]; then
+    HOME="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6 || echo /tmp)"
+    export HOME
+fi
+
 # Bóveda de cifrado AES-256-CBC (PBKDF2 600,000 iteraciones) para el archivo .env en el servidor.
 # Permite cifrar .env -> .env.enc con una contraseña maestra personal y operar Docker/backups desde RAM (/dev/shm).
 
@@ -8,6 +14,41 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$PROJECT_DIR/.env"
 ENC_FILE="$PROJECT_DIR/.env.enc"
+BACKUP_META_FILE="${BACKUP_META_FILE:-$HOME/projects/respaldos/.backup.meta}"
+
+write_backup_meta() {
+    [ -f "$ENV_FILE" ] || return 0
+    local db_container="mood_db"
+    local rclone_remote="gdrive"
+    local rclone_dir="RespaldosApp"
+    local backup_dir="$HOME/projects/respaldos"
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
+        local k="${line%%=*}"
+        local v="${line#*=}"
+        k="${k//[[:space:]]/}"
+        if [[ "$v" == \"*\" && "$v" == *\" ]] || [[ "$v" == \'*\' && "$v" == *\' ]]; then
+            v="${v:1:${#v}-2}"
+        fi
+        case "$k" in
+            DB_CONTAINER) [ -n "$v" ] && db_container="$v" ;;
+            RCLONE_REMOTE) [ -n "$v" ] && rclone_remote="$v" ;;
+            RCLONE_BACKUP_DIR) [ -n "$v" ] && rclone_dir="$v" ;;
+            BACKUP_LOCAL_DIR) [ -n "$v" ] && backup_dir="$v" ;;
+        esac
+    done < "$ENV_FILE"
+
+    mkdir -p "$(dirname "$BACKUP_META_FILE")"
+    {
+        printf 'DB_CONTAINER=%s\n' "$db_container"
+        printf 'RCLONE_REMOTE=%s\n' "$rclone_remote"
+        printf 'RCLONE_BACKUP_DIR=%s\n' "$rclone_dir"
+        printf 'BACKUP_LOCAL_DIR=%s\n' "$backup_dir"
+    } > "$BACKUP_META_FILE"
+    chmod 600 "$BACKUP_META_FILE"
+}
 
 if ! command -v openssl >/dev/null 2>&1; then
     echo "Error: openssl no está instalado. Instálalo con: sudo apt-get install -y openssl" >&2
@@ -120,6 +161,7 @@ cmd_encrypt() {
         exit 1
     fi
 
+    write_backup_meta
     chmod 600 "$_VAULT_TMP_ENC"
     mv "$_VAULT_TMP_ENC" "$ENC_FILE"
     _VAULT_TMP_ENC=""
@@ -141,6 +183,7 @@ cmd_lock() {
         exit 1
     fi
     if [ -f "$ENV_FILE" ]; then
+        write_backup_meta
         secure_wipe "$ENV_FILE"
         echo "Archivo plano .env destruido; solo permanece .env.enc."
     else
@@ -189,6 +232,18 @@ cmd_status() {
         echo "  [SELLADO]  .env.enc cifrado presente en disco."
     else
         echo "  [PENDIENTE] .env.enc aún no ha sido creado."
+    fi
+    if [ -f "$BACKUP_META_FILE" ]; then
+        echo "  [META OK]  Metadatos sin secretos para cron en $BACKUP_META_FILE."
+    fi
+    if command -v crontab >/dev/null 2>&1; then
+        local cron_line=""
+        cron_line="$(crontab -l 2>/dev/null | grep "scripts/backup.sh" || true)"
+        if [ -n "$cron_line" ]; then
+            echo "  [CRON OK]  $cron_line"
+        else
+            echo "  [SIN CRON] No se encontró tarea automática de backup.sh en crontab."
+        fi
     fi
 }
 
