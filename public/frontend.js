@@ -4533,27 +4533,68 @@ function initSettingsHandlers() {
         });
     }
 
+    async function copyTextToClipboard(text, sourceInput = null) {
+        if (window.isSecureContext && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (_) {
+                // Fall back to execCommand below
+            }
+        }
+
+        // Works reliably on HTTP mobile browsers (e.g. http://EC2-IP:3000)
+        const helper = document.createElement('textarea');
+        helper.value = text;
+        helper.setAttribute('readonly', '');
+        helper.style.position = 'fixed';
+        helper.style.top = '0';
+        helper.style.left = '-9999px';
+        helper.style.fontSize = '16px';
+        helper.style.opacity = '0';
+        document.body.appendChild(helper);
+
+        let copied = false;
+        try {
+            helper.focus({ preventScroll: true });
+            helper.select();
+            helper.setSelectionRange(0, text.length);
+            copied = Boolean(document.execCommand && document.execCommand('copy'));
+        } catch (_) {
+            copied = false;
+        } finally {
+            document.body.removeChild(helper);
+        }
+
+        if (!copied && sourceInput) {
+            sourceInput.focus();
+            sourceInput.select();
+            if (typeof sourceInput.setSelectionRange === 'function') {
+                sourceInput.setSelectionRange(0, text.length);
+            }
+        }
+        return copied;
+    }
+
     if (btnCopyTopic) {
-        btnCopyTopic.addEventListener('click', () => {
+        btnCopyTopic.addEventListener('click', async () => {
             const topicInput = document.getElementById('setNtfyTopic');
             const topic = String(topicInput?.value || '').trim();
             if (!topic) {
                 setSettingsBanner('err', 'Enter or generate a topic first before copying.');
+                showToast('err', 'Enter or generate a topic first.');
                 return;
             }
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(topic).then(() => {
-                    const prev = btnCopyTopic.textContent;
-                    btnCopyTopic.textContent = 'Copied!';
-                    showToast('ok', 'Private ntfy topic copied to clipboard.');
-                    setTimeout(() => { btnCopyTopic.textContent = prev; }, 1400);
-                }).catch(() => {
-                    if (topicInput) topicInput.select();
-                    setSettingsBanner('info', `Copy your topic manually from the field above: ${topic}`);
-                });
+            const copied = await copyTextToClipboard(topic, topicInput);
+            if (copied) {
+                const prev = btnCopyTopic.textContent;
+                btnCopyTopic.textContent = 'Copied!';
+                setSettingsBanner('ok', `Copied "${topic}"! Now paste it into the ntfy app on your phone.`);
+                showToast('ok', 'Private ntfy topic copied to clipboard.');
+                setTimeout(() => { btnCopyTopic.textContent = prev; }, 1600);
             } else {
-                if (topicInput) topicInput.select();
-                setSettingsBanner('info', `Copy your topic manually from the field above: ${topic}`);
+                setSettingsBanner('info', `Tap Copy in your keyboard bar to copy: ${topic}`);
+                showToast('info', 'Select "Copy" on the highlighted topic field.');
             }
         });
     }
@@ -4575,7 +4616,9 @@ function initSettingsHandlers() {
         btnTestPush.addEventListener('click', () => {
             const payload = collectSettingsFormPayload();
             if (!payload.phoneNotificationsEnabled || !payload.ntfyTopic) {
-                setSettingsBanner('err', 'Enable phone notifications and set a private ntfy topic (8+ chars) first.');
+                const msg = 'Enable phone notifications and set a private ntfy topic (8+ chars) first.';
+                setSettingsBanner('err', msg);
+                showToast('err', msg);
                 return;
             }
             runWithButtonLock(btnTestPush, async () => {
@@ -4602,7 +4645,9 @@ function initSettingsHandlers() {
                     setSettingsBanner('ok', resData.message || 'Test push notification sent to your phone!');
                     showToast('ok', 'Test notification sent to your phone!');
                 } catch (err) {
-                    setSettingsBanner('err', 'Failed to send test push: ' + err.message);
+                    const errMsg = 'Failed to send test push: ' + err.message;
+                    setSettingsBanner('err', errMsg);
+                    showToast('err', errMsg);
                 }
             }, { loadingText: 'Sending...' });
         });

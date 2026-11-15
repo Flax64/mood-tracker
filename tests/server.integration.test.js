@@ -1420,6 +1420,51 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 reqPath: '/api/reminders/action?token=forged-token-123'
             });
             assert.strictEqual(badActionToken.status, 401);
+
+            // 6. Envío push de prueba vía ntfy JSON API (evita error ByteString en headers y genera click/actions desde publicBaseUrl)
+            const originalFetch = globalThis.fetch;
+            let capturedPush = null;
+            globalThis.fetch = async (url, options) => {
+                capturedPush = { url, options };
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () => '{"id":"test123"}'
+                };
+            };
+            try {
+                const testPushRes = await request({
+                    port,
+                    method: 'POST',
+                    reqPath: '/api/settings/test-notification',
+                    headers: { Cookie: adminCookie },
+                    body: {
+                        ntfyServerUrl: 'https://ntfy.sh',
+                        ntfyTopic: 'hub_flavio_test_99',
+                        ntfyPriority: 4,
+                        publicBaseUrl: 'http://203.0.113.10:3000'
+                    }
+                });
+                assert.strictEqual(testPushRes.status, 200);
+                assert.ok(capturedPush, 'Debe invocar fetch hacia ntfy');
+                assert.strictEqual(capturedPush.url, 'https://ntfy.sh/');
+                assert.strictEqual(capturedPush.options.method, 'POST');
+                for (const [hdrName, hdrVal] of Object.entries(capturedPush.options.headers || {})) {
+                    const strVal = String(hdrVal);
+                    for (let i = 0; i < strVal.length; i++) {
+                        assert.ok(strVal.charCodeAt(i) <= 255, `Header ${hdrName} debe ser ByteString ASCII/Latin1`);
+                    }
+                }
+                const pushBody = JSON.parse(capturedPush.options.body);
+                assert.strictEqual(pushBody.topic, 'hub_flavio_test_99');
+                assert.strictEqual(pushBody.title, 'Personal Daily Hub - Phone Connected');
+                assert.strictEqual(pushBody.priority, 4);
+                assert.strictEqual(pushBody.click, 'http://203.0.113.10:3000/#settings');
+                assert.ok(Array.isArray(pushBody.actions) && pushBody.actions.length === 1);
+                assert.strictEqual(pushBody.actions[0].url, 'http://203.0.113.10:3000/#settings');
+            } finally {
+                globalThis.fetch = originalFetch;
+            }
         } finally {
             sleepInserts.push(...backupSleeps);
         }
