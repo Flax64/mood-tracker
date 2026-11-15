@@ -1615,14 +1615,14 @@ select,
 
 .agenda-week-board {
     display: grid;
-    grid-template-columns: 100px repeat(var(--agenda-cols, 7), minmax(122px, 1fr));
-    gap: 6px;
-    min-width: 960px;
+    grid-template-columns: 92px repeat(var(--agenda-cols, 7), minmax(112px, 1fr));
+    gap: 5px;
+    min-width: 890px;
 }
 
 .agenda-week-board.cols-5 {
-    grid-template-columns: 112px repeat(var(--agenda-cols, 5), minmax(134px, 1fr));
-    min-width: 710px;
+    grid-template-columns: 108px repeat(var(--agenda-cols, 5), minmax(134px, 1fr));
+    min-width: 680px;
 }
 
 .agenda-corner-cell {
@@ -3268,6 +3268,11 @@ select,
     background-position: right 6px center;
     background-size: 10px 10px;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+}
+
+.agenda-week-board .jira-status-select {
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .jira-status-select.status-todo {
@@ -6005,5 +6010,232 @@ body {
         padding: 12px;
     }
 }
+
+/* Integrated Bilingual Translator (EN->ES & KO->EN + Audio-free 0-RAM Instant Mode) */
+.lang-translator-panel {
+    margin: 14px 0 16px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(59, 130, 246, 0.05));
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lang-translator-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.lang-translator-dirs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.lang-dir-pill {
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-surface, #ffffff);
+    color: var(--text-main, #0f172a);
+    border-radius: 999px;
+    padding: 6px 11px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.lang-dir-pill.active {
+    background: linear-gradient(135deg, #059669, #0d9488);
+    color: #ffffff;
+    border-color: transparent;
+}
+
+.lang-translator-bar {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+.lang-translator-bar textarea {
+    flex: 1 1 280px;
+    min-width: 0;
+}
+
+.lang-translator-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 170px;
+}
+
+.lang-translator-result {
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-surface, #ffffff);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.lang-translator-result-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 10px;
+}
+
+.lang-translator-card {
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(148, 163, 184, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.lang-translator-main-value {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--text-main);
+    word-break: break-word;
+}
+
+.lang-translator-rom {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #0d9488;
+}
+
+.lang-translator-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Music Album Creation, Direct Add-Song Actions & Edit Highlight */
+.music-head-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.btn-mini-add {
+    background: rgba(16, 185, 129, 0.14);
+    color: #047857;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-mini-add:hover {
+    background: rgba(16, 185, 129, 0.24);
+}
+
+.music-empty-album-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border: 1px dashed var(--border-color, #cbd5e1);
+    border-radius: 10px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.music-panel-card.is-editing-song {
+    border: 2px solid #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
+.music-rep-album-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+:root[data-theme="dark"] .lang-translator-panel {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.1));
+    border-color: rgba(52, 211, 153, 0.32);
+}
+
+:root[data-theme="dark"] .lang-dir-pill,
+:root[data-theme="dark"] .lang-translator-result {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .lang-translator-rom {
+    color: #34d399;
+}
+
+:root[data-theme="dark"] .btn-mini-add {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border-color: rgba(52, 211, 153, 0.38);
+}
+
+@media (max-width: 640px) {
+    .lang-translator-panel {
+        padding: 12px;
+    }
+
+    .lang-dir-pill {
+        flex: 1 1 calc(50% - 6px);
+        text-align: center;
+        font-size: 0.75rem;
+        padding: 7px 8px;
+    }
+
+    .lang-translator-actions {
+        width: 100%;
+    }
+
+    .lang-translator-actions select,
+    .lang-translator-actions button {
+        width: 100%;
+    }
+
+    .music-artist-header,
+    .music-album-header,
+    .music-panel-head,
+    .music-song-row {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .music-song-actions {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .music-song-actions button,
+    .music-song-actions a {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+}
+
 
 

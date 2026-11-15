@@ -19,8 +19,11 @@ const {
     detectScriptKind,
     sanitizeLanguageMemory,
     mergeLanguageMemory,
+    normalizeTranslationDirection,
     analyzeTextOffline,
-    analyzeWithGemini
+    analyzeWithGemini,
+    translateOffline,
+    translateWithGemini
 } = require('./lib/language-studio');
 
 const transportManager = createTransportManager();
@@ -5869,6 +5872,95 @@ app.patch('/api/english/music/albums/:id', apiWriteLimiter.middleware, requireAd
     }
 });
 
+app.post('/api/english/music/albums', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 6000 }), async (req, res) => {
+    const cleanTitle = String(req.body.albumTitle || req.body.titulo || req.body.title || '').trim().replace(/\s+/g, ' ');
+    const normTitle = normalizarTextoCatalogo(cleanTitle);
+    if (!normTitle || cleanTitle.length > 180) {
+        return res.status(400).send('Album / Mini Album title is required (max 180 characters).');
+    }
+
+    const mainArtist = String(req.body.mainArtist || req.body.artistaPrincipal || '').trim().replace(/\s+/g, ' ');
+    if (!mainArtist || mainArtist.length > 140) {
+        return res.status(400).send('Main artist or group name is required (max 140 characters).');
+    }
+
+    const rawType = String(req.body.albumType || req.body.tipoLanzamiento || 'mini_album').trim().toLowerCase();
+    const tipoLanzamiento = MUSIC_RELEASE_TYPES.has(rawType) ? rawType : 'mini_album';
+
+    const rawYear = req.body.albumYear ?? req.body.anio;
+    let anio = null;
+    if (rawYear !== undefined && rawYear !== null && String(rawYear).trim() !== '') {
+        const y = Number.parseInt(rawYear, 10);
+        if (!Number.isInteger(y) || y < 1900 || y > 2100) {
+            return res.status(400).send('Album release year must be between 1900 and 2100.');
+        }
+        anio = y;
+    }
+
+    const artistType = ['solo', 'group', 'duo', 'collab_project'].includes(req.body.artistType)
+        ? req.body.artistType
+        : 'solo';
+    const notasCortas = req.body.notasCortas ? String(req.body.notasCortas).trim().slice(0, 255) : null;
+    const uid = req.user.id;
+
+    try {
+        const mainArtistId = await upsertMusicaArtista(uid, mainArtist, artistType, { updateExisting: true });
+        const albumId = await upsertMusicaAlbum({
+            usuarioId: uid,
+            albumTitle: cleanTitle,
+            albumType: tipoLanzamiento,
+            albumYear: anio,
+            mainArtistId
+        });
+
+        if (albumId && notasCortas) {
+            await dbQueryAsync(
+                'UPDATE MusicaAlbumes SET notas_cortas = ? WHERE id = ? AND usuario_id = ?',
+                [notasCortas, albumId, uid]
+            );
+        }
+
+        res.status(201).json({
+            message: 'Album / Mini Album saved to catalog.',
+            album: {
+                id: albumId,
+                artista_principal_id: mainArtistId,
+                artista_principal_nombre: mainArtist,
+                titulo: cleanTitle,
+                tipo_lanzamiento: tipoLanzamiento,
+                anio,
+                notas_cortas: notasCortas
+            }
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error saving album to catalog.');
+    }
+});
+
+app.delete('/api/english/music/albums/:id', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    const albumId = parsePositiveInt(req.params.id);
+    if (!albumId) return res.status(400).send('Invalid album ID.');
+
+    try {
+        const uid = req.user.id;
+        await dbQueryAsync(
+            'UPDATE MusicaCanciones SET album_id = NULL WHERE album_id = ? AND usuario_id = ?',
+            [albumId, uid]
+        );
+        const del = await dbQueryAsync(
+            'DELETE FROM MusicaAlbumes WHERE id = ? AND usuario_id = ?',
+            [albumId, uid]
+        );
+        if (!del.affectedRows) return res.status(404).send('Album not found.');
+
+        res.json({ message: 'Album deleted successfully (its songs were preserved as standalone tracks).', id: albumId });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error deleting album.');
+    }
+});
+
 // =========================================================================
 // SIMULATED HTTPS HYBRID TRANSPORT LAYER (X25519 + AES-256-CTR + HMAC-SHA256)
 // =========================================================================
@@ -6116,6 +6208,80 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
     } catch (err) {
         console.error('[LANGUAGE_ANALYZE_ERROR]', err);
         res.status(500).send('Error running language & lyrics analysis.');
+    }
+});
+
+app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    try {
+        const text = String(req.body.text || req.body.word || '').trim();
+        if (!text) {
+            return res.status(400).send('Enter a word, phrase, or lyric line to translate.');
+        }
+        if (text.length > 4000) {
+            return res.status(400).send('Translation text cannot exceed 4,000 characters.');
+        }
+
+        const direction = normalizeTranslationDirection(req.body.direction || 'auto');
+        const mode = ['auto', 'gemini', 'offline'].includes(String(req.body.mode || 'auto').toLowerCase())
+            ? String(req.body.mode || 'auto').toLowerCase()
+            : 'auto';
+        const context = String(req.body.context || '').trim().slice(0, 400);
+
+        const settings = await loadUserSettings(req.user.id);
+        const currentMemory = sanitizeLanguageMemory(settings.languageMemory);
+        const model = validateGeminiModelId(req.body.model || settings.geminiModel || 'gemini-2.5-flash');
+        const inlineKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
+        const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
+
+        let result;
+        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+            result = translateOffline({
+                text,
+                direction,
+                learningMemory: currentMemory
+            });
+        } else {
+            result = await translateWithGemini({
+                apiKey: effectiveKey,
+                model,
+                text,
+                direction,
+                context,
+                learningMemory: currentMemory
+            });
+        }
+
+        if (req.body.remember !== false && text.length <= 160 && result.translatedText) {
+            const langCode = direction === 'ko_en' || direction === 'ko_es' || /hangul/i.test(String(result.detectedScript || ''))
+                ? 'ko'
+                : 'en';
+            const memoryMeaning = result.spanishMeaning || result.translatedText;
+            settings.languageMemory = mergeLanguageMemory(currentMemory, {
+                terms: [{
+                    term: text.slice(0, 120),
+                    meaning: String(memoryMeaning).slice(0, 240),
+                    romanization: result.romanization || '',
+                    category: 'vocabulary',
+                    language: langCode
+                }],
+                grammarNotes: [],
+                songTitle: '',
+                artistName: '',
+                language: langCode
+            });
+            await saveUserSettings(req.user.id, settings);
+        }
+
+        res.json({
+            ...result,
+            languageMemory: settings.languageMemory,
+            memoryTotalTerms: settings.languageMemory.terms.length,
+            availableModels: RECOMMENDED_GEMINI_MODELS,
+            geminiKeyConfigured: Boolean(effectiveKey)
+        });
+    } catch (err) {
+        console.error('[LANGUAGE_TRANSLATE_ERROR]', err);
+        res.status(500).send('Error running translator.');
     }
 });
 

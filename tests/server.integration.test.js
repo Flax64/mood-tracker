@@ -493,6 +493,20 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: alb ? 1 : 0 });
                 }
 
+                if (normalized.startsWith('UPDATE MusicaAlbumes SET notas_cortas = ? WHERE id = ? AND usuario_id = ?')) {
+                    const [notas, albumId, uid] = params;
+                    const alb = musicAlbums.find((a) => a.id === Number(albumId) && a.usuario_id === Number(uid));
+                    if (alb) alb.notas_cortas = notas;
+                    return finish(null, { affectedRows: alb ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('DELETE FROM MusicaAlbumes WHERE id = ? AND usuario_id = ?')) {
+                    const [albumId, uid] = params;
+                    const idx = musicAlbums.findIndex((a) => a.id === Number(albumId) && a.usuario_id === Number(uid));
+                    if (idx !== -1) musicAlbums.splice(idx, 1);
+                    return finish(null, { affectedRows: idx !== -1 ? 1 : 0 });
+                }
+
                 if (normalized.startsWith('INSERT INTO MusicaAlbumes')) {
                     const [uid, mainArtistId, titulo, norm, tipo, anio] = params;
                     const id = musicAlbums.length + 1;
@@ -617,6 +631,18 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     const [songId, uid] = params;
                     const match = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
                     return finish(null, match ? [{ id: match.id, estado_estudio: match.estado_estudio, word_sincronizado: match.word_sincronizado }] : []);
+                }
+
+                if (normalized.startsWith('UPDATE MusicaCanciones SET album_id = NULL WHERE album_id = ? AND usuario_id = ?')) {
+                    const [albumId, uid] = params;
+                    let count = 0;
+                    musicSongs.forEach((s) => {
+                        if (s.album_id === Number(albumId) && s.usuario_id === Number(uid)) {
+                            s.album_id = null;
+                            count++;
+                        }
+                    });
+                    return finish(null, { affectedRows: count });
                 }
 
                 if (normalized.startsWith('UPDATE MusicaCanciones SET album_id = ?')) {
@@ -2653,6 +2679,165 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             body: {}
         });
         assert.strictEqual(pingNoNtfyRes.status, 400);
+    });
+
+    it('crea álbum/mini álbum, agrega canción al álbum, edita nombre/vínculo y elimina álbum preservando canciones', async () => {
+        // 1. Crear Mini Álbum vacío primero
+        const createAlbumRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/albums',
+            headers: { Cookie: adminCookie },
+            body: {
+                mainArtist: 'AESPA',
+                artistType: 'group',
+                albumTitle: 'Whiplash',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                notasCortas: '5th Mini Album'
+            }
+        });
+        assert.strictEqual(createAlbumRes.status, 201);
+        const createdAlbumJson = JSON.parse(createAlbumRes.body);
+        const albumId = createdAlbumJson.album.id;
+        assert.ok(albumId);
+        assert.strictEqual(createdAlbumJson.album.tipo_lanzamiento, 'mini_album');
+
+        // Catálogo debe mostrar el Mini Álbum aún vacío
+        const emptyCatRes = await request({
+            port,
+            reqPath: '/api/english/music/catalog',
+            headers: { Cookie: adminCookie }
+        });
+        const emptyCatJson = JSON.parse(emptyCatRes.body);
+        const createdAlbRow = emptyCatJson.albums.find((a) => a.id === albumId);
+        assert.ok(createdAlbRow);
+        assert.strictEqual(createdAlbRow.notas_cortas, '5th Mini Album');
+
+        // 2. Agregar canción directamente al Mini Álbum creado
+        const addSongRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'Whiplsh Draft',
+                mainArtist: 'AESPA',
+                artistType: 'group',
+                albumTitle: 'Whiplash',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                trackNumber: 1,
+                idioma: 'English + Korean (K-Pop)',
+                ytMusicUrl: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ'
+            }
+        });
+        assert.strictEqual(addSongRes.status, 201);
+        const { songId } = JSON.parse(addSongRes.body);
+
+        // 3. Editar título y vínculo YouTube de la canción (CRUD completo)
+        const editSongRes = await request({
+            port,
+            method: 'PUT',
+            reqPath: `/api/english/music/songs/${songId}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'Whiplash',
+                mainArtist: 'AESPA',
+                artistType: 'group',
+                albumTitle: 'Whiplash',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                trackNumber: 1,
+                idioma: 'English + Korean (K-Pop)',
+                ytMusicUrl: 'https://www.youtube.com/watch?v=jWQx2f-CErU'
+            }
+        });
+        assert.strictEqual(editSongRes.status, 200);
+
+        const afterEditRes = await request({
+            port,
+            reqPath: '/api/english/music/catalog',
+            headers: { Cookie: adminCookie }
+        });
+        const afterEditSong = JSON.parse(afterEditRes.body).songs.find((s) => s.id === songId);
+        assert.strictEqual(afterEditSong.titulo, 'Whiplash');
+        assert.strictEqual(afterEditSong.yt_video_id, 'jWQx2f-CErU');
+
+        // 4. Eliminar álbum conserva la canción como track suelto
+        const delAlbumRes = await request({
+            port,
+            method: 'DELETE',
+            reqPath: `/api/english/music/albums/${albumId}`,
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(delAlbumRes.status, 200);
+
+        const afterDelRes = await request({
+            port,
+            reqPath: '/api/english/music/catalog',
+            headers: { Cookie: adminCookie }
+        });
+        const afterDelCat = JSON.parse(afterDelRes.body);
+        assert.ok(!afterDelCat.albums.some((a) => a.id === albumId));
+        const preservedSong = afterDelCat.songs.find((s) => s.id === songId);
+        assert.ok(preservedSong);
+        assert.strictEqual(preservedSong.album_id, null);
+    });
+
+    it('traduce inglés->español y coreano->inglés desde POST /api/language/translate y alimenta la memoria', async () => {
+        // 1. Validación texto vacío -> 400
+        const emptyRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/translate',
+            headers: { Cookie: adminCookie },
+            body: { text: '   ', direction: 'en_es', mode: 'offline' }
+        });
+        assert.strictEqual(emptyRes.status, 400);
+
+        // 2. Inglés -> Español (frase / vocabulario)
+        const enEsRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/translate',
+            headers: { Cookie: adminCookie },
+            body: { text: 'break through', direction: 'en_es', mode: 'offline' }
+        });
+        assert.strictEqual(enEsRes.status, 200);
+        const enEsJson = JSON.parse(enEsRes.body);
+        assert.strictEqual(enEsJson.direction, 'en_es');
+        assert.match(enEsJson.translatedText, /abrirse paso|superar/i);
+        assert.ok(enEsJson.spanishMeaning);
+
+        // 3. Coreano -> English (con romanización y explicación en español para hablante nativo)
+        const koEnRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/translate',
+            headers: { Cookie: adminCookie },
+            body: { text: '사랑해요', direction: 'ko_en', mode: 'offline' }
+        });
+        assert.strictEqual(koEnRes.status, 200);
+        const koEnJson = JSON.parse(koEnRes.body);
+        assert.strictEqual(koEnJson.direction, 'ko_en');
+        assert.match(koEnJson.translatedText, /I love you/i);
+        assert.match(koEnJson.spanishMeaning, /Te amo|Te quiero/i);
+        assert.ok(koEnJson.romanization);
+        assert.ok(koEnJson.memoryTotalTerms >= 2, 'Debe recordar los términos traducidos en languageMemory');
+
+        // 4. Modo Auto detectando Hangul
+        const autoKoRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/translate',
+            headers: { Cookie: adminCookie },
+            body: { text: '마음', direction: 'auto', mode: 'offline' }
+        });
+        assert.strictEqual(autoKoRes.status, 200);
+        const autoKoJson = JSON.parse(autoKoRes.body);
+        assert.ok(autoKoJson.romanization);
+        assert.match(autoKoJson.translatedText, /heart|corazón/i);
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {

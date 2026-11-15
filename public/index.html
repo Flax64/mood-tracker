@@ -1050,6 +1050,52 @@
                         <button type="submit" class="btn-submit" id="btnSendEnglish">Encrypt E2EE &amp; Save to Word Notebook (PC)</button>
                     </form>
 
+                    <!-- Integrated Bilingual AI Translator (English -> Spanish & Korean -> English / Spanish) -->
+                    <section class="lang-translator-panel" id="languageTranslatorPanel" aria-label="Bilingual Translator">
+                        <div class="lang-translator-head">
+                            <div>
+                                <h3>🌐 Instant Bilingual Translator (Español · English · 한국어)</h3>
+                                <p class="muted-text" id="translatorHintText">Don't know a word or phrase? Translate English → Español or Coreano → English / Español right here without opening another app.</p>
+                            </div>
+                            <span class="lang-ai-badge" id="translatorStatusBadge">Instant · Gemini + 0-RAM Dict</span>
+                        </div>
+
+                        <div class="lang-translator-dirs" id="translatorDirPills" role="group" aria-label="Translation Direction">
+                            <button type="button" class="lang-dir-pill active" data-dir="en_es">🇺🇸 → 🇪🇸 English → Español</button>
+                            <button type="button" class="lang-dir-pill" data-dir="ko_en">🇰🇷 → 🇺🇸 Coreano → English</button>
+                            <button type="button" class="lang-dir-pill" data-dir="ko_es">🇰🇷 → 🇪🇸 Coreano → Español</button>
+                            <button type="button" class="lang-dir-pill" data-dir="auto">🌐 Auto Detect</button>
+                            <button type="button" class="lang-dir-pill" data-dir="es_en">🇪🇸 → 🇺🇸 Español → English</button>
+                            <button type="button" class="lang-dir-pill" data-dir="es_ko">🇪🇸 → 🇰🇷 Español → Coreano</button>
+                        </div>
+
+                        <div class="lang-translator-bar">
+                            <textarea id="translatorInput" rows="2" maxlength="4000"
+                                placeholder="Type or paste any word, phrase, or lyric line (e.g. 'break through', '마음', '사랑해요')... Press Enter to translate (Shift+Enter for new line)."></textarea>
+                            <div class="lang-translator-actions">
+                                <select id="translatorDirectionSelect" class="select-input" aria-label="Translation direction">
+                                    <option value="en_es" selected>English → Español</option>
+                                    <option value="ko_en">Coreano → English</option>
+                                    <option value="ko_es">Coreano → Español</option>
+                                    <option value="auto">Auto Detect (EN/KO)</option>
+                                    <option value="es_en">Español → English</option>
+                                    <option value="es_ko">Español → Coreano</option>
+                                </select>
+                                <select id="translatorEngineSelect" class="select-input" aria-label="Translator engine">
+                                    <option value="auto">Auto (Gemini / Local)</option>
+                                    <option value="gemini">Google Gemini AI</option>
+                                    <option value="offline">Instant Local (0 RAM)</option>
+                                </select>
+                                <button type="button" class="btn-submit" id="btnRunTranslator">Translate</button>
+                            </div>
+                        </div>
+
+                        <input type="text" id="translatorContextInput" maxlength="400"
+                            placeholder="Optional context (song name or full sentence so AI picks the exact nuance, e.g. 'DRIP by BABYMONSTER')...">
+
+                        <div id="translatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
+                    </section>
+
                     <!-- Interactive AI Tutor Panel (Gemini + Zero-RAM Offline Hangul/EN) -->
                     <section class="lang-ai-panel" id="languageAiPanel" aria-label="AI Language Tutor">
                         <div class="lang-ai-head">
@@ -1197,7 +1243,10 @@
 
                                 <div class="english-row-2">
                                     <div class="form-group">
-                                        <label for="musicAlbumTitle">Album / Mini Album Title (optional)</label>
+                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+                                            <label for="musicAlbumTitle">Album / Mini Album Title (optional)</label>
+                                            <button type="button" class="btn-mini-add" id="btnMusicQuickNewAlbum">+ New Album</button>
+                                        </div>
                                         <input type="text" id="musicAlbumTitle" list="musicAlbumsDatalist" maxlength="180"
                                             placeholder="e.g. BABYMONS7ER, BORN PINK">
                                         <datalist id="musicAlbumsDatalist"></datalist>
@@ -1245,7 +1294,10 @@
                             <div class="music-panel-card music-catalog-panel">
                                 <div class="music-panel-head">
                                     <h3>Artists, Collaborations &amp; Albums</h3>
-                                    <button type="button" class="btn-secondary btn-small" id="btnMusicRefreshCatalog">Refresh</button>
+                                    <div class="music-head-actions">
+                                        <button type="button" class="btn-mini-add" id="btnMusicNewAlbum">💿 + New Album / Mini Album</button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicRefreshCatalog">Refresh</button>
+                                    </div>
                                 </div>
 
                                 <div id="musicCatalogStats" class="music-stats-row"></div>
@@ -1306,6 +1358,7 @@
                                     <p id="musicStudySelectedBar" class="muted-text">Select a song from the catalog (or fill song details above) to record meanings, expressions, and pronunciation privately in Word.</p>
                                 </div>
                                 <div class="music-study-yt-actions">
+                                    <button type="button" class="btn-secondary btn-small" id="btnMusicStudyEditSelected" hidden>✏️ Edit Song / Link</button>
                                     <a id="btnMusicStudyOpenYt" class="btn-secondary btn-small" href="https://music.youtube.com/" target="_blank" rel="noopener noreferrer" hidden>Open in YT Music</a>
                                     <button type="button" class="btn-secondary btn-small" id="btnMusicToggleEmbed" hidden>Mini Player</button>
                                 </div>
@@ -2596,6 +2649,65 @@
         </div>
     </div>
 
+    <!-- In-app Modal: Create New Album / Mini Album -->
+    <div class="modal-overlay" id="musicAlbumCreateModal" hidden aria-modal="true" role="dialog" aria-labelledby="musicAlbumCreateTitle">
+        <div class="modal-card modal-card-compact">
+            <div class="modal-header">
+                <h2 id="musicAlbumCreateTitle">💿 Create Album / Mini Album</h2>
+                <button type="button" class="modal-close-btn" id="btnCloseMusicAlbumCreateModal" aria-label="Close modal">✕</button>
+            </div>
+            <form id="musicAlbumCreateForm" autocomplete="off">
+                <div class="form-group">
+                    <label for="newAlbumArtist">Main Artist / Group *</label>
+                    <input type="text" id="newAlbumArtist" list="musicArtistsDatalist" maxlength="140" required
+                        placeholder="e.g. BABYMONSTER, AESPA, ROSÉ">
+                </div>
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="newAlbumArtistType">Artist Format</label>
+                        <select id="newAlbumArtistType" class="select-input">
+                            <option value="group">Group</option>
+                            <option value="solo">Solo Artist</option>
+                            <option value="duo">Duo</option>
+                            <option value="collab_project">Collab Unit</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="newAlbumType">Release Format</label>
+                        <select id="newAlbumType" class="select-input">
+                            <option value="mini_album" selected>Mini Album</option>
+                            <option value="album">Full Album</option>
+                            <option value="ep">EP</option>
+                            <option value="single">Single</option>
+                            <option value="collab_single">Collab Single</option>
+                            <option value="ost">OST / Soundtrack</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="newAlbumTitle">Album / Mini Album Title *</label>
+                        <input type="text" id="newAlbumTitle" maxlength="180" required placeholder="e.g. DRIP, ARMAGEDDON">
+                    </div>
+                    <div class="form-group">
+                        <label for="newAlbumYear">Release Year (optional)</label>
+                        <input type="number" id="newAlbumYear" min="1900" max="2100" placeholder="e.g. 2024">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="newAlbumNotes">Short Notes (optional)</label>
+                    <input type="text" id="newAlbumNotes" maxlength="255" placeholder="e.g. K-Pop + English lyrics practice">
+                </div>
+                <div id="musicAlbumCreateBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" id="btnCancelMusicAlbumCreateModal">Cancel</button>
+                    <button type="button" class="btn-secondary" id="btnSaveAlbumOnly">Save Album Only</button>
+                    <button type="submit" class="btn-submit btn-modal-save" id="btnSaveAlbumAndAddSong">Save &amp; Add Song</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- In-app Modal: Edit Artist or Album -->
     <div class="modal-overlay" id="musicEntityEditModal" hidden aria-modal="true" role="dialog" aria-labelledby="musicEntityEditTitle">
         <div class="modal-card modal-card-compact">
@@ -2626,6 +2738,7 @@
                 </div>
                 <div id="musicEntityEditBanner" class="inline-status-banner" hidden aria-live="polite"></div>
                 <div class="modal-actions">
+                    <button type="button" class="btn-danger-ghost" id="btnDeleteMusicEntityModal" hidden>Delete Album</button>
                     <button type="button" class="btn-cancel" id="btnCancelMusicEntityModal">Cancel</button>
                     <button type="submit" class="btn-submit btn-modal-save" id="btnSaveMusicEntityModal">Save Changes</button>
                 </div>

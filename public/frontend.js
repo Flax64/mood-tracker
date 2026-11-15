@@ -3236,6 +3236,219 @@ function initLanguageAiStudio() {
             showToast('ok', 'Added Romanization, Vocabulary & AI Notes below—ready to encrypt & save to Word!');
         });
     }
+
+    initBilingualTranslatorPanel();
+}
+
+function initBilingualTranslatorPanel() {
+    const panel = document.getElementById('languageTranslatorPanel');
+    if (!panel || panel.dataset.wired === 'true') return;
+    panel.dataset.wired = 'true';
+
+    const dirPills = Array.from(panel.querySelectorAll('#translatorDirPills [data-dir]'));
+    const dirSelect = document.getElementById('translatorDirectionSelect');
+    const engineSelect = document.getElementById('translatorEngineSelect');
+    const inputEl = document.getElementById('translatorInput');
+    const contextEl = document.getElementById('translatorContextInput');
+    const btnRun = document.getElementById('btnRunTranslator');
+    const resultBox = document.getElementById('translatorResultBox');
+    let lastTranslation = null;
+
+    const setDirection = (dir) => {
+        const chosen = String(dir || 'en_es');
+        if (dirSelect) dirSelect.value = chosen;
+        dirPills.forEach(p => {
+            p.classList.toggle('active', p.getAttribute('data-dir') === chosen);
+        });
+    };
+
+    dirPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+            setDirection(pill.getAttribute('data-dir'));
+            if (inputEl && !inputEl.value.trim()) inputEl.focus();
+        });
+    });
+
+    if (dirSelect) {
+        dirSelect.addEventListener('change', () => setDirection(dirSelect.value));
+    }
+
+    const renderTranslationResult = (data) => {
+        if (!resultBox || !data) return;
+        resultBox.replaceChildren();
+        resultBox.hidden = false;
+
+        const headRow = document.createElement('div');
+        headRow.className = 'lang-translator-footer';
+
+        const dirBadge = document.createElement('span');
+        dirBadge.className = 'lang-ai-badge';
+        dirBadge.textContent = `${data.directionLabel || data.direction || 'Translation'}`;
+
+        const engBadge = document.createElement('span');
+        engBadge.className = 'lang-ai-badge';
+        engBadge.textContent = data.engine === 'gemini'
+            ? `🤖 Gemini (${data.model || 'gemini-2.5-flash'})`
+            : '⚡ Instant Local Dictionary (0 MB RAM)';
+
+        headRow.append(dirBadge, engBadge);
+        resultBox.appendChild(headRow);
+
+        const grid = document.createElement('div');
+        grid.className = 'lang-translator-result-grid';
+
+        const mainCard = document.createElement('div');
+        mainCard.className = 'lang-translator-card';
+        const mainLbl = document.createElement('small');
+        mainLbl.className = 'muted-text';
+        mainLbl.textContent = data.partOfSpeech ? `Translation (${data.partOfSpeech})` : 'Translation';
+        const mainVal = document.createElement('div');
+        mainVal.className = 'lang-translator-main-value';
+        mainVal.textContent = data.translatedText || '';
+        mainCard.append(mainLbl, mainVal);
+        if (data.romanization) {
+            const rom = document.createElement('div');
+            rom.className = 'lang-translator-rom';
+            rom.textContent = `Pronunciación / Romanization: ${data.romanization}`;
+            mainCard.appendChild(rom);
+        }
+        grid.appendChild(mainCard);
+
+        if (data.spanishMeaning || data.explanationEs || data.englishBridge) {
+            const esCard = document.createElement('div');
+            esCard.className = 'lang-translator-card';
+            const esLbl = document.createElement('small');
+            esLbl.className = 'muted-text';
+            esLbl.textContent = 'Significado y explicación en Español';
+            const esVal = document.createElement('div');
+            esVal.className = 'lang-translator-main-value';
+            esVal.textContent = data.spanishMeaning || data.translatedText || '';
+            esCard.append(esLbl, esVal);
+
+            if (data.englishBridge && data.direction !== 'ko_en') {
+                const bridge = document.createElement('small');
+                bridge.textContent = `English bridge: ${data.englishBridge}`;
+                esCard.appendChild(bridge);
+            }
+            if (data.explanationEs) {
+                const exp = document.createElement('small');
+                exp.className = 'muted-text';
+                exp.textContent = data.explanationEs;
+                esCard.appendChild(exp);
+            }
+            grid.appendChild(esCard);
+        }
+
+        resultBox.appendChild(grid);
+
+        if (data.literalMeaning) {
+            const lit = document.createElement('small');
+            lit.className = 'muted-text';
+            lit.textContent = `Literal: ${data.literalMeaning}`;
+            resultBox.appendChild(lit);
+        }
+
+        if (Array.isArray(data.alternatives) && data.alternatives.length) {
+            const alts = document.createElement('small');
+            alts.textContent = `Otras formas / matices: ${data.alternatives.join(' · ')}`;
+            resultBox.appendChild(alts);
+        }
+
+        if (Array.isArray(data.examples) && data.examples.length) {
+            const ex = document.createElement('small');
+            ex.className = 'muted-text';
+            ex.textContent = `Ejemplo: ${data.examples[0]}`;
+            resultBox.appendChild(ex);
+        }
+
+        if (data.fallbackReason) {
+            const warn = document.createElement('small');
+            warn.className = 'muted-text';
+            warn.textContent = data.fallbackReason;
+            resultBox.appendChild(warn);
+        }
+
+        const footer = document.createElement('div');
+        footer.className = 'lang-translator-footer';
+
+        const sendBtn = document.createElement('button');
+        sendBtn.type = 'button';
+        sendBtn.className = 'btn-secondary btn-small';
+        sendBtn.textContent = '📝 Send to Vocabulary Study Form';
+        sendBtn.addEventListener('click', () => {
+            if (!lastTranslation) return;
+            const vocabTab = document.querySelector('.english-tab-btn[data-english-cat="vocabulary"]');
+            if (vocabTab) vocabTab.click();
+            const draft = lastTranslation.wordNoteDraft || {};
+            const setIf = (id, v) => {
+                const el = document.getElementById(id);
+                if (el && v) el.value = v;
+            };
+            setIf('engWord', draft.word || lastTranslation.sourceText || '');
+            setIf('engRomanization', draft.romanization || lastTranslation.romanization || '');
+            setIf('engSpanish', draft.meaning || lastTranslation.spanishMeaning || lastTranslation.translatedText || '');
+            setIf('engVocabExample', draft.example || (lastTranslation.examples && lastTranslation.examples[0]) || '');
+            setIf('engVocabNotes', draft.notes || lastTranslation.explanationEs || '');
+            document.getElementById('englishPracticeForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            showToast('ok', 'Copied translation into Glossary Study Form!');
+        });
+
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'btn-secondary btn-small';
+        copyBtn.textContent = '📋 Copy Translation';
+        copyBtn.addEventListener('click', async () => {
+            const txt = data.translatedText || '';
+            try {
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    await navigator.clipboard.writeText(txt);
+                }
+                showToast('ok', 'Translation copied to clipboard.');
+            } catch (_) {
+                showToast('info', `Translation: ${txt}`);
+            }
+        });
+
+        footer.append(sendBtn, copyBtn);
+        resultBox.appendChild(footer);
+    };
+
+    if (btnRun) {
+        btnRun.addEventListener('click', () => {
+            const text = (inputEl?.value || '').trim();
+            if (!text) {
+                showToast('err', 'Type a word, phrase, or lyric line to translate.');
+                inputEl?.focus();
+                return;
+            }
+            const direction = dirSelect?.value || 'en_es';
+            const mode = engineSelect?.value || 'auto';
+            const context = (contextEl?.value || '').trim();
+
+            runWithButtonLock(btnRun, async () => {
+                try {
+                    const res = await fetch('/api/language/translate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text, direction, mode, context })
+                    });
+                    if (!res.ok) {
+                        const msg = await res.text();
+                        showToast('err', msg || 'Could not translate text.');
+                        return;
+                    }
+                    const data = await res.json();
+                    lastTranslation = data;
+                    if (data.languageMemory) {
+                        updateAiMemoryBadgeUI(data.languageMemory);
+                    }
+                    renderTranslationResult(data);
+                } catch (_) {
+                    showToast('err', 'Network error while running translator.');
+                }
+            }, { loadingText: 'Translating...' });
+        });
+    }
 }
 
 // ==========================================
@@ -3408,12 +3621,14 @@ function getCancionSeleccionada() {
 function actualizarBarraCancionEstudio() {
     const bar = document.getElementById('musicStudySelectedBar');
     const songIdInput = document.getElementById('musicWordSongId');
+    const editSelectedBtn = document.getElementById('btnMusicStudyEditSelected');
     const openYtBtn = document.getElementById('btnMusicStudyOpenYt');
     const toggleEmbedBtn = document.getElementById('btnMusicToggleEmbed');
     const embedBox = document.getElementById('musicEmbedPlayerBox');
     const song = getCancionSeleccionada();
 
     if (songIdInput) songIdInput.value = song ? String(song.id) : '';
+    if (editSelectedBtn) editSelectedBtn.hidden = !song;
 
     if (!song) {
         if (bar) {
@@ -3484,6 +3699,50 @@ function seleccionarCancionParaEstudio(song) {
     }
 }
 
+function prepararAgregarCancionAAlbum({ mainArtist = '', artistType = '', albumTitle = '', albumType = 'mini_album', albumYear = '' } = {}) {
+    cancelarEdicionCancionMusica();
+    const musicTab = document.querySelector('.english-tab-btn[data-english-cat="music"]');
+    if (musicTab) musicTab.click();
+
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val ?? '';
+    };
+
+    const matchedArtist = (musicState.artists || []).find(
+        a => String(a.nombre || '').toLowerCase() === String(mainArtist || '').trim().toLowerCase()
+    );
+    setVal('musicMainArtist', mainArtist || '');
+    setVal('musicMainArtistType', artistType || matchedArtist?.tipo_artista || 'group');
+    setVal('musicAlbumTitle', albumTitle || '');
+    setVal('musicAlbumType', albumType || 'mini_album');
+    setVal('musicAlbumYear', albumYear ? String(albumYear) : '');
+
+    if (albumTitle) {
+        const matchingTracks = (musicState.songs || [])
+            .filter(s => String(s.album_titulo || '').toLowerCase() === String(albumTitle).trim().toLowerCase())
+            .map(s => Number(s.numero_pista) || 0);
+        const maxTrack = matchingTracks.length ? Math.max(...matchingTracks) : 0;
+        setVal('musicSongTrackNumber', String(maxTrack + 1));
+    }
+
+    const titleEl = document.getElementById('musicSongFormTitle');
+    if (titleEl) {
+        titleEl.textContent = albumTitle
+            ? `Add Song to "${albumTitle}"`
+            : (mainArtist ? `Add Song for ${mainArtist}` : 'Register or Link Song');
+    }
+
+    const songTitleEl = document.getElementById('musicSongTitle');
+    const form = document.getElementById('musicSongForm');
+    if (form && typeof form.scrollIntoView === 'function') {
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    if (songTitleEl && typeof songTitleEl.focus === 'function') {
+        songTitleEl.focus();
+    }
+}
+
 function cargarCancionEnFormularioEdicion(song) {
     if (!song) return;
     musicState.editingSongId = song.id;
@@ -3503,7 +3762,7 @@ function cargarCancionEnFormularioEdicion(song) {
     setVal('musicSongYtUrl', song.yt_music_url || '');
     setVal('musicSongTitle', song.titulo || '');
     setVal('musicSongTrackNumber', song.numero_pista || '');
-    setVal('musicSongLanguage', song.idioma || 'English');
+    setVal('musicSongLanguage', song.idioma || 'English + Korean (K-Pop)');
     setVal('musicMainArtist', mainArtistObj ? mainArtistObj.nombre : '');
     setVal('musicMainArtistType', artistRecord?.tipo_artista || 'group');
     setVal('musicCollaborators', collabs);
@@ -3522,17 +3781,22 @@ function cargarCancionEnFormularioEdicion(song) {
     mostrarBannerMusica('musicSongFormBanner', '', '');
 
     const form = document.getElementById('musicSongForm');
+    form?.closest('.music-panel-card')?.classList.add('is-editing-song');
     if (form && typeof form.scrollIntoView === 'function') {
         form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+    document.getElementById('musicSongTitle')?.focus();
 }
 
 function cancelarEdicionCancionMusica() {
     musicState.editingSongId = null;
     const form = document.getElementById('musicSongForm');
-    if (form) form.reset();
+    if (form) {
+        form.reset();
+        form.closest('.music-panel-card')?.classList.remove('is-editing-song');
+    }
     const langInput = document.getElementById('musicSongLanguage');
-    if (langInput) langInput.value = 'English';
+    if (langInput) langInput.value = 'English + Korean (K-Pop)';
     const editId = document.getElementById('musicSongEditId');
     if (editId) editId.value = '';
     const titleEl = document.getElementById('musicSongFormTitle');
@@ -3602,6 +3866,8 @@ function openMusicEntityEditModal(kind, entity) {
     if (yearInput) yearInput.value = !isArtist && entity.anio ? String(entity.anio) : '';
     if (notesGroup) notesGroup.hidden = !isArtist;
     if (notesInput) notesInput.value = isArtist ? (entity.notas_cortas || '') : '';
+    const deleteBtn = document.getElementById('btnDeleteMusicEntityModal');
+    if (deleteBtn) deleteBtn.hidden = isArtist;
 
     mostrarBannerMusica('musicEntityEditBanner', '', '');
     modal.hidden = false;
@@ -3615,6 +3881,7 @@ function initMusicEntityEditModal() {
     const form = document.getElementById('musicEntityEditForm');
     const btnClose = document.getElementById('btnCloseMusicEntityModal');
     const btnCancel = document.getElementById('btnCancelMusicEntityModal');
+    const btnDelete = document.getElementById('btnDeleteMusicEntityModal');
     if (!modal || !form || form.dataset.wired === 'true') return;
     form.dataset.wired = 'true';
 
@@ -3631,6 +3898,35 @@ function initMusicEntityEditModal() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !modal.hidden) closeModal();
     });
+
+    if (btnDelete) {
+        btnDelete.addEventListener('click', async () => {
+            const kind = document.getElementById('musicEntityKind')?.value;
+            const entityId = Number(document.getElementById('musicEntityId')?.value || 0);
+            const rawName = (document.getElementById('musicEntityName')?.value || '').trim();
+            if (kind !== 'album' || !entityId) return;
+
+            const ok = await openConfirmDialog({
+                title: 'Delete Album / Mini Album?',
+                message: `Delete "${rawName || 'this album'}"? Its songs will NOT be deleted—they will move cleanly to Standalone Singles & Tracks.`,
+                confirmText: 'Delete Album',
+                danger: true
+            });
+            if (!ok) return;
+
+            runWithButtonLock(btnDelete, async () => {
+                const res = await fetch(`/api/english/music/albums/${entityId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    closeModal();
+                    showToast('ok', `Deleted album "${rawName}" (songs preserved).`);
+                    await cargarCatalogoMusical();
+                } else {
+                    const errText = await res.text();
+                    mostrarBannerMusica('musicEntityEditBanner', 'err', errText || 'Could not delete album.');
+                }
+            }, { loadingText: 'Deleting...' });
+        });
+    }
 
     form.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -3684,6 +3980,122 @@ function initMusicEntityEditModal() {
     });
 }
 
+function openMusicAlbumCreateModal({ artistName = '', artistType = '' } = {}) {
+    const modal = document.getElementById('musicAlbumCreateModal');
+    const form = document.getElementById('musicAlbumCreateForm');
+    if (!modal || !form) return;
+
+    form.reset();
+    const artistInput = document.getElementById('newAlbumArtist');
+    const artistTypeInput = document.getElementById('newAlbumArtistType');
+    const albumTypeInput = document.getElementById('newAlbumType');
+    const titleInput = document.getElementById('newAlbumTitle');
+
+    const resolvedArtist = artistName || (document.getElementById('musicMainArtist')?.value || '').trim();
+    const matched = (musicState.artists || []).find(
+        a => String(a.nombre || '').toLowerCase() === String(resolvedArtist).toLowerCase()
+    );
+
+    if (artistInput) artistInput.value = resolvedArtist;
+    if (artistTypeInput) {
+        artistTypeInput.value = artistType || matched?.tipo_artista || document.getElementById('musicMainArtistType')?.value || 'group';
+    }
+    if (albumTypeInput) albumTypeInput.value = 'mini_album';
+    mostrarBannerMusica('musicAlbumCreateBanner', '', '');
+    modal.hidden = false;
+
+    if (resolvedArtist && titleInput) {
+        titleInput.focus();
+    } else if (artistInput) {
+        artistInput.focus();
+    }
+}
+
+function initMusicAlbumCreateModal() {
+    const modal = document.getElementById('musicAlbumCreateModal');
+    const form = document.getElementById('musicAlbumCreateForm');
+    const btnClose = document.getElementById('btnCloseMusicAlbumCreateModal');
+    const btnCancel = document.getElementById('btnCancelMusicAlbumCreateModal');
+    const btnSaveOnly = document.getElementById('btnSaveAlbumOnly');
+    const btnSaveAndAdd = document.getElementById('btnSaveAlbumAndAddSong');
+    if (!modal || !form || form.dataset.wired === 'true') return;
+    form.dataset.wired = 'true';
+
+    const closeModal = () => {
+        modal.hidden = true;
+        mostrarBannerMusica('musicAlbumCreateBanner', '', '');
+    };
+
+    if (btnClose) btnClose.addEventListener('click', closeModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+
+    const submitCreateAlbum = (andAddSong) => {
+        const val = id => (document.getElementById(id)?.value || '').trim();
+        const payload = {
+            mainArtist: val('newAlbumArtist'),
+            artistType: val('newAlbumArtistType') || 'group',
+            albumTitle: val('newAlbumTitle'),
+            albumType: val('newAlbumType') || 'mini_album',
+            albumYear: val('newAlbumYear'),
+            notasCortas: val('newAlbumNotes')
+        };
+
+        if (!payload.mainArtist || !payload.albumTitle) {
+            mostrarBannerMusica('musicAlbumCreateBanner', 'err', 'Main artist and Album / Mini Album title are required.');
+            return;
+        }
+
+        const lockTarget = andAddSong ? btnSaveAndAdd : btnSaveOnly;
+        mostrarBannerMusica('musicAlbumCreateBanner', '', '');
+        runWithButtonLock(lockTarget, async () => {
+            try {
+                const resData = await submitMutationRequest({
+                    url: '/api/english/music/albums',
+                    method: 'POST',
+                    scopeKey: 'english-music-album:create',
+                    signature: JSON.stringify(payload),
+                    buildBody: () => payload,
+                    parseJson: true
+                });
+                closeModal();
+                if (resData?.album?.artista_principal_id) {
+                    musicState.navArtistId = Number(resData.album.artista_principal_id);
+                }
+                if (resData?.album?.id) {
+                    musicState.navAlbumKey = `alb_${resData.album.id}`;
+                }
+                showToast('ok', resData?.message || `Saved "${payload.albumTitle}".`);
+                await cargarCatalogoMusical();
+                if (andAddSong) {
+                    prepararAgregarCancionAAlbum({
+                        mainArtist: payload.mainArtist,
+                        artistType: payload.artistType,
+                        albumTitle: payload.albumTitle,
+                        albumType: payload.albumType,
+                        albumYear: payload.albumYear
+                    });
+                }
+            } catch (err) {
+                mostrarBannerMusica('musicAlbumCreateBanner', 'err', err.message || 'Could not create album.');
+            }
+        }, { loadingText: 'Saving...' });
+    };
+
+    if (btnSaveOnly) {
+        btnSaveOnly.addEventListener('click', () => submitCreateAlbum(false));
+    }
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        submitCreateAlbum(true);
+    });
+}
+
 function renderMusicCatalog() {
     const container = document.getElementById('musicCatalogContainer');
     if (!container) return;
@@ -3714,18 +4126,20 @@ function renderMusicCatalog() {
         return true;
     });
 
-    if (!filteredSongs.length) {
-        const emptyP = document.createElement('p');
-        emptyP.className = 'muted-text';
-        emptyP.textContent = musicState.songs.length
-            ? 'No songs match your current filters.'
-            : 'No songs registered yet. Search in YouTube Music above or add your first song on the left!';
-        container.replaceChildren(emptyP);
-        return;
-    }
-
-    // Agrupar por Artista (las colaboraciones aparecen también bajo cada artista colaborador)
+    // Agrupar por Artista (incluye álbumes/mini álbumes recién creados incluso antes de agregar su primera canción)
     const artistBuckets = new Map();
+    const ensureArtistBucket = (id, nombre) => {
+        const key = id || 0;
+        if (!artistBuckets.has(key)) {
+            artistBuckets.set(key, {
+                id: key,
+                nombre: nombre || 'Unknown Artist',
+                albums: new Map()
+            });
+        }
+        return artistBuckets.get(key);
+    };
+
     filteredSongs.forEach(song => {
         const artists = Array.isArray(song.artists) && song.artists.length
             ? song.artists
@@ -3733,14 +4147,7 @@ function renderMusicCatalog() {
 
         artists.forEach(art => {
             if (artistFilter && String(art.id) !== String(artistFilter)) return;
-            if (!artistBuckets.has(art.id)) {
-                artistBuckets.set(art.id, {
-                    id: art.id,
-                    nombre: art.nombre,
-                    albums: new Map()
-                });
-            }
-            const bucket = artistBuckets.get(art.id);
+            const bucket = ensureArtistBucket(art.id, art.nombre);
             const albumKey = song.album_id ? `alb_${song.album_id}` : `single_none`;
             if (!bucket.albums.has(albumKey)) {
                 bucket.albums.set(albumKey, {
@@ -3754,6 +4161,40 @@ function renderMusicCatalog() {
             bucket.albums.get(albumKey).songs.push({ song, artistRole: art.rol });
         });
     });
+
+    if (!langFilter && !statusFilter) {
+        (musicState.albums || []).forEach(al => {
+            const aid = al.artista_principal_id || 0;
+            const aname = al.artista_principal_nombre || 'Independent Releases';
+            if (artistFilter && String(aid) !== String(artistFilter)) return;
+            if (releaseFilter && (al.tipo_lanzamiento || 'album') !== releaseFilter) return;
+            if (search) {
+                const hay = [al.titulo, aname, al.notas_cortas].filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(search)) return;
+            }
+            const bucket = ensureArtistBucket(aid, aname);
+            const albumKey = `alb_${al.id}`;
+            if (!bucket.albums.has(albumKey)) {
+                bucket.albums.set(albumKey, {
+                    albumId: al.id,
+                    titulo: al.titulo,
+                    tipo: al.tipo_lanzamiento || 'album',
+                    anio: al.anio || null,
+                    songs: []
+                });
+            }
+        });
+    }
+
+    if (!artistBuckets.size) {
+        const emptyP = document.createElement('p');
+        emptyP.className = 'muted-text';
+        emptyP.textContent = (musicState.songs.length || (musicState.albums && musicState.albums.length))
+            ? 'No songs or albums match your current filters.'
+            : 'No songs or albums registered yet. Create an Album / Mini Album or add your first song on the left!';
+        container.replaceChildren(emptyP);
+        return;
+    }
 
     const sortedArtists = Array.from(artistBuckets.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
     const fragment = document.createDocumentFragment();
@@ -3779,6 +4220,34 @@ function renderMusicCatalog() {
         headActions.appendChild(countEl);
 
         if (artistGroup.id > 0) {
+            const newAlbForArtistBtn = document.createElement('button');
+            newAlbForArtistBtn.type = 'button';
+            newAlbForArtistBtn.className = 'btn-mini-add';
+            newAlbForArtistBtn.textContent = '💿 + Album';
+            newAlbForArtistBtn.title = `Create an Album or Mini Album for ${artistGroup.nombre}`;
+            newAlbForArtistBtn.addEventListener('click', () => {
+                openMusicAlbumCreateModal({
+                    artistName: artistGroup.nombre,
+                    artistType: artistRecord?.tipo_artista || 'group'
+                });
+            });
+            headActions.appendChild(newAlbForArtistBtn);
+
+            const addSongForArtistBtn = document.createElement('button');
+            addSongForArtistBtn.type = 'button';
+            addSongForArtistBtn.className = 'btn-mini-add';
+            addSongForArtistBtn.textContent = '➕ Add Song';
+            addSongForArtistBtn.title = `Add a song under ${artistGroup.nombre}`;
+            addSongForArtistBtn.addEventListener('click', () => {
+                prepararAgregarCancionAAlbum({
+                    mainArtist: artistGroup.nombre,
+                    artistType: artistRecord?.tipo_artista || 'group',
+                    albumTitle: '',
+                    albumType: 'single'
+                });
+            });
+            headActions.appendChild(addSongForArtistBtn);
+
             const editArtistBtn = document.createElement('button');
             editArtistBtn.type = 'button';
             editArtistBtn.className = 'btn-mini-edit';
@@ -3825,12 +4294,30 @@ function renderMusicCatalog() {
             typeBadge.textContent = RELEASE_TYPE_LABELS[album.tipo] || album.tipo;
             albumMetaWrap.appendChild(typeBadge);
 
+            const addSongToAlbumBtn = document.createElement('button');
+            addSongToAlbumBtn.type = 'button';
+            addSongToAlbumBtn.className = 'btn-mini-add';
+            addSongToAlbumBtn.textContent = '➕ Add Song';
+            addSongToAlbumBtn.title = album.albumId
+                ? `Add a song directly to "${album.titulo}"`
+                : `Add a standalone song for ${artistGroup.nombre}`;
+            addSongToAlbumBtn.addEventListener('click', () => {
+                prepararAgregarCancionAAlbum({
+                    mainArtist: artistGroup.id > 0 ? artistGroup.nombre : '',
+                    artistType: artistRecord?.tipo_artista || 'group',
+                    albumTitle: album.albumId ? album.titulo : '',
+                    albumType: album.albumId ? (album.tipo || 'mini_album') : 'single',
+                    albumYear: album.anio || ''
+                });
+            });
+            albumMetaWrap.appendChild(addSongToAlbumBtn);
+
             if (album.albumId) {
                 const editAlbumBtn = document.createElement('button');
                 editAlbumBtn.type = 'button';
                 editAlbumBtn.className = 'btn-mini-edit';
                 editAlbumBtn.textContent = '✏️ Edit Album';
-                editAlbumBtn.title = 'Edit album title, release type or year';
+                editAlbumBtn.title = 'Edit album title, release type, year or delete album';
                 editAlbumBtn.addEventListener('click', () => {
                     openMusicEntityEditModal('album', {
                         id: album.albumId,
@@ -3847,6 +4334,28 @@ function renderMusicCatalog() {
 
             const songList = document.createElement('div');
             songList.className = 'music-song-list';
+
+            if (!album.songs.length) {
+                const emptyAlbumCta = document.createElement('div');
+                emptyAlbumCta.className = 'music-empty-album-cta';
+                const noteSpan = document.createElement('span');
+                noteSpan.textContent = 'No songs in this release yet.';
+                const firstBtn = document.createElement('button');
+                firstBtn.type = 'button';
+                firstBtn.className = 'btn-mini-add';
+                firstBtn.textContent = `➕ Add First Song to "${album.titulo}"`;
+                firstBtn.addEventListener('click', () => {
+                    prepararAgregarCancionAAlbum({
+                        mainArtist: artistGroup.id > 0 ? artistGroup.nombre : '',
+                        artistType: artistRecord?.tipo_artista || 'group',
+                        albumTitle: album.titulo,
+                        albumType: album.tipo || 'mini_album',
+                        albumYear: album.anio || ''
+                    });
+                });
+                emptyAlbumCta.append(noteSpan, firstBtn);
+                songList.appendChild(emptyAlbumCta);
+            }
 
             album.songs.sort((a, b) => {
                 const ta = a.song.numero_pista || 9999;
@@ -4030,8 +4539,35 @@ if (englishMusicStudioRoot) {
     const btnRefreshCatalog = document.getElementById('btnMusicRefreshCatalog');
     const btnCancelEdit = document.getElementById('btnMusicCancelEdit');
     const btnToggleEmbed = document.getElementById('btnMusicToggleEmbed');
+    const btnNewAlbum = document.getElementById('btnMusicNewAlbum');
+    const btnQuickNewAlbum = document.getElementById('btnMusicQuickNewAlbum');
+    const btnStudyEditSelected = document.getElementById('btnMusicStudyEditSelected');
     const songForm = document.getElementById('musicSongForm');
     const wordForm = document.getElementById('musicWordNotesForm');
+
+    initMusicAlbumCreateModal();
+
+    if (btnNewAlbum) {
+        btnNewAlbum.addEventListener('click', () => {
+            openMusicAlbumCreateModal();
+        });
+    }
+
+    if (btnQuickNewAlbum) {
+        btnQuickNewAlbum.addEventListener('click', () => {
+            openMusicAlbumCreateModal({
+                artistName: (document.getElementById('musicMainArtist')?.value || '').trim(),
+                artistType: document.getElementById('musicMainArtistType')?.value || 'group'
+            });
+        });
+    }
+
+    if (btnStudyEditSelected) {
+        btnStudyEditSelected.addEventListener('click', () => {
+            const selected = getCancionSeleccionada();
+            if (selected) cargarCancionEnFormularioEdicion(selected);
+        });
+    }
 
     document.querySelectorAll('#ytPlatformModeGroup [data-yt-mode]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -8492,23 +9028,29 @@ function initAcademicPlannerHandlers() {
 // ==========================================
 function buildMusicRepertoireBuckets() {
     const artistMap = new Map();
+    const ensureArtist = (id, nombre) => {
+        const key = id || 0;
+        if (!artistMap.has(key)) {
+            artistMap.set(key, {
+                id: key,
+                nombre: nombre || 'Unknown Artist',
+                albums: new Map()
+            });
+        }
+        return artistMap.get(key);
+    };
+
     (musicState.songs || []).forEach(song => {
         const artists = Array.isArray(song.artists) && song.artists.length
             ? song.artists
             : [{ id: 0, nombre: 'Unknown Artist', rol: 'main' }];
         artists.forEach(art => {
-            if (!artistMap.has(art.id)) {
-                artistMap.set(art.id, {
-                    id: art.id,
-                    nombre: art.nombre,
-                    albums: new Map()
-                });
-            }
-            const bucket = artistMap.get(art.id);
+            const bucket = ensureArtist(art.id, art.nombre);
             const albumKey = song.album_id ? `alb_${song.album_id}` : 'single_none';
             if (!bucket.albums.has(albumKey)) {
                 bucket.albums.set(albumKey, {
                     key: albumKey,
+                    albumId: song.album_id || null,
                     titulo: song.album_titulo || 'Standalone Singles & Tracks',
                     tipo: song.album_titulo ? (song.album_tipo || 'album') : 'single',
                     anio: song.album_anio || null,
@@ -8518,6 +9060,24 @@ function buildMusicRepertoireBuckets() {
             bucket.albums.get(albumKey).songs.push(song);
         });
     });
+
+    (musicState.albums || []).forEach(al => {
+        const aid = al.artista_principal_id || 0;
+        const aname = al.artista_principal_nombre || 'Independent Releases';
+        const bucket = ensureArtist(aid, aname);
+        const albumKey = `alb_${al.id}`;
+        if (!bucket.albums.has(albumKey)) {
+            bucket.albums.set(albumKey, {
+                key: albumKey,
+                albumId: al.id,
+                titulo: al.titulo,
+                tipo: al.tipo_lanzamiento || 'album',
+                anio: al.anio || null,
+                songs: []
+            });
+        }
+    });
+
     return Array.from(artistMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
@@ -8541,6 +9101,27 @@ function renderMusicRepertoireNavigator() {
 
     const renderSongsColumn = (artistObj, albumObj) => {
         songListEl.replaceChildren();
+        const bar = document.createElement('div');
+        bar.className = 'music-rep-album-bar';
+        const addHereBtn = document.createElement('button');
+        addHereBtn.type = 'button';
+        addHereBtn.className = 'btn-mini-add';
+        addHereBtn.textContent = albumObj && albumObj.key !== 'single_none'
+            ? `➕ Add Song to "${albumObj.titulo}"`
+            : `➕ Add Song for ${artistObj.nombre}`;
+        addHereBtn.addEventListener('click', () => {
+            const matchedArtist = (musicState.artists || []).find(a => Number(a.id) === Number(artistObj.id));
+            prepararAgregarCancionAAlbum({
+                mainArtist: artistObj.id > 0 ? artistObj.nombre : '',
+                artistType: matchedArtist?.tipo_artista || 'group',
+                albumTitle: albumObj && albumObj.key !== 'single_none' ? albumObj.titulo : '',
+                albumType: albumObj && albumObj.key !== 'single_none' ? (albumObj.tipo || 'mini_album') : 'single',
+                albumYear: albumObj?.anio || ''
+            });
+        });
+        bar.appendChild(addHereBtn);
+        songListEl.appendChild(bar);
+
         const songs = albumObj
             ? albumObj.songs
             : Array.from(artistObj.albums.values()).flatMap(al => al.songs);
@@ -8553,6 +9134,14 @@ function renderMusicRepertoireNavigator() {
             }
         });
         uniqueSongs.sort((a, b) => (a.numero_pista || 999) - (b.numero_pista || 999) || a.titulo.localeCompare(b.titulo));
+
+        if (!uniqueSongs.length) {
+            const emptyHint = document.createElement('small');
+            emptyHint.className = 'muted-text';
+            emptyHint.textContent = 'No songs in this selection yet — click "+ Add Song" above!';
+            songListEl.appendChild(emptyHint);
+            return;
+        }
 
         uniqueSongs.forEach(song => {
             const btn = document.createElement('button');
@@ -8906,6 +9495,9 @@ function initKeyboardShortcuts() {
     bindEnterToButton('musicSongYtUrl', 'btnMusicResolveYt');
     // AI Question box -> Enter asks AI (Shift+Enter adds newline)
     bindEnterToButton('langAiQuestion', 'btnAskLangAi', { multilinePlainEnter: true });
+    // Integrated Bilingual Translator -> Enter translates immediately (Shift+Enter adds newline)
+    bindEnterToButton('translatorInput', 'btnRunTranslator', { multilinePlainEnter: true });
+    bindEnterToButton('translatorContextInput', 'btnRunTranslator');
     // Lyrics study textarea -> Ctrl+Enter runs AI Lyrics Breakdown
     bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
     // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
