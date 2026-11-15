@@ -3796,7 +3796,8 @@ function initLanguageAiStudio() {
                     .map(l => {
                         const parts = [l.original];
                         if (l.romanization) parts.push(`[${l.romanization}]`);
-                        if (l.translationEs || l.translationEn) parts.push(`-> ${l.translationEs || l.translationEn}`);
+                        const trMeaning = l.meaning || l.translationEs || l.translationEn;
+                        if (trMeaning) parts.push(`-> ${trMeaning}`);
                         return parts.join(' ');
                     })
                     .filter(Boolean)
@@ -6118,7 +6119,75 @@ if (englishMusicStudioRoot) {
     const btnMusicSaveLyrics = document.getElementById('btnMusicSaveLyrics');
     const btnMusicCopyLyricsToStudy = document.getElementById('btnMusicCopyLyricsToStudy');
     const btnMusicTranslateLyricsSel = document.getElementById('btnMusicTranslateLyricsSel');
+    const btnMusicTranslateFullLyricsEs = document.getElementById('btnMusicTranslateFullLyricsEs');
     const songLyricsViewerEl = document.getElementById('musicSongLyricsViewer');
+
+    function extractExistingSpanishLyricsSection(rawLyrics) {
+        const clean = String(rawLyrics || '').replace(/\r\n/g, '\n');
+        const ytMatch = clean.match(/(?:^|\n)\[ES\]\s*\n([\s\S]*?)(?=\n(?:\[[A-Z]{2,}(?:\s*[—-][^\]]*)?\]|===\s*\[)|$)/i);
+        if (ytMatch && ytMatch[1] && ytMatch[1].trim().length >= 8) {
+            return { kind: 'youtube-es', text: ytMatch[1].trim() };
+        }
+        const aiMatch = clean.match(/(?:^|\n)===\s*\[ES\s*[—-]\s*Traducción[^\]]*\]\s*===\s*\n([\s\S]*?)(?=\n===\s*\[|$)/i);
+        if (aiMatch && aiMatch[1] && aiMatch[1].trim().length >= 8) {
+            return { kind: 'ai-es', text: aiMatch[1].trim() };
+        }
+        return null;
+    }
+
+    function mergeSpanishLyricsSection(rawLyrics, spanishText, headerLabel = '=== [ES — Traducción IA] ===') {
+        const base = String(rawLyrics || '')
+            .replace(/\r\n/g, '\n')
+            .replace(/(?:^|\n)===\s*\[ES\s*[—-]\s*Traducción[^\]]*\]\s*===\s*\n[\s\S]*?(?=\n===\s*\[|$)/gi, '\n')
+            .trim();
+        const esClean = String(spanishText || '').trim();
+        if (!esClean) return base;
+        return base ? `${base}\n\n${headerLabel}\n${esClean}` : `${headerLabel}\n${esClean}`;
+    }
+
+    async function guardarLetraYNotasEnWordPc(song, { lyricsStudy, extraNotes = '', scopeKey = 'english:music-lyrics-save' } = {}) {
+        const llaveTexto = await solicitarLlaveE2EEAsync();
+        if (!llaveTexto) return false;
+
+        const cleanLyrics = String(lyricsStudy || '').trim();
+        const studyVocab = (document.getElementById('musicStudyVocab')?.value || '').trim();
+        const studyPron = (document.getElementById('musicStudyPronunciation')?.value || '').trim();
+        const studyNotesVal = String(extraNotes || document.getElementById('musicStudyExtraNotes')?.value || '').trim();
+
+        const entry = {
+            category: 'music',
+            language: song.idioma || 'English',
+            song_title: song.titulo,
+            artists_display: formatSongArtistsSummary(song),
+            album_title: song.album_titulo || '',
+            album_type: RELEASE_TYPE_LABELS[song.album_tipo] || song.album_tipo || '',
+            release_year: song.album_anio ? String(song.album_anio) : '',
+            track_number: song.numero_pista || null,
+            yt_music_url: song.yt_music_url || song.youtube_url || '',
+            focus_summary: song.enfoque_corto || '',
+            lyrics_study: cleanLyrics,
+            ...(studyVocab ? { vocabulary_list: studyVocab } : {}),
+            ...(studyPron ? { pronunciation_notes: studyPron } : {}),
+            ...(studyNotesVal ? { notes: studyNotesVal } : {})
+        };
+        await submitMutationRequest({
+            url: '/api/send-english',
+            method: 'POST',
+            scopeKey,
+            signature: `lyrics:${song.id}:${cleanLyrics.length}:${studyNotesVal.length}`,
+            buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
+        });
+        musicState.sessionLyricsBySongId[song.id] = { lyrics: cleanLyrics, source: 'Word PC (E2EE)' };
+        song.word_sincronizado = 1;
+        const nextStatus = song.estado_estudio === 'to_study' ? 'in_progress' : (song.estado_estudio || 'in_progress');
+        await resilientFetchJson(`/api/english/music/songs/${song.id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
+        }, { timeoutMs: 8000 }).catch(() => {});
+        actualizarPanelLetraCancion(song, { forceSyncText: true });
+        return true;
+    }
 
     if (btnMusicExtractLyrics) {
         btnMusicExtractLyrics.addEventListener('click', ev => {
@@ -6150,38 +6219,12 @@ if (englishMusicStudioRoot) {
                 return;
             }
             runWithButtonLock(btnMusicSaveLyrics, async () => {
-                const llaveTexto = await solicitarLlaveE2EEAsync();
-                if (!llaveTexto) return;
                 try {
-                    const entry = {
-                        category: 'music',
-                        language: song.idioma || 'English',
-                        song_title: song.titulo,
-                        artists_display: formatSongArtistsSummary(song),
-                        album_title: song.album_titulo || '',
-                        album_type: RELEASE_TYPE_LABELS[song.album_tipo] || song.album_tipo || '',
-                        release_year: song.album_anio ? String(song.album_anio) : '',
-                        track_number: song.numero_pista || null,
-                        yt_music_url: song.yt_music_url || song.youtube_url || '',
-                        focus_summary: song.enfoque_corto || '',
-                        lyrics_study: nextLyrics
-                    };
-                    await submitMutationRequest({
-                        url: '/api/send-english',
-                        method: 'POST',
-                        scopeKey: 'english:music-lyrics-save',
-                        signature: `lyrics:${song.id}:${nextLyrics.length}`,
-                        buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
+                    const saved = await guardarLetraYNotasEnWordPc(song, {
+                        lyricsStudy: nextLyrics,
+                        scopeKey: 'english:music-lyrics-save'
                     });
-                    musicState.sessionLyricsBySongId[song.id] = { lyrics: nextLyrics, source: 'Word PC (E2EE)' };
-                    song.word_sincronizado = 1;
-                    const nextStatus = song.estado_estudio === 'to_study' ? 'in_progress' : (song.estado_estudio || 'in_progress');
-                    await resilientFetchJson(`/api/english/music/songs/${song.id}/status`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
-                    }, { timeoutMs: 8000 }).catch(() => {});
-                    actualizarPanelLetraCancion(song, { forceSyncText: true });
+                    if (!saved) return;
                     showToast('ok', musicState.ytdlpStatus?.pcOnline
                         ? 'Letra cifrada E2EE y enviada al instante a tu Word PC!'
                         : 'Letra cifrada E2EE en RAM EC2; se guardará en Word en cuanto conectes tu PC.');
@@ -6222,6 +6265,107 @@ if (englishMusicStudioRoot) {
             if (typeof openFloatingTranslator === 'function') {
                 openFloatingTranslator({ text: selectedText, toggle: false });
             }
+        });
+    }
+
+    if (btnMusicTranslateFullLyricsEs) {
+        btnMusicTranslateFullLyricsEs.addEventListener('click', ev => {
+            const song = getCancionSeleccionada();
+            if (!song || !songLyricsViewerEl) {
+                showToast('err', tUi('Select a song from the catalog first ("Study -> Word").', 'Selecciona primero una canción del catálogo ("Study -> Word").'));
+                return;
+            }
+            runWithButtonLock(btnMusicTranslateFullLyricsEs, async () => {
+                let rawLyrics = songLyricsViewerEl.value.trim();
+                if (!rawLyrics && (song.yt_music_url || song.youtube_url)) {
+                    await solicitarOExtraerLetraViaPc(song, { silent: false, forceExtract: false });
+                    rawLyrics = songLyricsViewerEl.value.trim();
+                }
+                if (!rawLyrics) {
+                    showToast('err', tUi('Load, extract, or paste the song lyrics first.', 'Primero extrae o pega la letra de la canción.'));
+                    songLyricsViewerEl.focus();
+                    return;
+                }
+
+                const hintEl = document.getElementById('musicLyricsStatusHint');
+                const extraNotesEl = document.getElementById('musicStudyExtraNotes');
+                const studyLyricsEl = document.getElementById('musicStudyLyrics');
+                const existingEs = extractExistingSpanishLyricsSection(rawLyrics);
+                const forceAiRefresh = Boolean(ev.shiftKey);
+
+                let spanishText = '';
+                let updatedLyrics = rawLyrics;
+                let sourceTag = 'gemini';
+                let usedGemini = false;
+
+                if (existingEs && existingEs.kind === 'youtube-es' && !forceAiRefresh) {
+                    spanishText = existingEs.text;
+                    sourceTag = 'youtube-es';
+                } else {
+                    const trResp = await resilientFetchJson('/api/english/music/translate-lyrics', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-ui-lang': typeof getUiLang === 'function' ? getUiLang() : 'es'
+                        },
+                        body: JSON.stringify({
+                            lyrics: rawLyrics.slice(0, 12000),
+                            songTitle: song.titulo || '',
+                            artistName: formatSongArtistsSummary(song),
+                            language: song.idioma || '',
+                            mode: 'auto',
+                            uiLang: typeof getUiLang === 'function' ? getUiLang() : 'es'
+                        })
+                    }, { timeoutMs: 36000 });
+
+                    spanishText = String(trResp?.spanishLyrics || trResp?.translatedText || '').trim();
+                    if (!spanishText) {
+                        throw new Error(tUi('Could not generate a Spanish translation for these lyrics.', 'No se pudo generar traducción al español para esta letra.'));
+                    }
+                    usedGemini = Boolean(trResp?.usedGemini);
+                    sourceTag = usedGemini ? 'gemini' : 'offline';
+                    const headerLabel = usedGemini ? '=== [ES — Traducción IA] ===' : '=== [ES — Traducción Local] ===';
+                    updatedLyrics = mergeSpanishLyricsSection(rawLyrics, spanishText, headerLabel);
+                    songLyricsViewerEl.value = updatedLyrics;
+                }
+
+                const noteBlock = `[Traducción ES — ${sourceTag === 'youtube-es' ? 'Subtítulos YouTube' : (usedGemini ? 'Gemini IA' : 'Modo Local')}]\n${spanishText}`;
+                if (extraNotesEl) {
+                    const prevNotes = extraNotesEl.value
+                        .replace(/\[Traducción ES — [^\]]+\]\n[\s\S]*$/i, '')
+                        .trim();
+                    extraNotesEl.value = (prevNotes ? `${prevNotes}\n\n${noteBlock}` : noteBlock).slice(0, 3000);
+                }
+                if (studyLyricsEl && !studyLyricsEl.value.trim()) {
+                    studyLyricsEl.value = updatedLyrics.slice(0, 12000);
+                }
+
+                const saved = await guardarLetraYNotasEnWordPc(song, {
+                    lyricsStudy: updatedLyrics,
+                    extraNotes: (extraNotesEl?.value || noteBlock).slice(0, 3000),
+                    scopeKey: 'english:music-lyrics-translate-save'
+                });
+
+                if (hintEl) {
+                    hintEl.textContent = saved
+                        ? tUi(
+                            `✅ Spanish translation (${sourceTag}) appended & queued E2EE to PC Word notes (Shift+Click forces AI refresh).`,
+                            `✅ Traducción al español (${sourceTag}) añadida y guardada cifrada E2EE en Notas / Word PC (Shift+Clic re-traduce con IA).`
+                        )
+                        : tUi(
+                            '⚠️ Translation added in viewer; unlock your E2EE key to sync it to PC Word.',
+                            '⚠️ Traducción lista en el visor; desbloquea tu llave E2EE para enviarla a Word PC.'
+                        );
+                }
+                showToast(
+                    'ok',
+                    sourceTag === 'youtube-es'
+                        ? tUi('YouTube [ES] subtitles saved to Word Notes (E2EE)!', '¡Subtítulos [ES] de YouTube guardados en Notas / Word (E2EE)!')
+                        : (usedGemini
+                            ? tUi('Full lyrics translated to Spanish with AI & saved to Word Notes!', '¡Letra traducida a español con IA y guardada en Notas / Word!')
+                            : tUi('Local Spanish gloss applied & saved to Word Notes (configure Gemini key in Settings for full AI).', 'Traducción local aplicada y guardada en Word (configura GEMINI_API_KEY en Ajustes para IA completa).'))
+                );
+            }, { loadingText: tUi('Translating lyrics to Spanish...', 'Traduciendo letra a español...') });
         });
     }
 
