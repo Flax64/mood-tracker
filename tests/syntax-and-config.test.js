@@ -94,11 +94,19 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         }
     });
 
-    it('verifica llaves balanceadas, spinners y tema oscuro en public/style.css', () => {
+    it('verifica llaves balanceadas, spinners, tema oscuro y responsividad de agenda en public/style.css', () => {
         const css = readText('public/style.css');
         assert.match(css, /\[data-theme=["']dark["']\]/);
         assert.match(css, /\.spinner-circle\b/);
         assert.match(css, /\.boot-screen\b/);
+        assert.match(css, /\.agenda-item-top\b/);
+        assert.match(css, /\.jira-status-select\s*\{[\s\S]*?max-width:\s*100%/);
+        assert.match(css, /\.jira-status-select\s*\{[\s\S]*?min-width:\s*0/);
+        assert.match(css, /\.agenda-cat-pill,\s*\.agenda-type-pill\s*\{[\s\S]*?white-space:\s*nowrap/);
+        assert.match(css, /\.agenda-cell\s*\{[\s\S]*?min-width:\s*0/);
+
+        const frontendJs = readText('public/frontend.js');
+        assert.match(frontendJs, /agenda-item-top/);
 
         const stripped = css
             .replace(/\/\*[\s\S]*?\*\//g, '')

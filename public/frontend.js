@@ -4384,6 +4384,7 @@ const agendaState = {
     weekOffset: 0,
     showWeekend: true,
     layoutMode: window.innerWidth <= 820 ? 'day' : 'grid',
+    manualLayoutOverride: false,
     selectedDate: formatLocalDate(new Date()),
     filterCategory: 'all',
     filterType: 'all',
@@ -4464,6 +4465,12 @@ function crearElementoActividad(item) {
     checkBtn.setAttribute('aria-label', checkLabels[estado] || 'Toggle workflow status');
     checkBtn.textContent = estado === 'done' ? '✓' : estado === 'in_progress' ? '◐' : '';
 
+    const topRow = document.createElement('div');
+    topRow.className = 'agenda-item-top';
+
+    const topLeft = document.createElement('div');
+    topLeft.className = 'agenda-item-top-left';
+
     const content = document.createElement('div');
     content.className = 'agenda-item-content';
 
@@ -4482,7 +4489,7 @@ function crearElementoActividad(item) {
     typePill.className = 'agenda-type-pill';
     typePill.textContent = tipo === 'tarea' ? 'Task' : 'Event';
 
-    metaRow.append(timePill, catPill, typePill);
+    metaRow.append(catPill, typePill);
 
     const parsedParts = splitAgendaActividadClient(item.actividad, item.titulo, item.descripcion);
 
@@ -4545,7 +4552,9 @@ function crearElementoActividad(item) {
     delBtn.addEventListener('click', () => eliminarAgendaItem(item.id, uiRefs));
 
     actions.append(editBtn, delBtn);
-    row.append(checkBtn, content, actions);
+    topLeft.append(checkBtn, timePill);
+    topRow.append(topLeft, actions);
+    row.append(topRow, content);
     return row;
 }
 
@@ -5040,9 +5049,28 @@ if (agendaForm) {
 
     if (btnToggleLayout) {
         btnToggleLayout.addEventListener('click', () => {
+            agendaState.manualLayoutOverride = true;
             agendaState.layoutMode = agendaState.layoutMode === 'day' ? 'grid' : 'day';
             renderAgendaBoard();
         });
+    }
+
+    if (window.matchMedia) {
+        const agendaMq = window.matchMedia('(max-width: 820px)');
+        const onAgendaViewportChange = (ev) => {
+            const pref = currentSettings && currentSettings.defaultAgendaLayout;
+            if (agendaState.manualLayoutOverride || pref === 'grid' || pref === 'day') return;
+            const target = ev.matches ? 'day' : 'grid';
+            if (agendaState.layoutMode !== target) {
+                agendaState.layoutMode = target;
+                renderAgendaBoard();
+            }
+        };
+        if (typeof agendaMq.addEventListener === 'function') {
+            agendaMq.addEventListener('change', onAgendaViewportChange);
+        } else if (typeof agendaMq.addListener === 'function') {
+            agendaMq.addListener(onAgendaViewportChange);
+        }
     }
 
     document.querySelectorAll('#agendaCategoryFilters .agenda-filter-pill[data-agenda-cat]').forEach(btn => {
