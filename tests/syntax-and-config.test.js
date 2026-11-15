@@ -72,6 +72,7 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         }
 
         const serverJs = readText('server.js');
+        assert.match(serverJs, /Permissions-Policy['"],\s*['"]geolocation=\(self\)/);
         for (const fnName of [
             'preventDuplicateSubmit',
             'createRateLimiter',
@@ -249,7 +250,9 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="view-crisis"',
             'id="crisisForm"',
             'id="resumenCrisisList"',
-            'id="musicRepertoireNavigator"'
+            'id="musicRepertoireNavigator"',
+            'id="musicEntityEditModal"',
+            'id="quickLocationModal"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
@@ -267,7 +270,9 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.english-row-2',
             '.select-input',
             '.tunnel-pill',
-            '.lang-ai-panel'
+            '.lang-ai-panel',
+            '.btn-mini-edit',
+            '.quick-loc-presets'
         ]) {
             assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }

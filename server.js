@@ -36,7 +36,7 @@ app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(), camera=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
@@ -2380,6 +2380,7 @@ function parseCoordinatesFromInput(input = {}) {
     if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && typeof input.mapsUrl === 'string' && input.mapsUrl.trim()) {
         const rawUrl = input.mapsUrl.trim();
         const atMatch = rawUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+                        rawUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ||
                         rawUrl.match(/[?&](?:q|ll|destination|origin)=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/) ||
                         rawUrl.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
         if (atMatch) {
@@ -2747,7 +2748,9 @@ function sanitizeAcademicPlanner(rawPlanner = {}, basePlanner = getDefaultAcadem
             home: sanitizeLocationObject(src.locations?.home, prev.locations?.home || def.locations.home),
             university: sanitizeLocationObject(src.locations?.university, prev.locations?.university || def.locations.university),
             current: {
-                label: 'Ubicación actual',
+                label: typeof src.locations?.current?.label === 'string' && src.locations.current.label.trim()
+                    ? src.locations.current.label.trim().slice(0, 80)
+                    : (prev.locations?.current?.label || 'Ubicación actual'),
                 lat: null,
                 lng: null,
                 updatedAt: src.locations?.current?.updatedAt || prev.locations?.current?.updatedAt || null,
@@ -3207,7 +3210,7 @@ function resolveUserOriginCoords(planner, isFirstClassOrShift = true) {
     };
 
     if (curr) {
-        return { coords: curr, sourceLabel: 'tu ubicación GPS actual' };
+        return { coords: curr, sourceLabel: planner?.locations?.current?.label || 'tu ubicación GPS actual' };
     }
     if (isFirstClassOrShift && home) {
         return { coords: home, sourceLabel: planner?.locations?.home?.label || 'tu Casa' };
@@ -4050,15 +4053,53 @@ app.put('/api/planner', apiWriteLimiter.middleware, requireAdmin, requireNonEmpt
     }
 });
 
+async function resolveGoogleMapsShortLinkIfNeeded(rawUrl = '') {
+    const clean = String(rawUrl || '').trim();
+    if (!clean || !/^https?:\/\//i.test(clean)) return clean;
+    try {
+        let currentUrl = new URL(clean);
+        for (let hop = 0; hop < 3; hop++) {
+            const host = currentUrl.hostname.toLowerCase();
+            if (!['maps.app.goo.gl', 'goo.gl'].includes(host) || currentUrl.protocol !== 'https:') {
+                return currentUrl.toString();
+            }
+            const resp = await fetch(currentUrl.toString(), {
+                method: 'HEAD',
+                redirect: 'manual',
+                signal: AbortSignal.timeout(4000)
+            });
+            const loc = resp.headers.get('location');
+            if (!loc) return currentUrl.toString();
+            const nextUrl = new URL(loc, currentUrl);
+            if (nextUrl.protocol !== 'https:') return clean;
+            currentUrl = nextUrl;
+            if (parseCoordinatesFromInput({ mapsUrl: currentUrl.toString() })) {
+                return currentUrl.toString();
+            }
+        }
+        return currentUrl.toString();
+    } catch (_err) {
+        return clean;
+    }
+}
+
 app.post('/api/planner/location', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
     try {
         const current = await loadUserSettings(req.user.id);
         const planner = sanitizeAcademicPlanner(current.academicPlanner);
         const target = String(req.body.target || 'current').trim();
-        const coords = parseCoordinatesFromInput(req.body);
+        let coords = parseCoordinatesFromInput(req.body);
+        if (!coords && typeof req.body.mapsUrl === 'string' && req.body.mapsUrl.trim()) {
+            const expandedUrl = await resolveGoogleMapsShortLinkIfNeeded(req.body.mapsUrl);
+            coords = parseCoordinatesFromInput({ ...req.body, mapsUrl: expandedUrl });
+        }
         if (!coords) {
             return res.status(400).send('Valid latitude/longitude or a Google Maps link with coordinates is required.');
         }
+
+        const customLabel = typeof req.body.label === 'string' && req.body.label.trim()
+            ? req.body.label.trim().slice(0, 80)
+            : '';
 
         if (target === 'home') {
             planner.locations.home = sanitizeLocationObject({ ...planner.locations.home, ...req.body, ...coords }, planner.locations.home);
@@ -4070,7 +4111,7 @@ app.post('/api/planner/location', apiWriteLimiter.middleware, requireAdmin, requ
             planner.work.location = sanitizeLocationObject({ ...planner.work.location, ...req.body, ...coords }, planner.work.location);
         } else {
             planner.locations.current = {
-                label: 'Ubicación GPS actual',
+                label: customLabel || 'Ubicación GPS actual',
                 lat: coords.lat,
                 lng: coords.lng,
                 updatedAt: new Date().toISOString(),
@@ -4533,18 +4574,26 @@ function parseCollaboratorsInput(rawCollaborators, mainArtistName) {
     return result;
 }
 
-async function upsertMusicaArtista(usuarioId, nombre, tipoArtista = 'solo') {
+async function upsertMusicaArtista(usuarioId, nombre, tipoArtista = 'solo', { updateExisting = false } = {}) {
     const cleanName = String(nombre || '').trim().replace(/\s+/g, ' ').slice(0, 140);
     const norm = normalizarTextoCatalogo(cleanName);
     if (!norm) return null;
 
+    const tipo = ['solo', 'group', 'duo', 'collab_project'].includes(tipoArtista) ? tipoArtista : 'solo';
     const existing = await dbQueryAsync(
         'SELECT id FROM MusicaArtistas WHERE usuario_id = ? AND nombre_normalizado = ? LIMIT 1',
         [usuarioId, norm]
     );
-    if (existing.length) return existing[0].id;
+    if (existing.length) {
+        if (updateExisting) {
+            await dbQueryAsync(
+                'UPDATE MusicaArtistas SET nombre = ?, tipo_artista = ? WHERE id = ? AND usuario_id = ?',
+                [cleanName, tipo, existing[0].id, usuarioId]
+            );
+        }
+        return existing[0].id;
+    }
 
-    const tipo = ['solo', 'group', 'duo', 'collab_project'].includes(tipoArtista) ? tipoArtista : 'solo';
     const inserted = await dbQueryAsync(
         'INSERT INTO MusicaArtistas (usuario_id, nombre, nombre_normalizado, tipo_artista) VALUES (?, ?, ?, ?)',
         [usuarioId, cleanName, norm, tipo]
@@ -4898,7 +4947,7 @@ app.post('/api/english/music/songs', apiWriteLimiter.middleware, requireAdmin, r
     const uid = req.user.id;
 
     try {
-        const mainArtistId = await upsertMusicaArtista(uid, d.mainArtist, d.artistType);
+        const mainArtistId = await upsertMusicaArtista(uid, d.mainArtist, d.artistType, { updateExisting: true });
         const albumId = await upsertMusicaAlbum({
             usuarioId: uid,
             albumTitle: d.albumTitle,
@@ -4956,7 +5005,7 @@ app.put('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin
         );
         if (!existing.length) return res.status(404).send('Song not found.');
 
-        const mainArtistId = await upsertMusicaArtista(uid, d.mainArtist, d.artistType);
+        const mainArtistId = await upsertMusicaArtista(uid, d.mainArtist, d.artistType, { updateExisting: true });
         const albumId = await upsertMusicaAlbum({
             usuarioId: uid,
             albumTitle: d.albumTitle,
@@ -5050,6 +5099,77 @@ app.delete('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAd
     } catch (err) {
         console.error(err);
         res.status(500).send('Error deleting song.');
+    }
+});
+
+app.patch('/api/english/music/artists/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    const artistId = parsePositiveInt(req.params.id);
+    if (!artistId) return res.status(400).send('Invalid artist ID.');
+
+    const cleanName = String(req.body.nombre || '').trim().replace(/\s+/g, ' ').slice(0, 140);
+    const norm = normalizarTextoCatalogo(cleanName);
+    if (!norm) return res.status(400).send('Artist name is required.');
+
+    const tipo = ['solo', 'group', 'duo', 'collab_project'].includes(req.body.tipoArtista)
+        ? req.body.tipoArtista
+        : 'group';
+    const notasCortas = String(req.body.notasCortas || '').trim().slice(0, 255) || null;
+    const uid = req.user.id;
+
+    try {
+        const existing = await dbQueryAsync(
+            'SELECT id FROM MusicaArtistas WHERE id = ? AND usuario_id = ? LIMIT 1',
+            [artistId, uid]
+        );
+        if (!existing.length) return res.status(404).send('Artist not found.');
+
+        const conflict = await dbQueryAsync(
+            'SELECT id FROM MusicaArtistas WHERE usuario_id = ? AND nombre_normalizado = ? AND id <> ? LIMIT 1',
+            [uid, norm, artistId]
+        );
+        if (conflict.length) {
+            return res.status(409).send('Another artist with that name already exists in your catalog.');
+        }
+
+        await dbQueryAsync(
+            'UPDATE MusicaArtistas SET nombre = ?, nombre_normalizado = ?, tipo_artista = ?, notas_cortas = ? WHERE id = ? AND usuario_id = ?',
+            [cleanName, norm, tipo, notasCortas, artistId, uid]
+        );
+        res.json({ message: 'Artist updated successfully.', id: artistId, nombre: cleanName, tipo_artista: tipo, notas_cortas: notasCortas });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating artist.');
+    }
+});
+
+app.patch('/api/english/music/albums/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    const albumId = parsePositiveInt(req.params.id);
+    if (!albumId) return res.status(400).send('Invalid album ID.');
+
+    const cleanTitle = String(req.body.titulo || '').trim().replace(/\s+/g, ' ').slice(0, 180);
+    const norm = normalizarTextoCatalogo(cleanTitle);
+    if (!norm) return res.status(400).send('Album title is required.');
+
+    const tipo = MUSIC_RELEASE_TYPES.has(req.body.tipoLanzamiento) ? req.body.tipoLanzamiento : 'album';
+    const rawYear = req.body.anio !== undefined && req.body.anio !== '' && req.body.anio !== null ? Number(req.body.anio) : null;
+    const anio = rawYear && Number.isInteger(rawYear) && rawYear >= 1950 && rawYear <= 2100 ? rawYear : null;
+    const uid = req.user.id;
+
+    try {
+        const existing = await dbQueryAsync(
+            'SELECT id FROM MusicaAlbumes WHERE id = ? AND usuario_id = ? LIMIT 1',
+            [albumId, uid]
+        );
+        if (!existing.length) return res.status(404).send('Album not found.');
+
+        await dbQueryAsync(
+            'UPDATE MusicaAlbumes SET titulo = ?, titulo_normalizado = ?, tipo_lanzamiento = ?, anio = ? WHERE id = ? AND usuario_id = ?',
+            [cleanTitle, norm, tipo, anio, albumId, uid]
+        );
+        res.json({ message: 'Album updated successfully.', id: albumId, titulo: cleanTitle, tipo_lanzamiento: tipo, anio });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating album.');
     }
 });
 

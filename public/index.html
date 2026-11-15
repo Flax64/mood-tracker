@@ -321,7 +321,8 @@
                     <span class="sidebar-status-text" id="sidebarMomentoActual">Moment: --</span>
                 </div>
                 <div class="sidebar-tunnel-row" id="sidebarTunnelBadge" title="Simulated HTTPS: X25519 + AES-256-CTR + HMAC-SHA256">
-                    <span>🔐 Wire: Connecting...</span>
+                    <span class="tunnel-icon" aria-hidden="true">🔐</span>
+                    <span class="tunnel-label">Wire: Connecting...</span>
                 </div>
                 <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
                 <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Toggle theme">
@@ -2497,6 +2498,87 @@
                 <button type="button" class="btn-cancel" id="btnConfirmCancel">Cancel</button>
                 <button type="button" class="btn-submit btn-modal-save" id="btnConfirmAccept">Confirm</button>
             </div>
+        </div>
+    </div>
+
+    <!-- In-app Modal: Edit Artist or Album -->
+    <div class="modal-overlay" id="musicEntityEditModal" hidden aria-modal="true" role="dialog" aria-labelledby="musicEntityEditTitle">
+        <div class="modal-card modal-card-compact">
+            <div class="modal-header">
+                <h2 id="musicEntityEditTitle">Edit Artist</h2>
+                <button type="button" class="modal-close-btn" id="btnCloseMusicEntityModal" aria-label="Close modal">✕</button>
+            </div>
+            <form id="musicEntityEditForm" autocomplete="off">
+                <input type="hidden" id="musicEntityKind" value="artist">
+                <input type="hidden" id="musicEntityId" value="">
+                <div class="form-group">
+                    <label for="musicEntityName" id="musicEntityNameLabel">Artist / Group Name *</label>
+                    <input type="text" id="musicEntityName" maxlength="180" required placeholder="e.g. BABYMONSTER">
+                </div>
+                <div class="form-row-2" id="musicEntityMetaRow">
+                    <div class="form-group">
+                        <label for="musicEntityType" id="musicEntityTypeLabel">Artist Format</label>
+                        <select id="musicEntityType" class="select-input"></select>
+                    </div>
+                    <div class="form-group" id="musicEntityYearGroup" hidden>
+                        <label for="musicEntityYear">Release Year</label>
+                        <input type="number" id="musicEntityYear" min="1950" max="2100" placeholder="e.g. 2024">
+                    </div>
+                </div>
+                <div class="form-group" id="musicEntityNotesGroup">
+                    <label for="musicEntityNotes">Short Notes (optional)</label>
+                    <input type="text" id="musicEntityNotes" maxlength="255" placeholder="e.g. K-Pop group · pronunciation practice focus">
+                </div>
+                <div id="musicEntityEditBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" id="btnCancelMusicEntityModal">Cancel</button>
+                    <button type="submit" class="btn-submit btn-modal-save" id="btnSaveMusicEntityModal">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- In-app Modal: Quick Location / GPS Over HTTP Assistant -->
+    <div class="modal-overlay" id="quickLocationModal" hidden aria-modal="true" role="dialog" aria-labelledby="quickLocationModalTitle">
+        <div class="modal-card modal-card-compact">
+            <div class="modal-header">
+                <h2 id="quickLocationModalTitle">📍 Set Location &amp; Recalculate Commute</h2>
+                <button type="button" class="modal-close-btn" id="btnCloseQuickLocModal" aria-label="Close modal">✕</button>
+            </div>
+            <div id="quickLocationHttpNotice" class="quick-loc-hint-box" hidden>
+                <strong>🔒 Why Browser GPS Was Blocked:</strong> Modern browsers (Edge, Chrome, OPPO A79) restrict <code>navigator.geolocation</code> to <code>https://</code> or <code>localhost</code>. Even with our X25519 encrypted API tunnel, the address bar uses plain <code>http://</code>. Use <strong>1-Tap Presets</strong> or paste a <strong>Google Maps link</strong> below:
+            </div>
+
+            <div class="quick-loc-section-label">1-Tap Quick Locations:</div>
+            <div id="quickLocationPresets" class="quick-loc-presets"></div>
+
+            <form id="quickLocationForm" autocomplete="off" style="margin-top: 12px;">
+                <input type="hidden" id="quickLocationTarget" value="current">
+                <div class="form-group">
+                    <label for="quickLocationInput">Or paste Google Maps link / coordinates (lat, lng):</label>
+                    <input type="text" id="quickLocationInput" maxlength="500"
+                        placeholder="e.g. 25.443706, -100.993845 or https://maps.app.goo.gl/...">
+                    <small class="form-hint">In Google Maps (PC or OPPO A79): tap a spot → Share / Copy link → paste here.</small>
+                </div>
+                <div id="quickLocationBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+                <div class="modal-actions" style="justify-content: space-between; flex-wrap: wrap;">
+                    <a href="https://www.google.com/maps/@25.443706,-100.993845,14z" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-small" style="text-decoration:none;display:inline-flex;align-items:center;">🗺️ Open Google Maps</a>
+                    <div style="display:flex;gap:8px;">
+                        <button type="button" class="btn-cancel" id="btnCancelQuickLocModal">Cancel</button>
+                        <button type="submit" class="btn-submit btn-modal-save" id="btnApplyQuickLocModal">Apply Location</button>
+                    </div>
+                </div>
+            </form>
+
+            <details class="quick-loc-details">
+                <summary>⚙️ Optional: Unlock Hardware Browser GPS on Edge / Chrome HTTP</summary>
+                <p class="form-hint" style="margin-top:6px;">
+                    Open <code>edge://flags/#unsafely-treat-insecure-origin-as-secure</code> (PC) or <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> (Android), add <code id="quickLocationOriginCode" class="quick-loc-origin-code">http://...</code>, set to <strong>Enabled</strong> and relaunch.
+                </p>
+                <div style="margin-top:8px;">
+                    <button type="button" class="agenda-chip-btn" id="btnRetryBrowserGps">🛰️ Retry Browser Hardware GPS</button>
+                </div>
+            </details>
         </div>
     </div>
 

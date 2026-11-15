@@ -355,10 +355,46 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: 1 });
                 }
 
+                if (normalized.startsWith('SELECT id FROM MusicaArtistas WHERE id = ? AND usuario_id = ?')) {
+                    const [artistId, uid] = params;
+                    const match = musicArtists.find((a) => a.id === Number(artistId) && a.usuario_id === Number(uid));
+                    return finish(null, match ? [{ id: match.id }] : []);
+                }
+
+                if (normalized.startsWith('SELECT id FROM MusicaArtistas WHERE usuario_id = ? AND nombre_normalizado = ? AND id <> ?')) {
+                    const [uid, norm, excludeId] = params;
+                    const match = musicArtists.find(
+                        (a) => a.usuario_id === Number(uid) && a.nombre_normalizado === norm && a.id !== Number(excludeId)
+                    );
+                    return finish(null, match ? [{ id: match.id }] : []);
+                }
+
                 if (normalized.startsWith('SELECT id FROM MusicaArtistas WHERE usuario_id = ? AND nombre_normalizado = ?')) {
                     const [uid, norm] = params;
                     const match = musicArtists.find((a) => a.usuario_id === Number(uid) && a.nombre_normalizado === norm);
                     return finish(null, match ? [{ id: match.id }] : []);
+                }
+
+                if (normalized.startsWith('UPDATE MusicaArtistas SET nombre = ?, tipo_artista = ? WHERE id = ? AND usuario_id = ?')) {
+                    const [nombre, tipo, artistId, uid] = params;
+                    const artist = musicArtists.find((a) => a.id === Number(artistId) && a.usuario_id === Number(uid));
+                    if (artist) {
+                        artist.nombre = nombre;
+                        artist.tipo_artista = tipo;
+                    }
+                    return finish(null, { affectedRows: artist ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('UPDATE MusicaArtistas SET nombre = ?, nombre_normalizado = ?, tipo_artista = ?, notas_cortas = ? WHERE id = ? AND usuario_id = ?')) {
+                    const [nombre, norm, tipo, notasCortas, artistId, uid] = params;
+                    const artist = musicArtists.find((a) => a.id === Number(artistId) && a.usuario_id === Number(uid));
+                    if (artist) {
+                        artist.nombre = nombre;
+                        artist.nombre_normalizado = norm;
+                        artist.tipo_artista = tipo;
+                        artist.notas_cortas = notasCortas;
+                    }
+                    return finish(null, { affectedRows: artist ? 1 : 0 });
                 }
 
                 if (normalized.startsWith('INSERT INTO MusicaArtistas')) {
@@ -374,6 +410,12 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         creado_en: '2026-11-14 16:00:00'
                     });
                     return finish(null, { insertId: id });
+                }
+
+                if (normalized.startsWith('SELECT id FROM MusicaAlbumes WHERE id = ? AND usuario_id = ?')) {
+                    const [albumId, uid] = params;
+                    const match = musicAlbums.find((al) => al.id === Number(albumId) && al.usuario_id === Number(uid));
+                    return finish(null, match ? [{ id: match.id }] : []);
                 }
 
                 if (normalized.startsWith('SELECT id FROM MusicaAlbumes WHERE usuario_id = ? AND titulo_normalizado = ?')) {
@@ -393,6 +435,18 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     if (alb) {
                         alb.tipo_lanzamiento = tipo;
                         if (anio !== null && anio !== undefined) alb.anio = anio;
+                    }
+                    return finish(null, { affectedRows: alb ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('UPDATE MusicaAlbumes SET titulo = ?, titulo_normalizado = ?, tipo_lanzamiento = ?, anio = ? WHERE id = ? AND usuario_id = ?')) {
+                    const [titulo, norm, tipo, anio, albumId, uid] = params;
+                    const alb = musicAlbums.find((a) => a.id === Number(albumId) && a.usuario_id === Number(uid));
+                    if (alb) {
+                        alb.titulo = titulo;
+                        alb.titulo_normalizado = norm;
+                        alb.tipo_lanzamiento = tipo;
+                        alb.anio = anio;
                     }
                     return finish(null, { affectedRows: alb ? 1 : 0 });
                 }
@@ -648,6 +702,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(res.headers['x-content-type-options'], 'nosniff');
         assert.strictEqual(res.headers['x-frame-options'], 'DENY');
         assert.strictEqual(res.headers['referrer-policy'], 'strict-origin-when-cross-origin');
+        assert.strictEqual(res.headers['permissions-policy'], 'geolocation=(self), microphone=(), camera=()');
         assert.strictEqual(res.headers['cross-origin-opener-policy'], 'same-origin');
         assert.strictEqual(res.headers['cross-origin-resource-policy'], 'same-origin');
         assert.strictEqual(res.headers['x-permitted-cross-domain-policies'], 'none');
@@ -1769,9 +1824,22 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         });
         assert.strictEqual(nearLocRes.status, 200);
         const nearData = JSON.parse(nearLocRes.body);
+        assert.strictEqual(nearData.planner.locations.current.label, 'En el Tec de Saltillo');
         const nearPrincipal = nearData.commutes.find((c) => c.campusKey === 'principal');
         assert.strictEqual(nearPrincipal.isNearCampus, true);
         assert.strictEqual(nearPrincipal.recommendedLeadMinutes, 10, 'Si ya está en o cerca del ITS debe notificar 10 minutos antes');
+
+        const embedMapsRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/location',
+            headers: { Cookie: adminCookie },
+            body: {
+                mapsUrl: 'https://www.google.com/maps/place/ITS/@25.443706,-100.993845,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d25.44395!4d-100.98965',
+                label: 'Campus Boillot'
+            }
+        });
+        assert.strictEqual(embedMapsRes.status, 200);
 
         // 5. Agenda: separación de título y descripción + auto-selección de bloque del día a partir de la hora
         const insertSeparatedRes = await request({
@@ -2118,6 +2186,134 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             headers: { Cookie: adminCookie }
         });
         assert.strictEqual(delCrisisRes.status, 200);
+    });
+
+    it('permite editar canciones existentes, artistas y álbumes en el catálogo musical con validación de duplicados', async () => {
+        // 1. Crear canción con artista y álbum únicos para esta prueba
+        const createFirst = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'Strategy',
+                mainArtist: 'twice',
+                artistType: 'group',
+                albumTitle: 'STRATEGY',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                idioma: 'English + Korean (K-Pop)'
+            }
+        });
+        assert.strictEqual(createFirst.status, 201);
+        const createdFirst = JSON.parse(createFirst.body);
+
+        // Crear un segundo artista para probar detección 409 de duplicados al renombrar
+        const createSecond = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'ABCD',
+                mainArtist: 'NAYEON',
+                artistType: 'solo',
+                albumTitle: 'NA',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                idioma: 'English + Korean (K-Pop)'
+            }
+        });
+        assert.strictEqual(createSecond.status, 201);
+
+        // 2. PUT /api/english/music/songs/:id actualiza metadatos de la canción y formato/capitalización del artista
+        const updateSongRes = await request({
+            port,
+            method: 'PUT',
+            reqPath: `/api/english/music/songs/${createdFirst.songId}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'Strategy (Extended Ver.)',
+                mainArtist: 'TWICE',
+                artistType: 'duo',
+                albumTitle: 'STRATEGY',
+                albumType: 'mini_album',
+                albumYear: 2024,
+                idioma: 'English + Korean (K-Pop)',
+                estadoEstudio: 'in_progress',
+                enfoqueCorto: 'Updated chorus idioms'
+            }
+        });
+        assert.strictEqual(updateSongRes.status, 200);
+
+        const catalogAfterSongEdit = await request({
+            port,
+            reqPath: '/api/english/music/catalog',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(catalogAfterSongEdit.status, 200);
+        const catJson1 = JSON.parse(catalogAfterSongEdit.body);
+        const targetArtist = catJson1.artists.find((a) => a.nombre === 'TWICE');
+        const targetAlbum = catJson1.albums.find((al) => al.titulo === 'STRATEGY');
+        const targetSong = catJson1.songs.find((s) => s.id === createdFirst.songId);
+        assert.ok(targetArtist, 'Debe actualizar capitalización del artista existente');
+        assert.strictEqual(targetArtist.tipo_artista, 'duo');
+        assert.ok(targetAlbum);
+        assert.strictEqual(targetSong.titulo, 'Strategy (Extended Ver.)');
+        assert.strictEqual(targetSong.estado_estudio, 'in_progress');
+
+        // 3. PATCH /api/english/music/artists/:id rechaza renombrado duplicado (409) y guarda edición válida
+        const conflictArtistRes = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/english/music/artists/${targetArtist.id}`,
+            headers: { Cookie: adminCookie },
+            body: { nombre: 'NAYEON', tipoArtista: 'group' }
+        });
+        assert.strictEqual(conflictArtistRes.status, 409);
+
+        const patchArtistRes = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/english/music/artists/${targetArtist.id}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                nombre: 'TWICE Official',
+                tipoArtista: 'group',
+                notasCortas: '9-member JYP girl group'
+            }
+        });
+        assert.strictEqual(patchArtistRes.status, 200);
+
+        // 4. PATCH /api/english/music/albums/:id edita título, tipo y año de lanzamiento
+        const patchAlbumRes = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/english/music/albums/${targetAlbum.id}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'STRATEGY (14th Mini Album)',
+                tipoLanzamiento: 'mini_album',
+                anio: 2025
+            }
+        });
+        assert.strictEqual(patchAlbumRes.status, 200);
+
+        const finalCatalog = await request({
+            port,
+            reqPath: '/api/english/music/catalog',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(finalCatalog.status, 200);
+        const finalJson = JSON.parse(finalCatalog.body);
+        const updatedArtist = finalJson.artists.find((a) => a.id === targetArtist.id);
+        const updatedSong = finalJson.songs.find((s) => s.id === createdFirst.songId);
+        assert.strictEqual(updatedArtist.nombre, 'TWICE Official');
+        assert.strictEqual(updatedArtist.tipo_artista, 'group');
+        assert.strictEqual(updatedArtist.notas_cortas, '9-member JYP girl group');
+        assert.strictEqual(updatedSong.album_titulo, 'STRATEGY (14th Mini Album)');
+        assert.strictEqual(updatedSong.album_anio, 2025);
+        assert.ok(updatedSong.artists.some((a) => a.nombre === 'TWICE Official'));
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
