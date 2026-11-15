@@ -804,7 +804,19 @@ function updateDesktopSidebarState(collapsed) {
     localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
 }
 
-function showView(viewName, updateHash = true) {
+function formatHoursMinutes(decimalHours, { compact = false } = {}) {
+    const val = parseFloat(decimalHours);
+    const totalMinutes = Number.isFinite(val) && val > 0 ? Math.round(val * 60) : 0;
+    const hrs = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (compact) {
+        return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+    }
+    const hrLabel = hrs === 1 ? 'hr' : 'hrs';
+    return `${hrs} ${hrLabel} ${mins} min`;
+}
+
+function showView(viewName, updateHash = true, options = {}) {
     let targetView = VALID_VIEWS.has(viewName) ? viewName : 'inicio';
 
     // Read-only psychiatrist accounts can only view Weekly Summary
@@ -838,8 +850,10 @@ function showView(viewName, updateHash = true) {
     } else if (targetView === 'mood') {
         const fechaInput = document.getElementById('fecha');
         const momentoSelect = document.getElementById('momento');
-        if (fechaInput) fechaInput.value = formatLocalDate(new Date());
-        if (momentoSelect) momentoSelect.value = getMomentoInfo(new Date().getHours()).moodKey;
+        if (!options.preserveTarget) {
+            if (fechaInput) fechaInput.value = formatLocalDate(new Date());
+            if (momentoSelect) momentoSelect.value = getMomentoInfo(new Date().getHours()).moodKey;
+        }
         if (typeof cargarMoodsHoy === 'function') cargarMoodsHoy();
     } else if (targetView === 'sueno') {
         if (typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
@@ -863,6 +877,91 @@ function showView(viewName, updateHash = true) {
     if (currentUser && currentUser.rol === 'admin') {
         cargarRecordatoriosActivos();
     }
+}
+
+function openReminderTarget(reminder = {}) {
+    if (!reminder || typeof reminder !== 'object') return;
+    const targetView = VALID_VIEWS.has(reminder.targetView) ? reminder.targetView : 'inicio';
+    const targetDate = reminder.targetDate || formatLocalDate(new Date());
+    const targetMoment = reminder.targetMoment || '';
+
+    if (targetView === 'mood') {
+        const fechaInput = document.getElementById('fecha');
+        const momentoSelect = document.getElementById('momento');
+        if (fechaInput) fechaInput.value = targetDate;
+        if (momentoSelect) {
+            const desiredMoment = targetMoment || getMomentoInfo(new Date().getHours()).moodKey;
+            momentoSelect.value = desiredMoment;
+        }
+        showView('mood', true, { preserveTarget: true });
+        const momentLabel = targetMoment === 'Madrugada' ? 'Late Night' : (targetMoment || 'current block');
+        const pendingExtra = Array.isArray(reminder.pendingMoments) && reminder.pendingMoments.length > 1
+            ? ` (Pending blocks: ${reminder.pendingMoments.map(m => m === 'Madrugada' ? 'Late Night' : m).join(' → ')})`
+            : '';
+        setInlineBanner(
+            'moodStatusBanner',
+            'info',
+            `Selected ${targetDate} · ${momentLabel}${pendingExtra}. Pick your mood below and click Save!`
+        );
+        const firstMoodBtn = document.querySelector('#moodForm .mood-btn');
+        if (firstMoodBtn) firstMoodBtn.focus({ preventScroll: true });
+        return;
+    }
+
+    if (targetView === 'sueno') {
+        showView('sueno', true, { preserveTarget: true });
+        setInlineBanner(
+            'sleepStatusBanner',
+            'info',
+            `Selected ${targetDate} sleep check-in — enter your bedtime, wake-up time, and rest quality.`
+        );
+        const sleepInput = document.getElementById('sleepTime');
+        if (sleepInput) setTimeout(() => sleepInput.focus(), 60);
+        return;
+    }
+
+    if (targetView === 'agenda') {
+        if (reminder.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(reminder.targetDate)) {
+            if (typeof agendaSelectedDayStr !== 'undefined') {
+                agendaSelectedDayStr = reminder.targetDate;
+            }
+            if (typeof agendaCurrentMonday !== 'undefined' && typeof getMonday === 'function') {
+                agendaCurrentMonday = getMonday(new Date(`${reminder.targetDate}T12:00:00`));
+            }
+            const fEl = document.getElementById('agendaFecha');
+            if (fEl) fEl.value = reminder.targetDate;
+        }
+        if (reminder.targetTime) {
+            const hEl = document.getElementById('agendaHora');
+            if (hEl) hEl.value = reminder.targetTime;
+        }
+        if (reminder.targetBlock) {
+            const bEl = document.getElementById('agendaBloque');
+            if (bEl) bEl.value = reminder.targetBlock;
+        }
+        showView('agenda', true, { preserveTarget: true });
+        if (reminder.refId) {
+            setTimeout(() => {
+                const cardEl = document.querySelector(`[data-agenda-id="${reminder.refId}"]`);
+                if (cardEl && typeof cardEl.scrollIntoView === 'function') {
+                    cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 250);
+        }
+        return;
+    }
+
+    if (targetView === 'horario') {
+        showView('horario', true, { preserveTarget: true });
+        const tabKey = reminder.targetTab || (reminder.type === 'residencias' ? 'residencias' : (reminder.type === 'work' ? 'work' : 'semesters'));
+        setTimeout(() => {
+            const tabBtn = document.querySelector(`.planner-tab-btn[data-planner-tab="${tabKey}"]`);
+            if (tabBtn) tabBtn.click();
+        }, 120);
+        return;
+    }
+
+    showView(targetView, true);
 }
 
 if (appShell) {
@@ -1033,12 +1132,10 @@ function cargarInicioResumen() {
                 return;
             }
             const totalH = registros.reduce((acc, r) => acc + parseFloat(r.horas || 0), 0);
-            const horasEnteras = Math.floor(totalH);
-            const minutosRest = Math.round((totalH - horasEnteras) * 60);
             const p = document.createElement('p');
             p.style.margin = '0';
             const plural = registros.length === 1 ? 'session' : 'sessions';
-            p.innerHTML = `<strong>${horasEnteras}:${String(minutosRest).padStart(2, '0')} hrs</strong> logged across ${registros.length} ${plural}.`;
+            p.innerHTML = `<strong>${formatHoursMinutes(totalH)}</strong> logged across ${registros.length} ${plural}.`;
             sleepBox.appendChild(p);
         })
         .catch(err => {
@@ -1158,12 +1255,23 @@ function renderMoodChecklist(rows = []) {
     }));
 }
 
-function cargarMoodsHoy() {
+function cargarMoodsHoy({ autoAdvancePending = false } = {}) {
     if (!currentUser || currentUser.rol !== 'admin') return;
     const targetDate = document.getElementById('fecha')?.value || formatLocalDate(new Date());
     fetch(`/api/get-moods?begin=${encodeURIComponent(targetDate)}&end=${encodeURIComponent(targetDate)}`, { cache: 'no-store' })
         .then(r => (r.ok ? r.json() : []))
-        .then(rows => renderMoodChecklist(rows))
+        .then(rows => {
+            if (autoAdvancePending) {
+                const loggedSet = new Set((Array.isArray(rows) ? rows : []).map(r => r.momento_dia));
+                const momentoSelect = document.getElementById('momento');
+                if (momentoSelect) {
+                    const orderedKeys = ['Morning', 'Noon', 'Afternoon', 'Night'];
+                    const nextPending = orderedKeys.find(k => !loggedSet.has(k));
+                    momentoSelect.value = nextPending || getMomentoInfo(new Date().getHours()).moodKey;
+                }
+            }
+            renderMoodChecklist(rows);
+        })
         .catch(() => renderMoodChecklist([]));
 }
 
@@ -1283,8 +1391,7 @@ if (formRegistro) {
                 estadoSeleccionado = '';
                 colorSeleccionado = '';
                 updateMoodPreview();
-                document.getElementById('momento').value = '';
-                cargarMoodsHoy();
+                cargarMoodsHoy({ autoAdvancePending: true });
                 cargarRecordatoriosActivos();
             } catch (error) {
                 setInlineBanner('moodStatusBanner', 'err', 'Error: ' + error.message);
@@ -1417,16 +1524,12 @@ if (selectSemana) {
                         const cantidadSesiones = datosDia.sesiones.length;
                         const intermitente = cantidadSesiones > 1;
 
-                        const horasEnteras = Math.floor(totalH);
-                        const minutosRestantes = Math.round((totalH - horasEnteras) * 60);
-                        textoHoras = `${horasEnteras}:${String(minutosRestantes).padStart(2, '0')} h`;
+                        textoHoras = formatHoursMinutes(totalH, { compact: true });
 
                         if (intermitente) {
-                            const listaIntervalos = datosDia.sesiones.map(sesionH => {
-                                const hE = Math.floor(sesionH);
-                                const mR = Math.round((sesionH - hE) * 60);
-                                return `${hE}:${String(mR).padStart(2, '0')}`;
-                            });
+                            const listaIntervalos = datosDia.sesiones.map(sesionH =>
+                                formatHoursMinutes(sesionH, { compact: true })
+                            );
                             textoIntervalos = `<div class="sleep-intervals">(${listaIntervalos.join(' + ')})</div>`;
                         }
 
@@ -1489,7 +1592,7 @@ function renderSleepTodaySummary(rows = []) {
     const left = document.createElement('span');
     left.textContent = `Today's accumulated sleep (${list.length} ${list.length === 1 ? 'session' : 'sessions'})`;
     const strong = document.createElement('strong');
-    strong.textContent = `${totalHours.toFixed(1)} hrs`;
+    strong.textContent = formatHoursMinutes(totalHours);
     metric.append(left, strong);
 
     const tags = document.createElement('div');
@@ -1498,7 +1601,7 @@ function renderSleepTodaySummary(rows = []) {
         const chip = document.createElement('span');
         chip.className = 'home-mood-chip';
         const q = r.calidad === 'Good' ? '🟢 Good' : (r.calidad === 'Bad' ? '🔴 Bad' : '🟡 Fair');
-        chip.textContent = `#${idx + 1}: ${(parseFloat(r.horas) || 0).toFixed(1)}h · ${q}`;
+        chip.textContent = `#${idx + 1}: ${formatHoursMinutes(r.horas, { compact: true })} · ${q}`;
         tags.appendChild(chip);
     });
 
@@ -1561,16 +1664,13 @@ if (formSleep) {
             const intHours = Math.floor(totalMinutes / 60);
             const intMinutes = totalMinutes % 60;
 
-            let visualText = `${intHours} ${intHours === 1 ? 'hr' : 'hrs'}`;
-            if (intMinutes > 0) {
-                visualText += ` ${intMinutes} ${intMinutes === 1 ? 'min' : 'mins'}`;
-            }
+            const visualText = `${intHours} ${intHours === 1 ? 'hr' : 'hrs'} ${intMinutes} min`;
 
             inputSleep.value = visualText;
             inputSleep.dataset.decimal = (totalMinutes / 60).toFixed(2);
             if (badgeEl) badgeEl.textContent = visualText;
         } else if (badgeEl) {
-            badgeEl.textContent = '-- hrs';
+            badgeEl.textContent = '-- hrs -- min';
         }
     }
 
@@ -2084,9 +2184,29 @@ if (englishForm) {
                 sentEnglishSignatures.add(signature);
                 appendRecentEnglishItem(entry);
                 limpiarCamposEnglish(category);
+
+                // Also sync this studied item into the persistent AI Learning Memory bank (non-blocking)
+                const memPayload = category === 'vocabulary'
+                    ? { terms: [{ term: entry.word, romanization: entry.romanization || '', meaning: entry.spanish, category: 'vocabulary', language: studyLanguageInput?.value || 'en_ko' }] }
+                    : category === 'phrasal_verb'
+                        ? { terms: [{ term: entry.verb, meaning: entry.meaning_es, category: 'phrasal_verb', language: 'en' }] }
+                        : { grammarNotes: [`${entry.title}: ${entry.notes}`], language: studyLanguageInput?.value || 'en_ko' };
+                fetch('/api/language/memory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(memPayload)
+                })
+                    .then(r => (r.ok ? r.json() : null))
+                    .then(d => {
+                        if (d && d.languageMemory && typeof updateAiMemoryBadgeUI === 'function') {
+                            updateAiMemoryBadgeUI(d.languageMemory);
+                        }
+                    })
+                    .catch(() => {});
+
                 const msg = 'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.';
                 mostrarEstadoEnglish('ok', msg);
-                showToast('ok', 'English note queued for Word (PC)!');
+                showToast('ok', 'English note queued for Word (PC) & saved to AI Memory!');
             } catch (err) {
                 mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
                 showToast('err', err.message);
@@ -2108,10 +2228,26 @@ if (englishForm) {
     applyStudyLanguageUi(studyLanguageInput ? studyLanguageInput.value : 'en_ko');
 }
 
+let cachedLanguageMemory = { terms: [], grammarNotes: [], songs: [], customContext: '' };
+
+function updateAiMemoryBadgeUI(mem) {
+    if (mem && typeof mem === 'object') {
+        cachedLanguageMemory = mem;
+    }
+    const badge = document.getElementById('langAiMemoryBadge');
+    if (!badge) return;
+    const count = Array.isArray(cachedLanguageMemory.terms) ? cachedLanguageMemory.terms.length : 0;
+    badge.textContent = `🧠 Memory: ${count} learned`;
+}
+
 function renderAiAnalysisIntoBox(container, analysis) {
     if (!container || !analysis) return;
     container.replaceChildren();
     container.hidden = false;
+
+    if (analysis.languageMemory) {
+        updateAiMemoryBadgeUI(analysis.languageMemory);
+    }
 
     const summaryEl = document.createElement('div');
     summaryEl.className = 'ai-summary-box';
@@ -2170,7 +2306,8 @@ function renderAiAnalysisIntoBox(container, analysis) {
             const chip = document.createElement('div');
             chip.className = 'ai-vocab-chip';
             const head = document.createElement('strong');
-            head.textContent = item.romanization ? `${item.term} (${item.romanization})` : item.term;
+            const label = item.romanization ? `${item.term} (${item.romanization})` : item.term;
+            head.textContent = item.learnedPreviously ? `🧠 ${label} [Learned]` : label;
             const body = document.createElement('div');
             body.textContent = item.meaning || '';
             chip.append(head, body);
@@ -2203,8 +2340,59 @@ function initLanguageAiStudio() {
 
     const btnAskQuick = document.getElementById('btnAskLangAi');
     const btnApplyQuick = document.getElementById('btnApplyAiToForm');
+    const btnViewMemory = document.getElementById('btnViewAiMemory');
     const quickBox = document.getElementById('langAiResultBox');
     const quickModeBadge = document.getElementById('langAiModeBadge');
+
+    if (btnViewMemory && quickBox) {
+        btnViewMemory.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/language/memory', { cache: 'no-store' });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.languageMemory) {
+                        updateAiMemoryBadgeUI(data.languageMemory);
+                    }
+                }
+            } catch (_) {}
+
+            quickBox.replaceChildren();
+            quickBox.hidden = false;
+
+            const terms = Array.isArray(cachedLanguageMemory.terms) ? cachedLanguageMemory.terms : [];
+            const grammar = Array.isArray(cachedLanguageMemory.grammarNotes) ? cachedLanguageMemory.grammarNotes : [];
+            const songs = Array.isArray(cachedLanguageMemory.songs) ? cachedLanguageMemory.songs : [];
+
+            const header = document.createElement('div');
+            header.className = 'ai-summary-box';
+            header.textContent = `🧠 Persistent AI Learning Memory: ${terms.length} vocabulary/expressions · ${grammar.length} grammar insights · ${songs.length} studied songs. Injected automatically into Gemini & Local Linguistic Engine for 100% consistency.`;
+            quickBox.appendChild(header);
+
+            if (!terms.length && !grammar.length && !songs.length) {
+                const empty = document.createElement('p');
+                empty.className = 'muted-text';
+                empty.textContent = 'Your AI memory bank will populate automatically as you analyze lyrics/phrases or save entries to your Word notebook.';
+                quickBox.appendChild(empty);
+                return;
+            }
+
+            if (terms.length) {
+                const grid = document.createElement('div');
+                grid.className = 'ai-vocab-grid';
+                terms.slice(0, 24).forEach(t => {
+                    const chip = document.createElement('div');
+                    chip.className = 'ai-vocab-chip';
+                    const st = document.createElement('strong');
+                    st.textContent = `${t.term}${t.romanization ? ` (${t.romanization})` : ''}`;
+                    const m = document.createElement('div');
+                    m.textContent = t.meaning || '';
+                    chip.append(st, m);
+                    grid.appendChild(chip);
+                });
+                quickBox.appendChild(grid);
+            }
+        });
+    }
 
     if (btnAskQuick) {
         btnAskQuick.addEventListener('click', () => {
@@ -4190,6 +4378,9 @@ function enterAppSession(user) {
             .then(data => {
                 if (data && data.settings) {
                     aplicarSettingsEnEstado(data.settings, { syncAgendaDefaults: true });
+                    if (data.settings.languageMemory && typeof updateAiMemoryBadgeUI === 'function') {
+                        updateAiMemoryBadgeUI(data.settings.languageMemory);
+                    }
                 }
             })
             .catch(() => {});
@@ -4202,9 +4393,24 @@ function enterAppSession(user) {
             }
         }, 60 * 1000);
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const rView = urlParams.get('rView');
         const initialHash = window.location.hash.replace('#', '');
-        const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
-        showView(startView, false);
+        if (rView && VALID_VIEWS.has(rView)) {
+            openReminderTarget({
+                targetView: rView,
+                targetDate: urlParams.get('rDate') || '',
+                targetMoment: urlParams.get('rMoment') || '',
+                targetTime: urlParams.get('rTime') || '',
+                targetBlock: urlParams.get('rBlock') || '',
+                targetTab: urlParams.get('rTab') || '',
+                refId: urlParams.get('rRef') || null
+            });
+            history.replaceState(null, '', `${window.location.pathname}#${rView}`);
+        } else {
+            const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
+            showView(startView, false);
+        }
     }
 
     hideBootScreen();
@@ -4764,6 +4970,7 @@ function renderReminderTray(data) {
         sleep: 'Log Sleep',
         sueno: 'Log Sleep',
         agenda: 'Open Agenda',
+        horario: 'Open Schedule',
         journal: 'Open Journal',
         english: 'Open English'
     };
@@ -4774,6 +4981,11 @@ function renderReminderTray(data) {
 
         const info = document.createElement('div');
         info.className = 'reminder-card-info';
+        if (reminder.targetView) {
+            info.style.cursor = 'pointer';
+            info.title = 'Click to open and pre-select the date & time block to register';
+            info.addEventListener('click', () => openReminderTarget(reminder));
+        }
 
         const titleEl = document.createElement('div');
         titleEl.className = 'reminder-card-title';
@@ -4793,7 +5005,7 @@ function renderReminderTray(data) {
             goBtn.type = 'button';
             goBtn.className = 'reminder-btn primary';
             goBtn.textContent = viewLabels[reminder.targetView] || 'Open';
-            goBtn.addEventListener('click', () => showView(reminder.targetView, true));
+            goBtn.addEventListener('click', () => openReminderTarget(reminder));
             actions.appendChild(goBtn);
         }
 
@@ -4837,10 +5049,14 @@ function renderReminderTray(data) {
         ) {
             lastDesktopNotifiedKeys.add(reminder.key);
             try {
-                new Notification(reminder.title || 'Personal Control Hub', {
+                const n = new Notification(reminder.title || 'Personal Control Hub', {
                     body: reminder.message || '',
                     tag: reminder.key
                 });
+                n.onclick = () => {
+                    window.focus();
+                    openReminderTarget(reminder);
+                };
             } catch (_) {
                 // Ignore browser Notification runtime error
             }
@@ -6078,7 +6294,7 @@ function renderPlannerResidenciasAndWorkUI() {
     const fillEl = document.getElementById('resProgressBarFill');
     const lblEl = document.getElementById('resProgressLabel');
     if (fillEl) fillEl.style.width = `${pct}%`;
-    if (lblEl) lblEl.textContent = `${doneH} / ${totalH} hrs (${pct}%)`;
+    if (lblEl) lblEl.textContent = `${formatHoursMinutes(doneH, { compact: true })} / ${totalH}h (${pct}%)`;
 
     const tr = academicPlannerState.trabajo || {};
     setCheck('workActivo', tr.activo);

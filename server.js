@@ -17,6 +17,8 @@ const {
     validateGeminiModelId,
     hangulToRomanization,
     detectScriptKind,
+    sanitizeLanguageMemory,
+    mergeLanguageMemory,
     analyzeTextOffline,
     analyzeWithGemini
 } = require('./lib/language-studio');
@@ -2778,6 +2780,7 @@ function getDefaultUserSettings() {
         preferredStudyLanguage: 'en_ko',
         geminiModel: 'gemini-2.5-flash',
         geminiApiKey: '',
+        languageMemory: sanitizeLanguageMemory(),
         academicPlanner: getDefaultAcademicPlanner()
     };
 }
@@ -3001,6 +3004,12 @@ function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()
         next.geminiApiKey = rawKey;
     }
 
+    if (input.languageMemory !== undefined) {
+        next.languageMemory = sanitizeLanguageMemory(input.languageMemory);
+    } else {
+        next.languageMemory = sanitizeLanguageMemory(base.languageMemory);
+    }
+
     if (input.academicPlanner !== undefined) {
         next.academicPlanner = sanitizeAcademicPlanner(input.academicPlanner, base.academicPlanner);
     } else {
@@ -3133,6 +3142,9 @@ function computeCandidateReminders({
                 title: `Mood Check-in (${activeWin.label})`,
                 message: `Mid-${activeWin.label.toLowerCase()} check-in: log how you feel right now in Daily Hub.`,
                 targetView: 'mood',
+                targetDate: dateStr,
+                targetMoment: activeWin.key,
+                pendingMoments: [activeWin.key],
                 canSnooze: true,
                 canComplete: false
             });
@@ -3146,6 +3158,7 @@ function computeCandidateReminders({
             );
             if (missedWindows.length > 0) {
                 const missedLabels = missedWindows.map(w => w.label).join(', ');
+                const firstMissed = missedWindows[0];
                 const latestMissed = missedWindows[missedWindows.length - 1];
                 candidates.push({
                     key: `mood-pending:${dateStr}:${latestMissed.key}`,
@@ -3154,6 +3167,9 @@ function computeCandidateReminders({
                     title: `Pending Mood Check-in (${missedLabels})`,
                     message: `You still have unlogged mood block(s) for today (${missedLabels}). Tap to record your mood in Daily Hub.`,
                     targetView: 'mood',
+                    targetDate: dateStr,
+                    targetMoment: firstMissed.key,
+                    pendingMoments: missedWindows.map(w => w.key),
                     canSnooze: true,
                     canComplete: false
                 });
@@ -3172,6 +3188,7 @@ function computeCandidateReminders({
                 title: 'Morning Sleep Log',
                 message: 'Remember to log last night’s bedtime, wake-up time, and rest quality. You can snooze if needed.',
                 targetView: 'sueno',
+                targetDate: dateStr,
                 canSnooze: true,
                 canComplete: false
             });
@@ -3212,6 +3229,9 @@ function computeCandidateReminders({
                     title: `[${catLabel} ${typeLabel}] ${item.hora}${statusBadge}`,
                     message: `${item.actividad}${itemLead > 0 && minutesOfDay < itemMin ? ` (starts at ${item.hora})` : (isOverdueToday ? ' — Pending completion' : '')}`,
                     targetView: 'agenda',
+                    targetDate: item.fecha || dateStr,
+                    targetTime: item.hora || '',
+                    targetBlock: item.bloque || '',
                     canSnooze: true,
                     canComplete: true
                 });
@@ -3238,6 +3258,9 @@ function computeCandidateReminders({
                     title: `[Pending ${catLabel} Task] ${task.fecha === dateStr ? task.hora : task.fecha}`,
                     message: `${task.actividad} (${estado === 'in_progress' ? 'In Progress' : 'To Do'} — tap Mark Done when finished)`,
                     targetView: 'agenda',
+                    targetDate: task.fecha || dateStr,
+                    targetTime: task.hora || '',
+                    targetBlock: task.bloque || '',
                     canSnooze: true,
                     canComplete: true
                 });
@@ -3306,6 +3329,8 @@ function computeCandidateReminders({
                         title: `[Clase ITS ${course.startTime}] ${course.name} · Aula ${roomMeta.room}`,
                         message: `${roomMeta.campusName} (${roomMeta.plano} · ${roomMeta.building}). ${routeSummary}. Aviso ${leadMin} min antes.`,
                         targetView: 'horario',
+                        targetTab: 'semesters',
+                        targetDate: dateStr,
                         mapsUrl: commute.mapsUrl,
                         canSnooze: true,
                         canComplete: false
@@ -3347,6 +3372,8 @@ function computeCandidateReminders({
                 title: `[Residencias ${planner.residencias.startTime}] ${placeLabel}`,
                 message: `${planner.residencias.projectName ? `${planner.residencias.projectName}. ` : ''}${transitText}`,
                 targetView: 'horario',
+                targetTab: 'residencias',
+                targetDate: dateStr,
                 mapsUrl: planner.residencias.modality === 'remoto' ? '' : commute.mapsUrl,
                 canSnooze: true,
                 canComplete: false
@@ -3384,6 +3411,8 @@ function computeCandidateReminders({
                 title: `[Trabajo ${shiftTypeLabel} ${planner.work.startTime}] ${companyLabel}`,
                 message: `${planner.work.roleTitle ? `${planner.work.roleTitle} — ` : ''}${transitText}`,
                 targetView: 'horario',
+                targetTab: 'work',
+                targetDate: dateStr,
                 mapsUrl: planner.work.modality === 'remoto' ? '' : commute.mapsUrl,
                 canSnooze: true,
                 canComplete: false
@@ -3490,7 +3519,19 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
     };
 
     if (baseUrl) {
-        const targetUrl = `${baseUrl}/#${reminder.targetView || 'inicio'}`;
+        const params = new URLSearchParams();
+        if (reminder.targetDate) params.set('rDate', String(reminder.targetDate));
+        if (reminder.targetMoment) params.set('rMoment', String(reminder.targetMoment));
+        if (reminder.targetTime) params.set('rTime', String(reminder.targetTime));
+        if (reminder.targetBlock) params.set('rBlock', String(reminder.targetBlock));
+        if (reminder.targetTab) params.set('rTab', String(reminder.targetTab));
+        if (reminder.refId) params.set('rRef', String(reminder.refId));
+        if (Array.from(params.keys()).length > 0 && reminder.targetView) {
+            params.set('rView', String(reminder.targetView));
+        }
+        const qs = params.toString();
+        const targetUrl = `${baseUrl}/${qs ? `?${qs}` : ''}#${reminder.targetView || 'inicio'}`;
+        jsonPayload.click = targetUrl;
         const actions = [
             {
                 action: 'view',
@@ -4957,16 +4998,56 @@ app.post('/api/transport/benchmark', apiWriteLimiter.middleware, requireAuth, re
 app.get('/api/language/registry', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
     try {
         const settings = await loadUserSettings(req.user.id);
+        const mem = sanitizeLanguageMemory(settings.languageMemory);
         res.json({
             languages: getLanguageRegistry(),
             geminiModels: RECOMMENDED_GEMINI_MODELS,
             preferredStudyLanguage: settings.preferredStudyLanguage || 'en_ko',
             activeGeminiModel: settings.geminiModel || 'gemini-2.5-flash',
-            geminiKeyConfigured: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY)
+            geminiKeyConfigured: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY),
+            languageMemory: mem
         });
     } catch (err) {
         console.error(err);
         res.status(500).send('Error loading language registry.');
+    }
+});
+
+app.get('/api/language/memory', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        res.json({
+            languageMemory: sanitizeLanguageMemory(settings.languageMemory)
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error loading AI language learning memory.');
+    }
+});
+
+app.post('/api/language/memory', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        if (req.body.clear === true) {
+            settings.languageMemory = sanitizeLanguageMemory();
+        } else {
+            settings.languageMemory = mergeLanguageMemory(settings.languageMemory, {
+                terms: Array.isArray(req.body.terms) ? req.body.terms : (req.body.term || req.body.word ? [req.body] : []),
+                grammarNotes: Array.isArray(req.body.grammarNotes) ? req.body.grammarNotes : [],
+                songTitle: req.body.songTitle || '',
+                artistName: req.body.artistName || '',
+                language: req.body.language || settings.preferredStudyLanguage || 'en_ko',
+                customContext: req.body.customContext
+            });
+        }
+        await saveUserSettings(req.user.id, settings);
+        res.json({
+            message: 'AI Learning Memory updated.',
+            languageMemory: settings.languageMemory
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating AI language learning memory.');
     }
 });
 
@@ -4994,6 +5075,7 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
         }
 
         const settings = await loadUserSettings(req.user.id);
+        const currentMemory = sanitizeLanguageMemory(settings.languageMemory);
         const mode = ['auto', 'gemini', 'offline'].includes(String(req.body.mode || 'auto').toLowerCase())
             ? String(req.body.mode || 'auto').toLowerCase()
             : 'auto';
@@ -5011,7 +5093,8 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 question,
                 language,
                 songTitle,
-                artistName
+                artistName,
+                learningMemory: currentMemory
             });
         } else {
             result = await analyzeWithGemini({
@@ -5021,12 +5104,40 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 question,
                 language,
                 songTitle,
-                artistName
+                artistName,
+                learningMemory: currentMemory
             });
+        }
+
+        // Persist newly learned terms, grammar notes, and studied songs into user's AI memory bank
+        if (req.body.remember !== false) {
+            const termsToRemember = [
+                ...(Array.isArray(result.vocabulary) ? result.vocabulary.slice(0, 8) : []),
+                ...(result.wordNoteDraft && result.wordNoteDraft.word
+                    ? [{
+                        term: result.wordNoteDraft.word,
+                        meaning: result.wordNoteDraft.meaning,
+                        category: 'vocabulary',
+                        language: result.language || language
+                    }]
+                    : [])
+            ];
+            settings.languageMemory = mergeLanguageMemory(currentMemory, {
+                terms: termsToRemember,
+                grammarNotes: Array.isArray(result.culturalAndGrammarNotes)
+                    ? result.culturalAndGrammarNotes.filter((n) => !String(n).startsWith('🧠 Memory Recall:')).slice(0, 3)
+                    : [],
+                songTitle,
+                artistName,
+                language: result.language || language
+            });
+            await saveUserSettings(req.user.id, settings);
         }
 
         res.json({
             ...result,
+            languageMemory: settings.languageMemory,
+            memoryTotalTerms: settings.languageMemory.terms.length,
             availableModels: RECOMMENDED_GEMINI_MODELS,
             geminiKeyConfigured: Boolean(effectiveKey)
         });

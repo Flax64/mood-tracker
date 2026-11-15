@@ -1898,6 +1898,67 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(analyzeJson.language, 'en_ko');
         assert.ok(analyzeJson.lines.some((l) => l.romanization.includes('yeongwonhi')));
         assert.ok(analyzeJson.vocabulary.some((v) => v.term === 'hold on' || v.term === '영원히'));
+        assert.ok(analyzeJson.languageMemory && Array.isArray(analyzeJson.languageMemory.terms));
+        assert.ok(analyzeJson.languageMemory.terms.length >= 1, 'Debe guardar vocabulario aprendido en languageMemory');
+
+        // 4b. Consistencia de memoria de IA: al volver a estudiar una palabra ya vista, la recuerda de languageMemory
+        const addMemRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/memory',
+            headers: { Cookie: adminCookie },
+            body: {
+                terms: [{
+                    term: '별빛',
+                    romanization: 'byeolbit',
+                    meaning: 'Starlight / Luz de las estrellas (saved by student)',
+                    category: 'vocabulary',
+                    language: 'ko'
+                }]
+            }
+        });
+        assert.strictEqual(addMemRes.status, 200);
+
+        const secondAnalyzeRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/analyze',
+            headers: { Cookie: adminCookie },
+            body: {
+                text: '밤하늘의 별빛 아래에서 hold on',
+                language: 'en_ko',
+                mode: 'offline'
+            }
+        });
+        assert.strictEqual(secondAnalyzeRes.status, 200);
+        const secondAnalyzeJson = JSON.parse(secondAnalyzeRes.body);
+        assert.ok(
+            Array.isArray(secondAnalyzeJson.recognizedFromMemory) &&
+            secondAnalyzeJson.recognizedFromMemory.some((m) => m.term === '별빛' && m.meaning.includes('Starlight')),
+            'La IA debe recordar términos aprendidos previamente y mantener su definición consistente'
+        );
+        assert.ok(
+            secondAnalyzeJson.vocabulary.some((v) => v.term === '별빛' && v.learnedPreviously === true),
+            'El vocabulario devuelto debe marcar learnedPreviously=true para palabras ya estudiadas'
+        );
+
+        // 4c. Recordatorios activos incluyen targetDate y targetMoment para autoseleccionar fecha y bloque al tocar la notificación
+        const remCheckRes = await request({
+            port,
+            method: 'GET',
+            reqPath: '/api/reminders/active',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(remCheckRes.status, 200);
+        const remCheckJson = JSON.parse(remCheckRes.body);
+        if (Array.isArray(remCheckJson.active)) {
+            for (const rem of remCheckJson.active) {
+                if (rem.type === 'mood') {
+                    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(rem.targetDate), 'Mood reminder debe incluir targetDate YYYY-MM-DD');
+                    assert.ok(rem.targetMoment, 'Mood reminder debe incluir targetMoment');
+                }
+            }
+        }
 
         // 5. Gemini API Key se guarda en ConfiguracionUsuario pero nunca se devuelve en texto plano en GET/PUT settings
         const saveAiSettingsRes = await request({

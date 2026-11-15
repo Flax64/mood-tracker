@@ -904,9 +904,12 @@
                         <div class="lang-ai-head">
                             <div>
                                 <h3>✨ AI Language Tutor &amp; Lyrics Breakdown</h3>
-                                <p class="muted-text" id="langAiEngineHint">Uses Google Gemini (0 MB server RAM) or built-in instant Korean Romanization &amp; EN/KR analyzer when offline.</p>
+                                <p class="muted-text" id="langAiEngineHint">Uses Google Gemini (0 MB server RAM) or built-in instant Korean Romanization &amp; EN/KR analyzer when offline, with persistent learning memory.</p>
                             </div>
-                            <span class="lang-ai-badge" id="langAiModeBadge">Auto Engine</span>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                                <span class="lang-ai-badge" id="langAiMemoryBadge" title="Persistent vocabulary &amp; grammar memory stored in your account">🧠 Memory: 0 learned</span>
+                                <span class="lang-ai-badge" id="langAiModeBadge">Auto Engine</span>
+                            </div>
                         </div>
                         <div class="lang-ai-controls">
                             <div class="form-group">
@@ -921,6 +924,7 @@
                                     <option value="offline">Instant Local Engine (Hangul + EN, 0 RAM)</option>
                                 </select>
                                 <button type="button" class="btn-secondary" id="btnAskLangAi">✨ Explain &amp; Romanize</button>
+                                <button type="button" class="btn-secondary btn-small" id="btnViewAiMemory" title="View words, Korean phrases, and grammar rules your AI remembers">🧠 Memory Bank</button>
                                 <button type="button" class="btn-secondary btn-small" id="btnApplyAiToForm" hidden>↘ Fill Study Form</button>
                             </div>
                         </div>
