@@ -131,6 +131,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, [
                         { Field: 'tipo' },
                         { Field: 'categoria' },
+                        { Field: 'materia_id' },
+                        { Field: 'materia_nombre' },
                         { Field: 'estado' },
                         { Field: 'recordatorio_min' }
                     ]);
@@ -284,7 +286,9 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         categoria: params[5] || 'personal',
                         estado: params[6] || 'todo',
                         completada: params[7] ?? 0,
-                        recordatorio_min: params[8] ?? null
+                        recordatorio_min: params[8] ?? null,
+                        materia_id: params[9] ?? null,
+                        materia_nombre: params[10] ?? null
                     };
                     agendaInserts.push(newItem);
                     return finish(null, { insertId: newItem.id });
@@ -300,7 +304,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('UPDATE RegistrosAgenda SET fecha = ?')) {
-                    const id = Number(params[9]);
+                    const id = Number(params[11]);
                     const item = agendaInserts.find((a) => a.id === id);
                     if (!item) return finish(null, { affectedRows: 0 });
                     item.fecha = params[0];
@@ -312,6 +316,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     item.estado = params[6];
                     item.completada = params[7];
                     item.recordatorio_min = params[8];
+                    item.materia_id = params[9] ?? null;
+                    item.materia_nombre = params[10] ?? null;
                     return finish(null, { affectedRows: 1 });
                 }
 
@@ -1961,6 +1967,80 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(syncVacRes.status, 200);
         const syncVacBody = JSON.parse(syncVacRes.body);
         assert.strictEqual(syncVacBody.inserted, 0, 'Durante periodo de vacaciones no debe programar clases');
+
+        // 7. Vincular tarea universitaria con clase actual y limpiar automáticamente si cambia a Personal
+        const plannerForTask = JSON.parse((await request({ port, reqPath: '/api/planner', headers: { Cookie: adminCookie } })).body).planner;
+        const activeCourse = plannerForTask.semesters[0].courses[0];
+        assert.ok(activeCourse && activeCourse.id && activeCourse.name);
+
+        const badClassTask = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-18',
+                hora: '11:00',
+                titulo: 'Entrega Unidad 2',
+                tipo: 'tarea',
+                categoria: 'universidad',
+                materia_id: 'curso-inexistente-999'
+            }
+        });
+        assert.strictEqual(badClassTask.status, 400);
+
+        const classTaskRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-18',
+                hora: '11:15',
+                titulo: 'Práctica de Laboratorio 2',
+                tipo: 'tarea',
+                categoria: 'universidad',
+                materia_id: activeCourse.id,
+                estado: 'todo'
+            }
+        });
+        assert.strictEqual(classTaskRes.status, 201);
+        const classTaskItem = JSON.parse(classTaskRes.body).item;
+        assert.strictEqual(classTaskItem.materia_id, activeCourse.id);
+        assert.strictEqual(classTaskItem.materia_nombre, activeCourse.name);
+
+        const readClassAgenda = JSON.parse((await request({
+            port,
+            reqPath: '/api/get-agenda?begin=2026-11-18&end=2026-11-18',
+            headers: { Cookie: adminCookie }
+        })).body);
+        const fetchedClassTask = readClassAgenda.find((i) => i.id === classTaskItem.id);
+        assert.ok(fetchedClassTask);
+        assert.strictEqual(fetchedClassTask.materia_id, activeCourse.id);
+        assert.strictEqual(fetchedClassTask.materia_nombre, activeCourse.name);
+
+        const toPersonalRes = await request({
+            port,
+            method: 'PUT',
+            reqPath: `/api/update-agenda/${classTaskItem.id}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-18',
+                bloque: 'tarde',
+                hora: '18:00',
+                titulo: 'Mandado personal',
+                tipo: 'tarea',
+                categoria: 'personal',
+                materia_id: activeCourse.id,
+                materia_nombre: activeCourse.name,
+                estado: 'todo'
+            }
+        });
+        assert.strictEqual(toPersonalRes.status, 200);
+        const personalItem = JSON.parse(toPersonalRes.body).item;
+        assert.strictEqual(personalItem.categoria, 'personal');
+        assert.strictEqual(personalItem.materia_id, null);
+        assert.strictEqual(personalItem.materia_nombre, null);
     });
 
     it('soporta túnel de transporte cifrado X25519 + AES-256-CTR + HMAC-SHA256 para grandes volúmenes, rechaza manipulación/replay y expone Studio Multilingüe EN/KR/K-Pop', async () => {
@@ -3544,5 +3624,23 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.ok(blockedPullRes, 'Debe devolver 429 al exceder el límite de peticiones en /api/pull-text');
         assert.ok(Number(blockedPullRes.headers['retry-after']) >= 1);
         assert.strictEqual(blockedPullRes.headers['x-ratelimit-remaining'], '0');
+    });
+
+    it('expone GET /api/version autenticado con versión actual e historial SemVer 2.0.0', async () => {
+        const unauthRes = await request({ port, reqPath: '/api/version' });
+        assert.strictEqual(unauthRes.status, 401);
+
+        const authRes = await request({
+            port,
+            reqPath: '/api/version',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(authRes.status, 200);
+        const body = JSON.parse(authRes.body);
+        assert.match(String(body.currentVersion), /^\d+\.\d+\.\d+$/);
+        assert.strictEqual(body.tag, `v${body.currentVersion}`);
+        assert.match(String(body.standard), /SemVer 2\.0\.0/i);
+        assert.ok(Array.isArray(body.history) && body.history.length >= 1);
+        assert.strictEqual(body.history[0].version, body.currentVersion);
     });
 });

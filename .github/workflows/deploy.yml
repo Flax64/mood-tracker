@@ -5,9 +5,96 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      bump_level:
+        description: 'Version bump override (auto uses Conventional Commits)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
 
 jobs:
+  release:
+    name: Auto-Version (SemVer 2.0.0)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]') }}
+    outputs:
+      version: ${{ steps.semver.outputs.next_version }}
+      tag_name: ${{ steps.semver.outputs.tag_name }}
+      bump_type: ${{ steps.semver.outputs.bump_type }}
+      history_b64: ${{ steps.semver.outputs.history_b64 }}
+    steps:
+      - name: Checkout repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compute and apply next SemVer release
+        id: semver
+        env:
+          FORCE_BUMP: ${{ github.event.inputs.bump_level || 'auto' }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BEFORE_SHA: ${{ github.event.before }}
+        run: node scripts/release-version.js --apply --github-output
+
+      - name: Commit version bump and create annotated release tag
+        env:
+          NEXT_VERSION: ${{ steps.semver.outputs.next_version }}
+          TAG_NAME: ${{ steps.semver.outputs.tag_name }}
+          BUMP_TYPE: ${{ steps.semver.outputs.bump_type }}
+          RELEASE_SUMMARY: ${{ steps.semver.outputs.summary }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json version-history.json CHANGELOG.md
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): ${TAG_NAME} (${BUMP_TYPE}) [skip ci]"
+            if ! git push origin HEAD:main; then
+              echo "::warning::Direct push to main skipped; EC2 will apply release metadata via workflow output."
+            fi
+          fi
+          if ! git rev-parse "${TAG_NAME}" >/dev/null 2>&1; then
+            git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}: ${RELEASE_SUMMARY}"
+            git push origin "${TAG_NAME}" || echo "::warning::Could not push tag ${TAG_NAME}"
+          fi
+
+      - name: Create GitHub Release and Deployment Summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.semver.outputs.tag_name }}
+          NEXT_VERSION: ${{ steps.semver.outputs.next_version }}
+          BUMP_TYPE: ${{ steps.semver.outputs.bump_type }}
+          PREVIOUS_VERSION: ${{ steps.semver.outputs.previous_version }}
+          RELEASE_SUMMARY: ${{ steps.semver.outputs.summary }}
+          NOTES_FILE: ${{ steps.semver.outputs.notes_file }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release create "${TAG_NAME}" --title "${TAG_NAME}" --notes-file "${NOTES_FILE}" || echo "::warning::Could not create GitHub Release ${TAG_NAME}"
+          fi
+          {
+            echo "## Version ${TAG_NAME} (${BUMP_TYPE})"
+            echo "- Previous: v${PREVIOUS_VERSION}"
+            echo "- Summary: ${RELEASE_SUMMARY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   deploy:
+    needs: release
+    if: ${{ needs.release.result == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -18,6 +105,8 @@ jobs:
         uses: appleboy/ssh-action@v1.0.0
         env:
           GITHUB_REPO: ${{ github.repository }}
+          APP_VERSION: ${{ needs.release.outputs.version }}
+          RELEASE_HISTORY_B64: ${{ needs.release.outputs.history_b64 }}
           DEPLOY_EC2_HOST: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           SECRET_DB_HOST: ${{ secrets.DB_HOST || vars.DB_HOST }}
           SECRET_DB_USER: ${{ secrets.DB_USER || vars.DB_USER }}
@@ -43,7 +132,7 @@ jobs:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GITHUB_REPO,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
+          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
           script: |
             set -euo pipefail
 
@@ -121,6 +210,17 @@ jobs:
             git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             git fetch origin main
             git reset --hard origin/main
+            if [ -n "${RELEASE_HISTORY_B64:-}" ]; then
+              printf '%s' "${RELEASE_HISTORY_B64}" | base64 -d > version-history.json
+            fi
+            if [ -n "${APP_VERSION:-}" ]; then
+              if command -v node >/dev/null 2>&1; then
+                node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.env.APP_VERSION;fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+              elif command -v python3 >/dev/null 2>&1; then
+                python3 -c "import json,os;p=json.load(open('package.json'));p['version']=os.environ['APP_VERSION'];json.dump(p,open('package.json','w'),indent=2)"
+              fi
+              echo "Deploying version v${APP_VERSION}"
+            fi
 
             # 3. Preparar entorno de despliegue solo en RAM (/dev/shm) desde GitHub Secrets/Variables
             if [ -f ".env" ]; then

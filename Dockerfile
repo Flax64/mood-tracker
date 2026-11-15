@@ -14,7 +14,7 @@ RUN apk add --no-cache python3 ca-certificates curl \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # Copiar únicamente el código necesario de la app (excluido el resto vía .dockerignore)
-COPY server.js ./
+COPY server.js version-history.json CHANGELOG.md ./
 COPY public ./public
 COPY lib ./lib
 

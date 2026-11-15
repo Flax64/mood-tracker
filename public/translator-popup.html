@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23059669'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18'%3E%F0%9F%8C%90%3C/text%3E%3C/svg%3E">
     <script src="theme-init.js"></script>
     <link rel="stylesheet" href="style.css">
+    <script src="i18n.js" defer></script>
     <script src="translator-widget.js" defer></script>
     <script src="translator-popup.js" defer></script>
 </head>
@@ -23,7 +24,7 @@
                 </div>
             </div>
             <div class="translator-popup-head-actions">
-                <button type="button" class="icon-btn" id="btnPopupThemeToggle" title="Toggle light or dark theme" aria-label="Toggle theme">☀️</button>
+                <button type="button" class="icon-btn lang-icon-btn" id="btnPopupLangToggle" title="Switch UI language (English / Español)" aria-label="Switch UI language (English / Español)">EN</button>
                 <a href="/" class="btn-secondary btn-small" id="linkBackMainHub" target="_blank" rel="noopener noreferrer">🏠 Main Hub</a>
             </div>
         </header>
@@ -54,18 +55,18 @@
             </div>
 
             <div class="lang-translator-bar">
-                <textarea id="popupTranslatorInput" rows="3" maxlength="4000"
+                <textarea id="popupTranslatorInput" class="english-textarea translator-extension-textarea" rows="4" maxlength="4000"
                     placeholder="Type or paste any word, phrase, or lyric (Enter to translate · Shift+Enter for new line)..."></textarea>
                 <div class="lang-translator-actions">
-                    <select id="popupDirectionSelect" class="select-input" aria-label="Translation direction">
-                        <option value="en_es" selected>English → Español</option>
-                        <option value="ko_en">Coreano → English</option>
-                        <option value="ko_es">Coreano → Español</option>
+                    <select id="popupDirectionSelect" class="select-input select-compact" aria-label="Translation direction">
+                        <option value="en_es" selected>English → Spanish</option>
+                        <option value="ko_en">Korean → English</option>
+                        <option value="ko_es">Korean → Spanish</option>
                         <option value="auto">Auto Detect (EN/KO)</option>
-                        <option value="es_en">Español → English</option>
-                        <option value="es_ko">Español → Coreano</option>
+                        <option value="es_en">Spanish → English</option>
+                        <option value="es_ko">Spanish → Korean</option>
                     </select>
-                    <select id="popupEngineSelect" class="select-input" aria-label="Translator engine">
+                    <select id="popupEngineSelect" class="select-input select-compact" aria-label="Translator engine">
                         <option value="auto">Auto (Gemini / Local)</option>
                         <option value="gemini">Google Gemini AI</option>
                         <option value="offline">Instant Local (0 RAM)</option>
@@ -74,13 +75,13 @@
                 </div>
             </div>
 
-            <input type="text" id="popupContextInput" maxlength="400"
+            <input type="text" class="translator-context-input" id="popupContextInput" maxlength="400"
                 placeholder="Optional context (song, PDF, sentence)...">
 
             <div id="popupTranslatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
         </section>
 
-        <p class="muted-text translator-popup-tip">
+        <p class="muted-text translator-popup-tip" data-i18n-html="popup_chrome_tip">
             💡 Tip Chrome / Edge: abre el menú <strong>⋮ → Guardar y compartir → Crear acceso directo (Abrir como ventana)</strong> para fijar este traductor en tu barra de Windows como si fuera una app/extensión propia.
         </p>
     </main>

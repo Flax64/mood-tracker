@@ -1,6 +1,13 @@
 (function () {
     'use strict';
 
+    function popupTr(en, es) {
+        if (window.DailyHubI18n && typeof window.DailyHubI18n.pick === 'function') {
+            return window.DailyHubI18n.pick(en, es);
+        }
+        return en;
+    }
+
     function showPopupToast(type, message) {
         const container = document.getElementById('popupToastContainer');
         if (!container || !message) return;
@@ -11,16 +18,6 @@
         setTimeout(() => {
             if (toast.parentNode) toast.parentNode.removeChild(toast);
         }, 3200);
-    }
-
-    function applyPopupTheme(nextTheme) {
-        const resolved = nextTheme === 'light' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', resolved);
-        try {
-            localStorage.setItem('mt_theme', resolved);
-        } catch (_) {}
-        const btn = document.getElementById('btnPopupThemeToggle');
-        if (btn) btn.textContent = resolved === 'dark' ? '☀️' : '🌙';
     }
 
     function sendDraftToMainHub(data) {
@@ -36,11 +33,17 @@
             try {
                 window.opener.postMessage(payload, window.location.origin);
                 if (typeof window.opener.focus === 'function') window.opener.focus();
-                showPopupToast('ok', 'Sent to Glossary Study Form in your Main Hub tab!');
+                showPopupToast('ok', popupTr(
+                    'Sent to Glossary Study Form in your Main Hub tab!',
+                    '¡Enviado al formulario de estudio en tu pestaña principal!'
+                ));
                 return;
             } catch (_) {}
         }
-        showPopupToast('ok', 'Saved for Glossary! Open your Main Hub tab and it will load automatically.');
+        showPopupToast('ok', popupTr(
+            'Saved for Glossary! Open your Main Hub tab and it will load automatically.',
+            '¡Guardado para el glosario! Abre tu pestaña principal y se cargará automáticamente.'
+        ));
     }
 
     async function checkPopupAuth() {
@@ -52,32 +55,36 @@
                 const payload = await res.json();
                 if (notice) notice.hidden = true;
                 if (badge && payload && payload.user) {
-                    badge.textContent = payload.user.rol === 'admin' ? 'Connected · Gemini + 0-RAM' : 'Admin account required';
+                    badge.textContent = payload.user.rol === 'admin'
+                        ? popupTr('Connected · Gemini + 0-RAM', 'Conectado · Gemini + 0-RAM')
+                        : popupTr('Admin account required', 'Se requiere cuenta Admin');
                     if (payload.user.rol !== 'admin' && notice) notice.hidden = false;
                 }
                 return true;
             }
         } catch (_) {}
         if (notice) notice.hidden = false;
-        if (badge) badge.textContent = 'Sign in required';
+        if (badge) badge.textContent = popupTr('Sign in required', 'Inicia sesión');
         return false;
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-        applyPopupTheme(currentTheme);
-
-        const themeBtn = document.getElementById('btnPopupThemeToggle');
-        if (themeBtn) {
-            themeBtn.addEventListener('click', () => {
-                const now = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
-                applyPopupTheme(now);
-            });
+        document.documentElement.setAttribute('data-theme', 'dark');
+        try {
+            localStorage.removeItem('mt_theme');
+        } catch {
+            // ignore
         }
 
         const btnRetryAuth = document.getElementById('btnPopupRetryAuth');
         if (btnRetryAuth) {
             btnRetryAuth.addEventListener('click', checkPopupAuth);
+        }
+
+        if (window.DailyHubI18n && typeof window.DailyHubI18n.onChange === 'function') {
+            window.DailyHubI18n.onChange(() => {
+                checkPopupAuth();
+            });
         }
 
         const panel = document.getElementById('popupTranslatorPanel');

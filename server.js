@@ -6,6 +6,7 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Readable } = require('node:stream');
@@ -219,12 +220,15 @@ function inicializarTablasSeguridad() {
             actividad VARCHAR(255) NOT NULL,
             tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento',
             categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
+            materia_id VARCHAR(60) NULL DEFAULT NULL,
+            materia_nombre VARCHAR(120) NULL DEFAULT NULL,
             estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
             completada TINYINT(1) NOT NULL DEFAULT 0,
             recordatorio_min SMALLINT NULL DEFAULT NULL,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_agenda_fecha (fecha),
-            INDEX idx_agenda_categoria_estado (categoria, estado)
+            INDEX idx_agenda_categoria_estado (categoria, estado),
+            INDEX idx_agenda_materia (materia_id)
         )`,
         `CREATE TABLE IF NOT EXISTS Usuarios (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -382,6 +386,14 @@ function inicializarTablasSeguridad() {
         {
             name: 'categoria',
             sql: "ALTER TABLE RegistrosAgenda ADD COLUMN categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal' AFTER tipo"
+        },
+        {
+            name: 'materia_id',
+            sql: 'ALTER TABLE RegistrosAgenda ADD COLUMN materia_id VARCHAR(60) NULL DEFAULT NULL AFTER categoria'
+        },
+        {
+            name: 'materia_nombre',
+            sql: 'ALTER TABLE RegistrosAgenda ADD COLUMN materia_nombre VARCHAR(120) NULL DEFAULT NULL AFTER materia_id'
         },
         {
             name: 'estado',
@@ -2191,8 +2203,11 @@ function composeAgendaActividad(body = {}) {
 function enrichAgendaRow(row) {
     if (!row || typeof row !== 'object') return row;
     const { titulo, descripcion } = splitAgendaTitleAndDescription(row.actividad, row.titulo, row.descripcion);
+    const isUni = (row.categoria || 'personal') === 'universidad';
     return {
         ...row,
+        materia_id: isUni && row.materia_id ? String(row.materia_id).trim() : null,
+        materia_nombre: isUni && row.materia_nombre ? String(row.materia_nombre).trim() : null,
         titulo,
         descripcion
     };
@@ -2212,12 +2227,84 @@ function normalizeAgendaItemFields(body = {}) {
     if (body.recordatorio_min !== undefined && body.recordatorio_min !== null && body.recordatorio_min !== '') {
         recordatorioMin = Number(body.recordatorio_min);
     }
-    return { tipo, categoria, estado, recordatorioMin };
+    const rawMatId = categoria === 'universidad' && body.materia_id !== undefined && body.materia_id !== null
+        ? String(body.materia_id).trim()
+        : '';
+    const rawMatNombre = categoria === 'universidad' && body.materia_nombre !== undefined && body.materia_nombre !== null
+        ? String(body.materia_nombre).replace(/\s+/g, ' ').trim()
+        : '';
+    return {
+        tipo,
+        categoria,
+        estado,
+        recordatorioMin,
+        materiaId: rawMatId || null,
+        materiaNombre: rawMatNombre || null
+    };
+}
+
+function resolveAgendaCourseLink(body = {}, categoria = 'personal', settings = null) {
+    if (categoria !== 'universidad') {
+        return { error: null, materia_id: null, materia_nombre: null };
+    }
+    const rawId = body.materia_id === undefined || body.materia_id === null
+        ? ''
+        : String(body.materia_id).trim();
+    const rawName = body.materia_nombre === undefined || body.materia_nombre === null
+        ? ''
+        : String(body.materia_nombre).replace(/\s+/g, ' ').trim();
+    if (!rawId && !rawName) {
+        return { error: null, materia_id: null, materia_nombre: null };
+    }
+    if (rawId.length > 60) {
+        return { error: 'Class ID cannot exceed 60 characters.', materia_id: null, materia_nombre: null };
+    }
+    if (rawName.length > 120) {
+        return { error: 'Class name cannot exceed 120 characters.', materia_id: null, materia_nombre: null };
+    }
+
+    const planner = sanitizeAcademicPlanner(settings?.academicPlanner);
+    const semesters = Array.isArray(planner.semesters) ? planner.semesters : [];
+    const activeSem = semesters.find(s => s.id === planner.activeSemesterId) || semesters.find(s => s.active) || semesters[0];
+    const orderedSemesters = activeSem
+        ? [activeSem, ...semesters.filter(s => s.id !== activeSem.id)]
+        : semesters;
+    const allCourses = [];
+    orderedSemesters.forEach(sem => {
+        (Array.isArray(sem?.courses) ? sem.courses : []).forEach(c => allCourses.push(c));
+    });
+
+    if (rawId) {
+        const matched = allCourses.find(c => String(c.id || '').trim() === rawId);
+        if (!matched) {
+            return { error: 'Selected class was not found in your semester schedule.', materia_id: null, materia_nombre: null };
+        }
+        return {
+            error: null,
+            materia_id: matched.id,
+            materia_nombre: String(matched.name || rawName || '').trim().slice(0, 120) || null
+        };
+    }
+
+    const lowerName = rawName.toLowerCase();
+    const byName = allCourses.find(c => String(c.name || '').trim().toLowerCase() === lowerName);
+    if (byName) {
+        return {
+            error: null,
+            materia_id: byName.id,
+            materia_nombre: String(byName.name || rawName).trim().slice(0, 120)
+        };
+    }
+    return {
+        error: null,
+        materia_id: null,
+        materia_nombre: rawName.slice(0, 120)
+    };
 }
 
 function validarDatosAgenda(body = {}) {
     const { fecha, hora } = body;
-    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(body);
+    const { tipo, categoria, estado, recordatorioMin, materiaId, materiaNombre } = normalizeAgendaItemFields(body);
     const bloque = body.bloque && BLOQUES_VALIDOS.has(body.bloque)
         ? body.bloque
         : (body.bloque === undefined || body.bloque === null || body.bloque === ''
@@ -2249,6 +2336,12 @@ function validarDatosAgenda(body = {}) {
     if (!AGENDA_ESTADOS_VALIDOS.has(estado)) {
         return 'Invalid status (allowed: todo, in_progress, done).';
     }
+    if (materiaId && materiaId.length > 60) {
+        return 'Class ID cannot exceed 60 characters.';
+    }
+    if (materiaNombre && materiaNombre.length > 120) {
+        return 'Class name cannot exceed 120 characters.';
+    }
     if (recordatorioMin !== null && (!Number.isInteger(recordatorioMin) || recordatorioMin < -1 || recordatorioMin > 180)) {
         return 'Reminder lead minutes must be -1 (disabled) or between 0 and 180.';
     }
@@ -2271,6 +2364,8 @@ app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) =
                TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
                COALESCE(tipo, 'evento') AS tipo,
                COALESCE(categoria, 'personal') AS categoria,
+               materia_id,
+               materia_nombre,
                COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
                completada,
                recordatorio_min
@@ -2288,31 +2383,49 @@ app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) =
     });
 });
 
-app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
+app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), async (req, res) => {
     const errorValidacion = validarDatosAgenda(req.body);
     if (errorValidacion) {
         return res.status(400).send(errorValidacion);
     }
 
-    const { fecha, hora } = req.body;
-    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
-    const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
-        ? req.body.bloque
-        : inferAgendaBlockFromTimeServer(hora, categoria);
-    const actividad = composeAgendaActividad(req.body);
-    const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
-    const horaNormalizada = hora.slice(0, 5);
-    const completada = estado === 'done' ? 1 : 0;
-
-    const sql = `
-        INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    db.query(sql, [fecha, bloque, horaNormalizada, actividad, tipo, categoria, estado, completada, recordatorioMin], (err, result) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).send('Error saving agenda activity.');
+    try {
+        const { fecha, hora } = req.body;
+        const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
+        let courseLink = { error: null, materia_id: null, materia_nombre: null };
+        if (categoria === 'universidad' && (req.body.materia_id || req.body.materia_nombre)) {
+            const settings = await loadUserSettings(req.user.id);
+            courseLink = resolveAgendaCourseLink(req.body, categoria, settings);
+            if (courseLink.error) {
+                return res.status(400).send(courseLink.error);
+            }
         }
+
+        const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
+            ? req.body.bloque
+            : inferAgendaBlockFromTimeServer(hora, categoria);
+        const actividad = composeAgendaActividad(req.body);
+        const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
+        const horaNormalizada = hora.slice(0, 5);
+        const completada = estado === 'done' ? 1 : 0;
+
+        const sql = `
+            INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min, materia_id, materia_nombre)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        const result = await dbQueryAsync(sql, [
+            fecha,
+            bloque,
+            horaNormalizada,
+            actividad,
+            tipo,
+            categoria,
+            estado,
+            completada,
+            recordatorioMin,
+            courseLink.materia_id,
+            courseLink.materia_nombre
+        ]);
         res.status(201).json({
             message: 'Activity saved successfully.',
             item: {
@@ -2325,15 +2438,20 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
                 descripcion,
                 tipo,
                 categoria,
+                materia_id: courseLink.materia_id,
+                materia_nombre: courseLink.materia_nombre,
                 estado,
                 completada,
                 recordatorio_min: recordatorioMin
             }
         });
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error saving agenda activity.');
+    }
 });
 
-app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
+app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
     const id = parseAgendaId(req.params.id);
     if (!id) return res.status(400).send('Invalid activity ID.');
 
@@ -2342,26 +2460,45 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
         return res.status(400).send(errorValidacion);
     }
 
-    const { fecha, hora } = req.body;
-    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
-    const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
-        ? req.body.bloque
-        : inferAgendaBlockFromTimeServer(hora, categoria);
-    const actividad = composeAgendaActividad(req.body);
-    const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
-    const horaNormalizada = hora.slice(0, 5);
-    const completada = estado === 'done' ? 1 : 0;
-
-    const sql = `
-        UPDATE RegistrosAgenda
-        SET fecha = ?, bloque = ?, hora = ?, actividad = ?, tipo = ?, categoria = ?, estado = ?, completada = ?, recordatorio_min = ?
-        WHERE id = ?
-    `;
-    db.query(sql, [fecha, bloque, horaNormalizada, actividad, tipo, categoria, estado, completada, recordatorioMin, id], (err, result) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).send('Error updating activity.');
+    try {
+        const { fecha, hora } = req.body;
+        const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
+        let courseLink = { error: null, materia_id: null, materia_nombre: null };
+        if (categoria === 'universidad' && (req.body.materia_id || req.body.materia_nombre)) {
+            const settings = await loadUserSettings(req.user.id);
+            courseLink = resolveAgendaCourseLink(req.body, categoria, settings);
+            if (courseLink.error) {
+                return res.status(400).send(courseLink.error);
+            }
         }
+
+        const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
+            ? req.body.bloque
+            : inferAgendaBlockFromTimeServer(hora, categoria);
+        const actividad = composeAgendaActividad(req.body);
+        const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
+        const horaNormalizada = hora.slice(0, 5);
+        const completada = estado === 'done' ? 1 : 0;
+
+        const sql = `
+            UPDATE RegistrosAgenda
+            SET fecha = ?, bloque = ?, hora = ?, actividad = ?, tipo = ?, categoria = ?, estado = ?, completada = ?, recordatorio_min = ?, materia_id = ?, materia_nombre = ?
+            WHERE id = ?
+        `;
+        const result = await dbQueryAsync(sql, [
+            fecha,
+            bloque,
+            horaNormalizada,
+            actividad,
+            tipo,
+            categoria,
+            estado,
+            completada,
+            recordatorioMin,
+            courseLink.materia_id,
+            courseLink.materia_nombre,
+            id
+        ]);
         if (result.affectedRows === 0) {
             return res.status(404).send('Activity not found.');
         }
@@ -2380,12 +2517,17 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
                 descripcion,
                 tipo,
                 categoria,
+                materia_id: courseLink.materia_id,
+                materia_nombre: courseLink.materia_nombre,
                 estado,
                 completada,
                 recordatorio_min: recordatorioMin
             }
         });
-    });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating activity.');
+    }
 });
 
 app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
@@ -3639,7 +3781,9 @@ function computeCandidateReminders({
             const windowEndMin = tipo === 'tarea' ? 1439 : Math.min(1439, itemMin + 120);
 
             if (minutesOfDay >= triggerMin && minutesOfDay <= windowEndMin) {
-                const catLabel = item.categoria === 'universidad' ? 'University' : 'Personal';
+                const catLabel = item.categoria === 'universidad'
+                    ? (item.materia_nombre ? String(item.materia_nombre).trim() : 'University')
+                    : 'Personal';
                 const isOverdueToday = tipo === 'tarea' && minutesOfDay > itemMin + 30;
                 const typeLabel = tipo === 'tarea' ? (isOverdueToday ? 'Pending Task' : 'Task') : 'Event';
                 const statusBadge = estado === 'in_progress' ? ' [In Progress]' : '';
@@ -3672,7 +3816,9 @@ function computeCandidateReminders({
                 const taskMin = hhmmToMinutes(task.hora || '09:00');
                 if (!isPastDay && minutesOfDay < taskMin) return;
 
-                const catLabel = task.categoria === 'universidad' ? 'University' : 'Personal';
+                const catLabel = task.categoria === 'universidad'
+                    ? (task.materia_nombre ? String(task.materia_nombre).trim() : 'University')
+                    : 'Personal';
                 candidates.push({
                     key: `task-pending:${task.id}:${dateStr}`,
                     type: 'agenda',
@@ -4069,6 +4215,7 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
             `SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
                     COALESCE(tipo, 'evento') AS tipo,
                     COALESCE(categoria, 'personal') AS categoria,
+                    materia_id, materia_nombre,
                     COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
                     completada, recordatorio_min
              FROM RegistrosAgenda
@@ -4081,6 +4228,7 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
                     TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
                     COALESCE(tipo, 'evento') AS tipo,
                     COALESCE(categoria, 'personal') AS categoria,
+                    materia_id, materia_nombre,
                     COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
                     completada, recordatorio_min
              FROM RegistrosAgenda
@@ -4929,9 +5077,9 @@ app.post('/api/planner/sync-agenda', apiWriteLimiter.middleware, requireAdmin, p
                     if (existingSet.has(sig)) continue;
 
                     await dbQueryAsync(
-                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [dStr, 'cole', c.startTime, actividad, 'evento', 'universidad', 'todo', 0, commute.recommendedLeadMinutes]
+                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min, materia_id, materia_nombre)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [dStr, 'cole', c.startTime, actividad, 'evento', 'universidad', 'todo', 0, commute.recommendedLeadMinutes, c.id || null, String(c.name || '').trim().slice(0, 120) || null]
                     );
                     existingSet.add(sig);
                     insertedCount += 1;
@@ -4946,9 +5094,9 @@ app.post('/api/planner/sync-agenda', apiWriteLimiter.middleware, requireAdmin, p
                 const sig = `${dStr}|${planner.residencias.startTime}|${actividad}`;
                 if (!existingSet.has(sig)) {
                     await dbQueryAsync(
-                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [dStr, bloque, planner.residencias.startTime, actividad, 'evento', 'universidad', 'todo', 0, Math.max(30, planner.farLeadMinutesMin || 30)]
+                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min, materia_id, materia_nombre)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [dStr, bloque, planner.residencias.startTime, actividad, 'evento', 'universidad', 'todo', 0, Math.max(30, planner.farLeadMinutesMin || 30), null, null]
                     );
                     existingSet.add(sig);
                     insertedCount += 1;
@@ -4964,9 +5112,9 @@ app.post('/api/planner/sync-agenda', apiWriteLimiter.middleware, requireAdmin, p
                 const sig = `${dStr}|${planner.work.startTime}|${actividad}`;
                 if (!existingSet.has(sig)) {
                     await dbQueryAsync(
-                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        [dStr, bloque, planner.work.startTime, actividad, 'evento', 'personal', 'todo', 0, Math.max(30, planner.farLeadMinutesMin || 30)]
+                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min, materia_id, materia_nombre)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [dStr, bloque, planner.work.startTime, actividad, 'evento', 'personal', 'todo', 0, Math.max(30, planner.farLeadMinutesMin || 30), null, null]
                     );
                     existingSet.add(sig);
                     insertedCount += 1;
@@ -6702,6 +6850,7 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
         const songTitle = String(req.body.songTitle || '').trim().slice(0, 180);
         const artistName = String(req.body.artistName || '').trim().slice(0, 140);
 
+        const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
         let result;
         if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = analyzeTextOffline({
@@ -6711,7 +6860,8 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 songTitle,
                 artistName,
                 learningMemory: currentMemory,
-                repertoire
+                repertoire,
+                uiLang
             });
         } else {
             result = await analyzeWithGemini({
@@ -6723,7 +6873,8 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 songTitle,
                 artistName,
                 learningMemory: currentMemory,
-                repertoire
+                repertoire,
+                uiLang
             });
         }
 
@@ -6809,12 +6960,14 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
         const inlineKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
         const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
 
+        const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
         let result;
         if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = translateOffline({
                 text,
                 direction,
-                learningMemory: currentMemory
+                learningMemory: currentMemory,
+                uiLang
             });
         } else {
             result = await translateWithGemini({
@@ -6823,7 +6976,8 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
                 text,
                 direction,
                 context,
-                learningMemory: currentMemory
+                learningMemory: currentMemory,
+                uiLang
             });
         }
 
@@ -6867,6 +7021,72 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
     } catch (err) {
         console.error('[LANGUAGE_TRANSLATE_ERROR]', err);
         res.status(500).send('Error running translator.');
+    }
+});
+
+function loadVersionMetadata() {
+    let pkgVersion = '1.0.0';
+    try {
+        const pkgPath = path.join(__dirname, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            if (pkg && typeof pkg.version === 'string' && pkg.version.trim()) {
+                pkgVersion = pkg.version.trim();
+            }
+        }
+    } catch (_) {
+        pkgVersion = '1.0.0';
+    }
+
+    let historyData = null;
+    try {
+        const historyPath = path.join(__dirname, 'version-history.json');
+        if (fs.existsSync(historyPath)) {
+            historyData = JSON.parse(fs.readFileSync(historyPath, 'utf8'));
+        }
+    } catch (_) {
+        historyData = null;
+    }
+
+    const releases = Array.isArray(historyData?.releases)
+        ? historyData.releases
+        : [{
+            version: pkgVersion,
+            tag: `v${pkgVersion}`,
+            bumpType: 'initial',
+            previousVersion: '0.0.0',
+            releasedAt: null,
+            commitSha: 'baseline',
+            trigger: 'baseline',
+            summary: 'Current application release',
+            counts: { breaking: 0, features: 0, fixes: 0, maintenance: 0 },
+            changes: { breaking: [], features: [], fixes: [], maintenance: [] }
+        }];
+
+    const latest = releases[0] || null;
+    const currentVersion = (historyData && typeof historyData.currentVersion === 'string' && historyData.currentVersion.trim())
+        ? historyData.currentVersion.trim()
+        : (latest?.version || pkgVersion || '1.0.0');
+
+    return {
+        currentVersion,
+        tag: latest?.tag || `v${currentVersion}`,
+        bumpType: latest?.bumpType || 'initial',
+        releasedAt: latest?.releasedAt || historyData?.updatedAt || null,
+        commitSha: latest?.commitSha || '',
+        summary: latest?.summary || '',
+        standard: (historyData && historyData.standard) || 'SemVer 2.0.0 + Conventional Commits',
+        totalReleases: releases.length,
+        history: releases
+    };
+}
+
+app.get('/api/version', apiReadLimiter.middleware, requireAuth, (req, res) => {
+    try {
+        return res.json(loadVersionMetadata());
+    } catch (err) {
+        console.error('[VERSION_ENDPOINT_ERROR]', err);
+        return res.status(500).send('Failed to load version history.');
     }
 });
 

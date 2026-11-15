@@ -29,7 +29,7 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 4. **🌙 Control de Sueño:** Cálculo automático de horas dormidas en **formato normal de horas y minutos (`7h 30m` / `7 hrs 30 min`)**, calidad (`Good`, `Fair`, `Bad`), soporte de sueño intermitente/siestas y recordatorio matutino configurable con opción de posponer (*Snooze 15m / 30m / 1h*).
 5. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
 6. **📖 Language Learning Studio (`English` · `한국어 Korean` · `🎵 K-Pop EN+KR` + `Gemini AI` + Traductor Global):** Cuaderno multilingüe (extensible a futuros idiomas) con vocabulario, gramática, *phrasal verbs/expressions*, transliteración automática **Hangul → Revised Romanization**, **Memoria Persistente (`Memory Bank`)**, **conocimiento automático de tu repertorio musical registrado**, atajos `Enter` / `Ctrl+Enter` y asistente de IA optimizado para AWS `t3.micro` (**Google Gemini API** a 0 MB RAM locales + **motor lingüístico local instantáneo sin conexión** para analizar letras mixtas inglés+coreano de K-Pop). Todo se sincroniza cifrado E2EE hacia tu Word local (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada:
-   - **🌐 Traductor Bilingüe Global (Panel + Ventana Flotante tipo Extensión `/translator-popup.html` + `Alt+T`):** Traduce al instante Inglés ↔ Español y Coreano ↔ Inglés/Español (con romanización Hangul y explicación en español) desde cualquier pantalla mediante el botón flotante `🌐`, el menú lateral o abriéndolo en su **ventana emergente independiente** junto a YouTube, PDFs o Word.
+   - **🌐 Traductor Bilingüe Global (Cajón Flotante Movible + Ventana tipo Extensión `/translator-popup.html` + `Alt+T`):** Traduce al instante Inglés ↔ Español y Coreano ↔ Inglés/Español (con romanización Hangul y explicación en español) desde cualquier pantalla mediante el botón flotante `🌐`, el menú lateral, `Alt+T` o en su **ventana emergente independiente** junto a YouTube, PDFs o Word; el cajón flotante puede **arrastrarse por la barra superior (`⋮⋮`)** para no tapar el contenido (con botón `↺` para restablecer posición y caja amplia multilínea unificada con el resto de la app).
    - **🎵 Learn with Music + Álbumes CRUD + Letras en Word PC (0 KB BD):** Crea Álbumes / Mini Álbumes vacíos (`+ New Album`), navega por listas/pistas ordenadas, usa **Auto-fill** inteligente (canción, artista, colaboradores, álbum, año y `embeddable`), reproduce dentro de la app mediante **Mini Player `yt-dlp`**, y conecta de forma cifrada (**E2EE + HMAC site-to-site**) con [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para cargar/extraer letras automáticamente en tu PC y organizarlas en `4. Songs & Music Study → Álbum/Lista → Pista ordenada` junto con los aprendizajes automáticos de la IA (quedando cifrados en RAM EC2 cuando tu PC está offline).
 7. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
    - **Tipos de actividad:** **Evento** (`evento`: clases, citas, reuniones) y **Tarea** (`tarea`).
@@ -37,14 +37,23 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
    - **Flujo tipo Jira:** selector directo e icono de estado **`To Do`** (`todo`), **`In Progress`** (`in_progress`) y **`Done`** (`done`) sincronizados con `completada` y recordatorios anticipados configurables por actividad.
 8. **🎓 Horario ITS, Residencias, Trabajo y GPS de Casa:** Control semestral del Instituto Tecnológico de Saltillo (croquis de salones, días inhábiles/vacaciones, auto-sincronización con Agenda), residencias profesionales (500 h), horario laboral, configuración de Casa y actualización GPS desde el celular incluso en HTTP (incluyendo webhook HMAC firmado).
 9. **📈 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`), tarjetas de sueño/desvelos (`3:00 AM`, noches sin dormir y motivo) y bitácora clínica de crisis.
-10. **⚙️ Configuración (`Settings`):** Vista dedicada para gestionar notificaciones en la barra del celular (**`ntfy`** sin requerir HTTPS ni notificaciones en la computadora), horarios y reglas de recordatorios (Estado de ánimo, `Madrugada` opcional, Sueño, Agenda, revisión nocturna de notas Word, estudio de inglés opcional), **Google Gemini API Key / Modelo**, valores predeterminados de agenda, zona horaria IANA, tema claro/oscuro y administración de la clave local E2EE de 32 caracteres.
+10. **⚙️ Configuración (`Settings`):** Vista dedicada para gestionar notificaciones en la barra del celular (**`ntfy`** sin requerir HTTPS ni notificaciones en la computadora), horarios y reglas de recordatorios (Estado de ánimo, `Madrugada` opcional, Sueño, Agenda, revisión nocturna de notas Word, estudio de inglés opcional), **Google Gemini API Key / Modelo**, valores predeterminados de agenda, zona horaria IANA, **idioma completo de la interfaz (`English` ↔ `Español`)** y administración de la clave local E2EE de 32 caracteres.
 11. **🩺 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
    - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos, recordatorios, configuración y gestión de cuentas psiquiátricas con activación/desactivación (`#view-medico`).
    - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado a **Resumen Semanal** de ánimo, sueño/desvelos y crisis (`#view-resumen`); bloqueado por RBAC (`403`) en agenda, notas, traductor, configuración y recordatorios.
    - **Sesión persistente:** Permanece activa mediante cookie `HttpOnly; SameSite=Lax` y tabla `SesionesAuth` hasta cerrar sesión (**Sign Out**) o hasta el **domingo `00:00`**.
    - **Transporte de Red Cifrado sobre HTTP ("HTTPS Simulado"):** Túnel híbrido **`X25519 (Curve25519 ECDH) + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)`** (`public/transport-crypto.js` ↔ `lib/transport-crypto.js`) que cifra en el navegador las peticiones y respuestas `/api/*` incluso en orígenes HTTP (`http://IP:3000`) con *Forward Secrecy*, detección de manipulación y alto rendimiento para payloads grandes.
    - **Seguridad Checklist U2:** Contraseñas con `bcryptjs` (12 rondas), tokens SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`), *rate limiting* multicapa en API/Auth/acciones de recordatorio, protección SSRF en URLs de notificación/YouTube, idempotencia (`X-Idempotency-Key` + locks en botones), MFA opcional y recuperación por correo (`nodemailer`).
-12. **🎛️ Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y cambio de tema desde barra lateral, móvil y *Settings*.
+12. **🌙 Modo Oscuro Permanente, Bilingüe Integral (`EN` ↔ `ES`) y Guía Visual Interactiva (`📖 Visual Guide`):**
+   - **Modo Oscuro Permanente (`data-theme="dark"`):** Se eliminó el modo claro para mantener uniformidad visual en todas las pantallas (SPA principal, Auth, Traductor flotante, Popup y Guía Visual) mediante [`public/theme-init.js`](public/theme-init.js) sin parpadeo al cargar.
+   - **Cambio de Idioma Completo (`public/i18n.js`):** Selector instantáneo **`ES / EN`** en barra lateral, cabecera móvil, login, *Settings* y popup del traductor (`pdh_ui_lang_v1`, sincronizado entre pestañas y propagado al backend vía cabecera `X-UI-Lang` para explicaciones IA/locales) sin alterar claves internas de MySQL ni traducir texto capturado por el usuario (`data-no-i18n="true"`).
+   - **Guía Visual Interactiva (`#view-guia` y `/guia-visual.html`):** Manual visual ligero, sin saturación de texto, accesible dentro de la propia aplicación desde **`📖 Visual Guide`** (`[data-view="guia"]` en la barra lateral o tarjeta rápida en *Home*).
+13. **🏷️ Historial Automático de Versiones (`SemVer 2.0.0` + `Conventional Commits`):**
+   - Cada despliegue a `main` en [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) ejecuta automáticamente [`scripts/release-version.js`](scripts/release-version.js) y calcula la siguiente versión siguiendo el estándar **`MAJOR.MINOR.PATCH`**:
+     - `fix:` / `chore:` / `docs:` / `refactor:` -> **PATCH** (`+0.0.1`, ej. `1.0.0` → `1.0.1`).
+     - `feat:` -> **MINOR** (`+0.1.0`, ej. `1.0.1` → `1.1.0`).
+     - `BREAKING CHANGE` o `<tipo>!:` -> **MAJOR** (`+1.0.0`, ej. `1.1.0` → `2.0.0`).
+   - Actualiza automáticamente `package.json`, `package-lock.json`, `version-history.json`, [`CHANGELOG.md`](CHANGELOG.md), crea tag Git `vX.Y.Z` + GitHub Release y expone el endpoint **`GET /api/version`** junto al modal interactivo **🏷️ Historial de Versiones** en la barra lateral y en *Settings*.
 
 ---
 
@@ -61,37 +70,42 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 ## 📁 Estructura del Proyecto
 
 ```text
-mood-tracker/
+mood-tracker/  # o personal-daily-hub/ en Windows
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml                  # Pruebas automatizadas y sintaxis en ramas/PR hacia main
 │       └── deploy.yml              # CI/CD automático hacia AWS EC2
 ├── base_datos/
 │   └── Diseño Base Datos.xml       # Modelo visual de base de datos
-├── english-notes/                  # Cuaderno Word de inglés autogenerado (ignorado en Git/Docker)
+├── english-notes/                  # Cuaderno Word de inglés autogenerado si no existe (ignorado en Git/Docker)
 │   └── English_Learning_Notebook.docx
 ├── guides/                         # Documentación funcional, técnica y operativa (con índice rápido)
 │   ├── MANUAL_DE_USUARIO.md
 │   ├── GUIA_OPERACION_Y_MIGRACION.md
 │   └── GUIA_TECNICA_ARQUITECTURA.md
 ├── public/                         # Archivos estáticos servidos por Express
-│   ├── index.html                  # Shell principal, traductor flotante, tray, Agenda Jira y Settings
+│   ├── index.html                  # Shell principal, guía visual (#view-guia), traductor, Agenda Jira y Settings
+│   ├── guia-visual.html            # Pantalla visual interactiva independiente (/guia-visual.html)
+│   ├── guia-visual.js              # Controlador visual sin texto pesado (CSP-safe, montado inline y standalone)
+│   ├── i18n.js                     # Motor bilingüe integral EN <-> ES (pdh_ui_lang_v1 + MutationObserver)
 │   ├── translator-popup.html       # Ventana emergente independiente del Traductor Bilingüe (tipo extensión)
-│   ├── translator-widget.js        # Controlador compartido del traductor (inline, flotante y popup)
-│   ├── translator-popup.js         # Inicialización y handoff al Word desde la ventana emergente
+│   ├── translator-widget.js        # Controlador compartido del traductor (cajón flotante movible y popup)
+│   ├── translator-popup.js         # Inicialización, selector EN/ES y handoff al Word desde la ventana emergente
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
-│   ├── theme-init.js               # Inicialización temprana de tema antes del primer pintado (CSP)
+│   ├── theme-init.js               # Enfuerza Modo Oscuro permanente + pre-carga idioma EN/ES (CSP-safe)
 │   ├── transport-crypto.js         # Cliente X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 en navegador HTTP
-│   ├── style.css                   # Estilos responsivos, spinners, filtros Jira y vista Settings
+│   ├── style.css                   # Estilos en modo oscuro permanente, pill EN/ES, guía visual y Agenda Jira
 │   └── frontend.js                 # Navegación, túnel cifrado, E2EE, AI Studio, agenda/horario y settings
 ├── lib/                            # Módulos backend desacoplados (0 dependencias extra)
 │   ├── transport-crypto.js         # Gestor OpenSSL X25519 + AES-256-CTR-HMAC en Node.js
 │   ├── language-studio.js          # Registro multilingüe, Romanización Hangul, traductor y Gemini API
-│   └── youtube-metadata.js         # Parser de álbum/artista/año/embeddable YT/YT Music y limpiador .srt/.vtt/.lrc
+│   ├── youtube-metadata.js         # Parser de álbum/artista/año/embeddable YT/YT Music y limpiador .srt/.vtt/.lrc
+│   └── ytdlp-service.js            # Streaming multimedia 206 seguro y extractor de subtítulos yt-dlp sin BD
 ├── scripts/
 │   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
 │   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor EC2
 │   ├── local-vault.js              # Bóveda local en Windows (.env <-> .env.enc y autoinicio DPAPI)
+│   ├── release-version.js          # Versionador automático SemVer 2.0.0 + Conventional Commits en deploy
 │   └── restore.sh                  # Script de restauración automática desde Google Drive
 ├── sincronitation/                 # Scripts locales en Windows (ignorados en Git/Docker)
 │   ├── sincronizador.py            # Cliente local Windows para Journal (.docx protegido) y English (.docx)
@@ -121,9 +135,9 @@ mood-tracker/
 
 ## 📚 Guías del Proyecto
 
-* [Manual de Usuario (Paso a Paso)](guides/MANUAL_DE_USUARIO.md): guía práctica de cada pantalla (`Home`, `Mood`, `Sleep` y registro de desvelo, `Journal E2EE`, `English Notebook` + **Traductor Bilingüe Global** con acceso flotante/`Alt+T`/`/translator-popup.html`, `Learn with Music` con Mini Player embebido/emergente + `Auto-fill` + `yt-dlp`, `Weekly Agenda`, `Weekly Summary`, acceso médico y notificaciones `ntfy`).
+* [Manual de Usuario (Paso a Paso)](guides/MANUAL_DE_USUARIO.md) y **Guía Visual dentro de la app (`📖 Visual Guide` / `/guia-visual.html`)**: explicación visual interactiva de cada pantalla (`Home`, `Mood`, `Sleep` y registro de desvelo, `Journal E2EE`, `English Notebook` + **Traductor Bilingüe Global** con acceso flotante/`Alt+T`/`/translator-popup.html`, `Learn with Music` con Mini Player `yt-dlp` + letras en Word PC, `Weekly Agenda`, selector `EN ↔ ES` y notificaciones `ntfy`).
 * [Guía Técnica de Arquitectura e Implementación](guides/GUIA_TECNICA_ARQUITECTURA.md): diseño por capas, esquema MySQL (13 tablas), seguridad E2EE/RBAC, optimizaciones para `t3.micro` y flujo CI/CD.
-* [Guía de Operación, Bóveda Local y Migración EC2](guides/GUIA_OPERACION_Y_MIGRACION.md): gestión de `.env.enc`, sincronizador de Word en Windows (`sincronizador.py`), extractor local `yt-dlp` (`yt_lyrics_helper.py`), respaldos con `rclone` y migración de instancia AWS EC2.
+* [Guía de Operación, Bóveda Local y Migración EC2](guides/GUIA_OPERACION_Y_MIGRACION.md): gestión de `.env.enc`, sincronizador de Word en Windows (`sincronizador.py`), reinicio/autoinicio tras apagar o reiniciar Windows, autogeneración de `English_Learning_Notebook.docx`, extractor `yt-dlp` (`yt_lyrics_helper.py`), respaldos con `rclone` y migración EC2.
 
 ---
 
@@ -134,7 +148,7 @@ El archivo `init.sql` define **13 tablas principales** (y `server.js` crea/migra
 * **`RegistrosMood`**: `id`, `fecha`, `momento_dia` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`), `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
 * **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `hora_dormir`, `hora_despertar`, `es_desvelo`, `tipo_registro`, `motivo_desvelo`, `fecha_registro`.
 * **`RegistrosCrisis`**: `id`, `fecha`, `hora`, `tipo_crisis`, `intensidad` (`1..5`), `motivo` (texto en español), `fecha_registro`.
-* **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `completada`, `recordatorio_min`, `fecha_registro`.
+* **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `materia_id`, `materia_nombre`, `estado` (`todo`, `in_progress`, `done`), `completada`, `recordatorio_min`, `fecha_registro`.
 * **`Usuarios`**: `id`, `nombre`, `email`, `password_hash` (bcrypt), `rol` (`admin` o `psiquiatra`), `estado` (`activo`, `inactivo`, `suspendido`), `fecha_registro`.
 * **`SesionesAuth`**: `id`, `usuario_id`, `token_hash` (SHA-256), `expira_en` (próximo domingo `00:00`), `creado_en`.
 * **`CodigosSeguridad`**: `id`, `email`, `tipo` (`registro`, `reset`, `mfa`), `token_hash` (SHA-256), `expira_en`, `usado`, `creado_en`.
@@ -162,12 +176,15 @@ CREATE TABLE IF NOT EXISTS RegistrosAgenda (
     actividad VARCHAR(255) NOT NULL,
     tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento',
     categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
+    materia_id VARCHAR(60) NULL DEFAULT NULL,
+    materia_nombre VARCHAR(120) NULL DEFAULT NULL,
     estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
     completada TINYINT(1) NOT NULL DEFAULT 0,
     recordatorio_min SMALLINT NULL DEFAULT NULL,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_agenda_fecha (fecha),
-    INDEX idx_agenda_categoria_estado (categoria, estado)
+    INDEX idx_agenda_categoria_estado (categoria, estado),
+    INDEX idx_agenda_materia (materia_id)
 );
 EOF
 ```
@@ -231,14 +248,15 @@ EOF
 * `POST /api/transport/benchmark`: Prueba en vivo de rendimiento y verificación SHA-256 sobre payloads grandes (`1 KB` – `192+ KB`) cifrados con **AES-256-CTR + HMAC-SHA256**.
 
 ### Agenda Personal Semanal (Eventos, Tareas y Estados Jira)
-* `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista actividades con `tipo` (`evento`/`tarea`), `categoria` (`universidad`/`personal`), `estado` (`todo`/`in_progress`/`done`), `completada` y `recordatorio_min`.
-* `POST /api/insert-agenda`: Crea un evento o tarea (`{ "fecha", "bloque", "hora", "actividad", "tipo", "categoria", "estado", "recordatorio_min" }`).
+* `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista actividades con `tipo` (`evento`/`tarea`), `categoria` (`universidad`/`personal`), `materia_id`/`materia_nombre` (vinculación con materias actuales cuando es universitaria), `estado` (`todo`/`in_progress`/`done`), `completada` y `recordatorio_min`.
+* `POST /api/insert-agenda`: Crea un evento o tarea (`{ "fecha", "bloque", "hora", "actividad", "tipo", "categoria", "materia_id", "estado", "recordatorio_min" }`). Si `categoria === 'personal'`, `materia_id`/`materia_nombre` se descartan automáticamente.
 * `PUT /api/update-agenda/:id`: Actualiza todos los campos de un evento o tarea.
 * `PATCH /api/toggle-agenda/:id`: Cambia directamente el estado Jira (`{ "estado": "todo" | "in_progress" | "done" }`) o alterna `completada`, descartando recordatorios si pasa a `done`.
 * `DELETE /api/delete-agenda/:id`: Elimina una actividad por `id`.
 
 ### Configuración Personal y Recordatorios (`Settings` & Móvil `ntfy`)
 * `GET /api/settings`: Obtiene la configuración del usuario `admin` (reglas de recordatorios, horario de sueño/Word/inglés, `Madrugada` opcional, `ntfy`).
+* `GET /api/version`: Devuelve la versión activa y el historial automático de despliegues (`SemVer 2.0.0`) desde `version-history.json` / `package.json` para el modal **🏷️ Version History**.
 * `PUT /api/settings`: Valida y guarda preferencias personales en `ConfiguracionUsuario` (protegido contra SSRF en URLs de push).
 * `POST /api/settings/test-notification`: Envía una notificación de prueba inmediata al tópico `ntfy` configurado en el celular.
 * `GET /api/reminders/active`: Evalúa y retorna recordatorios activos y pospuestos (`active` / `snoozed`) según los registros del día y la configuración vigente.
@@ -297,6 +315,9 @@ El pipeline [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) está
 * `EC2_HOST`: IP pública actual de tu instancia AWS EC2 (es el único dato que cambias cuando cambie tu IP).
 * `EC2_USER` *(opcional)*: usuario SSH (por defecto `ubuntu`).
 * `PORT` *(opcional)*: puerto HTTP (por defecto `3000`).
+* `WORD_FILE_PATH` *(opcional · sincronizador PC)*: ruta `.docx` o carpeta de tu **Journal diario** en Windows (anula `.env`/`.env.enc` en caliente si mueves el archivo de carpeta).
+* `ENGLISH_WORD_FILE_PATH` *(opcional · sincronizador PC)*: ruta `.docx` o carpeta de **`English_Learning_Notebook.docx`** en Windows (por defecto `english-notes/English_Learning_Notebook.docx`).
+* `YT_DLP_PATH` *(opcional · sincronizador PC)*: ruta hacia `yt-dlp.exe` (o su carpeta) en Windows.
 
 **En la pestaña `Secrets`:**
 * `EC2_SSH_KEY`: llave privada SSH (`.pem`) para conectarse a tu instancia EC2.
@@ -323,6 +344,7 @@ El pipeline [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) está
 6. Ejecuta [`scripts/restore.sh --if-empty`](scripts/restore.sh): si es una instancia nueva (base de datos vacía), descarga automáticamente `respaldo_mood_tracker.sql.gz` desde Google Drive y restaura todos tus datos previos; si ya tenía datos, los conserva intactos.
 7. Registra el `cron` diario de respaldos hacia Google Drive.
 8. *(Opcional)* Si defines `SEAL_ENV_AFTER_DEPLOY=true` en GitHub Variables, elimina `.env` en texto plano al finalizar el despliegue.
+9. **Auto-versionado SemVer 2.0.0:** Antes de conectar por SSH, el job `release` calcula automáticamente la nueva versión (`MAJOR.MINOR.PATCH`) con [`scripts/release-version.js`](scripts/release-version.js), genera [`CHANGELOG.md`](CHANGELOG.md) + `version-history.json`, etiqueta `vX.Y.Z` con GitHub Release y envía la versión exacta a EC2 para que quede visible dentro de la app.
 
 ---
 

@@ -18,6 +18,38 @@ const clientTransportTunnel = (
 
 let lastCapturedWirePacket = null;
 
+function i18nGetLang() {
+    return (typeof window !== 'undefined' && window.DailyHubI18n && typeof window.DailyHubI18n.getLang === 'function')
+        ? window.DailyHubI18n.getLang()
+        : 'en';
+}
+
+function tUi(en, es) {
+    return (typeof window !== 'undefined' && window.DailyHubI18n && typeof window.DailyHubI18n.pick === 'function')
+        ? window.DailyHubI18n.pick(en, es)
+        : en;
+}
+
+function tServer(msg) {
+    if (!msg) return '';
+    return (typeof window !== 'undefined' && window.DailyHubI18n && typeof window.DailyHubI18n.translateServerMessage === 'function')
+        ? window.DailyHubI18n.translateServerMessage(msg)
+        : String(msg);
+}
+
+function tLocale() {
+    return (typeof window !== 'undefined' && window.DailyHubI18n && typeof window.DailyHubI18n.locale === 'function')
+        ? window.DailyHubI18n.locale()
+        : 'en-US';
+}
+
+function protectUserNode(el) {
+    if (el && typeof el.setAttribute === 'function') {
+        el.setAttribute('data-no-i18n', 'true');
+    }
+    return el;
+}
+
 function formatCompactBytes(bytes) {
     const n = Number(bytes) || 0;
     if (n < 1024) return `${n} B`;
@@ -47,10 +79,10 @@ function updateTransportStatusBadges() {
 
     if (!clientTransportTunnel) {
         if (authPill) {
-            authPill.textContent = '⚠️ Wire: Plain HTTP fallback';
+            authPill.textContent = tUi('⚠️ Wire: Plain HTTP fallback', '⚠️ Wire: HTTP plano (respaldo)');
             authPill.classList.add('is-pending');
         }
-        setSidebarBadge('⚠️', 'Wire: Standard HTTP');
+        setSidebarBadge('⚠️', tUi('Wire: Standard HTTP', 'Wire: HTTP estándar'));
         return;
     }
 
@@ -70,15 +102,18 @@ function updateTransportStatusBadges() {
         setSidebarBadge('🔐', `Wire: X25519+AES (${diag.kid.slice(0, 8)}…)`);
         if (diagKid) diagKid.textContent = `${diag.kid} (${diag.metrics.lastHandshakeMs} ms X25519)`;
         if (diagStats) {
-            diagStats.textContent = `${totalReqs} encrypted msgs · ${formatCompactBytes(totalBytes)} on wire`;
+            diagStats.textContent = tUi(
+                `${totalReqs} encrypted msgs · ${formatCompactBytes(totalBytes)} on wire`,
+                `${totalReqs} mensajes cifrados · ${formatCompactBytes(totalBytes)} en red`
+            );
         }
     } else {
         if (authPill) {
-            authPill.textContent = '🔐 Wire Tunnel: Establishing X25519...';
+            authPill.textContent = tUi('🔐 Wire Tunnel: Establishing X25519...', '🔐 Túnel Wire: Estableciendo X25519...');
             authPill.classList.add('is-pending');
         }
-        setSidebarBadge('🔐', 'Wire: Connecting...');
-        if (diagKid) diagKid.textContent = 'Pending X25519 handshake...';
+        setSidebarBadge('🔐', tUi('Wire: Connecting...', 'Wire: Conectando...'));
+        if (diagKid) diagKid.textContent = tUi('Pending X25519 handshake...', 'Esperando handshake X25519...');
     }
 }
 
@@ -94,6 +129,9 @@ if (rawBrowserFetch && clientTransportTunnel) {
         }
 
         const headers = new Headers(init.headers || {});
+        if (!headers.has('X-UI-Lang')) {
+            headers.set('X-UI-Lang', i18nGetLang());
+        }
         if (headers.has('X-Bypass-Transport-Encrypt')) {
             headers.delete('X-Bypass-Transport-Encrypt');
             return rawBrowserFetch(input, { ...init, headers });
@@ -106,7 +144,7 @@ if (rawBrowserFetch && clientTransportTunnel) {
             }
         } catch (hsErr) {
             // Do not crash app UI if transient network issue happens during handshake
-            return rawBrowserFetch(input, init);
+            return rawBrowserFetch(input, { ...init, headers });
         }
 
         const originalBody = typeof init.body === 'string' ? init.body : null;
@@ -118,6 +156,9 @@ if (rawBrowserFetch && clientTransportTunnel) {
                 attemptHeaders.set('X-Transport-Session', diagNow.kid);
             }
             attemptHeaders.set('X-Transport-Accept-Enc', '1');
+            if (!attemptHeaders.has('X-UI-Lang')) {
+                attemptHeaders.set('X-UI-Lang', i18nGetLang());
+            }
 
             const nextInit = { ...init, headers: attemptHeaders };
             if (originalBody !== null) {
@@ -176,6 +217,20 @@ if (rawBrowserFetch && clientTransportTunnel) {
         updateTransportStatusBadges();
         return res;
     };
+} else if (rawBrowserFetch) {
+    window.fetch = async function langHeaderFetch(input, init = {}) {
+        const urlStr = typeof input === 'string'
+            ? input
+            : (input && typeof input.url === 'string' ? input.url : '');
+        if (!urlStr.startsWith('/api/')) {
+            return rawBrowserFetch(input, init);
+        }
+        const headers = new Headers(init.headers || {});
+        if (!headers.has('X-UI-Lang')) {
+            headers.set('X-UI-Lang', i18nGetLang());
+        }
+        return rawBrowserFetch(input, { ...init, headers });
+    };
 }
 
 // ==========================================
@@ -190,18 +245,18 @@ function formatLocalDate(date) {
 
 function getMomentoInfo(hour) {
     if (hour >= 0 && hour < 6) {
-        return { moodKey: 'Madrugada', moodLabel: 'Late Night', saludo: 'Good early morning!', agendaBloque: 'noche' };
+        return { moodKey: 'Madrugada', moodLabel: tUi('Late Night', 'Madrugada'), saludo: tUi('Good early morning!', '¡Buen inicio de madrugada!'), agendaBloque: 'noche' };
     }
     if (hour >= 6 && hour < 12) {
-        return { moodKey: 'Morning', moodLabel: 'Morning', saludo: 'Good morning!', agendaBloque: hour < 9 ? 'manana' : 'cole' };
+        return { moodKey: 'Morning', moodLabel: tUi('Morning', 'Mañana'), saludo: tUi('Good morning!', '¡Buenos días!'), agendaBloque: hour < 9 ? 'manana' : 'cole' };
     }
     if (hour >= 12 && hour < 14) {
-        return { moodKey: 'Noon', moodLabel: 'Noon', saludo: 'Good afternoon!', agendaBloque: 'cole' };
+        return { moodKey: 'Noon', moodLabel: tUi('Noon', 'Mediodía'), saludo: tUi('Good afternoon!', '¡Buenas tardes!'), agendaBloque: 'cole' };
     }
     if (hour >= 14 && hour < 20) {
-        return { moodKey: 'Afternoon', moodLabel: 'Afternoon', saludo: 'Good afternoon!', agendaBloque: 'tarde' };
+        return { moodKey: 'Afternoon', moodLabel: tUi('Afternoon', 'Tarde'), saludo: tUi('Good afternoon!', '¡Buenas tardes!'), agendaBloque: 'tarde' };
     }
-    return { moodKey: 'Night', moodLabel: 'Night', saludo: 'Good evening!', agendaBloque: 'noche' };
+    return { moodKey: 'Night', moodLabel: tUi('Night', 'Noche'), saludo: tUi('Good evening!', '¡Buenas noches!'), agendaBloque: 'noche' };
 }
 
 const MOMENTOS_LABELS = {
@@ -349,31 +404,54 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
 
 function formatHumanNetworkError(status, rawText = '', err = null) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        return 'Sin conexión a internet. Tus notas permanecen guardadas localmente; reintenta cuando vuelva la red.';
+        return tUi(
+            'No internet connection. Your notes remain saved locally; retry when the network is back.',
+            'Sin conexión a internet. Tus notas permanecen guardadas localmente; reintenta cuando vuelva la red.'
+        );
     }
     if (err && err.name === 'TimeoutError') {
-        return 'La conexión tardó demasiado en responder (timeout). Reintenta en unos segundos.';
+        return tUi(
+            'Connection took too long to respond (timeout). Retry in a few seconds.',
+            'La conexión tardó demasiado en responder (timeout). Reintenta en unos segundos.'
+        );
     }
     if (isAbortError(err)) {
-        return 'Petición cancelada o tiempo agotado por red inestable. Reintenta sin recargar la página.';
+        return tUi(
+            'Request aborted or timed out due to unstable network. Retry without reloading the page.',
+            'Petición cancelada o tiempo agotado por red inestable. Reintenta sin recargar la página.'
+        );
     }
     if (err && /failed to fetch|networkerror|load failed/i.test(String(err.message || ''))) {
-        return 'No se pudo contactar al servidor (red inestable o desconectada). Tus datos no se perdieron.';
+        return tUi(
+            'Could not reach the server (unstable or disconnected network). Your data was not lost.',
+            'No se pudo contactar al servidor (red inestable o desconectada). Tus datos no se perdieron.'
+        );
     }
     if (status === 401) {
-        return 'Tu sesión expiró. Vuelve a iniciar sesión (tus borradores locales se mantienen seguros).';
+        return tUi(
+            'Your session expired. Sign in again (your local drafts remain safe).',
+            'Tu sesión expiró. Vuelve a iniciar sesión (tus borradores locales se mantienen seguros).'
+        );
     }
     if (status === 429) {
-        return 'Demasiadas peticiones seguidas. Espera unos segundos e intenta de nuevo.';
+        return tUi(
+            'Too many requests in a row. Wait a few seconds and try again.',
+            'Demasiadas peticiones seguidas. Espera unos segundos e intenta de nuevo.'
+        );
     }
     if (status === 502 || status === 503 || status === 504) {
-        return `El servidor o proxy respondió temporalmente con HTTP ${status}. Reintenta en un momento.`;
+        return tUi(
+            `The server or proxy temporarily responded with HTTP ${status}. Retry in a moment.`,
+            `El servidor o proxy respondió temporalmente con HTTP ${status}. Reintenta en un momento.`
+        );
     }
     const cleanText = String(rawText || '').trim();
     if (!cleanText || /^\s*</.test(cleanText)) {
-        return status ? `Error temporal de red/servidor (HTTP ${status}).` : 'Error de red inesperado.';
+        return status
+            ? tUi(`Temporary network/server error (HTTP ${status}).`, `Error temporal de red/servidor (HTTP ${status}).`)
+            : tUi('Unexpected network error.', 'Error de red inesperado.');
     }
-    return cleanText.slice(0, 260);
+    return tServer(cleanText.slice(0, 260));
 }
 
 async function resilientFetchJson(url, fetchOpts = {}, { timeoutMs = 26000, externalSignal = null } = {}) {
@@ -394,8 +472,13 @@ async function resilientFetchJson(url, fetchOpts = {}, { timeoutMs = 26000, exte
     }
 
     try {
+        const mergedHeaders = new Headers(fetchOpts.headers || {});
+        if (!mergedHeaders.has('X-UI-Lang')) {
+            mergedHeaders.set('X-UI-Lang', i18nGetLang());
+        }
         const res = await fetch(url, {
             ...fetchOpts,
+            headers: mergedHeaders,
             signal: controller ? controller.signal : externalSignal || undefined
         });
         const rawText = await res.text();
@@ -419,7 +502,10 @@ async function resilientFetchJson(url, fetchOpts = {}, { timeoutMs = 26000, exte
                 status: res.status,
                 data: null,
                 isNetworkIssue: true,
-                errorMessage: 'Respuesta inesperada del servidor (posible corte de red). Reintenta.'
+                errorMessage: tUi(
+                    'Unexpected server response (possible network cut). Retry.',
+                    'Respuesta inesperada del servidor (posible corte de red). Reintenta.'
+                )
             };
         }
     } catch (err) {
@@ -526,7 +612,7 @@ function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin
 const STUDY_DRAFTS_CONFIG = {
     english: ['engWord', 'engRomanization', 'engSpanish', 'engVocabExample', 'engVocabNotes', 'engGrammarTitle', 'engGrammarExplanation', 'engPvVerb', 'engPvMeaningEs'],
     music: ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'],
-    ai: ['langAiQuestion', 'translatorInput']
+    ai: ['langAiQuestion']
 };
 const STUDY_DRAFTS_STORAGE_PREFIX = 'mt_study_draft_v1:';
 
@@ -682,12 +768,12 @@ function showToast(type, message, durationMs = 4200) {
     toast.className = `app-toast ${type === 'err' ? 'toast-err' : (type === 'ok' ? 'toast-ok' : '')}`;
 
     const text = document.createElement('span');
-    text.textContent = String(message);
+    text.textContent = tServer(String(message));
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'app-toast-close';
-    closeBtn.setAttribute('aria-label', 'Dismiss notification');
+    closeBtn.setAttribute('aria-label', tUi('Dismiss notification', 'Cerrar notificación'));
     closeBtn.textContent = '✕';
 
     const removeToast = () => {
@@ -718,7 +804,7 @@ function setInlineBanner(bannerId, type, message) {
     }
     const cls = type === 'err' ? 'err' : (type === 'info' ? 'info' : 'ok');
     el.className = `inline-status-banner ${cls}`;
-    el.textContent = String(message);
+    el.textContent = tServer(String(message));
     el.hidden = false;
 }
 
@@ -731,7 +817,7 @@ function closeConfirmDialog(accepted = false) {
     if (resolver) resolver(Boolean(accepted));
 }
 
-function openConfirmDialog({ title = 'Confirm Action', message = 'Are you sure?', confirmText = 'Confirm', danger = false } = {}) {
+function openConfirmDialog({ title, message, confirmText, danger = false } = {}) {
     const modal = document.getElementById('confirmActionModal');
     const titleEl = document.getElementById('confirmActionTitle');
     const msgEl = document.getElementById('confirmActionMessage');
@@ -745,9 +831,9 @@ function openConfirmDialog({ title = 'Confirm Action', message = 'Are you sure?'
 
     if (activeConfirmResolver) closeConfirmDialog(false);
 
-    if (titleEl) titleEl.textContent = title;
-    if (msgEl) msgEl.textContent = message;
-    acceptBtn.textContent = confirmText;
+    if (titleEl) titleEl.textContent = tServer(title || tUi('Confirm Action', 'Confirmar acción'));
+    if (msgEl) msgEl.textContent = tServer(message || tUi('Are you sure?', '¿Estás seguro?'));
+    acceptBtn.textContent = tServer(confirmText || tUi('Confirm', 'Confirmar'));
     acceptBtn.style.backgroundColor = danger ? '#dc2626' : '';
 
     return new Promise((resolve) => {
@@ -1022,12 +1108,12 @@ function getSongTargetPlaybackInfo(song = {}) {
     });
 
     if (platform === 'youtube' && youtubeUrl) {
-        return { platform, url: youtubeUrl, shortLabel: 'YouTube', fullLabel: 'Open on YouTube (PC)' };
+        return { platform, url: youtubeUrl, shortLabel: 'YouTube', fullLabel: tUi('Open on YouTube (PC)', 'Abrir en YouTube (PC)') };
     }
     if (ytMusicUrl) {
-        return { platform: 'yt_music', url: ytMusicUrl, shortLabel: 'YT Music', fullLabel: 'Open in YT Music (Mobile)' };
+        return { platform: 'yt_music', url: ytMusicUrl, shortLabel: 'YT Music', fullLabel: tUi('Open in YT Music (Mobile)', 'Abrir en YT Music (Móvil)') };
     }
-    return { platform, url: youtubeUrl || '', shortLabel: 'YouTube', fullLabel: 'Open on YouTube' };
+    return { platform, url: youtubeUrl || '', shortLabel: 'YouTube', fullLabel: tUi('Open on YouTube', 'Abrir en YouTube') };
 }
 
 function getYouTubeSearchUrl(queryText = '') {
@@ -1063,8 +1149,10 @@ function updateYouTubePlatformUI() {
 
     const badge = document.getElementById('ytPlatformDetectedBadge');
     if (badge) {
-        const deviceStr = isMobile ? '📱 Mobile' : '🖥️ PC Browser';
-        const targetStr = isStandardYt ? 'Standard YouTube (youtube.com)' : 'YouTube Music (music.youtube.com)';
+        const deviceStr = isMobile ? tUi('📱 Mobile', '📱 Móvil') : tUi('🖥️ PC Browser', '🖥️ Navegador PC');
+        const targetStr = isStandardYt
+            ? tUi('Standard YouTube (youtube.com)', 'YouTube estándar (youtube.com)')
+            : 'YouTube Music (music.youtube.com)';
         badge.textContent = `${deviceStr} → ${targetStr}`;
     }
 
@@ -1074,23 +1162,29 @@ function updateYouTubePlatformUI() {
 
     const heading = document.getElementById('musicFinderHeading');
     if (heading) {
-        heading.textContent = isStandardYt ? 'YouTube Song Finder (PC Mode)' : 'YouTube Music Song Finder (Mobile Mode)';
+        heading.textContent = isStandardYt
+            ? tUi('YouTube Song Finder (PC Mode)', 'Buscador de YouTube (Modo PC)')
+            : tUi('YouTube Music Song Finder (Mobile Mode)', 'Buscador de YT Music (Modo Móvil)');
     }
 
     const libBtn = document.getElementById('btnMusicOpenYtLibrary');
     if (libBtn) {
-        libBtn.textContent = isStandardYt ? 'Open YouTube Home' : 'My YT Music Library';
+        libBtn.textContent = isStandardYt
+            ? tUi('Open YouTube Home', 'Abrir YouTube Inicio')
+            : tUi('My YT Music Library', 'Mi biblioteca de YT Music');
     }
 
     const searchBtn = document.getElementById('btnMusicSearchYt');
     if (searchBtn) {
-        searchBtn.textContent = isStandardYt ? 'Find on YouTube' : 'Find on YT Music';
+        searchBtn.textContent = isStandardYt
+            ? tUi('Find on YouTube', 'Buscar en YouTube')
+            : tUi('Find on YT Music', 'Buscar en YT Music');
     }
 
     const urlInput = document.getElementById('musicSongYtUrl');
     if (urlInput) {
         urlInput.placeholder = isStandardYt
-            ? 'https://www.youtube.com/watch?v=... or youtu.be/...'
+            ? tUi('https://www.youtube.com/watch?v=... or youtu.be/...', 'https://www.youtube.com/watch?v=... o youtu.be/...')
             : 'https://music.youtube.com/watch?v=...';
     }
 
@@ -1105,7 +1199,7 @@ function updateYouTubePlatformUI() {
 // ==========================================
 // MAIN NAVIGATION & FIXED SIDEBAR
 // ==========================================
-const VALID_VIEWS = new Set(['inicio', 'mood', 'crisis', 'sueno', 'journal', 'english', 'agenda', 'horario', 'resumen', 'medico', 'settings']);
+const VALID_VIEWS = new Set(['inicio', 'mood', 'crisis', 'sueno', 'journal', 'english', 'agenda', 'horario', 'resumen', 'medico', 'settings', 'guia']);
 let currentUser = null;
 let sundayWatcherInterval = null;
 let reminderPollInterval = null;
@@ -1194,7 +1288,10 @@ function showView(viewName, updateHash = true, options = {}) {
         const isTarget = section.id === `view-${targetView}`;
         section.classList.toggle('active', isTarget);
         if (isTarget && mobileViewTitle) {
-            mobileViewTitle.textContent = section.getAttribute('data-title') || 'Daily Hub';
+            const rawTitle = section.getAttribute('data-title') || 'Daily Hub';
+            mobileViewTitle.textContent = (window.DailyHubI18n && typeof window.DailyHubI18n.translateText === 'function')
+                ? window.DailyHubI18n.translateText(rawTitle)
+                : rawTitle;
         }
     });
 
@@ -1249,10 +1346,18 @@ function showView(viewName, updateHash = true, options = {}) {
         cargarMedicos();
     } else if (targetView === 'settings') {
         cargarSettingsVista();
+    } else if (targetView === 'guia') {
+        if (window.DailyHubVisualGuide && typeof window.DailyHubVisualGuide.mount === 'function') {
+            window.DailyHubVisualGuide.mount('visualGuideAppHost', { standalone: false });
+        }
     }
     if (currentUser && currentUser.rol === 'admin') {
         cargarRecordatoriosActivos();
     }
+}
+
+if (typeof window !== 'undefined') {
+    window.DailyHubNavigateView = (viewName) => showView(viewName, true);
 }
 
 function openReminderTarget(reminder = {}) {
@@ -1425,13 +1530,13 @@ if (appShell) {
 function actualizarCabecerasDeFecha() {
     const now = new Date();
     const info = getMomentoInfo(now.getHours());
-    const fechaLarga = now.toLocaleDateString('en-US', {
+    const fechaLarga = now.toLocaleDateString(tLocale(), {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
         year: 'numeric'
     });
-    const fechaCorta = now.toLocaleDateString('en-US', {
+    const fechaCorta = now.toLocaleDateString(tLocale(), {
         weekday: 'short',
         day: 'numeric',
         month: 'short'
@@ -1446,8 +1551,8 @@ function actualizarCabecerasDeFecha() {
 
     if (homeGreeting) homeGreeting.textContent = info.saludo;
     if (homeDate) homeDate.textContent = fechaLarga;
-    if (homeMomentBadge) homeMomentBadge.textContent = `Current moment: ${info.moodLabel}`;
-    if (sidebarMomentoActual) sidebarMomentoActual.textContent = `Moment: ${info.moodLabel}`;
+    if (homeMomentBadge) homeMomentBadge.textContent = `${tUi('Current moment', 'Momento actual')}: ${info.moodLabel}`;
+    if (sidebarMomentoActual) sidebarMomentoActual.textContent = `${tUi('Moment', 'Momento')}: ${info.moodLabel}`;
     if (sidebarFechaHoy) sidebarFechaHoy.textContent = fechaCorta;
     if (mobileMomentBadge) mobileMomentBadge.textContent = info.moodLabel;
 }
@@ -1461,9 +1566,9 @@ function cargarInicioResumen() {
     const agendaBox = document.getElementById('homeAgendaSummary');
     if (!moodBox || !sleepBox || !agendaBox) return;
 
-    moodBox.replaceChildren(createLoadingBanner('Loading...', 'sm'));
-    sleepBox.replaceChildren(createLoadingBanner('Loading...', 'sm'));
-    agendaBox.replaceChildren(createLoadingBanner('Loading...', 'sm'));
+    moodBox.replaceChildren(createLoadingBanner(tUi('Loading...', 'Cargando...'), 'sm'));
+    sleepBox.replaceChildren(createLoadingBanner(tUi('Loading...', 'Cargando...'), 'sm'));
+    agendaBox.replaceChildren(createLoadingBanner(tUi('Loading...', 'Cargando...'), 'sm'));
 
     const reqToken = homeSummaryTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
@@ -1477,7 +1582,7 @@ function cargarInicioResumen() {
             if (!registros.length) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'No mood entries logged yet today.';
+                p.textContent = tUi('No mood entries logged yet today.', 'Aún no hay registros de ánimo hoy.');
                 moodBox.appendChild(p);
                 return;
             }
@@ -1490,7 +1595,10 @@ function cargarInicioResumen() {
                 dot.className = 'mini-dot';
                 dot.style.backgroundColor = r.color_hex;
                 const txt = document.createElement('span');
-                txt.textContent = MOMENTOS_LABELS[r.momento_dia] || r.momento_dia;
+                const mLbl = (window.DailyHubI18n && typeof window.DailyHubI18n.momentLabel === 'function')
+                    ? window.DailyHubI18n.momentLabel(r.momento_dia)
+                    : (MOMENTOS_LABELS[r.momento_dia] || r.momento_dia);
+                txt.textContent = mLbl;
                 chip.append(dot, txt);
                 wrap.appendChild(chip);
             });
@@ -1498,7 +1606,7 @@ function cargarInicioResumen() {
         })
         .catch(err => {
             if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
-            moodBox.innerHTML = '<p class="muted-text">Could not load today\'s mood entries.</p>';
+            moodBox.innerHTML = `<p class="muted-text">${tUi("Could not load today's mood entries.", 'No se pudieron cargar los registros de ánimo de hoy.')}</p>`;
         });
 
     // 2. Today's sleep
@@ -1510,7 +1618,7 @@ function cargarInicioResumen() {
             if (!registros.length) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'No sleep log recorded today.';
+                p.textContent = tUi('No sleep log recorded today.', 'Sin registro de sueño hoy.');
                 sleepBox.appendChild(p);
                 return;
             }
@@ -1519,24 +1627,31 @@ function cargarInicioResumen() {
             const hasAllNighter = desveloRows.some(r => r.tipo_registro === 'desvelo_total');
             const p = document.createElement('p');
             p.style.margin = '0';
-            const plural = registros.length === 1 ? 'session' : 'sessions';
+            const plural = registros.length === 1 ? tUi('session', 'sesión') : tUi('sessions', 'sesiones');
             const strong = document.createElement('strong');
             strong.textContent = formatHoursMinutes(totalH);
-            p.append(strong, document.createTextNode(` logged across ${registros.length} ${plural}.`));
+            p.append(strong, document.createTextNode(
+                tUi(
+                    ` logged across ${registros.length} ${plural}.`,
+                    ` registrados en ${registros.length} ${plural}.`
+                )
+            ));
             sleepBox.appendChild(p);
             if (desveloRows.length > 0) {
                 const tag = document.createElement('div');
                 tag.className = `sleep-desvelo-tag${hasAllNighter ? ' is-total' : ''}`;
                 const bedList = desveloRows.map(r => r.hora_dormir ? formatClockTime12h(r.hora_dormir) : '').filter(Boolean);
                 tag.textContent = hasAllNighter
-                    ? '⚡ Desvelo total / All-nighter logged'
-                    : `🦉 Desvelo (${bedList.length ? `bed ${bedList.join(', ')}` : `${desveloRows.length}`})`;
+                    ? tUi('⚡ Desvelo total / All-nighter logged', '⚡ Desvelo total / Noche sin dormir registrada')
+                    : (bedList.length
+                        ? tUi(`🦉 Stayed up late (bed ${bedList.join(', ')})`, `🦉 Desvelo (dormiste ${bedList.join(', ')})`)
+                        : tUi(`🦉 Stayed up late (${desveloRows.length})`, `🦉 Desvelo (${desveloRows.length})`));
                 sleepBox.appendChild(tag);
             }
         })
         .catch(err => {
             if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
-            sleepBox.innerHTML = '<p class="muted-text">Could not load sleep summary.</p>';
+            sleepBox.innerHTML = `<p class="muted-text">${tUi('Could not load sleep summary.', 'No se pudo cargar el resumen de sueño.')}</p>`;
         });
 
     // 3. Today's agenda
@@ -1548,7 +1663,7 @@ function cargarInicioResumen() {
             if (!items.length) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'No activities scheduled for today.';
+                p.textContent = tUi('No activities scheduled for today.', 'Sin actividades programadas para hoy.');
                 agendaBox.appendChild(p);
                 return;
             }
@@ -1559,7 +1674,10 @@ function cargarInicioResumen() {
 
             const summary = document.createElement('p');
             summary.style.margin = '0';
-            summary.textContent = `${doneItems} of ${items.length} done (${uniCount} University · ${perCount} Personal${inProgItems ? ` · ${inProgItems} In Progress` : ''}).`;
+            summary.textContent = tUi(
+                `${doneItems} of ${items.length} done (${uniCount} University · ${perCount} Personal${inProgItems ? ` · ${inProgItems} In Progress` : ''}).`,
+                `${doneItems} de ${items.length} completadas (${uniCount} Universidad · ${perCount} Personal${inProgItems ? ` · ${inProgItems} En progreso` : ''}).`
+            );
             agendaBox.appendChild(summary);
 
             const ul = document.createElement('ul');
@@ -1571,9 +1689,17 @@ function cargarInicioResumen() {
                 timeSpan.textContent = item.hora;
                 const catTag = document.createElement('span');
                 const isUni = (item.categoria || 'personal') === 'universidad';
-                catTag.className = `agenda-cat-pill ${isUni ? 'is-uni' : 'is-personal'}`;
-                catTag.textContent = isUni ? 'Uni' : 'Personal';
+                const classMeta = isUni ? resolveAgendaItemClassLabel(item) : null;
+                catTag.className = `agenda-cat-pill ${isUni ? 'is-uni' : 'is-personal'}${classMeta ? ' is-class-linked' : ''}`;
+                if (classMeta) {
+                    protectUserNode(catTag);
+                    catTag.textContent = `🎓 ${classMeta.name}`;
+                    catTag.title = `${tUi('Class', 'Clase')}: ${classMeta.code ? `${classMeta.code} · ` : ''}${classMeta.name}`;
+                } else {
+                    catTag.textContent = isUni ? tUi('Uni', 'Univ') : 'Personal';
+                }
                 const textSpan = document.createElement('span');
+                protectUserNode(textSpan);
                 textSpan.textContent = item.actividad;
                 li.append(timeSpan, catTag, textSpan);
                 ul.appendChild(li);
@@ -1582,7 +1708,7 @@ function cargarInicioResumen() {
         })
         .catch(err => {
             if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
-            agendaBox.innerHTML = '<p class="muted-text">Agenda unavailable or missing table in DB.</p>';
+            agendaBox.innerHTML = `<p class="muted-text">${tUi('Agenda unavailable or missing table in DB.', 'Agenda no disponible o tabla faltante en BD.')}</p>`;
         });
 }
 
@@ -1616,7 +1742,9 @@ function renderMoodChecklist(rows = []) {
         const left = document.createElement('div');
         left.className = 'today-check-left';
         const title = document.createElement('strong');
-        title.textContent = block.label;
+        title.textContent = (window.DailyHubI18n && typeof window.DailyHubI18n.momentLabel === 'function')
+            ? window.DailyHubI18n.momentLabel(block.key)
+            : block.label;
         const sub = document.createElement('span');
         sub.textContent = block.range;
         left.append(title, sub);
@@ -1625,7 +1753,10 @@ function renderMoodChecklist(rows = []) {
         status.className = 'today-check-status';
         if (entry && entry.color_hex) {
             const hex = String(entry.color_hex).toUpperCase();
-            const label = MOOD_COLOR_LABELS[hex] || 'Logged';
+            const rawMood = MOOD_COLOR_LABELS[hex] || '';
+            const label = rawMood && window.DailyHubI18n && typeof window.DailyHubI18n.moodLabel === 'function'
+                ? window.DailyHubI18n.moodLabel(rawMood)
+                : (rawMood || tUi('Logged', 'Registrado'));
             const dot = document.createElement('span');
             dot.className = 'color-dot';
             dot.style.backgroundColor = entry.color_hex;
@@ -1637,7 +1768,7 @@ function renderMoodChecklist(rows = []) {
         } else {
             const emptyTxt = document.createElement('span');
             emptyTxt.className = 'muted-text';
-            emptyTxt.textContent = 'Not logged';
+            emptyTxt.textContent = tUi('Not logged', 'Sin registrar');
             status.appendChild(emptyTxt);
         }
 
@@ -1817,11 +1948,12 @@ if (selectSemana) {
         const sabStr = `${sab.getFullYear()}-${String(sab.getMonth() + 1).padStart(2, '0')}-${String(sab.getDate()).padStart(2, '0')}`;
 
         const opcMes = { day: 'numeric', month: 'short' };
-        const textoVisual = `${dom.toLocaleDateString('en-US', opcMes)} - ${sab.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+        const textoVisual = `${dom.toLocaleDateString(tLocale(), opcMes)} - ${sab.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
 
         const option = document.createElement('option');
         option.value = `${domStr}|${sabStr}`;
-        option.textContent = `Week: ${textoVisual}`;
+        option.dataset.weekRange = `${domStr}|${sabStr}`;
+        option.textContent = `${tUi('Week', 'Semana')}: ${textoVisual}`;
 
         if (i === 0) option.selected = true;
 
@@ -1836,7 +1968,7 @@ if (selectSemana) {
 
         const resumenBanner = document.getElementById('resumenLoadingBanner');
         if (resumenBanner) {
-            resumenBanner.replaceChildren(createLoadingBanner('Loading weekly data...', 'sm'));
+            resumenBanner.replaceChildren(createLoadingBanner(tUi('Loading weekly data...', 'Cargando datos semanales...'), 'sm'));
             resumenBanner.hidden = false;
         }
         let pendingRequests = 3;
@@ -1864,11 +1996,20 @@ if (selectSemana) {
 
                     if (celda) {
                         const hex = String(registro.color_hex || '').toUpperCase();
-                        const moodName = MOOD_COLOR_LABELS[hex] || 'Logged Mood';
+                        const rawMood = MOOD_COLOR_LABELS[hex] || '';
+                        const moodName = rawMood && window.DailyHubI18n && typeof window.DailyHubI18n.moodLabel === 'function'
+                            ? window.DailyHubI18n.moodLabel(rawMood)
+                            : (rawMood || tUi('Logged Mood', 'Ánimo registrado'));
+                        const dayLoc = window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function'
+                            ? window.DailyHubI18n.agendaDayName(nombreDia, false)
+                            : nombreDia;
+                        const momentLoc = window.DailyHubI18n && typeof window.DailyHubI18n.momentLabel === 'function'
+                            ? window.DailyHubI18n.momentLabel(registro.momento_dia)
+                            : (registro.momento_dia === 'Madrugada' ? 'Late Night' : registro.momento_dia);
                         const dot = document.createElement('span');
                         dot.className = 'color-dot';
                         dot.style.backgroundColor = registro.color_hex;
-                        dot.title = `${nombreDia} (${registro.momento_dia === 'Madrugada' ? 'Late Night' : registro.momento_dia}): ${moodName}`;
+                        dot.title = `${dayLoc} (${momentLoc}): ${moodName}`;
                         dot.setAttribute('aria-label', dot.title);
                         celda.replaceChildren(dot);
                     }
@@ -1882,12 +2023,16 @@ if (selectSemana) {
         const sleepGrid = document.getElementById('sleepGrid');
         const sleepDetailsList = document.getElementById('resumenSleepDetailsList');
         const sleepResumenCount = document.getElementById('resumenSleepCount');
-        sleepGrid.replaceChildren(createLoadingBanner('Loading sleep logs...', 'sm'));
+        sleepGrid.replaceChildren(createLoadingBanner(tUi('Loading sleep logs...', 'Cargando registros de sueño...'), 'sm'));
         if (sleepDetailsList) {
-            sleepDetailsList.replaceChildren(createLoadingBanner('Loading sleep & desvelo details...', 'sm'));
+            sleepDetailsList.replaceChildren(createLoadingBanner(tUi('Loading sleep & desvelo details...', 'Cargando detalles de sueño y desvelos...'), 'sm'));
         }
 
-        const diasNombres = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const diasNombres = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(d => (
+            window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function'
+                ? window.DailyHubI18n.agendaDayName(d, true)
+                : d.slice(0, 3)
+        ));
         const sumatoriaSueno = {
             Sunday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
             Monday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
@@ -1953,14 +2098,17 @@ if (selectSemana) {
                         if (datosDia.totalAllNighters > 0) {
                             emoji = '⚡';
                             colorBorde = '#EF4444';
-                            desveloTagText = '⚡ Desvelo total';
+                            desveloTagText = tUi('⚡ All-nighter', '⚡ Desvelo total');
                             desveloTagIsTotal = true;
                         } else if (datosDia.desvelos > 0) {
                             emoji = totalH < 4 ? '🔴' : '🦉';
                             colorBorde = totalH < 4 ? '#EF4444' : '#8B5CF6';
                             desveloTagText = datosDia.lateBedtimes.length
                                 ? `🦉 ${datosDia.lateBedtimes[0]}`
-                                : `🦉 ${datosDia.desvelos} desvelo${datosDia.desvelos > 1 ? 's' : ''}`;
+                                : tUi(
+                                    `🦉 ${datosDia.desvelos} late night${datosDia.desvelos > 1 ? 's' : ''}`,
+                                    `🦉 ${datosDia.desvelos} desvelo${datosDia.desvelos > 1 ? 's' : ''}`
+                                );
                         } else if (totalH < 4 || (totalH < 6 && intermitente)) {
                             emoji = '🔴';
                             colorBorde = '#EF4444';
@@ -2012,9 +2160,11 @@ if (selectSemana) {
 
                 if (sleepResumenCount) {
                     const totalDesvelos = list.filter(r => Number(r.es_desvelo) === 1 || (r.tipo_registro && r.tipo_registro !== 'normal')).length;
+                    const sessLbl = list.length === 1 ? tUi('session', 'sesión') : tUi('sessions', 'sesiones');
+                    const desvLbl = totalDesvelos === 1 ? tUi('late night', 'desvelo') : tUi('late nights', 'desvelos');
                     sleepResumenCount.textContent = list.length === 0
-                        ? 'No sleep records this week'
-                        : `${list.length} session${list.length === 1 ? '' : 's'}${totalDesvelos > 0 ? ` · 🦉 ${totalDesvelos} desvelo${totalDesvelos === 1 ? '' : 's'}` : ''}`;
+                        ? tUi('No sleep records this week', 'Sin registros de sueño esta semana')
+                        : `${list.length} ${sessLbl}${totalDesvelos > 0 ? ` · 🦉 ${totalDesvelos} ${desvLbl}` : ''}`;
                 }
                 if (typeof renderSleepDetailCards === 'function') {
                     renderSleepDetailCards(sleepDetailsList, list);
@@ -2023,9 +2173,9 @@ if (selectSemana) {
             .catch(error => {
                 if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq)) {
                     console.error('Error loading sleep logs:', error);
-                    sleepGrid.innerHTML = '<p class="muted-text">Could not load sleep logs.</p>';
+                    sleepGrid.innerHTML = `<p class="muted-text">${tUi('Could not load sleep logs.', 'No se pudieron cargar los registros de sueño.')}</p>`;
                     if (sleepDetailsList) {
-                        sleepDetailsList.innerHTML = '<p class="muted-text">Could not load sleep &amp; desvelo details.</p>';
+                        sleepDetailsList.innerHTML = `<p class="muted-text">${tUi('Could not load sleep & desvelo details.', 'No se pudieron cargar los detalles de sueño y desvelos.')}</p>`;
                     }
                 }
             })
@@ -2034,7 +2184,7 @@ if (selectSemana) {
         const crisisResumenList = document.getElementById('resumenCrisisList');
         const crisisResumenCount = document.getElementById('resumenCrisisCount');
         if (crisisResumenList) {
-            crisisResumenList.replaceChildren(createLoadingBanner('Loading crisis logs...', 'sm'));
+            crisisResumenList.replaceChildren(createLoadingBanner(tUi('Loading crisis logs...', 'Cargando registros de crisis...'), 'sm'));
         }
         fetch(`/api/get-crisis?begin=${begin}&end=${end}`, fetchOpts)
             .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load crisis logs')))
@@ -2063,6 +2213,9 @@ const SLEEP_BEDTIME_DRAFT_KEY = 'mt_sleep_bedtime_draft';
 let editingSleepSessionId = null;
 
 function formatSleepQualityBadge(calidad) {
+    if (window.DailyHubI18n && typeof window.DailyHubI18n.sleepQualityLabel === 'function') {
+        return window.DailyHubI18n.sleepQualityLabel(calidad);
+    }
     if (calidad === 'Good') return '🟢 Good / Restorative';
     if (calidad === 'Bad') return '🔴 Poor / Heavy';
     return '🟡 Fair / Light';
@@ -2072,16 +2225,24 @@ function formatSleepIntervalText(row = {}) {
     const tipo = row.tipo_registro || 'normal';
     const hrsText = formatHoursMinutes(row.horas);
     if (tipo === 'desvelo_total') {
-        const atTime = row.hora_dormir ? ` · Awake at ${formatClockTime12h(row.hora_dormir)}` : '';
-        return `All-Nighter / No Sleep (${hrsText})${atTime}`;
+        const atTime = row.hora_dormir
+            ? tUi(` · Awake at ${formatClockTime12h(row.hora_dormir)}`, ` · Despierto a las ${formatClockTime12h(row.hora_dormir)}`)
+            : '';
+        return tUi(`All-Nighter / No Sleep (${hrsText})${atTime}`, `Desvelo Total / Sin dormir (${hrsText})${atTime}`);
     }
     if (row.hora_dormir && row.hora_despertar) {
-        return `Bed: ${formatClockTime12h(row.hora_dormir)} → Wake: ${formatClockTime12h(row.hora_despertar)} (${hrsText})`;
+        return tUi(
+            `Bed: ${formatClockTime12h(row.hora_dormir)} → Wake: ${formatClockTime12h(row.hora_despertar)} (${hrsText})`,
+            `Dormido: ${formatClockTime12h(row.hora_dormir)} → Despertar: ${formatClockTime12h(row.hora_despertar)} (${hrsText})`
+        );
     }
     if (row.hora_dormir && !row.hora_despertar) {
-        return `Bedtime: ${formatClockTime12h(row.hora_dormir)} (wake-up pending)`;
+        return tUi(
+            `Bedtime: ${formatClockTime12h(row.hora_dormir)} (wake-up pending)`,
+            `Hora de dormir: ${formatClockTime12h(row.hora_dormir)} (despertar pendiente)`
+        );
     }
-    return `Duration: ${hrsText}`;
+    return tUi(`Duration: ${hrsText}`, `Duración: ${hrsText}`);
 }
 
 function renderSleepDetailCards(container, rows = []) {
@@ -2090,7 +2251,7 @@ function renderSleepDetailCards(container, rows = []) {
     if (!list.length) {
         const p = document.createElement('p');
         p.className = 'muted-text';
-        p.textContent = 'No sleep or desvelo sessions recorded during this week.';
+        p.textContent = tUi('No sleep or desvelo sessions recorded during this week.', 'Sin sesiones de sueño o desvelos registradas esta semana.');
         container.replaceChildren(p);
         return;
     }
@@ -2123,13 +2284,13 @@ function renderSleepDetailCards(container, rows = []) {
         const typeBadge = document.createElement('span');
         typeBadge.className = `sleep-desvelo-badge${isTotal ? ' is-total' : (isDesvelo ? '' : ' is-normal')}`;
         if (isTotal) {
-            typeBadge.textContent = '⚡ Desvelo Total (Sin dormir)';
+            typeBadge.textContent = tUi('⚡ All-Nighter (No sleep)', '⚡ Desvelo Total (Sin dormir)');
         } else if (isDesvelo) {
             typeBadge.textContent = item.hora_dormir
-                ? `🦉 Desvelo · Dormido ${formatClockTime12h(item.hora_dormir)}`
-                : '🦉 Desvelo / Late Bedtime';
+                ? tUi(`🦉 Late Sleep · Bed ${formatClockTime12h(item.hora_dormir)}`, `🦉 Desvelo · Dormido ${formatClockTime12h(item.hora_dormir)}`)
+                : tUi('🦉 Late Bedtime / Desvelo', '🦉 Desvelo / Dormido de madrugada');
         } else {
-            typeBadge.textContent = '🌙 Regular Sleep';
+            typeBadge.textContent = tUi('🌙 Regular Sleep', '🌙 Sueño Normal');
         }
 
         const qBadge = document.createElement('span');
@@ -2143,6 +2304,7 @@ function renderSleepDetailCards(container, rows = []) {
         if (item.motivo_desvelo) {
             const noteP = document.createElement('p');
             noteP.className = 'sleep-detail-note';
+            protectUserNode(noteP);
             noteP.textContent = `📝 ${item.motivo_desvelo}`;
             card.appendChild(noteP);
         }
@@ -2159,15 +2321,15 @@ function renderSleepTodaySummary(rows = [], targetDate = '') {
     const list = Array.isArray(rows) ? rows : [];
     const todayStr = formatLocalDate(new Date());
     const headingLabel = !targetDate || targetDate === todayStr
-        ? "Today's accumulated sleep"
-        : `Sleep on ${formatCrisisDateLabel(targetDate)}`;
+        ? tUi("Today's accumulated sleep", 'Sueño acumulado de hoy')
+        : tUi(`Sleep on ${formatCrisisDateLabel(targetDate)}`, `Sueño del ${formatCrisisDateLabel(targetDate)}`);
 
     if (!list.length) {
         const p = document.createElement('p');
         p.className = 'muted-text';
         p.textContent = !targetDate || targetDate === todayStr
-            ? 'No sleep or desvelo logged for today yet. Record your session on the left.'
-            : `No sleep or desvelo recorded for ${targetDate}.`;
+            ? tUi('No sleep or desvelo logged for today yet. Record your session on the left.', 'Aún no hay sueño ni desvelo registrado hoy. Registra tu sesión a la izquierda.')
+            : tUi(`No sleep or desvelo recorded for ${targetDate}.`, `Sin registros de sueño ni desvelo para el ${targetDate}.`);
         box.replaceChildren(p);
         return;
     }
@@ -2184,7 +2346,9 @@ function renderSleepTodaySummary(rows = [], targetDate = '') {
     const metric = document.createElement('div');
     metric.className = 'sleep-today-metric';
     const left = document.createElement('span');
-    left.textContent = `${headingLabel} (${list.length} ${list.length === 1 ? 'session' : 'sessions'}${desveloCount ? ` · 🦉 ${desveloCount} desvelo${desveloCount > 1 ? 's' : ''}` : ''})`;
+    const sessWord = list.length === 1 ? tUi('session', 'sesión') : tUi('sessions', 'sesiones');
+    const desvWord = desveloCount === 1 ? tUi('late night', 'desvelo') : tUi('late nights', 'desvelos');
+    left.textContent = `${headingLabel} (${list.length} ${sessWord}${desveloCount ? ` · 🦉 ${desveloCount} ${desvWord}` : ''})`;
     const strong = document.createElement('strong');
     strong.textContent = formatHoursMinutes(totalHours);
     metric.append(left, strong);
@@ -2222,6 +2386,7 @@ function renderSleepTodaySummary(rows = [], targetDate = '') {
             const note = document.createElement('div');
             note.className = 'muted-text';
             note.style.fontSize = '0.82rem';
+            protectUserNode(note);
             note.textContent = `📝 ${r.motivo_desvelo}`;
             card.appendChild(note);
         }
@@ -2233,19 +2398,19 @@ function renderSleepTodaySummary(rows = [], targetDate = '') {
                 const completeBtn = document.createElement('button');
                 completeBtn.type = 'button';
                 completeBtn.className = 'agenda-chip-btn';
-                completeBtn.textContent = '⏰ Complete Wake-Up Now';
+                completeBtn.textContent = tUi('⏰ Complete Wake-Up Now', '⏰ Completar despertar ahora');
                 completeBtn.addEventListener('click', () => enterSleepWakeupCompletion(r));
                 actions.appendChild(completeBtn);
             }
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
             delBtn.className = 'btn-secondary btn-small';
-            delBtn.textContent = 'Delete';
+            delBtn.textContent = tUi('Delete', 'Eliminar');
             delBtn.addEventListener('click', async () => {
                 const ok = await openConfirmDialog({
-                    title: 'Delete Sleep Log?',
-                    message: 'Remove this sleep / desvelo session from your records?',
-                    confirmText: 'Delete',
+                    title: tUi('Delete Sleep Log?', '¿Eliminar registro de sueño?'),
+                    message: tUi('Remove this sleep / desvelo session from your records?', '¿Quitar esta sesión de sueño / desvelo de tus registros?'),
+                    confirmText: tUi('Delete', 'Eliminar'),
                     danger: true
                 });
                 if (!ok) return;
@@ -2826,9 +2991,9 @@ if (journalForm) {
     if (clearDraftBtn) {
         clearDraftBtn.addEventListener('click', async () => {
             const ok = await openConfirmDialog({
-                title: 'Clear Draft?',
-                message: 'Erase your unsent text in the Journal box?',
-                confirmText: 'Clear Draft',
+                title: tUi('Clear Draft?', '¿Limpiar borrador?'),
+                message: tUi('Erase your unsent text in the Journal box?', '¿Borrar el texto no enviado del diario?'),
+                confirmText: tUi('Clear Draft', 'Limpiar borrador'),
                 danger: true
             });
             if (!ok) return;
@@ -2847,7 +3012,7 @@ if (journalForm) {
         const texto = textInput.value;
         const textoLimpio = texto.trim();
         if (!textoLimpio) {
-            setInlineBanner('journalStatusBanner', 'err', 'Please write a short entry before sending.');
+            setInlineBanner('journalStatusBanner', 'err', tUi('Please write a short entry before sending.', 'Por favor escribe una nota breve antes de enviar.'));
             return;
         }
 
@@ -2855,7 +3020,7 @@ if (journalForm) {
         const composedClean = composedJournalText.trim();
 
         if (composedClean === lastSentJournalText) {
-            setInlineBanner('journalStatusBanner', 'info', 'This exact note was already queued in this session. Edit the text before sending again.');
+            setInlineBanner('journalStatusBanner', 'info', tUi('This exact note was already queued in this session. Edit the text before sending again.', 'Esta misma nota ya se envió a cola en esta sesión. Edita el texto antes de volver a enviarla.'));
             return;
         }
 
@@ -3247,7 +3412,7 @@ function updateAiMemoryBadgeUI(mem) {
     const badge = document.getElementById('langAiMemoryBadge');
     if (!badge) return;
     const count = Array.isArray(cachedLanguageMemory.terms) ? cachedLanguageMemory.terms.length : 0;
-    badge.textContent = `🧠 Memory: ${count} learned`;
+    badge.textContent = tUi(`🧠 Memory: ${count} learned`, `🧠 Memoria: ${count} aprendidos`);
 }
 
 function renderAiAnalysisIntoBox(container, analysis) {
@@ -3261,31 +3426,39 @@ function renderAiAnalysisIntoBox(container, analysis) {
 
     const repBadge = document.getElementById('langAiRepertoireBadge');
     if (repBadge && typeof analysis.repertoireCount === 'number') {
-        repBadge.textContent = `🎵 Repertoire: ${analysis.repertoireCount} song${analysis.repertoireCount === 1 ? '' : 's'}`;
+        repBadge.textContent = tUi(
+            `🎵 Repertoire: ${analysis.repertoireCount} song${analysis.repertoireCount === 1 ? '' : 's'}`,
+            `🎵 Repertorio: ${analysis.repertoireCount} canción${analysis.repertoireCount === 1 ? '' : 'es'}`
+        );
     }
 
     if (Array.isArray(analysis.matchedRepertoireSongs) && analysis.matchedRepertoireSongs.length) {
         const repBox = document.createElement('div');
         repBox.className = 'ai-summary-box';
+        protectUserNode(repBox);
         const titles = analysis.matchedRepertoireSongs.map(s =>
             `"${s.titulo}"${s.artistas?.length ? ` (${s.artistas.join(', ')})` : ''}${s.album ? ` · ${s.album}` : ''}`
         );
-        repBox.textContent = `🎵 Matched from Your Music Catalog: ${titles.join(' | ')}`;
+        repBox.textContent = tUi(
+            `🎵 Matched from Your Music Catalog: ${titles.join(' | ')}`,
+            `🎵 Coincidencias de tu Catálogo Musical: ${titles.join(' | ')}`
+        );
         container.appendChild(repBox);
     }
 
     const summaryEl = document.createElement('div');
     summaryEl.className = 'ai-summary-box';
+    protectUserNode(summaryEl);
     const engineTag = analysis.engine === 'gemini'
         ? `🤖 Gemini (${analysis.model || 'gemini-2.5-flash'})`
-        : '⚡ Instant Local Engine (Hangul + EN · 0 MB RAM)';
-    summaryEl.textContent = `${engineTag}: ${analysis.summary || 'Breakdown ready.'}`;
+        : tUi('⚡ Instant Local Engine (Hangul + EN · 0 MB RAM)', '⚡ Motor Local Instantáneo (Hangul + EN · 0 MB RAM)');
+    summaryEl.textContent = `${engineTag}: ${tServer(analysis.summary) || tUi('Breakdown ready.', 'Análisis listo.')}`;
     container.appendChild(summaryEl);
 
     if (analysis.fallbackReason) {
         const warnEl = document.createElement('p');
         warnEl.className = 'muted-text';
-        warnEl.textContent = `Fallback notice: ${analysis.fallbackReason}`;
+        warnEl.textContent = `${tUi('Fallback notice', 'Nota de respaldo')}: ${tServer(analysis.fallbackReason)}`;
         container.appendChild(warnEl);
     }
 
@@ -3296,18 +3469,21 @@ function renderAiAnalysisIntoBox(container, analysis) {
 
             const orig = document.createElement('div');
             orig.className = 'ai-line-original';
+            protectUserNode(orig);
             orig.textContent = line.original || '';
             card.appendChild(orig);
 
             if (line.romanization) {
                 const rom = document.createElement('div');
                 rom.className = 'ai-line-rom';
-                rom.textContent = `Romanization: ${line.romanization}`;
+                protectUserNode(rom);
+                rom.textContent = `${tUi('Romanization', 'Romanización')}: ${line.romanization}`;
                 card.appendChild(rom);
             }
             if (line.meaning) {
                 const meaning = document.createElement('div');
-                meaning.textContent = `Meaning: ${line.meaning}`;
+                protectUserNode(meaning);
+                meaning.textContent = `${tUi('Meaning', 'Significado')}: ${line.meaning}`;
                 card.appendChild(meaning);
             }
             if (line.explanation) {
@@ -3720,8 +3896,6 @@ function initLanguageAiStudio() {
             showToast('ok', 'Added Romanization, Vocabulary & AI Notes below—ready to encrypt & save to Word!');
         });
     }
-
-    initBilingualTranslatorPanel();
 }
 
 function applyTranslationToVocabularyForm(translation, { switchToEnglish = true } = {}) {
@@ -3766,33 +3940,115 @@ function openAiSettingsSection() {
     }, 250);
 }
 
-function initBilingualTranslatorPanel() {
-    const panel = document.getElementById('languageTranslatorPanel');
-    const widgetApi = window.DailyHubTranslator;
-    if (!panel || !widgetApi) return;
+const FLOATING_TRANSLATOR_POS_KEY = 'pdh_floating_translator_pos_v1';
+let floatingTranslatorController = null;
 
-    widgetApi.mountTranslatorInstance({
-        panel,
-        dirPills: Array.from(panel.querySelectorAll('#translatorDirPills [data-dir]')),
-        dirSelect: document.getElementById('translatorDirectionSelect'),
-        engineSelect: document.getElementById('translatorEngineSelect'),
-        inputEl: document.getElementById('translatorInput'),
-        contextEl: document.getElementById('translatorContextInput'),
-        btnRun: document.getElementById('btnRunTranslator'),
-        btnPopout: document.getElementById('btnPopoutTranslator'),
-        resultBox: document.getElementById('translatorResultBox'),
-        fetchJsonFn: resilientFetchJson,
-        buttonLockFn: runWithButtonLock,
-        renderFallbackFn: renderAiNetworkFallback,
-        createLoadingFn: createLoadingBanner,
-        onMemoryUpdate: updateAiMemoryBadgeUI,
-        onSendToStudyForm: data => applyTranslationToVocabularyForm(data, { switchToEnglish: false }),
-        onOpenAiSettings: openAiSettingsSection,
-        onToast: showToast
-    });
+function clampFloatingTranslatorCoords(drawer, left, top) {
+    const rect = drawer.getBoundingClientRect();
+    const width = rect.width || Math.min(500, window.innerWidth - 24);
+    const height = rect.height || Math.min(520, window.innerHeight - 24);
+    const margin = 8;
+    const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    const maxTop = Math.max(margin, window.innerHeight - height - margin);
+    return {
+        left: Math.round(Math.min(maxLeft, Math.max(margin, left))),
+        top: Math.round(Math.min(maxTop, Math.max(margin, top)))
+    };
 }
 
-let floatingTranslatorController = null;
+function applyFloatingTranslatorPosition(drawer, left, top) {
+    const clamped = clampFloatingTranslatorCoords(drawer, left, top);
+    drawer.style.left = `${clamped.left}px`;
+    drawer.style.top = `${clamped.top}px`;
+    drawer.style.right = 'auto';
+    drawer.style.bottom = 'auto';
+    return clamped;
+}
+
+function restoreFloatingTranslatorPosition(drawer) {
+    if (!drawer || drawer.hidden) return;
+    try {
+        const raw = localStorage.getItem(FLOATING_TRANSLATOR_POS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
+            applyFloatingTranslatorPosition(drawer, parsed.left, parsed.top);
+        }
+    } catch (_) {}
+}
+
+function resetFloatingTranslatorPosition(drawer) {
+    if (!drawer) return;
+    drawer.style.left = '';
+    drawer.style.top = '';
+    drawer.style.right = '';
+    drawer.style.bottom = '';
+    try {
+        localStorage.removeItem(FLOATING_TRANSLATOR_POS_KEY);
+    } catch (_) {}
+}
+
+function initFloatingTranslatorDrag(drawer) {
+    const handle = document.getElementById('floatingTranslatorDragHandle')
+        || drawer.querySelector('.floating-translator-header');
+    if (!handle || handle.dataset.dragWired === 'true') return;
+    handle.dataset.dragWired = 'true';
+
+    let activeDrag = null;
+    let lastCoords = null;
+
+    handle.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        if (e.target && e.target.closest('button, a, input, select, textarea, .floating-translator-win-actions')) {
+            return;
+        }
+        const rect = drawer.getBoundingClientRect();
+        activeDrag = {
+            pointerId: e.pointerId,
+            offsetX: e.clientX - rect.left,
+            offsetY: e.clientY - rect.top,
+            moved: false
+        };
+        lastCoords = { left: rect.left, top: rect.top };
+        drawer.classList.add('is-dragging');
+        if (typeof handle.setPointerCapture === 'function') {
+            try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+        e.preventDefault();
+    });
+
+    const onPointerMove = (e) => {
+        if (!activeDrag || e.pointerId !== activeDrag.pointerId) return;
+        e.preventDefault();
+        activeDrag.moved = true;
+        lastCoords = applyFloatingTranslatorPosition(
+            drawer,
+            e.clientX - activeDrag.offsetX,
+            e.clientY - activeDrag.offsetY
+        );
+    };
+
+    const endDrag = (e) => {
+        if (!activeDrag || (e.pointerId !== undefined && e.pointerId !== activeDrag.pointerId)) return;
+        drawer.classList.remove('is-dragging');
+        if (typeof handle.releasePointerCapture === 'function') {
+            try { handle.releasePointerCapture(activeDrag.pointerId); } catch (_) {}
+        }
+        if (activeDrag.moved && lastCoords) {
+            try {
+                localStorage.setItem(FLOATING_TRANSLATOR_POS_KEY, JSON.stringify(lastCoords));
+            } catch (_) {}
+        }
+        activeDrag = null;
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    window.addEventListener('resize', () => {
+        if (!drawer.hidden) restoreFloatingTranslatorPosition(drawer);
+    });
+}
 
 function openFloatingTranslator({ text = '', toggle = false } = {}) {
     if (!currentUser || currentUser.rol !== 'admin') return;
@@ -3805,6 +4061,7 @@ function openFloatingTranslator({ text = '', toggle = false } = {}) {
     }
 
     drawer.hidden = false;
+    restoreFloatingTranslatorPosition(drawer);
     if (floatingTranslatorController) {
         if (text) {
             floatingTranslatorController.setInputText(text);
@@ -3900,6 +4157,16 @@ function initGlobalFloatingTranslator() {
     if (btnClose) {
         btnClose.addEventListener('click', closeFloatingTranslator);
     }
+
+    const btnResetPos = document.getElementById('btnResetFloatTranslatorPos');
+    if (btnResetPos) {
+        btnResetPos.addEventListener('click', () => {
+            resetFloatingTranslatorPosition(drawer);
+            showToast('ok', 'Translator window position reset.');
+        });
+    }
+
+    initFloatingTranslatorDrag(drawer);
 
     document.addEventListener('keydown', (e) => {
         if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 't' || e.key === 'T')) {
@@ -4172,14 +4439,16 @@ function actualizarBadgePuentePc() {
     if (!pcBadge) return;
     const stat = musicState.ytdlpStatus;
     if (stat && stat.pcOnline) {
-        pcBadge.textContent = '🟢 PC online · Word sync';
+        pcBadge.textContent = tUi('🟢 PC online · Word sync', '🟢 PC en línea · Sync Word');
         pcBadge.className = 'badge-pill badge-pill-ok';
     } else if (stat) {
         const queued = Number(stat.pendingEnglishQueueCount || 0);
-        pcBadge.textContent = queued > 0 ? `☁️ PC offline · ${queued} en RAM EC2` : '☁️ PC offline · Cola RAM EC2';
+        pcBadge.textContent = queued > 0
+            ? tUi(`☁️ PC offline · ${queued} in EC2 RAM`, `☁️ PC desconectada · ${queued} en RAM EC2`)
+            : tUi('☁️ PC offline · EC2 RAM queue', '☁️ PC desconectada · Cola RAM EC2');
         pcBadge.className = 'badge-pill badge-pill-subtle';
     } else {
-        pcBadge.textContent = '⚪ Verificando PC...';
+        pcBadge.textContent = tUi('⚪ Checking PC...', '⚪ Verificando PC...');
         pcBadge.className = 'badge-pill badge-pill-subtle';
     }
 }
@@ -4297,7 +4566,10 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
     // 1. Intentar primero vía puente cifrado E2EE hacia tu PC (Word -> yt-dlp local -> Word)
     try {
         if (hintEl) {
-            hintEl.textContent = '🔐 Consultando tu PC por túnel cifrado E2EE (RAM)...';
+            hintEl.textContent = tUi(
+                '🔐 Querying your PC via E2EE encrypted tunnel (RAM)...',
+                '🔐 Consultando tu PC por túnel cifrado E2EE (RAM)...'
+            );
         }
         const jobPayload = {
             action: forceExtract ? 'extract_lyrics' : 'load_or_extract_lyrics',
@@ -4361,13 +4633,13 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                     if (jobResult.wordSaved) markWordSyncedLocal();
                     if (hintEl) {
                         hintEl.textContent = jobResult.source === 'word-pc'
-                            ? '✅ Letra cargada directamente desde tu Word PC (E2EE · 0 KB en BD).'
-                            : `✅ Extraída en tu PC (${jobResult.source || 'yt-dlp'}) y organizada en tu Word bajo Álbum/Pista.`;
+                            ? tUi('✅ Lyrics loaded directly from your PC Word file (E2EE · 0 KB in DB).', '✅ Letra cargada directamente desde tu Word PC (E2EE · 0 KB en BD).')
+                            : tUi(`✅ Extracted on your PC (${jobResult.source || 'yt-dlp'}) and filed in Word under Album/Track.`, `✅ Extraída en tu PC (${jobResult.source || 'yt-dlp'}) y organizada en tu Word bajo Álbum/Pista.`);
                     }
                     if (!silent) {
                         showToast('ok', jobResult.source === 'word-pc'
-                            ? 'Letra cargada desde Word PC!'
-                            : 'Letra extraída con yt-dlp en tu PC y guardada en Word!');
+                            ? tUi('Lyrics loaded from PC Word!', '¡Letra cargada desde Word PC!')
+                            : tUi('Lyrics extracted with yt-dlp on your PC and saved to Word!', '¡Letra extraída con yt-dlp en tu PC y guardada en Word!'));
                     }
                     return true;
                 }
@@ -4376,8 +4648,9 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                     const helperBox = document.getElementById('musicYtdlpHelperBox');
                     if (ytdlpCmdEl && jobResult.suggestedCommand) ytdlpCmdEl.textContent = jobResult.suggestedCommand;
                     if (helperBox && jobResult.reason === 'YTDLP_NOT_FOUND') helperBox.hidden = false;
-                    if (hintEl) hintEl.textContent = `⚠️ ${jobResult.error}`;
-                    showToast('info', jobResult.error);
+                    const errTxt = tServer(jobResult.error);
+                    if (hintEl) hintEl.textContent = `⚠️ ${errTxt}`;
+                    showToast('info', errTxt);
                     return false;
                 }
             } else if (musicState.ytdlpStatus && !createResp.pcOnline) {
@@ -4387,7 +4660,10 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
         }
     } catch (pcErr) {
         if (!silent && hintEl) {
-            hintEl.textContent = `☁️ PC no respondió (${pcErr.message || 'offline'}), probando extracción temporal en RAM...`;
+            hintEl.textContent = tUi(
+                `☁️ PC did not respond (${pcErr.message || 'offline'}), trying temporary RAM extraction...`,
+                `☁️ PC no respondió (${pcErr.message || 'offline'}), probando extracción temporal en RAM...`
+            );
         }
     }
 
@@ -4420,9 +4696,15 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
             markWordSyncedLocal();
 
             if (hintEl) {
-                hintEl.textContent = `✅ Extraída en RAM (${data.source || 'yt-dlp'} · 0 KB en BD) y encolada cifrada E2EE en RAM EC2 para tu Word PC.`;
+                hintEl.textContent = tUi(
+                    `✅ Extracted into RAM (${data.source || 'yt-dlp'} · 0 KB in DB) and queued E2EE in EC2 RAM for your PC Word.`,
+                    `✅ Extraída en RAM (${data.source || 'yt-dlp'} · 0 KB en BD) y encolada cifrada E2EE en RAM EC2 para tu Word PC.`
+                );
             }
-            showToast('ok', 'Letra cargada en RAM y encolada E2EE para tu Word PC!');
+            showToast('ok', tUi(
+                'Lyrics loaded in RAM and queued E2EE for your PC Word!',
+                '¡Letra cargada en RAM y encolada E2EE para tu Word PC!'
+            ));
             return true;
         }
 
@@ -4430,13 +4712,18 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
         const helperBox = document.getElementById('musicYtdlpHelperBox');
         if (ytdlpCmdEl && data?.suggestedCommand) ytdlpCmdEl.textContent = data.suggestedCommand;
         if (helperBox && (data?.reason === 'bot_check' || data?.ytdlpAvailable === false)) helperBox.hidden = false;
+        const fallbackErr = tServer(data?.error) || tUi(
+            'PC is offline and no automatic CC subtitles are available. Paste lyrics manually or start sincronizador.py.',
+            'PC offline y sin subtítulos CC automáticos disponibles. Pega la letra manual o enciende sincronizador.py.'
+        );
         if (hintEl) {
-            hintEl.textContent = `⚠️ ${data?.error || 'PC offline y sin subtítulos CC automáticos disponibles. Pega la letra manual o enciende sincronizador.py.'}`;
+            hintEl.textContent = `⚠️ ${fallbackErr}`;
         }
-        showToast('info', data?.error || 'Este video no expuso subtítulos CC automáticos.');
+        showToast('info', tServer(data?.error) || tUi('This video did not expose automatic CC subtitles.', 'Este video no expuso subtítulos CC automáticos.'));
     } catch (err) {
-        if (hintEl) hintEl.textContent = `⚠️ ${err.message || 'Error extrayendo letra.'}`;
-        showToast('err', err.message || 'Error extrayendo letra.');
+        const msgErr = tServer(err.message) || tUi('Error extracting lyrics.', 'Error extrayendo letra.');
+        if (hintEl) hintEl.textContent = `⚠️ ${msgErr}`;
+        showToast('err', msgErr);
     }
     return false;
 }
@@ -4453,7 +4740,7 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         card.hidden = true;
         viewer.value = '';
         viewer.dataset.loadedSongId = '';
-        if (badge) badge.textContent = 'Solo en Word PC';
+        if (badge) badge.textContent = tUi('PC Word Only', 'Solo en Word PC');
         renderMusicLyricsAlbumPlaylist(null);
         return;
     }
@@ -4472,9 +4759,11 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         if (savedLyrics.trim()) {
             const lineCount = savedLyrics.split(/\r?\n/).filter(l => l.trim()).length;
             const src = cachedSession?.source ? ` · ${cachedSession.source}` : '';
-            badge.textContent = `${lineCount} líneas en sesión${src}`;
+            badge.textContent = tUi(`${lineCount} lines in session${src}`, `${lineCount} líneas en sesión${src}`);
         } else {
-            badge.textContent = song.word_sincronizado ? 'En Word PC (haz clic para cargar)' : 'Solo en Word PC';
+            badge.textContent = song.word_sincronizado
+                ? tUi('In PC Word (click to load)', 'En Word PC (haz clic para cargar)')
+                : tUi('PC Word Only', 'Solo en Word PC');
         }
     }
 
@@ -4597,7 +4886,9 @@ function actualizarBarraCancionEstudio() {
     if (toggleEmbedBtn) {
         if (validVideoId) {
             toggleEmbedBtn.hidden = false;
-            toggleEmbedBtn.textContent = musicState.embedOpen ? 'Hide Mini Player' : 'Mini Player';
+            toggleEmbedBtn.textContent = musicState.embedOpen
+                ? tUi('Hide Mini Player', 'Ocultar Mini Reproductor')
+                : tUi('Mini Player', 'Mini Reproductor');
         } else {
             toggleEmbedBtn.hidden = true;
             musicState.embedOpen = false;
@@ -4626,27 +4917,42 @@ function actualizarBarraCancionEstudio() {
                     ? 'music-embed-fallback-note is-warning'
                     : 'music-embed-fallback-note';
                 note.textContent = musicState.ytdlpStatus && musicState.ytdlpStatus.available === false
-                    ? '⚠️ yt-dlp no está disponible en este servidor: prueba "▶️ Probar YouTube iframe" o "📺 Ventana flotante (sin bloqueo)".'
-                    : '🎧 Reproductor directo yt-dlp activo dentro de la app (evita bloqueos de iframe de YouTube/sellos).';
+                    ? tUi(
+                        '⚠️ yt-dlp is unavailable on this server: try "▶️ Try YouTube iframe" or "📺 Floating Window (unblocked)".',
+                        '⚠️ yt-dlp no está disponible en este servidor: prueba "▶️ Probar YouTube iframe" o "📺 Ventana flotante (sin bloqueo)".'
+                    )
+                    : tUi(
+                        '🎧 Direct yt-dlp player active inside the app (bypasses YouTube/label iframe blocks).',
+                        '🎧 Reproductor directo yt-dlp activo dentro de la app (evita bloqueos de iframe de YouTube/sellos).'
+                    );
 
                 videoEl.addEventListener('canplay', () => {
                     note.className = 'music-embed-fallback-note';
-                    note.textContent = '🎧 Stream directo yt-dlp listo dentro de la app (seek/progreso compatible sin bloqueo de iframe).';
+                    note.textContent = tUi(
+                        '🎧 Direct yt-dlp stream ready inside the app (seekable playback without iframe restrictions).',
+                        '🎧 Stream directo yt-dlp listo dentro de la app (seek/progreso compatible sin bloqueo de iframe).'
+                    );
                 }, { once: true });
 
                 videoEl.addEventListener('error', async () => {
-                    let msg = 'El reproductor directo yt-dlp no pudo iniciar el stream en este momento.';
+                    let msg = tUi(
+                        'Direct yt-dlp player could not start streaming right now.',
+                        'El reproductor directo yt-dlp no pudo iniciar el stream en este momento.'
+                    );
                     try {
                         const probe = await fetch(`/api/english/music/songs/${encodeURIComponent(song.id)}/media`, {
                             headers: { Range: 'bytes=0-1' }
                         });
                         if (!probe.ok) {
                             const errJson = await probe.json().catch(() => null);
-                            if (errJson && errJson.error) msg = errJson.error;
+                            if (errJson && errJson.error) msg = tServer(errJson.error);
                         }
                     } catch (_) {}
                     note.className = 'music-embed-fallback-note is-warning';
-                    note.textContent = `⚠️ ${msg} -> Usa "📺 Ventana flotante (sin bloqueo)" o "▶️ Probar YouTube iframe".`;
+                    note.textContent = tUi(
+                        `⚠️ ${msg} -> Use "📺 Floating Window (unblocked)" or "▶️ Try YouTube iframe".`,
+                        `⚠️ ${msg} -> Usa "📺 Ventana flotante (sin bloqueo)" o "▶️ Probar YouTube iframe".`
+                    );
                 }, { once: true });
 
                 embedBox.replaceChildren(videoEl, toolbar, note);
@@ -4657,15 +4963,21 @@ function actualizarBarraCancionEstudio() {
             const hostDomain = isNoCookie ? 'www.youtube-nocookie.com' : 'www.youtube.com';
             const iframe = document.createElement('iframe');
             iframe.src = `https://${hostDomain}/embed/${encodeURIComponent(song.yt_video_id)}?rel=0&playsinline=1`;
-            iframe.title = `${song.titulo} - Audio / Video Study Player`;
+            iframe.title = `${song.titulo} - ${tUi('Audio / Video Study Player', 'Reproductor Audio / Video')}`;
             iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
             iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
             iframe.allowFullscreen = true;
 
             note.className = knownBlocked ? 'music-embed-fallback-note is-warning' : 'music-embed-fallback-note';
             note.textContent = knownBlocked
-                ? '⚠️ El sello/canal dueño restringió el iframe. Usa "🎧 Reproducir en App (yt-dlp · sin bloqueo)" o "📺 Ventana flotante (sin bloqueo)".'
-                : '💡 Si aparece "Este video no está disponible", presiona "🎧 Reproducir en App (yt-dlp · sin bloqueo)" o "📺 Ventana flotante (sin bloqueo)".';
+                ? tUi(
+                    '⚠️ The owner channel/label restricted embedding. Use "🎧 Play in App (yt-dlp · no block)" or "📺 Floating Window (unblocked)".',
+                    '⚠️ El sello/canal dueño restringió el iframe. Usa "🎧 Reproducir en App (yt-dlp · sin bloqueo)" o "📺 Ventana flotante (sin bloqueo)".'
+                )
+                : tUi(
+                    '💡 If "This video is unavailable" appears, click "🎧 Play in App (yt-dlp · no block)" or "📺 Floating Window (unblocked)".',
+                    '💡 Si aparece "Este video no está disponible", presiona "🎧 Reproducir en App (yt-dlp · sin bloqueo)" o "📺 Ventana flotante (sin bloqueo)".'
+                );
 
             embedBox.replaceChildren(iframe, toolbar, note);
             embedBox.hidden = false;
@@ -4719,8 +5031,8 @@ function prepararAgregarCancionAAlbum({ mainArtist = '', artistType = '', albumT
     const titleEl = document.getElementById('musicSongFormTitle');
     if (titleEl) {
         titleEl.textContent = albumTitle
-            ? `Add Song to "${albumTitle}"`
-            : (mainArtist ? `Add Song for ${mainArtist}` : 'Register or Link Song');
+            ? tUi(`Add Song to "${albumTitle}"`, `Agregar canción a "${albumTitle}"`)
+            : (mainArtist ? tUi(`Add Song for ${mainArtist}`, `Agregar canción para ${mainArtist}`) : tUi('Register or Link Song', 'Registrar o Vincular Canción'));
     }
 
     const songTitleEl = document.getElementById('musicSongTitle');
@@ -4897,9 +5209,12 @@ function initMusicEntityEditModal() {
             if (kind !== 'album' || !entityId) return;
 
             const ok = await openConfirmDialog({
-                title: 'Delete Album / Mini Album?',
-                message: `Delete "${rawName || 'this album'}"? Its songs will NOT be deleted—they will move cleanly to Standalone Singles & Tracks.`,
-                confirmText: 'Delete Album',
+                title: tUi('Delete Album / Mini Album?', '¿Eliminar álbum / mini álbum?'),
+                message: tUi(
+                    `Delete "${rawName || 'this album'}"? Its songs will NOT be deleted—they will move cleanly to Standalone Singles & Tracks.`,
+                    `¿Eliminar "${rawName || 'este álbum'}"? Sus canciones NO se eliminarán: pasarán a Sencillos y Pistas Independientes.`
+                ),
+                confirmText: tUi('Delete Album', 'Eliminar Álbum'),
                 danger: true
             });
             if (!ok) return;
@@ -4908,13 +5223,13 @@ function initMusicEntityEditModal() {
                 const res = await fetch(`/api/english/music/albums/${entityId}`, { method: 'DELETE' });
                 if (res.ok) {
                     closeModal();
-                    showToast('ok', `Deleted album "${rawName}" (songs preserved).`);
+                    showToast('ok', tUi(`Deleted album "${rawName}" (songs preserved).`, `Álbum "${rawName}" eliminado (canciones conservadas).`));
                     await cargarCatalogoMusical();
                 } else {
                     const errText = await res.text();
-                    mostrarBannerMusica('musicEntityEditBanner', 'err', errText || 'Could not delete album.');
+                    mostrarBannerMusica('musicEntityEditBanner', 'err', tServer(errText) || tUi('Could not delete album.', 'No se pudo eliminar el álbum.'));
                 }
-            }, { loadingText: 'Deleting...' });
+            }, { loadingText: tUi('Deleting...', 'Eliminando...') });
         });
     }
 
@@ -5182,8 +5497,8 @@ function renderMusicCatalog() {
         const emptyP = document.createElement('p');
         emptyP.className = 'muted-text';
         emptyP.textContent = hasCatalogItems
-            ? 'No songs or albums match your current filters.'
-            : 'No songs or albums registered yet. Create an Album / Mini Album or add your first song on the left!';
+            ? tUi('No songs or albums match your current filters.', 'Ninguna canción o álbum coincide con los filtros actuales.')
+            : tUi('No songs or albums registered yet. Create an Album / Mini Album or add your first song on the left!', 'Aún no hay canciones o álbumes. ¡Crea un Álbum / Mini Álbum o agrega tu primera canción a la izquierda!');
         wrap.appendChild(emptyP);
 
         if (hasCatalogItems && (search || artistFilter || releaseFilter || langFilter || statusFilter)) {
@@ -5191,7 +5506,7 @@ function renderMusicCatalog() {
             resetBtn.type = 'button';
             resetBtn.id = 'btnResetMusicFilters';
             resetBtn.className = 'btn-secondary btn-small';
-            resetBtn.textContent = 'Reset Catalog Filters';
+            resetBtn.textContent = tUi('Reset Catalog Filters', 'Restablecer filtros');
             resetBtn.addEventListener('click', () => {
                 ['musicFilterSearch', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterLanguage', 'musicFilterStatus'].forEach(fid => {
                     const el = document.getElementById(fid);
@@ -5217,6 +5532,7 @@ function renderMusicCatalog() {
         header.className = 'music-artist-header';
         const nameEl = document.createElement('span');
         nameEl.className = 'music-artist-name';
+        protectUserNode(nameEl);
         nameEl.textContent = `🎤 ${artistGroup.nombre}`;
 
         const artistRecord = (musicState.artists || []).find(a => Number(a.id) === Number(artistGroup.id));
@@ -5226,15 +5542,21 @@ function renderMusicCatalog() {
         const countEl = document.createElement('span');
         countEl.className = 'muted-text';
         const totalInArtist = Array.from(artistGroup.albums.values()).reduce((sum, al) => sum + al.songs.length, 0);
-        countEl.textContent = `${totalInArtist} song(s)`;
+        countEl.textContent = tUi(
+            `${totalInArtist} song${totalInArtist === 1 ? '' : 's'}`,
+            `${totalInArtist} canción${totalInArtist === 1 ? '' : 'es'}`
+        );
         headActions.appendChild(countEl);
 
         if (artistGroup.id > 0) {
             const newAlbForArtistBtn = document.createElement('button');
             newAlbForArtistBtn.type = 'button';
             newAlbForArtistBtn.className = 'btn-mini-add';
-            newAlbForArtistBtn.textContent = '💿 + Album';
-            newAlbForArtistBtn.title = `Create an Album or Mini Album for ${artistGroup.nombre}`;
+            newAlbForArtistBtn.textContent = tUi('💿 + Album', '💿 + Álbum');
+            newAlbForArtistBtn.title = tUi(
+                `Create an Album or Mini Album for ${artistGroup.nombre}`,
+                `Crear Álbum o Mini Álbum para ${artistGroup.nombre}`
+            );
             newAlbForArtistBtn.addEventListener('click', () => {
                 openMusicAlbumCreateModal({
                     artistName: artistGroup.nombre,
@@ -5246,8 +5568,11 @@ function renderMusicCatalog() {
             const addSongForArtistBtn = document.createElement('button');
             addSongForArtistBtn.type = 'button';
             addSongForArtistBtn.className = 'btn-mini-add';
-            addSongForArtistBtn.textContent = '➕ Add Song';
-            addSongForArtistBtn.title = `Add a song under ${artistGroup.nombre}`;
+            addSongForArtistBtn.textContent = tUi('➕ Add Song', '➕ Agregar Canción');
+            addSongForArtistBtn.title = tUi(
+                `Add a song under ${artistGroup.nombre}`,
+                `Agregar una canción bajo ${artistGroup.nombre}`
+            );
             addSongForArtistBtn.addEventListener('click', () => {
                 prepararAgregarCancionAAlbum({
                     mainArtist: artistGroup.nombre,
@@ -5261,8 +5586,8 @@ function renderMusicCatalog() {
             const editArtistBtn = document.createElement('button');
             editArtistBtn.type = 'button';
             editArtistBtn.className = 'btn-mini-edit';
-            editArtistBtn.textContent = '✏️ Edit Artist';
-            editArtistBtn.title = 'Rename artist, change format or notes';
+            editArtistBtn.textContent = tUi('✏️ Edit Artist', '✏️ Editar Artista');
+            editArtistBtn.title = tUi('Rename artist, change format or notes', 'Renombrar artista, cambiar formato o notas');
             editArtistBtn.addEventListener('click', () => {
                 openMusicEntityEditModal('artist', {
                     id: artistGroup.id,
@@ -5294,7 +5619,11 @@ function renderMusicCatalog() {
 
             const albumTitleEl = document.createElement('span');
             albumTitleEl.className = 'music-album-title';
-            albumTitleEl.textContent = album.anio ? `${album.titulo} (${album.anio})` : album.titulo;
+            protectUserNode(albumTitleEl);
+            const displayAlbTitle = album.titulo === 'Standalone Singles & Tracks'
+                ? tUi('Standalone Singles & Tracks', 'Sencillos y Pistas Sueltas')
+                : album.titulo;
+            albumTitleEl.textContent = album.anio ? `${displayAlbTitle} (${album.anio})` : displayAlbTitle;
 
             const albumMetaWrap = document.createElement('div');
             albumMetaWrap.className = 'music-artist-head-actions';
@@ -5307,10 +5636,10 @@ function renderMusicCatalog() {
             const addSongToAlbumBtn = document.createElement('button');
             addSongToAlbumBtn.type = 'button';
             addSongToAlbumBtn.className = 'btn-mini-add';
-            addSongToAlbumBtn.textContent = '➕ Add Song';
+            addSongToAlbumBtn.textContent = tUi('➕ Add Song', '➕ Agregar Canción');
             addSongToAlbumBtn.title = album.albumId
-                ? `Add a song directly to "${album.titulo}"`
-                : `Add a standalone song for ${artistGroup.nombre}`;
+                ? tUi(`Add a song directly to "${album.titulo}"`, `Agregar una canción a "${album.titulo}"`)
+                : tUi(`Add a standalone song for ${artistGroup.nombre}`, `Agregar un sencillo para ${artistGroup.nombre}`);
             addSongToAlbumBtn.addEventListener('click', () => {
                 prepararAgregarCancionAAlbum({
                     mainArtist: artistGroup.id > 0 ? artistGroup.nombre : '',
@@ -5326,8 +5655,8 @@ function renderMusicCatalog() {
                 const editAlbumBtn = document.createElement('button');
                 editAlbumBtn.type = 'button';
                 editAlbumBtn.className = 'btn-mini-edit';
-                editAlbumBtn.textContent = '✏️ Edit Album';
-                editAlbumBtn.title = 'Edit album title, release type, year or delete album';
+                editAlbumBtn.textContent = tUi('✏️ Edit Album', '✏️ Editar Álbum');
+                editAlbumBtn.title = tUi('Edit album title, release type, year or delete album', 'Editar título del álbum, tipo, año o eliminar');
                 editAlbumBtn.addEventListener('click', () => {
                     openMusicEntityEditModal('album', {
                         id: album.albumId,
@@ -5349,11 +5678,11 @@ function renderMusicCatalog() {
                 const emptyAlbumCta = document.createElement('div');
                 emptyAlbumCta.className = 'music-empty-album-cta';
                 const noteSpan = document.createElement('span');
-                noteSpan.textContent = 'No songs in this release yet.';
+                noteSpan.textContent = tUi('No songs in this release yet.', 'Aún no hay canciones en este lanzamiento.');
                 const firstBtn = document.createElement('button');
                 firstBtn.type = 'button';
                 firstBtn.className = 'btn-mini-add';
-                firstBtn.textContent = `➕ Add First Song to "${album.titulo}"`;
+                firstBtn.textContent = tUi(`➕ Add First Song to "${album.titulo}"`, `➕ Agregar primera canción a "${album.titulo}"`);
                 firstBtn.addEventListener('click', () => {
                     prepararAgregarCancionAAlbum({
                         mainArtist: artistGroup.id > 0 ? artistGroup.nombre : '',
@@ -5408,13 +5737,14 @@ function renderMusicCatalog() {
                 titleLine.className = 'music-song-title-line';
                 const prefix = song.numero_pista ? `${song.numero_pista}. ` : '';
                 const titleSpan = document.createElement('span');
+                protectUserNode(titleSpan);
                 titleSpan.textContent = `${prefix}${song.titulo}`;
                 titleLine.appendChild(titleSpan);
 
                 if (artistRole !== 'main') {
                     const collabRole = document.createElement('span');
                     collabRole.className = 'music-release-badge';
-                    collabRole.textContent = artistRole === 'feat' ? 'Featured' : 'Collab';
+                    collabRole.textContent = artistRole === 'feat' ? tUi('Featured', 'Colaborador') : tUi('Collab', 'Colab.');
                     titleLine.appendChild(collabRole);
                 }
                 info.appendChild(titleLine);
@@ -5423,13 +5753,15 @@ function renderMusicCatalog() {
                 if (collabs.length) {
                     const collabLine = document.createElement('div');
                     collabLine.className = 'music-song-collabs';
-                    collabLine.textContent = `With: ${collabs.map(c => (c.rol === 'feat' ? `feat. ${c.nombre}` : c.nombre)).join(', ')}`;
+                    protectUserNode(collabLine);
+                    collabLine.textContent = `${tUi('With', 'Con')}: ${collabs.map(c => (c.rol === 'feat' ? `feat. ${c.nombre}` : c.nombre)).join(', ')}`;
                     info.appendChild(collabLine);
                 }
 
                 if (song.enfoque_corto) {
                     const focusLine = document.createElement('div');
                     focusLine.className = 'music-song-focus';
+                    protectUserNode(focusLine);
                     focusLine.textContent = song.enfoque_corto;
                     info.appendChild(focusLine);
                 }
@@ -5441,8 +5773,10 @@ function renderMusicCatalog() {
                 const statusBtn = document.createElement('button');
                 statusBtn.type = 'button';
                 statusBtn.className = `music-status-pill state-${song.estado_estudio}`;
-                statusBtn.textContent = stMeta.label;
-                statusBtn.title = 'Click to advance study status';
+                statusBtn.textContent = (window.DailyHubI18n && typeof window.DailyHubI18n.musicStatusLabel === 'function')
+                    ? window.DailyHubI18n.musicStatusLabel(song.estado_estudio)
+                    : stMeta.label;
+                statusBtn.title = tUi('Click to advance study status', 'Clic para avanzar el estado de estudio');
                 statusBtn.addEventListener('click', () => {
                     runWithButtonLock(statusBtn, async () => {
                         const res = await fetch(`/api/english/music/songs/${song.id}/status`, {
@@ -5465,7 +5799,7 @@ function renderMusicCatalog() {
                 if (song.word_sincronizado) {
                     const wordBadge = document.createElement('span');
                     wordBadge.className = 'music-word-badge';
-                    wordBadge.textContent = 'Word Notes Queued';
+                    wordBadge.textContent = tUi('Word Notes Queued', 'Notas Word Sincronizadas');
                     badgeRow.appendChild(wordBadge);
                 }
 
@@ -5490,26 +5824,29 @@ function renderMusicCatalog() {
                 const studyBtn = document.createElement('button');
                 studyBtn.type = 'button';
                 studyBtn.className = 'btn-primary btn-small';
-                studyBtn.textContent = 'Study -> Word';
+                studyBtn.textContent = tUi('Study -> Word', 'Estudiar -> Word');
                 studyBtn.addEventListener('click', () => seleccionarCancionParaEstudio(song));
                 actions.appendChild(studyBtn);
 
                 const editBtn = document.createElement('button');
                 editBtn.type = 'button';
                 editBtn.className = 'btn-secondary btn-small';
-                editBtn.textContent = 'Edit';
+                editBtn.textContent = tUi('Edit', 'Editar');
                 editBtn.addEventListener('click', () => cargarCancionEnFormularioEdicion(song));
                 actions.appendChild(editBtn);
 
                 const delBtn = document.createElement('button');
                 delBtn.type = 'button';
                 delBtn.className = 'btn-secondary btn-small';
-                delBtn.textContent = 'Delete';
+                delBtn.textContent = tUi('Delete', 'Eliminar');
                 delBtn.addEventListener('click', async () => {
                     const ok = await openConfirmDialog({
-                        title: 'Remove Song?',
-                        message: `Remove "${song.titulo}" from your music catalog? Your local Word notes stay safely on your PC.`,
-                        confirmText: 'Remove Song',
+                        title: tUi('Remove Song?', '¿Quitar canción?'),
+                        message: tUi(
+                            `Remove "${song.titulo}" from your music catalog? Your local Word notes stay safely on your PC.`,
+                            `¿Quitar "${song.titulo}" de tu catálogo musical? Tus notas Word locales siguen seguras en tu PC.`
+                        ),
+                        confirmText: tUi('Remove Song', 'Quitar Canción'),
                         danger: true
                     });
                     if (!ok) return;
@@ -5519,10 +5856,10 @@ function renderMusicCatalog() {
                             if (Number(musicState.selectedSongId) === Number(song.id)) {
                                 musicState.selectedSongId = null;
                             }
-                            showToast('ok', `Removed "${song.titulo}" from catalog.`);
+                            showToast('ok', tUi(`Removed "${song.titulo}" from catalog.`, `Se quitó "${song.titulo}" del catálogo.`));
                             await cargarCatalogoMusical();
                         } else {
-                            showToast('err', 'Could not remove song.');
+                            showToast('err', tUi('Could not remove song.', 'No se pudo eliminar la canción.'));
                         }
                     }, { loadingText: '...' });
                 });
@@ -6210,14 +6547,152 @@ const agendaState = {
     selectedDate: formatLocalDate(new Date()),
     filterCategory: 'all',
     filterType: 'all',
+    filterCourse: '',
     items: []
 };
+
+function getActiveSemesterCourses() {
+    const activeSem = typeof getActiveSemesterObj === 'function' ? getActiveSemesterObj() : null;
+    return Array.isArray(activeSem?.courses) ? activeSem.courses : [];
+}
+
+function findPlannerCourseById(courseId) {
+    const cleanId = String(courseId || '').trim();
+    if (!cleanId || !academicPlannerState || !Array.isArray(academicPlannerState.semesters)) return null;
+    const activeSem = typeof getActiveSemesterObj === 'function' ? getActiveSemesterObj() : null;
+    const ordered = activeSem
+        ? [activeSem, ...academicPlannerState.semesters.filter(s => s && s.id !== activeSem.id)]
+        : academicPlannerState.semesters;
+    for (const sem of ordered) {
+        const hit = (Array.isArray(sem?.courses) ? sem.courses : []).find(c => String(c?.id || '').trim() === cleanId);
+        if (hit) return hit;
+    }
+    return null;
+}
+
+function resolveAgendaItemClassLabel(item) {
+    if (!item || (item.categoria || 'personal') !== 'universidad') return null;
+    const course = item.materia_id ? findPlannerCourseById(item.materia_id) : null;
+    if (course && course.name) {
+        return {
+            id: String(course.id || item.materia_id || ''),
+            name: String(course.name).trim(),
+            code: String(course.code || '').trim(),
+            room: String(course.room || '').trim()
+        };
+    }
+    const rawName = String(item.materia_nombre || '').trim();
+    if (rawName) {
+        return {
+            id: String(item.materia_id || ''),
+            name: rawName,
+            code: '',
+            room: ''
+        };
+    }
+    return null;
+}
+
+let academicPlannerLoadPromise = null;
+function ensureAcademicPlannerLoaded() {
+    if (academicPlannerState && Array.isArray(academicPlannerState.semesters)) {
+        return Promise.resolve(academicPlannerState);
+    }
+    if (!currentUser || currentUser.rol !== 'admin') {
+        return Promise.resolve(null);
+    }
+    if (academicPlannerLoadPromise) {
+        return academicPlannerLoadPromise;
+    }
+    academicPlannerLoadPromise = fetch('/api/planner', { cache: 'no-store' })
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+            if (data && data.planner) {
+                academicPlannerState = data.planner;
+                if (data.campusDirectory) academicPlannerDirectory = data.campusDirectory;
+                if (data.mindboxPreset) academicPlannerMindboxPreset = data.mindboxPreset;
+                renderAgendaCourseFilterOptions();
+                if (typeof renderAgendaBoard === 'function') renderAgendaBoard();
+                if (agendaModal && !agendaModal.hidden && typeof syncAgendaMateriaFieldUI === 'function') {
+                    const sel = document.getElementById('agendaMateriaId');
+                    syncAgendaMateriaFieldUI(sel ? sel.value : '');
+                }
+            }
+            return academicPlannerState;
+        })
+        .catch(() => null)
+        .finally(() => {
+            academicPlannerLoadPromise = null;
+        });
+    return academicPlannerLoadPromise;
+}
+
+function renderAgendaCourseFilterOptions() {
+    const group = document.getElementById('agendaCourseFilterGroup');
+    const sel = document.getElementById('agendaCourseFilter');
+    if (!sel) return;
+
+    const isPersonalFilter = agendaState.filterCategory === 'personal';
+    if (group) group.hidden = isPersonalFilter;
+    if (isPersonalFilter && agendaState.filterCourse) {
+        agendaState.filterCourse = '';
+    }
+
+    const courses = getActiveSemesterCourses();
+    const prevVal = agendaState.filterCourse || '';
+    sel.replaceChildren();
+
+    const optAll = document.createElement('option');
+    optAll.value = '';
+    optAll.textContent = tUi('🎓 All Classes', '🎓 Todas las clases');
+    sel.appendChild(optAll);
+
+    const optUnlinked = document.createElement('option');
+    optUnlinked.value = '__unlinked__';
+    optUnlinked.textContent = tUi('📌 General University (no class)', '📌 Universidad general (sin clase)');
+    sel.appendChild(optUnlinked);
+
+    const seenIds = new Set();
+    courses.forEach(course => {
+        const cid = String(course?.id || '').trim();
+        const cname = String(course?.name || '').trim();
+        if (!cid || !cname || seenIds.has(cid)) return;
+        seenIds.add(cid);
+        const opt = document.createElement('option');
+        opt.value = cid;
+        protectUserNode(opt);
+        opt.textContent = `📚 ${course.code ? `${course.code} · ` : ''}${cname}`;
+        sel.appendChild(opt);
+    });
+
+    if (prevVal && prevVal !== '__unlinked__' && !seenIds.has(prevVal)) {
+        const archived = findPlannerCourseById(prevVal);
+        if (archived) {
+            const optArch = document.createElement('option');
+            optArch.value = prevVal;
+            protectUserNode(optArch);
+            optArch.textContent = `📚 ${archived.name}`;
+            sel.appendChild(optArch);
+        } else {
+            agendaState.filterCourse = '';
+        }
+    }
+    sel.value = agendaState.filterCourse || '';
+}
 
 function matchesAgendaFilters(item) {
     const cat = item.categoria === 'universidad' ? 'universidad' : 'personal';
     const tipo = item.tipo === 'tarea' ? 'tarea' : 'evento';
     if (agendaState.filterCategory !== 'all' && cat !== agendaState.filterCategory) return false;
     if (agendaState.filterType !== 'all' && tipo !== agendaState.filterType) return false;
+    if (agendaState.filterCourse && agendaState.filterCategory !== 'personal') {
+        if (cat !== 'universidad') return false;
+        const classMeta = resolveAgendaItemClassLabel(item);
+        if (agendaState.filterCourse === '__unlinked__') {
+            return !classMeta;
+        }
+        return Boolean(item.materia_id === agendaState.filterCourse || (classMeta && classMeta.id === agendaState.filterCourse));
+    }
     return true;
 }
 
@@ -6229,7 +6704,7 @@ function appendCategorizedAgendaItems(container, listItems) {
         if (uniItems.length > 0) {
             const uniHead = document.createElement('div');
             uniHead.className = 'agenda-cat-divider is-uni';
-            uniHead.textContent = `🎓 University (${uniItems.length})`;
+            uniHead.textContent = tUi(`🎓 University (${uniItems.length})`, `🎓 Universidad (${uniItems.length})`);
             container.appendChild(uniHead);
             uniItems.forEach(item => container.appendChild(crearElementoActividad(item)));
         }
@@ -6279,12 +6754,12 @@ function crearElementoActividad(item) {
     checkBtn.type = 'button';
     checkBtn.className = `agenda-check-circle status-${estado}`;
     const checkLabels = {
-        todo: 'To Do — click to mark In Progress',
-        in_progress: 'In Progress — click to mark Done',
-        done: 'Done — click to reset to To Do'
+        todo: tUi('To Do — click to mark In Progress', 'Por hacer — clic para marcar En progreso'),
+        in_progress: tUi('In Progress — click to mark Done', 'En progreso — clic para marcar Completado'),
+        done: tUi('Done — click to reset to To Do', 'Completado — clic para volver a Por hacer')
     };
-    checkBtn.title = checkLabels[estado] || 'Toggle workflow status';
-    checkBtn.setAttribute('aria-label', checkLabels[estado] || 'Toggle workflow status');
+    checkBtn.title = checkLabels[estado] || tUi('Toggle workflow status', 'Cambiar estado');
+    checkBtn.setAttribute('aria-label', checkLabels[estado] || tUi('Toggle workflow status', 'Cambiar estado'));
     checkBtn.textContent = estado === 'done' ? '✓' : estado === 'in_progress' ? '◐' : '';
 
     const topRow = document.createElement('div');
@@ -6304,12 +6779,19 @@ function crearElementoActividad(item) {
     timePill.textContent = item.hora;
 
     const catPill = document.createElement('span');
-    catPill.className = `agenda-cat-pill ${categoria === 'universidad' ? 'is-uni' : 'is-personal'}`;
-    catPill.textContent = categoria === 'universidad' ? '🎓 Uni' : '👤 Personal';
+    const classMeta = categoria === 'universidad' ? resolveAgendaItemClassLabel(item) : null;
+    catPill.className = `agenda-cat-pill ${categoria === 'universidad' ? 'is-uni' : 'is-personal'}${classMeta ? ' is-class-linked' : ''}`;
+    if (classMeta) {
+        protectUserNode(catPill);
+        catPill.textContent = `🎓 ${classMeta.name}`;
+        catPill.title = `${tUi('Class', 'Clase')}: ${classMeta.code ? `${classMeta.code} · ` : ''}${classMeta.name}${classMeta.room ? ` (${classMeta.room})` : ''}`;
+    } else {
+        catPill.textContent = categoria === 'universidad' ? tUi('🎓 Uni', '🎓 Univ') : '👤 Personal';
+    }
 
     const typePill = document.createElement('span');
     typePill.className = 'agenda-type-pill';
-    typePill.textContent = tipo === 'tarea' ? 'Task' : 'Event';
+    typePill.textContent = tipo === 'tarea' ? tUi('Task', 'Tarea') : tUi('Event', 'Evento');
 
     metaRow.append(catPill, typePill);
 
@@ -6317,11 +6799,13 @@ function crearElementoActividad(item) {
 
     const text = document.createElement('span');
     text.className = 'agenda-item-text';
+    protectUserNode(text);
     text.textContent = parsedParts.titulo || item.actividad;
 
     const descEl = parsedParts.descripcion ? document.createElement('span') : null;
     if (descEl) {
         descEl.className = 'agenda-item-desc';
+        protectUserNode(descEl);
         descEl.textContent = parsedParts.descripcion;
     }
 
@@ -6330,11 +6814,11 @@ function crearElementoActividad(item) {
 
     const statusSelect = document.createElement('select');
     statusSelect.className = `jira-status-select status-${estado}`;
-    statusSelect.setAttribute('aria-label', 'Workflow status (Jira)');
+    statusSelect.setAttribute('aria-label', tUi('Workflow status (Jira)', 'Estado del flujo (Jira)'));
     [
-        { value: 'todo', label: 'To Do' },
-        { value: 'in_progress', label: 'In Progress' },
-        { value: 'done', label: 'Done' }
+        { value: 'todo', label: tUi('To Do', 'Por hacer') },
+        { value: 'in_progress', label: tUi('In Progress', 'En progreso') },
+        { value: 'done', label: tUi('Done', 'Completado') }
     ].forEach(optDef => {
         const opt = document.createElement('option');
         opt.value = optDef.value;
@@ -6356,16 +6840,16 @@ function crearElementoActividad(item) {
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'agenda-mini-btn';
-    editBtn.title = 'Edit activity';
-    editBtn.setAttribute('aria-label', 'Edit activity');
+    editBtn.title = tUi('Edit activity', 'Editar actividad');
+    editBtn.setAttribute('aria-label', tUi('Edit activity', 'Editar actividad'));
     editBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
     editBtn.addEventListener('click', () => abrirAgendaModal(item));
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'agenda-mini-btn';
-    delBtn.title = 'Delete activity';
-    delBtn.setAttribute('aria-label', 'Delete activity');
+    delBtn.title = tUi('Delete activity', 'Eliminar actividad');
+    delBtn.setAttribute('aria-label', tUi('Delete activity', 'Eliminar actividad'));
     delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
 
     const uiRefs = { row, checkBtn, statusSelect, editBtn, delBtn };
@@ -6398,6 +6882,7 @@ function renderAgendaBoard() {
     document.querySelectorAll('#agendaTypeFilters .agenda-filter-pill[data-agenda-type]').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-agenda-type') === agendaState.filterType);
     });
+    renderAgendaCourseFilterOptions();
 
     const diasVisibles = getVisibleAgendaDays();
     const hoyStr = formatLocalDate(new Date());
@@ -6410,8 +6895,8 @@ function renderAgendaBoard() {
     const firstDate = diasVisibles[0].dateObj;
     const lastDate = diasVisibles[diasVisibles.length - 1].dateObj;
     if (weekLabel) {
-        const f1 = firstDate.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-        const f2 = lastDate.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const f1 = firstDate.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' });
+        const f2 = lastDate.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' });
         weekLabel.textContent = `${f1} - ${f2}`;
     }
 
@@ -6426,17 +6911,24 @@ function renderAgendaBoard() {
 
     if (weekStats) {
         weekStats.textContent = visibleItems.length
-            ? `${doneCount} Done · ${inProgCount} In Progress · ${todoCount} To Do (${uniCount} University · ${perCount} Personal)`
-            : 'Organize University & Personal events and Jira-style tasks';
+            ? tUi(
+                `${doneCount} Done · ${inProgCount} In Progress · ${todoCount} To Do (${uniCount} University · ${perCount} Personal)`,
+                `${doneCount} Completadas · ${inProgCount} En progreso · ${todoCount} Por hacer (${uniCount} Universidad · ${perCount} Personal)`
+            )
+            : tUi('Organize University & Personal events and Jira-style tasks', 'Organiza eventos de Universidad/Personal y tareas estilo Jira');
     }
 
     if (btnToggleWeekend) {
-        btnToggleWeekend.textContent = agendaState.showWeekend ? 'Mon - Fri Only' : 'Show Mon - Sun';
+        btnToggleWeekend.textContent = agendaState.showWeekend
+            ? tUi('Mon - Fri Only', 'Solo Lun - Vie')
+            : tUi('Show Mon - Sun', 'Mostrar Lun - Dom');
         btnToggleWeekend.classList.toggle('active', !agendaState.showWeekend);
     }
 
     if (btnToggleLayout) {
-        btnToggleLayout.textContent = agendaState.layoutMode === 'day' ? 'Grid View' : 'Day View';
+        btnToggleLayout.textContent = agendaState.layoutMode === 'day'
+            ? tUi('Grid View', 'Vista Rejilla')
+            : tUi('Day View', 'Vista Día');
     }
 
     const isDayLayout = agendaState.layoutMode === 'day';
@@ -6456,12 +6948,15 @@ function renderAgendaBoard() {
         dayTabs.innerHTML = '';
         diasVisibles.forEach(dia => {
             const count = filteredItems.filter(i => i.fecha === dia.fecha).length;
+            const dayShortLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function')
+                ? window.DailyHubI18n.agendaDayName(dia.nombre, true)
+                : dia.corto;
             const tab = document.createElement('button');
             tab.type = 'button';
             tab.className = `agenda-day-tab day-${dia.key}${dia.fecha === agendaState.selectedDate ? ' active' : ''}`;
             tab.innerHTML = `
-                <span class="tab-day">${dia.corto}${dia.fecha === hoyStr ? ' •' : ''}</span>
-                <span class="tab-date">${dia.dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                <span class="tab-day">${dayShortLoc}${dia.fecha === hoyStr ? ' •' : ''}</span>
+                <span class="tab-date">${dia.dateObj.toLocaleDateString(tLocale(), { month: 'short', day: 'numeric' })}</span>
                 <span class="tab-count">${count}</span>
             `;
             tab.addEventListener('click', () => {
@@ -6479,6 +6974,10 @@ function renderAgendaBoard() {
                 i => i.fecha === activeDay.fecha && i.bloque === bloque.id
             );
 
+            const bloqueLabelLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaBlockLabel === 'function')
+                ? window.DailyHubI18n.agendaBlockLabel(bloque.id)
+                : bloque.label;
+
             const card = document.createElement('div');
             card.className = `agenda-mobile-block-card day-${activeDay.key}`;
 
@@ -6487,7 +6986,7 @@ function renderAgendaBoard() {
             head.innerHTML = `
                 <div class="agenda-mobile-block-head-left">
                     ${bloque.svg}
-                    <span>${bloque.label}</span>
+                    <span>${bloqueLabelLoc}</span>
                 </div>
                 <span>${blockItems.length}</span>
             `;
@@ -6498,7 +6997,7 @@ function renderAgendaBoard() {
             if (!blockItems.length) {
                 const empty = document.createElement('p');
                 empty.className = 'agenda-empty-block';
-                empty.textContent = 'No activities matching active filters';
+                empty.textContent = tUi('No activities matching active filters', 'Sin actividades con los filtros activos');
                 body.appendChild(empty);
             } else {
                 appendCategorizedAgendaItems(body, blockItems);
@@ -6507,7 +7006,7 @@ function renderAgendaBoard() {
             const addBtn = document.createElement('button');
             addBtn.type = 'button';
             addBtn.className = 'agenda-cell-add';
-            addBtn.textContent = `+ Add to ${bloque.label.toLowerCase()}`;
+            addBtn.textContent = `+ ${tUi('Add to', 'Agregar a')} ${bloqueLabelLoc.toLowerCase()}`;
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: activeDay.fecha,
                 bloque: bloque.id,
@@ -6528,48 +7027,54 @@ function renderAgendaBoard() {
     weekBoard.style.setProperty('--agenda-cols', String(diasVisibles.length));
     weekBoard.classList.toggle('cols-5', diasVisibles.length === 5);
 
-    const corner = document.createElement('div');
-    corner.className = 'agenda-corner-cell';
-    corner.textContent = 'Block / Day';
-    weekBoard.appendChild(corner);
+            const corner = document.createElement('div');
+            corner.className = 'agenda-corner-cell';
+            corner.textContent = tUi('Block / Day', 'Bloque / Día');
+            weekBoard.appendChild(corner);
 
-    diasVisibles.forEach(dia => {
-        const header = document.createElement('div');
-        header.className = `agenda-day-header day-${dia.key}${dia.fecha === hoyStr ? ' is-today' : ''}`;
-        const dateLabel = dia.dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        header.innerHTML = `
-            <span class="agenda-day-name">${dia.nombre}</span>
-            <span class="agenda-day-date">${dateLabel}${dia.fecha === hoyStr ? ' · Today' : ''}</span>
-        `;
-        weekBoard.appendChild(header);
-    });
+            diasVisibles.forEach(dia => {
+                const header = document.createElement('div');
+                header.className = `agenda-day-header day-${dia.key}${dia.fecha === hoyStr ? ' is-today' : ''}`;
+                const dayNameLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function')
+                    ? window.DailyHubI18n.agendaDayName(dia.nombre, false)
+                    : dia.nombre;
+                const dateLabel = dia.dateObj.toLocaleDateString(tLocale(), { month: 'short', day: 'numeric' });
+                header.innerHTML = `
+                    <span class="agenda-day-name">${dayNameLoc}</span>
+                    <span class="agenda-day-date">${dateLabel}${dia.fecha === hoyStr ? tUi(' · Today', ' · Hoy') : ''}</span>
+                `;
+                weekBoard.appendChild(header);
+            });
 
-    AGENDA_BLOQUES.forEach(bloque => {
-        const blockHeader = document.createElement('div');
-        blockHeader.className = 'agenda-block-header';
-        blockHeader.innerHTML = `
-            ${bloque.svg}
-            <span class="agenda-block-title">${bloque.label}</span>
-        `;
-        weekBoard.appendChild(blockHeader);
+            AGENDA_BLOQUES.forEach(bloque => {
+                const bloqueLabelLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaBlockLabel === 'function')
+                    ? window.DailyHubI18n.agendaBlockLabel(bloque.id)
+                    : bloque.label;
+                const blockHeader = document.createElement('div');
+                blockHeader.className = 'agenda-block-header';
+                blockHeader.innerHTML = `
+                    ${bloque.svg}
+                    <span class="agenda-block-title">${bloqueLabelLoc}</span>
+                `;
+                weekBoard.appendChild(blockHeader);
 
-        diasVisibles.forEach(dia => {
-            const cell = document.createElement('div');
-            cell.className = `agenda-cell day-${dia.key}`;
+                diasVisibles.forEach(dia => {
+                    const cell = document.createElement('div');
+                    cell.className = `agenda-cell day-${dia.key}`;
 
-            const list = document.createElement('div');
-            list.className = 'agenda-items-list';
+                    const list = document.createElement('div');
+                    list.className = 'agenda-items-list';
 
-            const cellItems = filteredItems.filter(
-                i => i.fecha === dia.fecha && i.bloque === bloque.id
-            );
+                    const cellItems = filteredItems.filter(
+                        i => i.fecha === dia.fecha && i.bloque === bloque.id
+                    );
 
-            appendCategorizedAgendaItems(list, cellItems);
+                    appendCategorizedAgendaItems(list, cellItems);
 
-            const addBtn = document.createElement('button');
-            addBtn.type = 'button';
-            addBtn.className = 'agenda-cell-add';
-            addBtn.textContent = '+ Add';
+                    const addBtn = document.createElement('button');
+                    addBtn.type = 'button';
+                    addBtn.className = 'agenda-cell-add';
+                    addBtn.textContent = tUi('+ Add', '+ Agregar');
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: dia.fecha,
                 bloque: bloque.id,
@@ -6585,6 +7090,7 @@ function renderAgendaBoard() {
 }
 
 function cargarAgendaSemana() {
+    ensureAcademicPlannerLoaded();
     const monday = getMondayOfOffset(agendaState.weekOffset);
     const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
     const begin = formatLocalDate(monday);
@@ -6595,19 +7101,19 @@ function cargarAgendaSemana() {
     const diasVisibles = getVisibleAgendaDays();
     const weekLabel = document.getElementById('agendaWeekLabel');
     if (weekLabel && diasVisibles.length > 0) {
-        const f1 = diasVisibles[0].dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-        const f2 = diasVisibles[diasVisibles.length - 1].dateObj.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const f1 = diasVisibles[0].dateObj.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' });
+        const f2 = diasVisibles[diasVisibles.length - 1].dateObj.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' });
         weekLabel.textContent = `${f1} - ${f2}`;
     }
 
     const weekStats = document.getElementById('agendaWeekStats');
     if (weekStats) {
-        weekStats.textContent = 'Loading activities...';
+        weekStats.textContent = tUi('Loading activities...', 'Cargando actividades...');
     }
 
     const loadingBanner = document.getElementById('agendaLoadingBanner');
     if (loadingBanner) {
-        loadingBanner.replaceChildren(createLoadingBanner('Loading agenda...', 'sm'));
+        loadingBanner.replaceChildren(createLoadingBanner(tUi('Loading agenda...', 'Cargando agenda...'), 'sm'));
         loadingBanner.hidden = false;
     }
 
@@ -6635,7 +7141,7 @@ function cargarAgendaSemana() {
             agendaState.items = [];
             renderAgendaBoard();
             if (weekStats) {
-                weekStats.textContent = 'Could not load agenda (check RegistrosAgenda table in DB).';
+                weekStats.textContent = tUi('Could not load agenda (check RegistrosAgenda table in DB).', 'No se pudo cargar la agenda (revisa la tabla RegistrosAgenda en la BD).');
             }
         });
 }
@@ -6662,19 +7168,22 @@ function toggleAgendaItem(item, ui = {}, targetEstado = null) {
             item.completada = nuevoCompletada;
             renderAgendaBoard();
             cargarRecordatoriosActivos();
-            showToast('ok', `Activity moved to ${nextEstado === 'done' ? 'Done' : (nextEstado === 'in_progress' ? 'In Progress' : 'To Do')}.`);
+            const movedLabel = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaStatusLabel === 'function')
+                ? window.DailyHubI18n.agendaStatusLabel(nextEstado)
+                : (nextEstado === 'done' ? 'Done' : (nextEstado === 'in_progress' ? 'In Progress' : 'To Do'));
+            showToast('ok', tUi(`Activity moved to ${movedLabel}.`, `Actividad movida a ${movedLabel}.`));
         } catch (err) {
             if (ui.statusSelect) ui.statusSelect.value = prevEstado;
-            showToast('err', 'Failed to update activity status: ' + err.message);
+            showToast('err', `${tUi('Failed to update activity status', 'Error al actualizar el estado de la actividad')}: ${tServer(err.message)}`);
         }
     }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn, ui.delBtn] });
 }
 
 async function eliminarAgendaItem(id, ui = {}) {
     const ok = await openConfirmDialog({
-        title: 'Delete Activity?',
-        message: 'Remove this activity permanently from your Weekly Agenda?',
-        confirmText: 'Delete',
+        title: tUi('Delete Activity?', '¿Eliminar actividad?'),
+        message: tUi('Remove this activity permanently from your Weekly Agenda?', '¿Quitar esta actividad permanentemente de tu Agenda Semanal?'),
+        confirmText: tUi('Delete', 'Eliminar'),
         danger: true
     });
     if (!ok) return;
@@ -6692,9 +7201,9 @@ async function eliminarAgendaItem(id, ui = {}) {
             agendaState.items = agendaState.items.filter(i => i.id !== id);
             renderAgendaBoard();
             cargarRecordatoriosActivos();
-            showToast('ok', 'Activity removed from Weekly Agenda.');
+            showToast('ok', tUi('Activity removed from Weekly Agenda.', 'Actividad eliminada de tu Agenda Semanal.'));
         } catch (err) {
-            showToast('err', 'Failed to delete activity: ' + err.message);
+            showToast('err', `${tUi('Failed to delete activity', 'Error al eliminar la actividad')}: ${tServer(err.message)}`);
         }
     }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn] });
 }
@@ -6747,13 +7256,95 @@ function syncAgendaBlockFromTimeUI() {
     const autoBlock = inferAgendaBlockClient(horaEl.value, catEl ? catEl.value : 'personal');
     bloqueEl.value = autoBlock;
     if (hintEl) {
-        const blockLabels = { manana: '☕ Morning', cole: '🎓 School / University', tarde: '☀️ Afternoon', noche: '🌙 Night' };
-        hintEl.textContent = `Auto-selected ${blockLabels[autoBlock] || autoBlock} from ${horaEl.value.slice(0, 5)}`;
+        const blockLabels = {
+            manana: tUi('☕ Morning', '☕ Mañana'),
+            cole: tUi('🎓 School / University', '🎓 Escuela / Universidad'),
+            tarde: tUi('☀️ Afternoon', '☀️ Tarde'),
+            noche: tUi('🌙 Night', '🌙 Noche')
+        };
+        hintEl.textContent = tUi(
+            `Auto-selected ${blockLabels[autoBlock] || autoBlock} from ${horaEl.value.slice(0, 5)}`,
+            `Auto-seleccionado ${blockLabels[autoBlock] || autoBlock} por hora ${horaEl.value.slice(0, 5)}`
+        );
+    }
+}
+
+function syncAgendaMateriaFieldUI(preferredCourseId = null, preferredCourseName = '') {
+    const groupEl = document.getElementById('agendaMateriaGroup');
+    const selectEl = document.getElementById('agendaMateriaId');
+    const hintEl = document.getElementById('agendaMateriaHint');
+    const catEl = document.getElementById('agendaCategoria');
+    const tipoEl = document.getElementById('agendaTipo');
+    if (!groupEl || !selectEl) return;
+
+    const isUniversity = (catEl ? catEl.value : 'personal') === 'universidad';
+    if (!isUniversity) {
+        groupEl.hidden = true;
+        selectEl.value = '';
+        return;
+    }
+
+    groupEl.hidden = false;
+    const targetId = preferredCourseId !== null && preferredCourseId !== undefined
+        ? String(preferredCourseId).trim()
+        : String(selectEl.value || '').trim();
+    const courses = getActiveSemesterCourses();
+
+    selectEl.replaceChildren();
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = tUi('General University (no specific class)', 'Universidad general (sin clase específica)');
+    selectEl.appendChild(defaultOpt);
+
+    const seenIds = new Set();
+    courses.forEach(course => {
+        const cid = String(course?.id || '').trim();
+        const cname = String(course?.name || '').trim();
+        if (!cid || !cname || seenIds.has(cid)) return;
+        seenIds.add(cid);
+        const opt = document.createElement('option');
+        opt.value = cid;
+        protectUserNode(opt);
+        opt.textContent = `${course.code ? `${course.code} · ` : ''}${cname}${course.room ? ` (${course.room})` : ''}`;
+        selectEl.appendChild(opt);
+    });
+
+    if (targetId && !seenIds.has(targetId)) {
+        const archived = findPlannerCourseById(targetId);
+        const archName = archived?.name || String(preferredCourseName || '').trim() || targetId;
+        const optArch = document.createElement('option');
+        optArch.value = targetId;
+        protectUserNode(optArch);
+        optArch.textContent = `📚 ${archName}`;
+        selectEl.appendChild(optArch);
+    }
+
+    selectEl.value = targetId || '';
+
+    if (hintEl) {
+        const isTask = (tipoEl ? tipoEl.value : 'evento') === 'tarea';
+        if (courses.length === 0) {
+            hintEl.textContent = tUi(
+                'No classes in active semester yet — open Manage classes to add your schedule.',
+                'Aún no hay materias en tu semestre activo — abre Gestionar clases para agregar tu horario.'
+            );
+        } else if (isTask) {
+            hintEl.textContent = tUi(
+                'Links this university task to a current class so the card badge shows the class name.',
+                'Vincula esta tarea universitaria con una clase actual para que la etiqueta muestre el nombre de la clase.'
+            );
+        } else {
+            hintEl.textContent = tUi(
+                'Optional for university events (e.g. exam or lab) — hidden automatically for Personal items.',
+                'Opcional para eventos universitarios (ej. examen o laboratorio) — se oculta en actividades Personales.'
+            );
+        }
     }
 }
 
 function abrirAgendaModal(prefill = {}) {
     if (!agendaModal || !agendaForm) return;
+    ensureAcademicPlannerLoaded();
     const isEdit = Boolean(prefill.id);
 
     const now = new Date();
@@ -6779,8 +7370,15 @@ function abrirAgendaModal(prefill = {}) {
     const resolvedRemMin = prefill.recordatorio_min !== undefined && prefill.recordatorio_min !== null && prefill.recordatorio_min !== ''
         ? String(prefill.recordatorio_min)
         : '';
+    const resolvedMateriaId = resolvedCategoria === 'universidad'
+        ? (prefill.materia_id
+            ? String(prefill.materia_id).trim()
+            : (!isEdit && agendaState.filterCourse && agendaState.filterCourse !== '__unlinked__' ? agendaState.filterCourse : ''))
+        : '';
 
-    document.getElementById('agendaModalTitle').textContent = isEdit ? 'Edit Activity' : 'New Activity';
+    document.getElementById('agendaModalTitle').textContent = isEdit
+        ? tUi('Edit Activity', 'Editar Actividad')
+        : tUi('New Activity', 'Nueva Actividad');
     document.getElementById('agendaEditId').value = isEdit ? String(prefill.id) : '';
     document.getElementById('agendaFecha').value = resolvedFecha;
     document.getElementById('agendaBloque').value = resolvedBloque;
@@ -6797,6 +7395,11 @@ function abrirAgendaModal(prefill = {}) {
     if (catEl) catEl.value = resolvedCategoria;
     if (estadoEl) estadoEl.value = resolvedEstado;
     if (remEl) remEl.value = resolvedRemMin;
+    syncAgendaMateriaFieldUI(resolvedMateriaId, prefill.materia_nombre || '');
+
+    const currentMateriaVal = resolvedCategoria === 'universidad'
+        ? (document.getElementById('agendaMateriaId')?.value || '')
+        : '';
 
     agendaOriginalSnapshot = isEdit
         ? {
@@ -6806,6 +7409,7 @@ function abrirAgendaModal(prefill = {}) {
             actividad: resolvedActividad.replace(/\s+/g, ' '),
             tipo: resolvedTipo,
             categoria: resolvedCategoria,
+            materia_id: currentMateriaVal,
             estado: resolvedEstado,
             recordatorio_min: resolvedRemMin
         }
@@ -6909,6 +7513,22 @@ if (agendaForm) {
         });
     });
 
+    const agendaCourseFilterEl = document.getElementById('agendaCourseFilter');
+    if (agendaCourseFilterEl) {
+        agendaCourseFilterEl.addEventListener('change', () => {
+            agendaState.filterCourse = agendaCourseFilterEl.value || '';
+            renderAgendaBoard();
+        });
+    }
+
+    const btnGoToPlannerClasses = document.getElementById('btnGoToPlannerClasses');
+    if (btnGoToPlannerClasses) {
+        btnGoToPlannerClasses.addEventListener('click', () => {
+            cerrarAgendaModal();
+            showView('horario', true);
+        });
+    }
+
     document.querySelectorAll('#agendaSuggestions .suggestion-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             const input = document.getElementById('agendaActividad');
@@ -6922,12 +7542,19 @@ if (agendaForm) {
 
     const agendaHoraInput = document.getElementById('agendaHora');
     const agendaCatInput = document.getElementById('agendaCategoria');
+    const agendaTipoInput = document.getElementById('agendaTipo');
     if (agendaHoraInput) {
         agendaHoraInput.addEventListener('change', syncAgendaBlockFromTimeUI);
         agendaHoraInput.addEventListener('input', syncAgendaBlockFromTimeUI);
     }
     if (agendaCatInput) {
-        agendaCatInput.addEventListener('change', syncAgendaBlockFromTimeUI);
+        agendaCatInput.addEventListener('change', () => {
+            syncAgendaBlockFromTimeUI();
+            syncAgendaMateriaFieldUI();
+        });
+    }
+    if (agendaTipoInput) {
+        agendaTipoInput.addEventListener('change', () => syncAgendaMateriaFieldUI());
     }
 
     agendaForm.addEventListener('submit', (e) => {
@@ -6941,6 +7568,9 @@ if (agendaForm) {
         const estadoVal = document.getElementById('agendaEstado')?.value || 'todo';
         const remRaw = document.getElementById('agendaRecordatorioMin')?.value ?? '';
         const remVal = remRaw === '' ? null : Number(remRaw);
+        const materiaVal = catVal === 'universidad' ? (document.getElementById('agendaMateriaId')?.value || '') : '';
+        const matchedCourse = materiaVal ? findPlannerCourseById(materiaVal) : null;
+        const materiaNombreVal = matchedCourse?.name ? String(matchedCourse.name).trim() : '';
         const tituloRaw = document.getElementById('agendaActividad')?.value || '';
         const descRaw = document.getElementById('agendaDescripcion')?.value || '';
         const composedAct = composeAgendaActividadClient(tituloRaw, descRaw);
@@ -6956,12 +7586,14 @@ if (agendaForm) {
             actividad: composedAct,
             tipo: tipoVal,
             categoria: catVal,
+            materia_id: materiaVal || null,
+            materia_nombre: materiaVal ? (materiaNombreVal || null) : null,
             estado: estadoVal,
             recordatorio_min: remVal
         };
 
         if (!payload.fecha || !payload.bloque || !payload.hora || !payload.actividad) {
-            showToast('err', 'Please fill in all activity fields.');
+            showToast('err', tUi('Please fill in all activity fields.', 'Por favor completa todos los campos de la actividad.'));
             return;
         }
 
@@ -6974,6 +7606,7 @@ if (agendaForm) {
             payload.actividad === agendaOriginalSnapshot.actividad &&
             payload.tipo === agendaOriginalSnapshot.tipo &&
             payload.categoria === agendaOriginalSnapshot.categoria &&
+            (materiaVal || '') === (agendaOriginalSnapshot.materia_id || '') &&
             payload.estado === agendaOriginalSnapshot.estado &&
             remRaw === agendaOriginalSnapshot.recordatorio_min
         ) {
@@ -6988,10 +7621,14 @@ if (agendaForm) {
             String(item.hora || '').slice(0, 5) === payload.hora &&
             (item.tipo || 'evento') === payload.tipo &&
             (item.categoria || 'personal') === payload.categoria &&
+            String(item.materia_id || '') === (materiaVal || '') &&
             String(item.actividad || '').trim().toLowerCase().replace(/\s+/g, ' ') === payload.actividad.toLowerCase()
         );
         if (duplicateExists) {
-            showToast('err', 'This exact activity is already scheduled for that date, category, block, and time.');
+            showToast('err', tUi(
+                'This exact activity is already scheduled for that date, category, block, and time.',
+                'Esta misma actividad ya está programada para esa fecha, categoría, bloque y hora.'
+            ));
             return;
         }
 
@@ -7013,11 +7650,13 @@ if (agendaForm) {
                 cerrarAgendaModal();
                 cargarAgendaSemana();
                 cargarRecordatoriosActivos();
-                showToast('ok', editId ? 'Activity updated!' : 'Activity added to your week!');
+                showToast('ok', editId
+                    ? tUi('Activity updated!', '¡Actividad actualizada!')
+                    : tUi('Activity added to your week!', '¡Actividad agregada a tu semana!'));
             } catch (err) {
-                showToast('err', 'Error: ' + err.message);
+                showToast('err', `${tUi('Error', 'Error')}: ${tServer(err.message)}`);
             }
-        }, { loadingText: 'Saving...' });
+        }, { loadingText: tUi('Saving...', 'Guardando...') });
     });
 }
 
@@ -7123,10 +7762,18 @@ function enterAppSession(user) {
     const roleLabelEl = document.getElementById('sidebarRoleLabel');
     const readonlyBanner = document.getElementById('medicoReadonlyBanner');
 
-    if (userNameEl) userNameEl.textContent = user.nombre;
-    if (userEmailEl) userEmailEl.textContent = user.email;
+    if (userNameEl) {
+        protectUserNode(userNameEl);
+        userNameEl.textContent = user.nombre;
+    }
+    if (userEmailEl) {
+        protectUserNode(userEmailEl);
+        userEmailEl.textContent = user.email;
+    }
     if (roleLabelEl) {
-        roleLabelEl.textContent = isPsiquiatra ? 'Psychiatrist Mode (Read-Only)' : 'Owner (Admin)';
+        roleLabelEl.textContent = isPsiquiatra
+            ? tUi('Psychiatrist Mode (Read-Only)', 'Modo Psiquiatra (Solo Lectura)')
+            : tUi('Owner (Admin)', 'Propietario (Admin)');
     }
 
     document.querySelectorAll('.admin-only-nav').forEach(el => {
@@ -7138,6 +7785,9 @@ function enterAppSession(user) {
 
     actualizarCabecerasDeFecha();
     programarExpiracionDomingo(user.expira_en);
+    if (typeof cargarVersionInfo === 'function') {
+        cargarVersionInfo();
+    }
 
     if (isPsiquiatra) {
         showView('resumen', true);
@@ -7199,7 +7849,7 @@ function cargarMedicos() {
     const container = document.getElementById('medicosList');
     if (!container || !currentUser || currentUser.rol !== 'admin') return;
 
-    container.replaceChildren(createLoadingBanner('Loading psychiatrist accounts...', 'sm'));
+    container.replaceChildren(createLoadingBanner(tUi('Loading psychiatrist accounts...', 'Cargando cuentas de psiquiatra...'), 'sm'));
 
     const reqToken = medicosTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
@@ -7216,7 +7866,7 @@ function cargarMedicos() {
             if (!medicosTracker.isCurrent(reqToken.seq)) return;
             container.innerHTML = '';
             if (!Array.isArray(medicos) || medicos.length === 0) {
-                container.innerHTML = '<p class="muted-text">You have not created a psychiatrist account yet.</p>';
+                container.innerHTML = `<p class="muted-text">${tUi('You have not created a psychiatrist account yet.', 'Aún no has creado ninguna cuenta de psiquiatra.')}</p>`;
                 return;
             }
             medicos.forEach(m => {
@@ -7226,14 +7876,18 @@ function cargarMedicos() {
                 const info = document.createElement('div');
                 info.className = 'medico-item-info';
                 const nameStrong = document.createElement('strong');
+                protectUserNode(nameStrong);
                 nameStrong.textContent = m.nombre;
                 const emailSpan = document.createElement('span');
-                emailSpan.textContent = `${m.email} · Read-only (Sleep & Mood Summary)`;
+                protectUserNode(emailSpan);
+                emailSpan.textContent = `${m.email} · ${tUi('Read-only (Sleep & Mood Summary)', 'Solo lectura (Resumen de Ánimo y Sueño)')}`;
 
                 const estado = (m.estado || 'activo').toLowerCase();
                 const statusBadge = document.createElement('span');
                 statusBadge.className = `medico-status-badge ${estado === 'activo' ? 'is-active' : (estado === 'suspendido' ? 'is-suspended' : 'is-inactive')}`;
-                statusBadge.textContent = estado === 'activo' ? 'Active' : (estado === 'suspendido' ? 'Suspended' : 'Inactive');
+                statusBadge.textContent = estado === 'activo'
+                    ? tUi('Active', 'Activa')
+                    : (estado === 'suspendido' ? tUi('Suspended', 'Suspendida') : tUi('Inactive', 'Inactiva'));
 
                 info.append(nameStrong, emailSpan, statusBadge);
 
@@ -7244,12 +7898,15 @@ function cargarMedicos() {
                 const statusBtn = document.createElement('button');
                 statusBtn.type = 'button';
                 statusBtn.className = 'btn-status-medico';
-                statusBtn.textContent = estado === 'activo' ? 'Suspend' : 'Activate';
+                statusBtn.textContent = estado === 'activo' ? tUi('Suspend', 'Suspender') : tUi('Activate', 'Activar');
                 statusBtn.addEventListener('click', async () => {
-                    const verb = nextEstado === 'suspendido' ? 'Suspend' : 'Reactivate';
+                    const verb = nextEstado === 'suspendido' ? tUi('Suspend', 'Suspender') : tUi('Reactivate', 'Reactivar');
                     const ok = await openConfirmDialog({
-                        title: `${verb} Account?`,
-                        message: `${verb} read-only access for ${m.nombre} (${m.email})?`,
+                        title: tUi(`${verb} Account?`, `¿${verb} cuenta?`),
+                        message: tUi(
+                            `${verb} read-only access for ${m.nombre} (${m.email})?`,
+                            `¿${verb} el acceso de solo lectura para ${m.nombre} (${m.email})?`
+                        ),
                         confirmText: verb,
                         danger: nextEstado === 'suspendido'
                     });
@@ -7264,24 +7921,27 @@ function cargarMedicos() {
                                 buildBody: () => ({ estado: nextEstado }),
                                 parseJson: true
                             });
-                            showToast('ok', `Account status updated for ${m.nombre}.`);
+                            showToast('ok', tUi(`Account status updated for ${m.nombre}.`, `Estado de cuenta actualizado para ${m.nombre}.`));
                             cargarMedicos();
                         } catch (err) {
-                            setInlineBanner('medicoStatusBanner', 'err', err.message);
-                            showToast('err', err.message);
+                            setInlineBanner('medicoStatusBanner', 'err', tServer(err.message));
+                            showToast('err', tServer(err.message));
                         }
-                    }, { loadingText: 'Updating...', extraDisable: [delBtn] });
+                    }, { loadingText: tUi('Updating...', 'Actualizando...'), extraDisable: [delBtn] });
                 });
 
                 const delBtn = document.createElement('button');
                 delBtn.type = 'button';
                 delBtn.className = 'btn-revoke-medico';
-                delBtn.textContent = 'Revoke access';
+                delBtn.textContent = tUi('Revoke access', 'Revocar acceso');
                 delBtn.addEventListener('click', async () => {
                     const ok = await openConfirmDialog({
-                        title: 'Revoke Access?',
-                        message: `Permanently revoke psychiatrist access for ${m.nombre} (${m.email})?`,
-                        confirmText: 'Revoke Access',
+                        title: tUi('Revoke Access?', '¿Revocar acceso?'),
+                        message: tUi(
+                            `Permanently revoke psychiatrist access for ${m.nombre} (${m.email})?`,
+                            `¿Revocar permanentemente el acceso de psiquiatra para ${m.nombre} (${m.email})?`
+                        ),
+                        confirmText: tUi('Revoke Access', 'Revocar Acceso'),
                         danger: true
                     });
                     if (!ok) return;
@@ -7294,13 +7954,13 @@ function cargarMedicos() {
                                 signature: String(m.id),
                                 parseJson: true
                             });
-                            showToast('ok', `Access revoked for ${m.nombre}.`);
+                            showToast('ok', tUi(`Access revoked for ${m.nombre}.`, `Acceso revocado para ${m.nombre}.`));
                             cargarMedicos();
                         } catch (err) {
-                            setInlineBanner('medicoStatusBanner', 'err', err.message);
-                            showToast('err', err.message);
+                            setInlineBanner('medicoStatusBanner', 'err', tServer(err.message));
+                            showToast('err', tServer(err.message));
                         }
-                    }, { loadingText: 'Revoking...', extraDisable: [statusBtn] });
+                    }, { loadingText: tUi('Revoking...', 'Revocando...'), extraDisable: [statusBtn] });
                 });
 
                 actions.append(statusBtn, delBtn);
@@ -7360,21 +8020,21 @@ function initAuthHandlers() {
     const btnLogout = document.getElementById('btnLogout');
 
     if (btnGoRegister) {
-        btnGoRegister.addEventListener('click', () => showAuthForm('authRegisterForm', 'First-time registration and verification'));
+        btnGoRegister.addEventListener('click', () => showAuthForm('authRegisterForm', tUi('First-time registration and verification', 'Registro y verificación inicial')));
     }
     if (btnGoForgot) {
-        btnGoForgot.addEventListener('click', () => showAuthForm('authForgotForm', 'We will email you a password reset link'));
+        btnGoForgot.addEventListener('click', () => showAuthForm('authForgotForm', tUi('We will email you a password reset link', 'Te enviaremos un enlace de restablecimiento a tu correo')));
     }
     if (btnBackFromRegister) {
-        btnBackFromRegister.addEventListener('click', () => showAuthForm('authLoginForm', 'Sign in to continue'));
+        btnBackFromRegister.addEventListener('click', () => showAuthForm('authLoginForm', tUi('Sign in to continue', 'Inicia sesión para continuar')));
     }
     if (btnBackFromForgot) {
-        btnBackFromForgot.addEventListener('click', () => showAuthForm('authLoginForm', 'Sign in to continue'));
+        btnBackFromForgot.addEventListener('click', () => showAuthForm('authLoginForm', tUi('Sign in to continue', 'Inicia sesión para continuar')));
     }
     if (btnBackFromReset) {
         btnBackFromReset.addEventListener('click', () => {
             history.replaceState(null, '', window.location.pathname);
-            showAuthForm('authLoginForm', 'Sign in to continue');
+            showAuthForm('authLoginForm', tUi('Sign in to continue', 'Inicia sesión para continuar'));
         });
     }
     if (btnBackFromMfa) {
@@ -7382,7 +8042,7 @@ function initAuthHandlers() {
             pendingMfaState = { token: '', email: '' };
             const mfaForm = document.getElementById('authMfaForm');
             if (mfaForm) mfaForm.reset();
-            showAuthForm('authLoginForm', 'Sign in to continue');
+            showAuthForm('authLoginForm', tUi('Sign in to continue', 'Inicia sesión para continuar'));
         });
     }
 
@@ -7391,7 +8051,7 @@ function initAuthHandlers() {
             if (busyActionElements.has(btnSendRegCode) || btnSendRegCode.disabled) return;
             const email = document.getElementById('regEmail').value.trim();
             if (!validateEmailClient(email)) {
-                setInlineBanner('authStatusBanner', 'err', 'Please enter a valid email address above first.');
+                setInlineBanner('authStatusBanner', 'err', tUi('Please enter a valid email address above first.', 'Por favor ingresa un correo válido arriba primero.'));
                 return;
             }
             setInlineBanner('authStatusBanner', '', '');
@@ -7406,11 +8066,11 @@ function initAuthHandlers() {
                         buildBody: () => ({ email }),
                         parseJson: true
                     });
-                    setInlineBanner('authStatusBanner', 'ok', data.message);
+                    setInlineBanner('authStatusBanner', 'ok', tServer(data.message));
                 } catch (err) {
-                    setInlineBanner('authStatusBanner', 'err', err.message);
+                    setInlineBanner('authStatusBanner', 'err', tServer(err.message));
                 }
-            }, { loadingText: 'Sending code...' });
+            }, { loadingText: tUi('Sending code...', 'Enviando código...') });
         });
     }
 
@@ -7674,50 +8334,18 @@ function initAuthHandlers() {
 }
 
 // ==========================================
-// DARK / LIGHT THEME
+// PERMANENT DARK THEME
 // ==========================================
-function applyTheme(theme) {
-    const resolved = theme === 'light' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', resolved);
-    localStorage.setItem('mt_theme', resolved);
-
-    const isDark = resolved === 'dark';
-    const authBtn = document.getElementById('btnThemeToggleAuth');
-    const mobileBtn = document.getElementById('btnThemeToggleMobile');
-    const sidebarBtn = document.getElementById('btnThemeToggleSidebar');
-    const settingsBtn = document.getElementById('btnSettingsThemeToggle');
-
-    if (authBtn) {
-        authBtn.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
-    }
-    if (mobileBtn) {
-        mobileBtn.textContent = isDark ? '☀️' : '🌙';
-        mobileBtn.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
-    }
-    if (sidebarBtn) {
-        const iconEl = sidebarBtn.querySelector('.theme-icon');
-        const labelEl = sidebarBtn.querySelector('.theme-label');
-        if (iconEl) iconEl.textContent = isDark ? '☀️' : '🌙';
-        if (labelEl) labelEl.textContent = isDark ? 'Light Theme' : 'Dark Theme';
-    }
-    if (settingsBtn) {
-        settingsBtn.textContent = isDark ? '☀️ Switch to Light Theme' : '🌙 Switch to Dark Theme';
-    }
+function applyTheme() {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    try {
+        document.documentElement.style.colorScheme = 'dark';
+        localStorage.removeItem('mt_theme');
+    } catch (_) {}
 }
 
 function initTheme() {
-    const savedTheme = localStorage.getItem('mt_theme') || 'dark';
-    applyTheme(savedTheme);
-
-    ['btnThemeToggleAuth', 'btnThemeToggleMobile', 'btnThemeToggleSidebar', 'btnSettingsThemeToggle'].forEach(id => {
-        const btn = document.getElementById(id);
-        if (btn) {
-            btn.addEventListener('click', () => {
-                const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-                applyTheme(current === 'dark' ? 'light' : 'dark');
-            });
-        }
-    });
+    applyTheme();
 }
 
 // ==========================================
@@ -7744,13 +8372,13 @@ function renderReminderTray(data) {
 
     tray.innerHTML = '';
     const viewLabels = {
-        mood: 'Log Mood',
-        sleep: 'Log Sleep',
-        sueno: 'Log Sleep',
-        agenda: 'Open Agenda',
-        horario: 'Open Schedule',
-        journal: 'Open Journal',
-        english: 'Open English'
+        mood: tUi('Log Mood', 'Registrar Ánimo'),
+        sleep: tUi('Log Sleep', 'Registrar Sueño'),
+        sueno: tUi('Log Sleep', 'Registrar Sueño'),
+        agenda: tUi('Open Agenda', 'Abrir Agenda'),
+        horario: tUi('Open Schedule', 'Abrir Horario'),
+        journal: tUi('Open Journal', 'Abrir Diario'),
+        english: tUi('Open English', 'Abrir Idiomas')
     };
 
     activeList.forEach(reminder => {
@@ -7761,17 +8389,17 @@ function renderReminderTray(data) {
         info.className = 'reminder-card-info';
         if (reminder.targetView) {
             info.style.cursor = 'pointer';
-            info.title = 'Click to open and pre-select the date & time block to register';
+            info.title = tUi('Click to open and pre-select the date & time block to register', 'Clic para abrir y preseleccionar la fecha y bloque');
             info.addEventListener('click', () => openReminderTarget(reminder));
         }
 
         const titleEl = document.createElement('div');
         titleEl.className = 'reminder-card-title';
-        titleEl.textContent = reminder.title || 'Reminder';
+        titleEl.textContent = tServer(reminder.title || tUi('Reminder', 'Recordatorio'));
 
         const msgEl = document.createElement('div');
         msgEl.className = 'reminder-card-msg';
-        msgEl.textContent = reminder.message || '';
+        msgEl.textContent = tServer(reminder.message || '');
 
         info.append(titleEl, msgEl);
 
@@ -7782,7 +8410,7 @@ function renderReminderTray(data) {
             const goBtn = document.createElement('button');
             goBtn.type = 'button';
             goBtn.className = 'reminder-btn primary';
-            goBtn.textContent = viewLabels[reminder.targetView] || 'Open';
+            goBtn.textContent = viewLabels[reminder.targetView] || tUi('Open', 'Abrir');
             goBtn.addEventListener('click', () => openReminderTarget(reminder));
             actions.appendChild(goBtn);
         }
@@ -7791,7 +8419,7 @@ function renderReminderTray(data) {
             const doneBtn = document.createElement('button');
             doneBtn.type = 'button';
             doneBtn.className = 'reminder-btn done';
-            doneBtn.textContent = '✓ Mark Done';
+            doneBtn.textContent = tUi('✓ Mark Done', '✓ Marcar hecha');
             doneBtn.addEventListener('click', () => completeReminderAgendaItem(reminder, doneBtn));
             actions.appendChild(doneBtn);
         }
@@ -7801,8 +8429,8 @@ function renderReminderTray(data) {
                 const snzBtn = document.createElement('button');
                 snzBtn.type = 'button';
                 snzBtn.className = 'reminder-btn';
-                snzBtn.textContent = mins === 60 ? 'Snooze 1h' : `Snooze ${mins}m`;
-                snzBtn.title = `Postpone this reminder for ${mins} minutes`;
+                snzBtn.textContent = mins === 60 ? tUi('Snooze 1h', 'Posponer 1h') : tUi(`Snooze ${mins}m`, `Posponer ${mins}m`);
+                snzBtn.title = tUi(`Postpone this reminder for ${mins} minutes`, `Posponer este recordatorio ${mins} minutos`);
                 snzBtn.addEventListener('click', () => snoozeOrDismissReminder(reminder, 'snooze', mins, snzBtn));
                 actions.appendChild(snzBtn);
             });
@@ -7811,7 +8439,7 @@ function renderReminderTray(data) {
         const dismissBtn = document.createElement('button');
         dismissBtn.type = 'button';
         dismissBtn.className = 'reminder-btn';
-        dismissBtn.textContent = 'Dismiss';
+        dismissBtn.textContent = tUi('Dismiss', 'Ocultar');
         dismissBtn.addEventListener('click', () => snoozeOrDismissReminder(reminder, 'dismiss', 0, dismissBtn));
         actions.appendChild(dismissBtn);
 
@@ -7847,10 +8475,10 @@ function renderReminderTray(data) {
         const itemsText = snoozedList.slice(0, 3).map(s => {
             const until = s.snoozeUntil
                 ? new Date(s.snoozeUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                : 'later';
-            return `${s.title} (until ${until})`;
+                : tUi('later', 'más tarde');
+            return `${s.title} (${tUi('until', 'hasta')} ${until})`;
         }).join(' · ');
-        snoozeSummary.textContent = `⏱️ Postponed (${snoozedList.length}): ${itemsText}`;
+        snoozeSummary.textContent = `⏱️ ${tUi('Postponed', 'Pospuestos')} (${snoozedList.length}): ${itemsText}`;
         tray.appendChild(snoozeSummary);
     }
 
@@ -7878,9 +8506,9 @@ function snoozeOrDismissReminder(reminder, action, minutes, triggerBtn) {
             });
             cargarRecordatoriosActivos();
         } catch (err) {
-            showToast('err', 'Error updating reminder: ' + err.message);
+            showToast('err', `${tUi('Error updating reminder', 'Error al actualizar recordatorio')}: ${tServer(err.message)}`);
         }
-    }, { loadingText: action === 'dismiss' ? 'Dismissing...' : 'Postponing...' });
+    }, { loadingText: action === 'dismiss' ? tUi('Dismissing...', 'Ocultando...') : tUi('Postponing...', 'Posponiendo...') });
 }
 
 function completeReminderAgendaItem(reminder, triggerBtn) {
@@ -7902,11 +8530,11 @@ function completeReminderAgendaItem(reminder, triggerBtn) {
                 renderAgendaBoard();
             }
             cargarRecordatoriosActivos();
-            showToast('ok', 'Task marked as Done.');
+            showToast('ok', tUi('Task marked as Done.', 'Tarea marcada como Completada.'));
         } catch (err) {
-            showToast('err', 'Error marking task as Done: ' + err.message);
+            showToast('err', `${tUi('Error marking task as Done', 'Error al marcar tarea como Completada')}: ${tServer(err.message)}`);
         }
-    }, { loadingText: 'Completing...' });
+    }, { loadingText: tUi('Completing...', 'Completando...') });
 }
 
 function cargarRecordatoriosActivos() {
@@ -7930,6 +8558,12 @@ function cargarRecordatoriosActivos() {
 function aplicarSettingsEnEstado(settings, { syncAgendaDefaults = false } = {}) {
     if (!settings) return;
     currentSettings = settings;
+    if (settings.academicPlanner && !academicPlannerState) {
+        academicPlannerState = settings.academicPlanner;
+        if (typeof renderAgendaCourseFilterOptions === 'function') {
+            renderAgendaCourseFilterOptions();
+        }
+    }
 
     if (typeof updateYouTubePlatformUI === 'function') {
         updateYouTubePlatformUI();
@@ -7958,8 +8592,8 @@ function updateE2eeKeyStatusUI() {
     const statusEl = document.getElementById('settingsE2eeStatus');
     if (statusEl) {
         statusEl.textContent = isReady
-            ? 'Configured on this browser (32-character AES key active).'
-            : 'Not set on this browser yet (will be requested when writing Journal or English notes).';
+            ? tUi('Configured on this browser (32-character AES key active).', 'Configurada en este navegador (llave AES de 32 caracteres activa).')
+            : tUi('Not set on this browser yet (will be requested when writing Journal or English notes).', 'Aún no configurada en este navegador (se solicitará al guardar Diario o notas de Idiomas).');
     }
 
     ['journalE2eePill', 'englishE2eePill'].forEach(pillId => {
@@ -7967,7 +8601,9 @@ function updateE2eeKeyStatusUI() {
         if (!pill) return;
         pill.classList.toggle('is-ready', isReady);
         pill.classList.toggle('is-missing', !isReady);
-        pill.textContent = isReady ? '🔐 E2EE Key Ready' : '🔑 Set 32-char Key';
+        pill.textContent = isReady
+            ? tUi('🔐 E2EE Key Ready', '🔐 Llave E2EE Lista')
+            : tUi('🔑 Set 32-char Key', '🔑 Definir Llave 32 chars');
     });
 }
 
@@ -7981,7 +8617,7 @@ function setSettingsBanner(type, message) {
         return;
     }
     banner.className = `english-status-banner ${type === 'err' ? 'err' : 'ok'}`;
-    banner.textContent = message;
+    banner.textContent = tServer(message);
     banner.hidden = false;
 }
 
@@ -8322,7 +8958,7 @@ function initSettingsHandlers() {
         btnSetE2ee.addEventListener('click', async () => {
             const updatedKey = await solicitarLlaveE2EEAsync({ forceEdit: true });
             if (updatedKey) {
-                setSettingsBanner('ok', 'E2EE secret key updated on this browser.');
+                setSettingsBanner('ok', tUi('E2EE secret key updated on this browser.', 'Llave secreta E2EE actualizada en este navegador.'));
             }
         });
     }
@@ -8330,16 +8966,19 @@ function initSettingsHandlers() {
     if (btnClearE2ee) {
         btnClearE2ee.addEventListener('click', async () => {
             const ok = await openConfirmDialog({
-                title: 'Clear Local E2EE Key?',
-                message: 'Remove the 32-character E2EE key from this browser? You can re-enter it later when writing encrypted notes.',
-                confirmText: 'Clear Key',
+                title: tUi('Clear Local E2EE Key?', '¿Borrar llave E2EE local?'),
+                message: tUi(
+                    'Remove the 32-character E2EE key from this browser? You can re-enter it later when writing encrypted notes.',
+                    '¿Quitar la llave E2EE de 32 caracteres de este navegador? Podrás volver a ingresarla cuando escribas notas cifradas.'
+                ),
+                confirmText: tUi('Clear Key', 'Borrar Llave'),
                 danger: true
             });
             if (!ok) return;
             localStorage.removeItem('diario_llave_secreta');
             updateE2eeKeyStatusUI();
-            setSettingsBanner('ok', 'Local E2EE key cleared from this browser.');
-            showToast('info', 'Local E2EE key removed from this browser.');
+            setSettingsBanner('ok', tUi('Local E2EE key cleared from this browser.', 'Llave E2EE local eliminada de este navegador.'));
+            showToast('info', tUi('Local E2EE key removed from this browser.', 'Llave E2EE local removida de este navegador.'));
         });
     }
 
@@ -8933,14 +9572,14 @@ function bindProofingSuite({ fields, badgeId, fixAllBtnId, listId }) {
 
         if (!hasText) {
             badgeEl.className = 'proofing-status-badge is-ok';
-            badgeEl.textContent = '✓ Ready to check English spelling & grammar';
+            badgeEl.textContent = tUi('✓ Ready to check English spelling & grammar', '✓ Listo para revisar ortografía y gramática en inglés');
             if (fixAllBtn) fixAllBtn.hidden = true;
             return;
         }
 
         if (currentIssues.length === 0) {
             badgeEl.className = 'proofing-status-badge is-ok';
-            badgeEl.textContent = '✓ Spelling & Grammar look great (Word check passed)';
+            badgeEl.textContent = tUi('✓ Spelling & Grammar look great (Word check passed)', '✓ Ortografía y gramática excelentes (revisión estilo Word aprobada)');
             if (fixAllBtn) fixAllBtn.hidden = true;
             return;
         }
@@ -8948,14 +9587,20 @@ function bindProofingSuite({ fields, badgeId, fixAllBtnId, listId }) {
         const spellCount = currentIssues.filter(i => i.type === 'spelling').length;
         const gramCount = currentIssues.filter(i => i.type === 'grammar').length;
         badgeEl.className = 'proofing-status-badge has-issues';
-        badgeEl.textContent = `⚠ ${spellCount} Spelling · ${gramCount} Grammar suggestion${currentIssues.length === 1 ? '' : 's'} (tap to fix)`;
+        badgeEl.textContent = tUi(
+            `⚠ ${spellCount} Spelling · ${gramCount} Grammar suggestion${currentIssues.length === 1 ? '' : 's'} (tap to fix)`,
+            `⚠ ${spellCount} Ortografía · ${gramCount} Gramática (${currentIssues.length} sugerencia${currentIssues.length === 1 ? '' : 's'} · toca para corregir)`
+        );
         if (fixAllBtn) fixAllBtn.hidden = false;
 
         currentIssues.forEach(issue => {
             const chip = document.createElement('button');
             chip.type = 'button';
             chip.className = `proofing-issue-chip ${issue.type === 'spelling' ? 'is-spelling' : 'is-grammar'}`;
-            chip.title = `${issue.reason} — Click to replace "${issue.original}" with "${issue.replacement}"`;
+            chip.title = tUi(
+                `${issue.reason} — Click to replace "${issue.original}" with "${issue.replacement}"`,
+                `${issue.reason} — Clic para reemplazar "${issue.original}" por "${issue.replacement}"`
+            );
             const prefix = issue.fieldLabel ? `${issue.fieldLabel}: ` : '';
             chip.innerHTML = `<span class="issue-wrong">${prefix}${issue.original}</span><span class="issue-arrow">→</span><span class="issue-fix">${issue.replacement}</span><span class="issue-reason">(${issue.reason})</span>`;
             chip.addEventListener('click', () => {
@@ -8980,7 +9625,7 @@ function bindProofingSuite({ fields, badgeId, fixAllBtnId, listId }) {
             const snapshot = [...currentIssues];
             snapshot.forEach(issue => applySingleProofingFix(issue));
             evaluateSuite();
-            showToast('ok', 'Applied all English spelling & grammar suggestions.');
+            showToast('ok', tUi('Applied all English spelling & grammar suggestions.', 'Se aplicaron todas las sugerencias de ortografía y gramática en inglés.'));
         });
     }
 
@@ -8990,8 +9635,8 @@ function bindProofingSuite({ fields, badgeId, fixAllBtnId, listId }) {
 function initWordStyleProofing() {
     bindProofingSuite({
         fields: [
-            { id: 'journalTitle', label: 'Title' },
-            { id: 'journalText', label: 'Note' }
+            { id: 'journalTitle', get label() { return tUi('Title', 'Título'); } },
+            { id: 'journalText', get label() { return tUi('Note', 'Nota'); } }
         ],
         badgeId: 'journalProofingBadge',
         fixAllBtnId: 'btnJournalFixAll',
@@ -9000,9 +9645,9 @@ function initWordStyleProofing() {
 
     bindProofingSuite({
         fields: [
-            { id: 'palabra', label: 'Word' },
-            { id: 'significado', label: 'Meaning' },
-            { id: 'ejemplo', label: 'Example' }
+            { id: 'palabra', get label() { return tUi('Word', 'Palabra'); } },
+            { id: 'significado', get label() { return tUi('Meaning', 'Significado'); } },
+            { id: 'ejemplo', get label() { return tUi('Example', 'Ejemplo'); } }
         ],
         badgeId: 'englishProofingBadge',
         fixAllBtnId: 'btnEnglishFixAll',
@@ -9011,8 +9656,8 @@ function initWordStyleProofing() {
 
     bindProofingSuite({
         fields: [
-            { id: 'agendaActividad', label: 'Title' },
-            { id: 'agendaDescripcion', label: 'Desc' }
+            { id: 'agendaActividad', get label() { return tUi('Title', 'Título'); } },
+            { id: 'agendaDescripcion', get label() { return tUi('Desc', 'Desc'); } }
         ],
         badgeId: 'agendaProofingBadge',
         fixAllBtnId: 'btnAgendaFixAll',
@@ -9063,7 +9708,7 @@ function renderItsCroquisDirectory(directory) {
         mapLink.rel = 'noopener noreferrer';
         mapLink.className = 'btn-secondary btn-small';
         mapLink.style.textDecoration = 'none';
-        mapLink.textContent = '🗺️ Open Maps';
+        mapLink.textContent = tUi('🗺️ Open Maps', '🗺️ Abrir Mapa');
         actions.appendChild(mapLink);
 
         card.append(meta, actions);
@@ -9082,13 +9727,16 @@ function resetPlannerCourseForm() {
     const editIdEl = document.getElementById('plannerCourseEditId');
     if (editIdEl) editIdEl.value = '';
     const titleEl = document.getElementById('plannerCourseFormTitle');
-    if (titleEl) titleEl.textContent = 'Add / Edit ITS Class';
+    if (titleEl) titleEl.textContent = tUi('Add / Edit ITS Class', 'Agregar / Editar Materia ITS');
     const saveBtn = document.getElementById('btnSaveCourse');
-    if (saveBtn) saveBtn.textContent = 'Save Class to Semester';
+    if (saveBtn) saveBtn.textContent = tUi('Save Class to Semester', 'Guardar Materia al Semestre');
     const cancelBtn = document.getElementById('btnCancelCourseEdit');
     if (cancelBtn) cancelBtn.hidden = true;
     const badge = document.getElementById('courseRoomCroquisBadge');
-    if (badge) badge.textContent = 'Type a room (R02, R11, N21, A10, S15) to detect ITS Campus & Croquis building.';
+    if (badge) badge.textContent = tUi(
+        'Type a room (R02, R11, N21, A10, S15) to detect ITS Campus & Croquis building.',
+        'Escribe un salón (R02, R11, N21, A10, S15) para detectar Campus ITS y edificio del Croquis.'
+    );
     document.querySelectorAll('#courseDaysGroup input[type="checkbox"]').forEach(cb => {
         cb.checked = [1, 2, 3, 4].includes(Number(cb.value));
     });
@@ -9111,9 +9759,9 @@ function loadCourseIntoEditForm(course) {
         cb.checked = daySet.has(Number(cb.value));
     });
     const titleEl = document.getElementById('plannerCourseFormTitle');
-    if (titleEl) titleEl.textContent = `Edit Class: ${course.name || ''}`;
+    if (titleEl) titleEl.textContent = tUi(`Edit Class: ${course.name || ''}`, `Editar Materia: ${course.name || ''}`);
     const saveBtn = document.getElementById('btnSaveCourse');
-    if (saveBtn) saveBtn.textContent = 'Update Class';
+    if (saveBtn) saveBtn.textContent = tUi('Update Class', 'Actualizar Materia');
     const cancelBtn = document.getElementById('btnCancelCourseEdit');
     if (cancelBtn) cancelBtn.hidden = false;
     document.getElementById('plannerCourseForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -9133,8 +9781,9 @@ function renderPlannerSemesterUI() {
     (academicPlannerState.semesters || []).forEach(sem => {
         const opt = document.createElement('option');
         opt.value = sem.id;
-        const labelName = sem.name || sem.nombre || 'Semester';
-        opt.textContent = `${labelName} (${(sem.courses || []).length} classes)`;
+        const labelName = sem.name || sem.nombre || tUi('Semester', 'Semestre');
+        const clsCount = (sem.courses || []).length;
+        opt.textContent = `${labelName} (${clsCount} ${tUi(clsCount === 1 ? 'class' : 'classes', clsCount === 1 ? 'materia' : 'materias')})`;
         semSelect.appendChild(opt);
     });
     const activeSem = getActiveSemesterObj();
@@ -9147,16 +9796,21 @@ function renderPlannerSemesterUI() {
     if (semEnd) semEnd.value = activeSem.endDate || activeSem.fechaFin || '';
 
     const courses = Array.isArray(activeSem.courses) ? activeSem.courses : [];
-    if (countBadge) countBadge.textContent = `${courses.length} class(es)`;
+    if (countBadge) countBadge.textContent = `${courses.length} ${tUi(courses.length === 1 ? 'class' : 'classes', courses.length === 1 ? 'materia' : 'materias')}`;
     if (!coursesList) return;
 
     coursesList.replaceChildren();
-    const dayLabels = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+    const dayLabels = i18nGetLang() === 'es'
+        ? { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' }
+        : { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
 
     if (courses.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'agenda-empty';
-        empty.textContent = 'No classes in this semester yet. Add one on the left or click "Load MindBox 9th Sem Preset".';
+        empty.textContent = tUi(
+            'No classes in this semester yet. Add one on the left or click "Load MindBox 9th Sem Preset".',
+            'Aún no hay materias en este semestre. Agrega una a la izquierda o presiona "Cargar Plantilla MindBox 9°".'
+        );
         coursesList.appendChild(empty);
         return;
     }
@@ -9170,18 +9824,18 @@ function renderPlannerSemesterUI() {
 
         const h4 = document.createElement('h4');
         const codeText = course.code || course.clave || 'ITS';
-        const courseNameText = course.name || course.nombre || 'Course';
+        const courseNameText = course.name || course.nombre || tUi('Course', 'Materia');
         const groupText = course.group || course.grupo || '';
-        const roomText = course.room || course.aulaDefault || 'TBD';
+        const roomText = course.room || course.aulaDefault || tUi('TBD', 'Por definir');
         const codeSpan = document.createElement('span');
         codeSpan.className = 'planner-room-pill';
         codeSpan.textContent = `${codeText} · ${roomText}`;
         h4.appendChild(codeSpan);
-        h4.appendChild(document.createTextNode(` ${courseNameText}${groupText ? ` (Grp ${groupText})` : ''}`));
+        h4.appendChild(document.createTextNode(` ${courseNameText}${groupText ? ` (${tUi('Grp', 'Gpo')} ${groupText})` : ''}`));
 
         const sub = document.createElement('p');
         sub.style.margin = '2px 0';
-        const teacherText = course.teacher || course.docente || 'Docente ITS';
+        const teacherText = course.teacher || course.docente || tUi('ITS Professor', 'Docente ITS');
         const campusObj = academicPlannerDirectory && academicPlannerDirectory[course.campusId || course.campusKey];
         const campusLabel = campusObj ? `${campusObj.name} (${campusObj.plano})` : (course.campusId || 'Tec de Saltillo');
         sub.textContent = `👩‍🏫 ${teacherText} · 🏛️ ${campusLabel}`;
@@ -9202,13 +9856,13 @@ function renderPlannerSemesterUI() {
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
         editBtn.className = 'btn-secondary btn-small';
-        editBtn.textContent = 'Edit';
+        editBtn.textContent = tUi('Edit', 'Editar');
         editBtn.addEventListener('click', () => loadCourseIntoEditForm(course));
 
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
         delBtn.className = 'btn-secondary btn-small btn-danger-outline';
-        delBtn.textContent = 'Remove';
+        delBtn.textContent = tUi('Remove', 'Quitar');
         delBtn.addEventListener('click', () => {
             const sem = getActiveSemesterObj();
             if (!sem || !Array.isArray(sem.courses)) return;
@@ -9232,7 +9886,10 @@ function renderPlannerVacationsUI() {
         const todayStr = formatLocalDate(new Date());
         const activeVac = vacations.find(v => (v.startDate || v.fechaInicio) <= todayStr && todayStr <= (v.endDate || v.fechaFin));
         if (activeVac) {
-            vacBanner.textContent = `🏖️ Vacation / Break Active Today: ${activeVac.name || activeVac.nombre} (${activeVac.startDate || activeVac.fechaInicio} → ${activeVac.endDate || activeVac.fechaFin}) — Class alerts paused.`;
+            vacBanner.textContent = tUi(
+                `🏖️ Vacation / Break Active Today: ${activeVac.name || activeVac.nombre} (${activeVac.startDate || activeVac.fechaInicio} → ${activeVac.endDate || activeVac.fechaFin}) — Class alerts paused.`,
+                `🏖️ Vacaciones / Receso activo hoy: ${activeVac.name || activeVac.nombre} (${activeVac.startDate || activeVac.fechaInicio} → ${activeVac.endDate || activeVac.fechaFin}) — Alertas de clase pausadas.`
+            );
             vacBanner.hidden = false;
         } else {
             vacBanner.hidden = true;
@@ -9244,7 +9901,7 @@ function renderPlannerVacationsUI() {
     if (vacations.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'agenda-empty';
-        empty.textContent = 'No vacation periods registered.';
+        empty.textContent = tUi('No vacation periods registered.', 'No hay periodos vacacionales registrados.');
         listEl.appendChild(empty);
         return;
     }
@@ -9256,7 +9913,7 @@ function renderPlannerVacationsUI() {
         const meta = document.createElement('div');
         meta.className = 'planner-course-meta';
         const h4 = document.createElement('h4');
-        h4.textContent = `🏖️ ${vac.name || vac.nombre || 'Break'}`;
+        h4.textContent = `🏖️ ${vac.name || vac.nombre || tUi('Break', 'Receso')}`;
         const p = document.createElement('p');
         p.style.margin = '0';
         p.textContent = `📅 ${vac.startDate || vac.fechaInicio} → ${vac.endDate || vac.fechaFin}`;
@@ -9265,7 +9922,7 @@ function renderPlannerVacationsUI() {
         const delBtn = document.createElement('button');
         delBtn.type = 'button';
         delBtn.className = 'btn-secondary btn-small btn-danger-outline';
-        delBtn.textContent = 'Remove';
+        delBtn.textContent = tUi('Remove', 'Quitar');
         delBtn.addEventListener('click', () => {
             academicPlannerState.vacations.splice(idx, 1);
             renderPlannerVacationsUI();
@@ -9282,7 +9939,7 @@ function updateResHoursProgressDisplay() {
     const pct = Math.min(100, Math.round((doneH / totalH) * 100));
     const barEl = document.getElementById('resHoursProgressBar');
     if (barEl) {
-        barEl.textContent = `Progress: ${formatHoursMinutes(doneH, { compact: true })} / ${totalH} hrs (${pct}%)`;
+        barEl.textContent = `${tUi('Progress', 'Progreso')}: ${formatHoursMinutes(doneH, { compact: true })} / ${totalH} hrs (${pct}%)`;
     }
 }
 
@@ -9339,9 +9996,15 @@ function updateHomeLocationVerifyUI() {
     }
     if (summaryEl) {
         if (valid) {
-            summaryEl.textContent = `✅ Home saved (${label || 'Mi Casa'}${addr ? ` · ${addr}` : ''}): ${latNum.toFixed(6)}, ${lngNum.toFixed(6)}`;
+            summaryEl.textContent = tUi(
+                `✅ Home saved (${label || 'Mi Casa'}${addr ? ` · ${addr}` : ''}): ${latNum.toFixed(6)}, ${lngNum.toFixed(6)}`,
+                `✅ Casa guardada (${label || 'Mi Casa'}${addr ? ` · ${addr}` : ''}): ${latNum.toFixed(6)}, ${lngNum.toFixed(6)}`
+            );
         } else {
-            summaryEl.textContent = 'Enter your Saltillo street address or paste a Google Maps link, then click "Save & Find Home Location".';
+            summaryEl.textContent = tUi(
+                'Enter your Saltillo street address or paste a Google Maps link, then click "Save & Find Home Location".',
+                'Ingresa tu calle/colonia en Saltillo o pega un enlace de Google Maps y presiona "Guardar y Ubicar Casa".'
+            );
         }
     }
 }
@@ -9591,9 +10254,12 @@ function renderLiveCommuteCards(previewOrList = []) {
 
     if (originTextEl) {
         if (hasValidOrigin) {
-            originTextEl.textContent = `Origin (${preview.originSource || 'GPS'}): ${Number(preview.originCoords.lat).toFixed(5)}, ${Number(preview.originCoords.lng).toFixed(5)}`;
+            originTextEl.textContent = `${tUi('Origin', 'Origen')} (${preview.originSource || 'GPS'}): ${Number(preview.originCoords.lat).toFixed(5)}, ${Number(preview.originCoords.lng).toFixed(5)}`;
         } else {
-            originTextEl.textContent = 'Origin: Not set yet. Enter your Home street address on the left, click "Update My GPS", or pick a Saltillo preset.';
+            originTextEl.textContent = tUi(
+                'Origin: Not set yet. Enter your Home street address on the left, click "Update My GPS", or pick a Saltillo preset.',
+                'Origen: Sin configurar aún. Escribe la dirección de tu Casa a la izquierda, presiona "Actualizar Mi GPS" o elige un acceso rápido de Saltillo.'
+            );
         }
     }
 
@@ -9603,12 +10269,15 @@ function renderLiveCommuteCards(previewOrList = []) {
             if (preview.originUpdatedAt) {
                 const dt = new Date(preview.originUpdatedAt);
                 if (!Number.isNaN(dt.getTime())) {
-                    timeStr = ` · Updated ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                    timeStr = ` · ${tUi('Updated', 'Actualizado')} ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
                 }
             }
-            originMetaEl.textContent = `📡 Active live origin (${preview.originTechnicalSource || 'gps'}${timeStr}). Click "🏠 Use Saved Home" above to reset origin back to Home.`;
+            originMetaEl.textContent = tUi(
+                `📡 Active live origin (${preview.originTechnicalSource || 'gps'}${timeStr}). Click "🏠 Use Saved Home" above to reset origin back to Home.`,
+                `📡 Origen en vivo activo (${preview.originTechnicalSource || 'gps'}${timeStr}). Presiona "🏠 Usar Casa Guardada" arriba para volver a tu Casa.`
+            );
         } else if (hasValidOrigin && preview.originKind === 'home') {
-            originMetaEl.textContent = '🏠 Using your Saved Home location as origin.';
+            originMetaEl.textContent = tUi('🏠 Using your Saved Home location as origin.', '🏠 Usando tu Casa guardada como origen.');
         } else {
             originMetaEl.textContent = '';
         }
@@ -9621,7 +10290,7 @@ function renderLiveCommuteCards(previewOrList = []) {
     if (preview.residenciasCommute) {
         const rc = preview.residenciasCommute;
         rows.push({
-            target: `🏢 Residencias (${academicPlannerState?.residencias?.companyName || 'Company'})`,
+            target: `🏢 Residencias (${academicPlannerState?.residencias?.companyName || tUi('Company', 'Empresa')})`,
             isNearCampus: rc.isNear,
             distanceKm: rc.distanceKm,
             driveMinutesWithTraffic: rc.driveMinutes,
@@ -9633,7 +10302,7 @@ function renderLiveCommuteCards(previewOrList = []) {
     if (preview.workCommute) {
         const wc = preview.workCommute;
         rows.push({
-            target: `💼 Work (${academicPlannerState?.work?.companyName || 'Workplace'})`,
+            target: `💼 ${tUi('Work', 'Trabajo')} (${academicPlannerState?.work?.companyName || tUi('Workplace', 'Lugar de Trabajo')})`,
             isNearCampus: wc.isNear,
             distanceKm: wc.distanceKm,
             driveMinutesWithTraffic: wc.driveMinutes,
@@ -9646,7 +10315,10 @@ function renderLiveCommuteCards(previewOrList = []) {
     if (!rows.length) {
         const p = document.createElement('p');
         p.className = 'muted-text';
-        p.textContent = 'Set your current location or Home coordinates above to estimate driving time & traffic.';
+        p.textContent = tUi(
+            'Set your current location or Home coordinates above to estimate driving time & traffic.',
+            'Configura tu ubicación actual o las coordenadas de tu Casa arriba para estimar traslado y tráfico.'
+        );
         container.appendChild(p);
         return;
     }
@@ -9658,13 +10330,20 @@ function renderLiveCommuteCards(previewOrList = []) {
         const meta = document.createElement('div');
         meta.className = 'planner-course-meta';
         const h4 = document.createElement('h4');
+        protectUserNode(h4);
         h4.textContent = `🎯 ${c.target}`;
 
         const badge = document.createElement('span');
         badge.className = `proofing-issue-chip ${c.isNearCampus ? 'is-grammar' : 'is-spelling'}`;
         badge.textContent = c.isNearCampus
-            ? `📍 On / Near (${c.distanceKm} km) → Notify ${c.recommendedLeadMinutes} min before`
-            : `🚗 Driving (${c.distanceKm} km · ${c.trafficLabel}) → ~${c.driveMinutesWithTraffic} min drive · Notify ${c.recommendedLeadMinutes} min before`;
+            ? tUi(
+                `📍 On / Near (${c.distanceKm} km) → Notify ${c.recommendedLeadMinutes} min before`,
+                `📍 En sitio / Cerca (${c.distanceKm} km) → Avisar ${c.recommendedLeadMinutes} min antes`
+            )
+            : tUi(
+                `🚗 Driving (${c.distanceKm} km · ${c.trafficLabel}) → ~${c.driveMinutesWithTraffic} min drive · Notify ${c.recommendedLeadMinutes} min before`,
+                `🚗 En auto (${c.distanceKm} km · ${c.trafficLabel}) → ~${c.driveMinutesWithTraffic} min traslado · Avisar ${c.recommendedLeadMinutes} min antes`
+            );
 
         meta.append(h4, badge);
 
@@ -9676,7 +10355,7 @@ function renderLiveCommuteCards(previewOrList = []) {
             link.rel = 'noopener noreferrer';
             link.className = 'btn-secondary btn-small';
             link.style.textDecoration = 'none';
-            link.textContent = '🗺️ Open Route';
+            link.textContent = tUi('🗺️ Open Route', '🗺️ Abrir Ruta');
             actions.appendChild(link);
         }
 
@@ -9986,7 +10665,7 @@ function initQuickLocationModal() {
 function cargarPlannerVista() {
     if (!currentUser || currentUser.rol !== 'admin') return;
     fetch('/api/planner', { cache: 'no-store' })
-        .then(res => (res.ok ? res.json() : Promise.reject(new Error('Could not load ITS Planner'))))
+        .then(res => (res.ok ? res.json() : Promise.reject(new Error(tUi('Could not load ITS Planner', 'No se pudo cargar el Planificador ITS')))))
         .then(data => {
             academicPlannerState = data.planner || {};
             academicPlannerDirectory = data.campusDirectory || null;
@@ -9998,7 +10677,7 @@ function cargarPlannerVista() {
             renderLiveCommuteCards(data.commutePreview);
         })
         .catch(err => {
-            setPlannerBanner('err', 'Error loading ITS planner: ' + err.message);
+            setPlannerBanner('err', `${tUi('Error loading ITS planner', 'Error al cargar el planificador ITS')}: ${tServer(err.message)}`);
         });
 }
 
@@ -10058,7 +10737,7 @@ function initAcademicPlannerHandlers() {
             academicPlannerState.activeSemesterId = newId;
             resetPlannerCourseForm();
             renderPlannerSemesterUI();
-            setPlannerBanner('info', 'Created new semester. Customize its dates and click "Save All..." at the bottom.');
+            setPlannerBanner('info', tUi('Created new semester. Customize its dates and click "Save All..." at the bottom.', 'Nuevo semestre creado. Personaliza sus fechas y presiona "Guardar Todo..." abajo.'));
         });
     }
 
@@ -10071,7 +10750,7 @@ function initAcademicPlannerHandlers() {
                 activeSem.courses = presetCourses.map(c => ({ ...c }));
                 resetPlannerCourseForm();
                 renderPlannerSemesterUI();
-                setPlannerBanner('ok', 'Loaded your 5 MindBox 9th-semester ITS courses! Click "Save All..." at the bottom to persist.');
+                setPlannerBanner('ok', tUi('Loaded your 5 MindBox 9th-semester ITS courses! Click "Save All..." at the bottom to persist.', '¡Cargadas tus 5 materias MindBox 9° semestre ITS! Presiona "Guardar Todo..." abajo para guardarlas.'));
             };
             if (Array.isArray(academicPlannerMindboxPreset) && academicPlannerMindboxPreset.length) {
                 applyPreset(academicPlannerMindboxPreset);
@@ -10246,8 +10925,8 @@ function initAcademicPlannerHandlers() {
             const hasPair = lat !== null && lng !== null && isValidNonZeroCoordPair(lat, lng);
 
             if (!hasPair && !mapsUrl && !address) {
-                setPlannerBanner('err', 'Enter your Saltillo street address, paste a Google Maps link, or enter valid Home coordinates first.');
-                showToast('err', 'Enter a Home address, Maps link, or coordinates.');
+                setPlannerBanner('err', tUi('Enter your Saltillo street address, paste a Google Maps link, or enter valid Home coordinates first.', 'Ingresa tu dirección en Saltillo, pega un enlace de Google Maps o introduce coordenadas válidas de Casa primero.'));
+                showToast('err', tUi('Enter a Home address, Maps link, or coordinates.', 'Ingresa una dirección, enlace Maps o coordenadas.'));
                 return;
             }
 
@@ -10274,15 +10953,15 @@ function initAcademicPlannerHandlers() {
                     }
                     if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
                     const msg = resData?.geocodedDisplayName
-                        ? `Home located (${resData.geocodedDisplayName}) & routes recalculated!`
-                        : (resData?.message || 'Home location saved & verified!');
+                        ? tUi(`Home located (${resData.geocodedDisplayName}) & routes recalculated!`, `Casa ubicada (${resData.geocodedDisplayName}) y rutas recalculadas.`)
+                        : (tServer(resData?.message) || tUi('Home location saved & verified!', '¡Ubicación de Casa guardada y verificada!'));
                     setPlannerBanner('ok', msg);
                     showToast('ok', msg);
                 } catch (err) {
-                    setPlannerBanner('err', err.message || 'Could not save or geocode Home location.');
-                    showToast('err', err.message || 'Could not locate Home address.');
+                    setPlannerBanner('err', tServer(err.message) || tUi('Could not save or geocode Home location.', 'No se pudo guardar o geocodificar la ubicación de Casa.'));
+                    showToast('err', tServer(err.message) || tUi('Could not locate Home address.', 'No se pudo ubicar la dirección de Casa.'));
                 }
-            }, { loadingText: 'Locating...' });
+            }, { loadingText: tUi('Locating...', 'Ubicando...') });
         });
     }
 
@@ -10377,14 +11056,14 @@ function initAcademicPlannerHandlers() {
                         renderPlannerResidenciasAndWorkUI();
                     }
                     if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
-                    setPlannerBanner('ok', resData.message || 'ITS Schedule, Vacations, Residencias, Work & Locations saved!');
-                    showToast('ok', 'Planner saved!');
+                    setPlannerBanner('ok', tServer(resData.message) || tUi('ITS Schedule, Vacations, Residencias, Work & Locations saved!', '¡Horario ITS, Vacaciones, Residencias, Trabajo y Ubicaciones guardados!'));
+                    showToast('ok', tUi('Planner saved!', '¡Planificador guardado!'));
                     cargarRecordatoriosActivos();
                 } catch (err) {
-                    setPlannerBanner('err', 'Failed to save planner: ' + err.message);
+                    setPlannerBanner('err', `${tUi('Failed to save planner', 'Error al guardar planificador')}: ${tServer(err.message)}`);
                     showToast('err', err.message);
                 }
-            }, { loadingText: 'Saving...' });
+            }, { loadingText: tUi('Saving...', 'Guardando...') });
         });
     }
 
@@ -10412,13 +11091,14 @@ function initAcademicPlannerHandlers() {
                         buildBody: () => ({ weekStartDate: getMonday(new Date()) ? formatLocalDate(getMonday(new Date())) : formatLocalDate(new Date()) }),
                         parseJson: true
                     });
-                    setPlannerBanner('ok', syncRes.message || 'Synced classes, Residencias & work to Weekly Agenda!');
-                    showToast('ok', syncRes.message || 'Synced to Weekly Agenda!');
+                    const syncMsg = tServer(syncRes.message) || tUi('Synced classes, Residencias & work to Weekly Agenda!', '¡Clases, Residencias y trabajo sincronizados con tu Agenda Semanal!');
+                    setPlannerBanner('ok', syncMsg);
+                    showToast('ok', syncMsg);
                 } catch (err) {
-                    setPlannerBanner('err', 'Failed to sync to Agenda: ' + err.message);
+                    setPlannerBanner('err', `${tUi('Failed to sync to Agenda', 'Error al sincronizar a la Agenda')}: ${tServer(err.message)}`);
                     showToast('err', err.message);
                 }
-            }, { loadingText: 'Syncing...' });
+            }, { loadingText: tUi('Syncing...', 'Sincronizando...') });
         });
     }
 }
@@ -10507,8 +11187,8 @@ function renderMusicRepertoireNavigator() {
         addHereBtn.type = 'button';
         addHereBtn.className = 'btn-mini-add';
         addHereBtn.textContent = albumObj && albumObj.key !== 'single_none'
-            ? `➕ Add Song to "${albumObj.titulo}"`
-            : `➕ Add Song for ${artistObj.nombre}`;
+            ? tUi(`➕ Add Song to "${albumObj.titulo}"`, `➕ Agregar canción a "${albumObj.titulo}"`)
+            : tUi(`➕ Add Song for ${artistObj.nombre}`, `➕ Agregar canción para ${artistObj.nombre}`);
         addHereBtn.addEventListener('click', () => {
             const matchedArtist = (musicState.artists || []).find(a => Number(a.id) === Number(artistObj.id));
             prepararAgregarCancionAAlbum({
@@ -10538,7 +11218,10 @@ function renderMusicRepertoireNavigator() {
         if (!uniqueSongs.length) {
             const emptyHint = document.createElement('small');
             emptyHint.className = 'muted-text';
-            emptyHint.textContent = 'No songs in this selection yet — click "+ Add Song" above!';
+            emptyHint.textContent = tUi(
+                'No songs in this selection yet — click "+ Add Song" above!',
+                '¡Aún no hay canciones aquí — presiona "+ Agregar Canción" arriba!'
+            );
             songListEl.appendChild(emptyHint);
             return;
         }
@@ -10551,16 +11234,17 @@ function renderMusicRepertoireNavigator() {
                 btn.classList.add('active');
             }
             const label = document.createElement('span');
+            protectUserNode(label);
             label.textContent = `${song.numero_pista ? `${song.numero_pista}. ` : ''}${song.titulo}`;
             const tag = document.createElement('span');
             tag.className = 'rep-item-count';
             tag.textContent = song.idioma === 'Korean' ? 'KR' : (song.idioma === 'English + Korean (K-Pop)' ? 'EN+KR' : 'EN');
             btn.append(label, tag);
-            btn.title = 'Click to select song for Word Notes & AI Tutor';
+            btn.title = tUi('Click to select song for Word Notes & AI Tutor', 'Clic para seleccionar canción en Notas Word y Tutor IA');
             btn.addEventListener('click', () => {
                 seleccionarCancionParaEstudio(song);
                 renderMusicRepertoireNavigator();
-                showToast('info', `Selected "${song.titulo}" for Study & AI Tutor.`);
+                showToast('info', tUi(`Selected "${song.titulo}" for Study & AI Tutor.`, `"${song.titulo}" seleccionada para Estudio y Tutor IA.`));
             });
             songListEl.appendChild(btn);
         });
@@ -10578,7 +11262,7 @@ function renderMusicRepertoireNavigator() {
         allBtn.type = 'button';
         allBtn.className = `rep-item${musicState.navAlbumKey === null ? ' active' : ''}`;
         const allSpan = document.createElement('span');
-        allSpan.textContent = 'All Releases';
+        allSpan.textContent = tUi('All Releases', 'Todos los lanzamientos');
         const allCount = document.createElement('span');
         allCount.className = 'rep-item-count';
         allCount.textContent = String(albums.reduce((n, al) => n + al.songs.length, 0));
@@ -10598,7 +11282,11 @@ function renderMusicRepertoireNavigator() {
             btn.type = 'button';
             btn.className = `rep-item${isActive ? ' active' : ''}`;
             const label = document.createElement('span');
-            label.textContent = al.anio ? `${al.titulo} (${al.anio})` : al.titulo;
+            protectUserNode(label);
+            const albLabelTitle = al.titulo === 'Standalone Singles & Tracks'
+                ? tUi('Standalone Singles & Tracks', 'Sencillos y Pistas Sueltas')
+                : al.titulo;
+            label.textContent = al.anio ? `${albLabelTitle} (${al.anio})` : albLabelTitle;
             const cnt = document.createElement('span');
             cnt.className = 'rep-item-count';
             cnt.textContent = String(al.songs.length);
@@ -10693,7 +11381,7 @@ function formatCrisisDateLabel(rawFecha) {
     const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
     return Number.isNaN(d.getTime())
         ? iso
-        : d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        : d.toLocaleDateString(tLocale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function renderCrisisCards(container, rows, { allowDelete = false } = {}) {
@@ -10703,8 +11391,11 @@ function renderCrisisCards(container, rows, { allowDelete = false } = {}) {
         const p = document.createElement('p');
         p.className = 'muted-text';
         p.textContent = allowDelete
-            ? 'No crisis episodes recorded yet. If you have an episode, log date, time, and trigger in Spanish here.'
-            : 'No crisis episodes recorded during this week.';
+            ? tUi(
+                'No crisis episodes recorded yet. If you have an episode, log date, time, and trigger in Spanish here.',
+                'Sin episodios de crisis registrados aún. Si tienes uno, registra fecha, hora y detonante aquí.'
+            )
+            : tUi('No crisis episodes recorded during this week.', 'Sin episodios de crisis registrados esta semana.');
         container.replaceChildren(p);
         return;
     }
@@ -10725,12 +11416,15 @@ function renderCrisisCards(container, rows, { allowDelete = false } = {}) {
 
         const typeBadge = document.createElement('span');
         typeBadge.className = 'crisis-type-badge';
-        typeBadge.textContent = item.tipo_crisis || 'Crisis';
+        const rawType = item.tipo_crisis || 'Crisis';
+        typeBadge.textContent = (window.DailyHubI18n && typeof window.DailyHubI18n.crisisTypeLabel === 'function')
+            ? window.DailyHubI18n.crisisTypeLabel(rawType, true)
+            : rawType;
 
         const intBadge = document.createElement('span');
         intBadge.className = 'crisis-intensity-badge';
         const intVal = Number(item.intensidad || 3);
-        intBadge.textContent = `Intensidad ${intVal}/5`;
+        intBadge.textContent = tUi(`Intensity ${intVal}/5`, `Intensidad ${intVal}/5`);
 
         badges.append(dateStrong, typeBadge, intBadge);
         head.appendChild(badges);
@@ -10739,22 +11433,22 @@ function renderCrisisCards(container, rows, { allowDelete = false } = {}) {
             const delBtn = document.createElement('button');
             delBtn.type = 'button';
             delBtn.className = 'btn-secondary btn-small';
-            delBtn.textContent = 'Delete';
+            delBtn.textContent = tUi('Delete', 'Eliminar');
             delBtn.addEventListener('click', async () => {
                 const ok = await openConfirmDialog({
-                    title: 'Delete Crisis Entry?',
-                    message: 'Remove this crisis episode from your clinical log?',
-                    confirmText: 'Delete',
+                    title: tUi('Delete Crisis Entry?', '¿Eliminar registro de crisis?'),
+                    message: tUi('Remove this crisis episode from your clinical log?', '¿Quitar este episodio de crisis de tu bitácora clínica?'),
+                    confirmText: tUi('Delete', 'Eliminar'),
                     danger: true
                 });
                 if (!ok) return;
                 runWithButtonLock(delBtn, async () => {
                     const res = await fetch(`/api/delete-crisis/${item.id}`, { method: 'DELETE' });
                     if (res.ok) {
-                        showToast('ok', 'Crisis record removed.');
+                        showToast('ok', tUi('Crisis record removed.', 'Registro de crisis eliminado.'));
                         cargarCrisisRecientes();
                     } else {
-                        showToast('err', 'Could not remove crisis record.');
+                        showToast('err', tUi('Could not remove crisis record.', 'No se pudo eliminar el registro de crisis.'));
                     }
                 }, { loadingText: '...' });
             });
@@ -10763,6 +11457,7 @@ function renderCrisisCards(container, rows, { allowDelete = false } = {}) {
 
         const motivoP = document.createElement('p');
         motivoP.className = 'crisis-entry-motivo';
+        protectUserNode(motivoP);
         motivoP.textContent = item.motivo || '';
 
         card.append(head, motivoP);
@@ -10914,7 +11609,304 @@ function initKeyboardShortcuts() {
             if (match) {
                 seleccionarCancionParaEstudio(match);
                 renderMusicRepertoireNavigator();
-                showToast('info', `Selected "${match.titulo}" from catalog.`);
+                showToast('info', tUi(`Selected "${match.titulo}" from catalog.`, `"${match.titulo}" seleccionada del catálogo.`));
+            }
+        });
+    }
+}
+
+function refreshDynamicLanguageViews() {
+    actualizarCabecerasDeFecha();
+    updateTransportStatusBadges();
+    updateE2eeKeyStatusUI();
+    updateYouTubePlatformUI();
+    if (typeof updateAiMemoryBadgeUI === 'function') updateAiMemoryBadgeUI();
+    if (typeof actualizarBadgePuentePc === 'function') actualizarBadgePuentePc();
+
+    const activeViewEl = document.querySelector('.app-view.active');
+    if (activeViewEl && mobileViewTitle) {
+        const rawTitle = activeViewEl.getAttribute('data-title') || 'Daily Hub';
+        mobileViewTitle.textContent = (window.DailyHubI18n && typeof window.DailyHubI18n.translateText === 'function')
+            ? window.DailyHubI18n.translateText(rawTitle)
+            : rawTitle;
+    }
+
+    const roleLabelEl = document.getElementById('sidebarRoleLabel');
+    if (roleLabelEl && currentUser) {
+        roleLabelEl.textContent = currentUser.rol === 'psiquiatra'
+            ? tUi('Psychiatrist Mode (Read-Only)', 'Modo Psiquiatra (Solo Lectura)')
+            : tUi('Owner (Admin)', 'Propietario (Admin)');
+    }
+
+    const selectSemana = document.getElementById('semanaSeleccionada');
+    if (selectSemana) {
+        Array.from(selectSemana.options).forEach(opt => {
+            const val = opt.dataset.weekRange || opt.value;
+            const [s1, s2] = String(val || '').split('|');
+            if (s1 && s2) {
+                const p1 = s1.split('-').map(Number);
+                const p2 = s2.split('-').map(Number);
+                if (p1.length === 3 && p2.length === 3) {
+                    const d1 = new Date(p1[0], p1[1] - 1, p1[2]);
+                    const d2 = new Date(p2[0], p2[1] - 1, p2[2]);
+                    const textoVisual = `${d1.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' })} - ${d2.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
+                    opt.textContent = `${tUi('Week', 'Semana')}: ${textoVisual}`;
+                }
+            }
+        });
+    }
+
+    if (activeViewEl) {
+        const vid = activeViewEl.id;
+        if (vid === 'view-inicio' && typeof cargarInicioResumen === 'function') cargarInicioResumen();
+        else if (vid === 'view-mood' && typeof cargarMoodsHoy === 'function') cargarMoodsHoy();
+        else if (vid === 'view-crisis' && typeof cargarCrisisRecientes === 'function') cargarCrisisRecientes();
+        else if (vid === 'view-sueno' && typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
+        else if (vid === 'view-english') {
+            if (typeof renderMusicCatalog === 'function') renderMusicCatalog();
+            if (typeof renderMusicRepertoireNavigator === 'function') renderMusicRepertoireNavigator();
+            if (typeof getCancionSeleccionada === 'function' && typeof actualizarPanelLetraCancion === 'function') {
+                actualizarPanelLetraCancion(getCancionSeleccionada());
+            }
+        } else if (vid === 'view-agenda' && typeof renderAgendaBoard === 'function') renderAgendaBoard();
+        else if (vid === 'view-horario') {
+            if (typeof renderPlannerSemesterUI === 'function') renderPlannerSemesterUI();
+            if (typeof renderLiveCommuteCards === 'function') renderLiveCommuteCards();
+        } else if (vid === 'view-resumen' && selectSemana) {
+            selectSemana.dispatchEvent(new Event('change'));
+        } else if (vid === 'view-medico' && typeof cargarMedicos === 'function') {
+            cargarMedicos();
+        } else if (vid === 'view-guia' && window.DailyHubVisualGuide && typeof window.DailyHubVisualGuide.mount === 'function') {
+            window.DailyHubVisualGuide.mount('visualGuideAppHost', { standalone: false });
+        }
+    }
+    if (currentUser && currentUser.rol === 'admin' && typeof cargarRecordatoriosActivos === 'function') {
+        cargarRecordatoriosActivos();
+    }
+    if (cachedVersionData && typeof updateVersionUiBadges === 'function') {
+        updateVersionUiBadges(cachedVersionData);
+    }
+    const versionModalEl = document.getElementById('versionHistoryModal');
+    if (versionModalEl && !versionModalEl.hidden && typeof renderVersionHistoryModal === 'function') {
+        renderVersionHistoryModal();
+    }
+}
+
+// ==========================================
+// AUTOMATIC SEMVER 2.0.0 VERSION HISTORY UI
+// ==========================================
+let cachedVersionData = null;
+
+function formatVersionTimestamp(rawIso) {
+    if (!rawIso) return tUi('Baseline release', 'Versión base');
+    const parsed = new Date(rawIso);
+    if (Number.isNaN(parsed.getTime())) return String(rawIso).slice(0, 10);
+    return parsed.toLocaleString(tLocale(), { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formatBumpBadgeLabel(bumpType) {
+    const clean = String(bumpType || 'patch').toLowerCase();
+    if (clean === 'major') return tUi('MAJOR (+1.0.0)', 'MAYOR (+1.0.0)');
+    if (clean === 'minor') return tUi('MINOR (+0.1.0)', 'MENOR (+0.1.0)');
+    if (clean === 'initial') return tUi('INITIAL (BASELINE)', 'INICIAL (BASE)');
+    return tUi('PATCH (+0.0.1)', 'PARCHE (+0.0.1)');
+}
+
+function formatReleaseTriggerLabel(trigger) {
+    const clean = String(trigger || 'push').toLowerCase();
+    if (clean === 'workflow_dispatch') return tUi('Manual Deploy', 'Despliegue Manual');
+    if (clean === 'baseline') return tUi('Baseline', 'Línea Base');
+    return tUi('Auto Deploy (main)', 'Auto Despliegue (main)');
+}
+
+function updateVersionUiBadges(data) {
+    if (!data) return;
+    const version = data.currentVersion || '1.0.0';
+    const tag = data.tag || `v${version}`;
+    const total = Number(data.totalReleases) || (Array.isArray(data.history) ? data.history.length : 1);
+
+    const sidebarEl = document.getElementById('sidebarVersionText');
+    if (sidebarEl) {
+        protectUserNode(sidebarEl);
+        sidebarEl.textContent = tag;
+    }
+
+    const summaryEl = document.getElementById('settingsVersionSummary');
+    if (summaryEl) {
+        protectUserNode(summaryEl);
+        const countLabel = total === 1
+            ? tUi('1 release recorded', '1 versión registrada')
+            : tUi(`${total} releases recorded`, `${total} versiones registradas`);
+        const dateStr = data.releasedAt ? ` · ${formatVersionTimestamp(data.releasedAt)}` : '';
+        summaryEl.textContent = `${tag} · ${countLabel}${dateStr}`;
+    }
+}
+
+function renderVersionHistoryModal() {
+    const bodyEl = document.getElementById('versionHistoryBody');
+    if (!bodyEl) return;
+
+    if (!cachedVersionData) {
+        bodyEl.replaceChildren(createLoadingBanner(tUi('Loading version history...', 'Cargando historial de versiones...'), 'sm'));
+        return;
+    }
+
+    const releases = Array.isArray(cachedVersionData.history) ? cachedVersionData.history : [];
+    if (!releases.length) {
+        const empty = document.createElement('p');
+        empty.className = 'muted-text';
+        empty.textContent = tUi('No release history recorded yet.', 'Aún no hay historial de versiones registrado.');
+        bodyEl.replaceChildren(empty);
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    releases.forEach((rel, idx) => {
+        const card = document.createElement('div');
+        card.className = `version-release-card${idx === 0 ? ' is-current' : ''}`;
+
+        const top = document.createElement('div');
+        top.className = 'version-release-top';
+
+        const titleWrap = document.createElement('div');
+        titleWrap.className = 'version-release-title';
+
+        const tagSpan = document.createElement('span');
+        tagSpan.className = 'version-release-tag';
+        tagSpan.textContent = rel.tag || `v${rel.version || '1.0.0'}`;
+        titleWrap.appendChild(tagSpan);
+
+        const bumpKey = ['major', 'minor', 'patch', 'initial'].includes(String(rel.bumpType || '').toLowerCase())
+            ? String(rel.bumpType).toLowerCase()
+            : 'patch';
+        const bumpBadge = document.createElement('span');
+        bumpBadge.className = `ver-badge is-${bumpKey}`;
+        bumpBadge.textContent = formatBumpBadgeLabel(bumpKey);
+        titleWrap.appendChild(bumpBadge);
+
+        if (idx === 0) {
+            const liveBadge = document.createElement('span');
+            liveBadge.className = 'ver-badge is-minor';
+            liveBadge.textContent = tUi('ACTIVE DEPLOY', 'ACTIVA');
+            titleWrap.appendChild(liveBadge);
+        }
+
+        const metaWrap = document.createElement('div');
+        metaWrap.className = 'version-release-meta';
+
+        const dateSpan = document.createElement('span');
+        dateSpan.textContent = formatVersionTimestamp(rel.releasedAt);
+        metaWrap.appendChild(dateSpan);
+
+        if (rel.commitSha) {
+            const shaSpan = document.createElement('span');
+            shaSpan.className = 'version-release-sha';
+            shaSpan.textContent = String(rel.commitSha).slice(0, 12);
+            metaWrap.appendChild(shaSpan);
+        }
+
+        const triggerSpan = document.createElement('span');
+        triggerSpan.textContent = formatReleaseTriggerLabel(rel.trigger);
+        metaWrap.appendChild(triggerSpan);
+
+        top.append(titleWrap, metaWrap);
+        card.appendChild(top);
+
+        if (rel.summary) {
+            const summaryP = document.createElement('p');
+            summaryP.className = 'version-release-summary';
+            summaryP.textContent = rel.summary;
+            card.appendChild(summaryP);
+        }
+
+        const changeGroups = [
+            ['breaking', tUi('💥 Breaking Changes', '💥 Cambios Incompatibles')],
+            ['features', tUi('✨ Features', '✨ Nuevas Funciones')],
+            ['fixes', tUi('🐛 Bug Fixes', '🐛 Correcciones de Errores')],
+            ['maintenance', tUi('🔧 Maintenance & Docs', '🔧 Mantenimiento y Docs')]
+        ];
+
+        changeGroups.forEach(([groupKey, groupTitle]) => {
+            const items = rel.changes && Array.isArray(rel.changes[groupKey]) ? rel.changes[groupKey] : [];
+            if (!items.length) return;
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'version-change-group';
+            const heading = document.createElement('strong');
+            heading.textContent = groupTitle;
+            const ul = document.createElement('ul');
+            items.forEach(text => {
+                const li = document.createElement('li');
+                li.textContent = String(text);
+                ul.appendChild(li);
+            });
+            groupDiv.append(heading, ul);
+            card.appendChild(groupDiv);
+        });
+
+        fragment.appendChild(card);
+    });
+
+    bodyEl.replaceChildren(fragment);
+}
+
+function cargarVersionInfo() {
+    return fetch('/api/version', { cache: 'no-store' })
+        .then(res => (res.ok ? res.json() : null))
+        .then(data => {
+            if (!data || !data.currentVersion) return null;
+            cachedVersionData = data;
+            updateVersionUiBadges(data);
+            const modalEl = document.getElementById('versionHistoryModal');
+            if (modalEl && !modalEl.hidden) {
+                renderVersionHistoryModal();
+            }
+            return data;
+        })
+        .catch(() => null);
+}
+
+function openVersionHistoryModal() {
+    const modalEl = document.getElementById('versionHistoryModal');
+    if (!modalEl) return;
+    modalEl.hidden = false;
+    renderVersionHistoryModal();
+    cargarVersionInfo();
+}
+
+function closeVersionHistoryModal() {
+    const modalEl = document.getElementById('versionHistoryModal');
+    if (modalEl) modalEl.hidden = true;
+}
+
+function initVersionHistoryHandlers() {
+    const btnSidebar = document.getElementById('btnOpenVersionHistory');
+    const btnSettings = document.getElementById('btnSettingsVersionHistory');
+    const btnClose = document.getElementById('btnCloseVersionModal');
+    const modalEl = document.getElementById('versionHistoryModal');
+
+    if (btnSidebar && !btnSidebar.dataset.bound) {
+        btnSidebar.dataset.bound = '1';
+        btnSidebar.addEventListener('click', openVersionHistoryModal);
+    }
+    if (btnSettings && !btnSettings.dataset.bound) {
+        btnSettings.dataset.bound = '1';
+        btnSettings.addEventListener('click', openVersionHistoryModal);
+    }
+    if (btnClose && !btnClose.dataset.bound) {
+        btnClose.dataset.bound = '1';
+        btnClose.addEventListener('click', closeVersionHistoryModal);
+    }
+    if (modalEl && !modalEl.dataset.boundBackdrop) {
+        modalEl.dataset.boundBackdrop = '1';
+        modalEl.addEventListener('click', (e) => {
+            if (e.target === modalEl) closeVersionHistoryModal();
+        });
+    }
+    if (!document.body.dataset.versionEscBound) {
+        document.body.dataset.versionEscBound = '1';
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modalEl && !modalEl.hidden) {
+                closeVersionHistoryModal();
             }
         });
     }
@@ -10937,6 +11929,10 @@ function initApp() {
     initCrisisHandlers();
     initMusicEntityEditModal();
     initKeyboardShortcuts();
+    initVersionHistoryHandlers();
+    if (window.DailyHubI18n && typeof window.DailyHubI18n.onChange === 'function') {
+        window.DailyHubI18n.onChange(() => refreshDynamicLanguageViews());
+    }
 
     if (clientTransportTunnel && rawBrowserFetch) {
         clientTransportTunnel.establishSession(rawBrowserFetch)

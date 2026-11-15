@@ -12,6 +12,8 @@
     <meta property="og:type" content="website">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" defer></script>
     <script src="transport-crypto.js" defer></script>
+    <script src="i18n.js" defer></script>
+    <script src="guia-visual.js" defer></script>
     <script src="translator-widget.js" defer></script>
     <script src="frontend.js" defer></script>
 </head>
@@ -44,8 +46,11 @@
         <div class="auth-card">
             <div class="auth-top-bar">
                 <span class="tunnel-pill" id="authTunnelPill" title="Simulated HTTPS X25519 + AES-256-CTR + HMAC-SHA256">🔐 Wire Tunnel: Connecting...</span>
-                <button type="button" class="theme-toggle-pill" id="btnThemeToggleAuth"
-                    aria-label="Toggle light or dark theme">☀️ Light Mode</button>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <a href="guia-visual.html" target="_blank" rel="noopener noreferrer" class="lang-toggle-pill" style="text-decoration:none;">📖 Visual Guide</a>
+                    <button type="button" class="lang-toggle-pill" id="btnLangToggleAuth"
+                        aria-label="Switch UI language (English / Español)">🌐 EN · English</button>
+                </div>
             </div>
             <div class="auth-brand">
                 <span class="auth-logo brand-emblem" aria-hidden="true">
@@ -93,7 +98,7 @@
                     <label for="regEmail">Email address:</label>
                     <input type="email" id="regEmail" maxlength="150" autocomplete="email" placeholder="email@gmail.com"
                         required>
-                    <small class="form-hint">
+                    <small class="form-hint" data-i18n-html="auth_admin_hint">
                         The email configured as owner (<strong>ADMIN_EMAIL</strong>) gets full access. Any other authorized email is registered as <strong>Psychiatrist (read-only)</strong>.
                     </small>
                 </div>
@@ -119,7 +124,7 @@
                         <button type="button" class="password-toggle-btn" data-toggle-password="regCodigoValidacion"
                             aria-label="Show password" aria-pressed="false" title="Show password"></button>
                     </div>
-                    <small class="form-hint">
+                    <small class="form-hint" data-i18n-html="auth_verify_hint">
                         Enter the code sent to your owner email (<strong>ADMIN_EMAIL</strong>) or your personal secret key (<strong>ADMIN_SECRET</strong> / Word key).
                     </small>
                 </div>
@@ -179,7 +184,7 @@
             <!-- 5. LOGIN MFA EMAIL OTP FORM (WHEN ENABLE_LOGIN_MFA=true) -->
             <form id="authMfaForm" class="auth-form" hidden>
                 <div class="form-group">
-                    <label for="mfaCodeInput">Verification code sent to <strong id="mfaEmailLabel">your email</strong>:</label>
+                    <label for="mfaCodeInput"><span>Verification code sent to</span> <strong id="mfaEmailLabel" data-no-i18n="true">your email</strong><span>:</span></label>
                     <div class="password-input-wrap">
                         <input type="password" id="mfaCodeInput" inputmode="numeric" maxlength="6" autocomplete="one-time-code"
                             placeholder="6-digit code" required>
@@ -212,8 +217,8 @@
                     title="Open Quick Bilingual Translator (Alt+T)" aria-label="Open translator">🌐</button>
                 <button type="button" class="tunnel-pill tunnel-pill-compact" id="mobileTunnelPill"
                     title="View Encrypted HTTP Transport Diagnostics" data-go-view="settings">🔐 E2E</button>
-                <button type="button" class="icon-btn theme-icon-btn" id="btnThemeToggleMobile"
-                    title="Toggle light or dark theme" aria-label="Toggle theme">☀️</button>
+                <button type="button" class="icon-btn lang-icon-btn" id="btnLangToggleMobile"
+                    title="Switch UI language (English / Español)" aria-label="Switch UI language (English / Español)">EN</button>
                 <span class="moment-pill" id="mobileMomentBadge">--</span>
             </div>
         </header>
@@ -310,6 +315,11 @@
                             <span class="nav-icon" aria-hidden="true">🩺</span>
                             <span class="nav-label">Psychiatrist Access</span>
                         </button>
+                        <button type="button" class="nav-item" data-view="guia"
+                            title="Visual Guide">
+                            <span class="nav-icon" aria-hidden="true">📖</span>
+                            <span class="nav-label">Visual Guide</span>
+                        </button>
                         <button type="button" class="nav-item admin-only-nav" data-view="settings"
                             title="Settings &amp; Reminders">
                             <span class="nav-icon" aria-hidden="true">⚙️</span>
@@ -321,8 +331,8 @@
 
             <div class="sidebar-footer">
                 <div class="sidebar-user-box">
-                    <strong class="sidebar-user-name" id="sidebarUserName">User</strong>
-                    <span class="sidebar-user-role" id="sidebarUserEmail">--</span>
+                    <strong class="sidebar-user-name" id="sidebarUserName" data-no-i18n="true">User</strong>
+                    <span class="sidebar-user-role" id="sidebarUserEmail" data-no-i18n="true">--</span>
                 </div>
                 <div class="sidebar-status-row">
                     <span class="status-dot"></span>
@@ -333,9 +343,15 @@
                     <span class="tunnel-label">Wire: Connecting...</span>
                 </div>
                 <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
-                <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Toggle theme">
-                    <span class="theme-icon" aria-hidden="true">☀️</span>
-                    <span class="theme-label">Light Theme</span>
+                <button type="button" class="sidebar-version-btn" id="btnOpenVersionHistory"
+                    title="View version history &amp; SemVer 2.0.0 changelog">
+                    <span aria-hidden="true">🏷️</span>
+                    <span class="sidebar-version-label">Version</span>
+                    <strong id="sidebarVersionText">v1.0.0</strong>
+                </button>
+                <button type="button" class="btn-lang-sidebar" id="btnLangToggleSidebar" title="Switch UI language (English / Español)">
+                    <span aria-hidden="true">🌐</span>
+                    <span class="lang-label">Language: English</span>
                 </button>
                 <button type="button" class="btn-logout-sidebar" id="btnLogout" title="Sign Out">
                     <span aria-hidden="true">🔒</span>
@@ -481,7 +497,15 @@
                             <span class="shortcut-emoji">⚙️</span>
                             <div>
                                 <strong>Settings &amp; Reminders</strong>
-                                <p>Configure phone notifications, automatic reminders, English study alerts, and theme.</p>
+                                <p>Configure phone notifications, automatic reminders, English study alerts, and language.</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="guia">
+                            <span class="shortcut-emoji">📖</span>
+                            <div>
+                                <strong>Visual Guide</strong>
+                                <p>Quick visual cards, shortcuts, and step-by-step diagrams with minimal text.</p>
                             </div>
                         </button>
                     </div>
@@ -671,7 +695,7 @@
                                     <label for="crisisMotivo">Reason / Context in Spanish (Motivo y detonante):</label>
                                     <textarea id="crisisMotivo" class="english-textarea" rows="4" maxlength="1000" required
                                         placeholder="Describe en español qué detonó la crisis, cómo se sintió y si algo ayudó a calmarla (Ctrl + Enter para guardar)..."></textarea>
-                                    <small class="muted-text">Tip: Press <code>Ctrl + Enter</code> inside this box to save right away.</small>
+                                    <small class="muted-text" data-i18n-html="crisis_ctrl_enter_hint">Tip: Press <code>Ctrl + Enter</code> inside this box to save right away.</small>
                                 </div>
 
                                 <div id="crisisStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
@@ -759,12 +783,12 @@
 
                                 <div class="sleep-desvelo-controls" id="sleepDesveloControls">
                                     <div class="sleep-auto-banner" id="sleepDesveloAutoBanner" hidden>
-                                        🦉 <strong>Late-night bedtime detected (<span id="sleepDetectedBedtimeText">3:00 AM</span>):</strong> automatically marked as <strong>Desvelo</strong> for your psychiatrist's weekly report.
+                                        🦉 <span>Late-night bedtime detected (</span><strong id="sleepDetectedBedtimeText" data-no-i18n="true">3:00 AM</strong><span>):</span> <span>automatically marked as Desvelo for your psychiatrist's weekly report.</span>
                                     </div>
 
                                     <label class="sleep-desvelo-toggle" for="sleepEsDesvelo" id="sleepEsDesveloRow">
                                         <input type="checkbox" id="sleepEsDesvelo">
-                                        <span>🦉 Mark as <strong>Desvelo / Late Bedtime</strong> (highlighted in Psychiatrist Weekly Summary)</span>
+                                        <span data-i18n-html="sleep_desvelo_checkbox_label">🦉 Mark as <strong>Desvelo / Late Bedtime</strong> (highlighted in Psychiatrist Weekly Summary)</span>
                                     </label>
 
                                     <label class="sleep-desvelo-toggle" for="sleepStillAwake" id="sleepStillAwakeRow">
@@ -818,7 +842,7 @@
                             <div id="sleepTodaySummary" class="sleep-today-box">
                                 <p class="muted-text">Loading today's sleep log...</p>
                             </div>
-                            <div class="side-tip-box">
+                            <div class="side-tip-box" data-i18n-html="sleep_side_tip">
                                 <strong>Tip:</strong> Bedtimes between <strong>1:00 AM and 5:59 AM</strong> (like 3:00 AM) are automatically flagged as <strong>Desvelo</strong> for your psychiatrist. If you are just going to bed at 3:00 AM, check <em>"Going to sleep just now"</em> to save your bedtime right away and complete your wake-up time in the morning!
                             </div>
                         </aside>
@@ -1058,56 +1082,6 @@
                         <button type="submit" class="btn-submit" id="btnSendEnglish">Encrypt E2EE &amp; Save to Word Notebook (PC)</button>
                     </form>
 
-                    <!-- Integrated Bilingual AI Translator (English -> Spanish & Korean -> English / Spanish) -->
-                    <section class="lang-translator-panel" id="languageTranslatorPanel" aria-label="Bilingual Translator">
-                        <div class="lang-translator-head">
-                            <div>
-                                <h3>🌐 Instant Bilingual Translator (Español · English · 한국어)</h3>
-                                <p class="muted-text" id="translatorHintText">Don't know a word or phrase? Translate English → Español or Coreano → English / Español right here without opening another app.</p>
-                            </div>
-                            <div class="lang-translator-head-tools">
-                                <span class="lang-ai-badge" id="translatorStatusBadge">Instant · Gemini + 0-RAM Dict</span>
-                                <button type="button" class="btn-secondary btn-small" id="btnPopoutTranslator"
-                                    title="Open translator in an independent floating browser window (like an extension)">🪟 Open Floating Window</button>
-                            </div>
-                        </div>
-
-                        <div class="lang-translator-dirs" id="translatorDirPills" role="group" aria-label="Translation Direction">
-                            <button type="button" class="lang-dir-pill active" data-dir="en_es">🇺🇸 → 🇪🇸 English → Español</button>
-                            <button type="button" class="lang-dir-pill" data-dir="ko_en">🇰🇷 → 🇺🇸 Coreano → English</button>
-                            <button type="button" class="lang-dir-pill" data-dir="ko_es">🇰🇷 → 🇪🇸 Coreano → Español</button>
-                            <button type="button" class="lang-dir-pill" data-dir="auto">🌐 Auto Detect</button>
-                            <button type="button" class="lang-dir-pill" data-dir="es_en">🇪🇸 → 🇺🇸 Español → English</button>
-                            <button type="button" class="lang-dir-pill" data-dir="es_ko">🇪🇸 → 🇰🇷 Español → Coreano</button>
-                        </div>
-
-                        <div class="lang-translator-bar">
-                            <textarea id="translatorInput" rows="2" maxlength="4000"
-                                placeholder="Type or paste any word, phrase, or lyric line (e.g. 'break through', '마음', '사랑해요')... Press Enter to translate (Shift+Enter for new line)."></textarea>
-                            <div class="lang-translator-actions">
-                                <select id="translatorDirectionSelect" class="select-input" aria-label="Translation direction">
-                                    <option value="en_es" selected>English → Español</option>
-                                    <option value="ko_en">Coreano → English</option>
-                                    <option value="ko_es">Coreano → Español</option>
-                                    <option value="auto">Auto Detect (EN/KO)</option>
-                                    <option value="es_en">Español → English</option>
-                                    <option value="es_ko">Español → Coreano</option>
-                                </select>
-                                <select id="translatorEngineSelect" class="select-input" aria-label="Translator engine">
-                                    <option value="auto">Auto (Gemini / Local)</option>
-                                    <option value="gemini">Google Gemini AI</option>
-                                    <option value="offline">Instant Local (0 RAM)</option>
-                                </select>
-                                <button type="button" class="btn-submit" id="btnRunTranslator">Translate</button>
-                            </div>
-                        </div>
-
-                        <input type="text" id="translatorContextInput" maxlength="400"
-                            placeholder="Optional context (song name or full sentence so AI picks the exact nuance, e.g. 'DRIP by BABYMONSTER')...">
-
-                        <div id="translatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
-                    </section>
-
                     <!-- Interactive AI Tutor Panel (Gemini + Zero-RAM Offline Hangul/EN) -->
                     <section class="lang-ai-panel" id="languageAiPanel" aria-label="AI Language Tutor">
                         <div class="lang-ai-head">
@@ -1162,7 +1136,7 @@
                                     <strong>Playback Platform: <span id="ytPlatformDetectedBadge">Detecting device...</span></strong>
                                     <span class="yt-safe-badge">🛡️ Playlist-Safe (Read-Only Single Links)</span>
                                 </div>
-                                <p class="muted-text" id="ytPlatformSafetyHint">
+                                <p class="muted-text" id="ytPlatformSafetyHint" data-i18n-html="yt_platform_safety_hint">
                                     Auto mode uses <strong>standard YouTube</strong> on PC and <strong>YouTube Music</strong> on mobile, opening individual tracks (<code>watch?v=...</code>) without OAuth or credentials so your personal playlists are never modified.
                                 </p>
                             </div>
@@ -1173,7 +1147,7 @@
                             </div>
                         </div>
 
-                        <div class="music-privacy-callout">
+                        <div class="music-privacy-callout" data-i18n-html="music_privacy_callout">
                             <strong>Personal Copyright &amp; Privacy Guard:</strong> Artist, collaboration, album / mini
                             album, and track links stay organized in MySQL metadata. Your full lyrics breakdown,
                             meanings, and long study notes are <strong>encrypted E2EE</strong> directly into
@@ -1400,7 +1374,7 @@
                                     </div>
                                 </div>
                                 <div id="musicLyricsAlbumPlaylistBox" class="music-album-tracklist-box" hidden></div>
-                                <textarea id="musicSongLyricsViewer" class="music-lyrics-textarea" rows="8" maxlength="50000"
+                                <textarea id="musicSongLyricsViewer" class="music-lyrics-textarea" rows="8" maxlength="50000" data-no-i18n="true"
                                     placeholder="Presiona '🎙️ Cargar / Extraer letra (PC yt-dlp)' para pedirle a tu PC (vía túnel cifrado E2EE) que lea tu Word o ejecute yt-dlp automáticamente..."></textarea>
                                 <div class="music-lyrics-viewer-foot">
                                     <span id="musicLyricsStatusHint" class="muted-text small-note">Las letras nunca se guardan en MySQL ni disco de EC2: viven organizadas por álbum/pista en tu Word PC y viajan cifradas E2EE por RAM.</span>
@@ -1422,10 +1396,10 @@
                                     </div>
                                     <div id="musicYtdlpHelperBox" class="music-ytdlp-helper" hidden>
                                         <div class="music-ytdlp-head">
-                                            <strong>Extraer subtítulos / lyrics desde tu PC con <code>yt-dlp</code></strong>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCopyYtdlpCmd">📋 Copiar comando</button>
+                                            <strong data-i18n-html="ytdlp_head_title">Extract subtitles / lyrics from your PC with <code>yt-dlp</code></strong>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCopyYtdlpCmd">📋 Copy command</button>
                                         </div>
-                                        <p class="muted-text small-note">Ejecuta esto en PowerShell en tu PC (<code>yt-dlp</code> extrae subtítulos/CC de YouTube si el video los tiene; luego pega o importa el archivo <code>.srt/.vtt</code> con <strong>📥 Import .srt/.vtt/.lrc</strong>):</p>
+                                        <p class="muted-text small-note" data-i18n-html="ytdlp_cmd_note">Ejecuta esto en PowerShell en tu PC (<code>yt-dlp</code> extrae subtítulos/CC de YouTube si el video los tiene; luego pega o importa el archivo <code>.srt/.vtt</code> con <strong>📥 Import .srt/.vtt/.lrc</strong>):</p>
                                         <pre id="musicYtdlpCommandCode" class="music-ytdlp-cmd">python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip</pre>
                                     </div>
                                     <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
@@ -1517,6 +1491,12 @@
                             <button type="button" class="agenda-filter-pill" data-agenda-type="evento">📌 Events</button>
                             <button type="button" class="agenda-filter-pill" data-agenda-type="tarea">☑ Tasks (Jira)</button>
                         </div>
+                        <div class="agenda-filter-group agenda-course-filter-group" id="agendaCourseFilterGroup">
+                            <label class="sr-only" for="agendaCourseFilter">Class filter</label>
+                            <select id="agendaCourseFilter" class="agenda-course-filter-select" aria-label="Filter by current class">
+                                <option value="">🎓 All Classes</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div id="agendaLoadingBanner" class="section-loading-banner" hidden></div>
@@ -1554,7 +1534,7 @@
                         <div class="english-tabs" id="plannerTabsBar" role="tablist" aria-label="Academic and Work Planner Tabs">
                             <button type="button" class="english-tab-btn active" data-planner-tab="classes" role="tab" aria-selected="true">🎓 ITS Semester &amp; Croquis</button>
                             <button type="button" class="english-tab-btn" data-planner-tab="vacations" role="tab" aria-selected="false">🏖️ Vacations &amp; Breaks</button>
-                            <button type="button" class="english-tab-btn" data-planner-tab="residencias" role="tab" aria-selected="false">🏢 Residencias Profesionales</button>
+                            <button type="button" class="english-tab-btn" data-planner-tab="residencias" role="tab" aria-selected="false">🏢 Professional Internships</button>
                             <button type="button" class="english-tab-btn" data-planner-tab="work" role="tab" aria-selected="false">💼 Work (Full / Part-Time)</button>
                             <button type="button" class="english-tab-btn" data-planner-tab="locations" role="tab" aria-selected="false">📍 Maps, GPS &amp; Traffic Alerts</button>
                         </div>
@@ -1912,7 +1892,7 @@
                             <div class="music-studio-grid">
                                 <div class="music-panel-card">
                                     <h3>📍 Saved Locations &amp; Commute Notification Rules</h3>
-                                    <p class="muted-text">
+                                    <p class="muted-text" data-i18n-html="commute_rules_hint">
                                         If you are at Home or far from the Tec (or it is your first class of the day), Daily Hub notifies you <strong>at least 30 minutes before</strong> (or earlier if driving + traffic takes longer). If you are already at or near the Tec, it notifies you <strong>10 minutes before</strong> with walking time between buildings.
                                     </p>
 
@@ -1947,7 +1927,7 @@
 
                                     <hr class="section-divider">
                                     <h4>🏠 Home / Base Location (for 1st Class &amp; Morning Commute)</h4>
-                                    <p class="form-hint" id="homeLocationSummaryText">
+                                    <p class="form-hint" id="homeLocationSummaryText" data-i18n-html="home_loc_hint">
                                         Enter your Saltillo street address or paste a Google Maps link, then click <strong>Save &amp; Find Home Location</strong>.
                                     </p>
                                     <div class="form-row-2">
@@ -2009,7 +1989,7 @@
 
                                     <details class="quick-loc-details" id="phoneWebhookSetupBox" style="margin-top: 14px;">
                                         <summary>🤖 Automatic Phone GPS over Plain HTTP (no HTTPS / domain needed)</summary>
-                                        <p class="form-hint" style="margin-top: 6px;">
+                                        <p class="form-hint" style="margin-top: 6px;" data-i18n-html="phone_gps_http_hint">
                                             Because this server uses plain <code>http://</code> without a domain, Chrome/OPPO A79 blocks silent background browser GPS unless you either:
                                             (1) tap <strong>📲 Ping Phone GPS (ntfy)</strong>,
                                             (2) whitelist this HTTP origin once in Chrome flags, or
@@ -2025,7 +2005,7 @@
                                                 <code id="phoneWebhookUrlCode" class="quick-loc-origin-code phone-webhook-code"></code>
                                                 <button type="button" class="agenda-chip-btn" id="btnCopyPhoneWebhook">📋 Copy URL</button>
                                             </div>
-                                            <div class="form-hint" style="margin-top: 6px;">
+                                            <div class="form-hint" data-i18n-html="phone_webhook_syntax" style="margin-top: 6px;">
                                                 Send <code>GET</code> with <code>&amp;lat=25.44&amp;lng=-100.99</code> OR <code>POST JSON</code>:
                                             </div>
                                             <code id="phoneWebhookBodyCode" class="quick-loc-origin-code phone-webhook-code">{"lat":[lv=lat],"lng":[lv=lng],"source":"macrodroid_gps"}</code>
@@ -2049,7 +2029,7 @@
             ========================================== -->
             <section class="app-view" id="view-resumen" data-title="Weekly Summary">
                 <div class="tracker-container view-shell">
-                    <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
+                    <div class="readonly-banner" id="medicoReadonlyBanner" data-i18n-html="medico_readonly_banner" hidden>
                         🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker, Sleep &amp; Desvelo Log &amp; Crisis Log.
                     </div>
 
@@ -2205,7 +2185,7 @@
                             <span class="view-header-icon" aria-hidden="true">🩺</span>
                             <div>
                                 <h2>Psychiatrist Access</h2>
-                                <p class="view-header-subtitle">Create or manage a <strong>read-only</strong> clinician account. Doctors can view Weekly Mood, Sleep &amp; Crisis Summary only — never personal journal notes, agenda, or editing.</p>
+                                <p class="view-header-subtitle" data-i18n-html="psychiatrist_privacy_hint">Create or manage a <strong>read-only</strong> clinician account. Doctors can view Weekly Mood, Sleep &amp; Crisis Summary only — never personal journal notes, agenda, or editing.</p>
                             </div>
                         </div>
                     </div>
@@ -2254,11 +2234,12 @@
                             <span class="view-header-icon" aria-hidden="true">⚙️</span>
                             <div>
                                 <h2>Settings &amp; Reminders</h2>
-                                <p class="view-header-subtitle">Manage mobile notification bar alerts, automated reminders, workspace defaults, YouTube playback mode, appearance, and your local E2EE key.</p>
+                                <p class="view-header-subtitle">Manage mobile notification bar alerts, automated reminders, workspace defaults, YouTube playback mode, language (Always Dark), and your local E2EE key.</p>
                             </div>
                         </div>
-                        <div class="settings-header-actions">
-                            <button type="button" class="btn-secondary-pill" id="btnSettingsThemeToggle">☀️ Switch Theme</button>
+                        <div class="settings-header-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button type="button" class="btn-secondary-pill" data-go-view="guia">📖 Visual Guide</button>
+                            <button type="button" class="btn-secondary-pill" id="btnSettingsLangToggle">🌐 Switch to Español</button>
                         </div>
                     </div>
 
@@ -2275,9 +2256,9 @@
                             <div class="settings-steps-box">
                                 <strong>Quick Setup (OPPO A79 / Android / iOS):</strong>
                                 <ol>
-                                    <li>Install the free <strong>ntfy</strong> app on your phone.</li>
+                                    <li data-i18n-html="ntfy_step_1">Install the free <strong>ntfy</strong> app on your phone.</li>
                                     <li>Generate or enter a private topic below and subscribe to that same topic inside the phone app.</li>
-                                    <li>Save Settings and click <strong>Send Test Notification</strong>.</li>
+                                    <li data-i18n-html="ntfy_step_3">Save Settings and click <strong>Send Test Notification</strong>.</li>
                                 </ol>
                             </div>
 
@@ -2334,7 +2315,7 @@
                             <div class="reminder-rule-block">
                                 <label class="switch-row">
                                     <input type="checkbox" id="setMoodEnabled">
-                                    <span><strong>Mood Tracker</strong> — Automatic mid-window check-ins</span>
+                                    <span data-i18n-html="rem_mood_title"><strong>Mood Tracker</strong> — Automatic mid-window check-ins</span>
                                 </label>
                                 <p class="form-hint">Notifies automatically at Morning (09:00), Noon (13:00), Afternoon (17:00), and Night (22:00) only if you haven't logged that block yet.</p>
                                 <label class="switch-row switch-sub-row">
@@ -2351,7 +2332,7 @@
                                 <div class="rule-row-split">
                                     <label class="switch-row">
                                         <input type="checkbox" id="setSleepEnabled">
-                                        <span><strong>Morning Sleep Log</strong> (supports Snooze / Postpone)</span>
+                                        <span data-i18n-html="rem_sleep_title"><strong>Morning Sleep Log</strong> (supports Snooze / Postpone)</span>
                                     </label>
                                     <input type="time" id="setSleepTime" value="08:30" aria-label="Morning sleep reminder time">
                                 </div>
@@ -2360,7 +2341,7 @@
                             <div class="reminder-rule-block">
                                 <label class="switch-row">
                                     <input type="checkbox" id="setAgendaRemEnabled">
-                                    <span><strong>Weekly Agenda</strong> — Events &amp; Tasks alerts</span>
+                                    <span data-i18n-html="rem_agenda_title"><strong>Weekly Agenda</strong> — Events &amp; Tasks alerts</span>
                                 </label>
                                 <div class="rule-sub-controls">
                                     <label class="mini-check"><input type="checkbox" id="setAgendaEvents"> Events</label>
@@ -2384,7 +2365,7 @@
                                 <div class="rule-row-split">
                                     <label class="switch-row">
                                         <input type="checkbox" id="setWordEodEnabled">
-                                        <span><strong>End-of-Day Word Notes Check</strong> (Journal &amp; English .docx)</span>
+                                        <span data-i18n-html="rem_word_title"><strong>End-of-Day Word Notes Check</strong> (Journal &amp; English .docx)</span>
                                     </label>
                                     <input type="time" id="setWordEodTime" value="21:30" aria-label="Word check reminder time">
                                 </div>
@@ -2417,13 +2398,13 @@
                         <!-- Card D: Multilingual AI Study (Gemini + Offline 0-RAM Engine) -->
                         <section class="card settings-card settings-card-wide">
                             <h3>🤖 Language AI &amp; Multilingual Study (English · 한국어 · K-Pop)</h3>
-                            <p class="muted-text">
+                            <p class="muted-text" data-i18n-html="gemini_perf_desc">
                                 Optimized for AWS <code>t3.micro</code> (1 GB RAM): instead of heavy local LLMs that exhaust server memory, AI song &amp; phrase analysis uses <strong>Google Gemini API</strong> (0 MB idle RAM) plus a built-in zero-RAM <strong>Hangul Romanization &amp; EN/KR analyzer</strong> when offline.
                             </p>
                             <ol class="form-hint settings-ai-steps">
-                                <li>Crea una clave gratuita en <strong>Google AI Studio</strong> (<code>https://aistudio.google.com/apikey</code> → <em>Create API key</em>).</li>
-                                <li>Pégala abajo y presiona <strong>🧪 Test AI Connection</strong> para verificar que responda (y auto-corregir si algún modelo devuelve 404).</li>
-                                <li>Presiona <strong>Save All Settings</strong> al final de la página para guardarla cifrada (<code>X25519</code>).</li>
+                                <li data-i18n-html="gemini_step_1">Crea una clave gratuita en <strong>Google AI Studio</strong> (<code>https://aistudio.google.com/apikey</code> → <em>Create API key</em>).</li>
+                                <li data-i18n-html="gemini_step_2">Pégala abajo y presiona <strong>🧪 Test AI Connection</strong> para verificar que responda (y auto-corregir si algún modelo devuelve 404).</li>
+                                <li data-i18n-html="gemini_step_3">Presiona <strong>Save All Settings</strong> al final de la página para guardarla cifrada (<code>X25519</code>).</li>
                             </ol>
                             <div class="form-row-2">
                                 <div class="form-group">
@@ -2471,21 +2452,21 @@
                         <!-- Card E: Simulated HTTPS Transport Tunnel Diagnostics & Large-Payload Benchmark -->
                         <section class="card settings-card settings-card-wide" id="transportSecurityCard">
                             <h3>🔐 Simulated HTTPS Network Encryption (X25519 + AES-256-CTR + HMAC-SHA256)</h3>
-                            <p class="muted-text">
+                            <p class="muted-text" data-i18n-html="x25519_desc">
                                 Protects all API payloads traveling over plain HTTP using a hybrid architecture identical to TLS: ephemeral <strong>X25519 (Curve25519 ECDH) + HKDF-SHA256</strong> key exchange (forward secrecy), paired with high-speed <strong>AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)</strong> symmetric transport so large payloads encrypt in milliseconds.
                             </p>
                             <div class="transport-diag-grid" id="transportDiagSummary">
                                 <div class="transport-stat-box">
                                     <span class="transport-stat-label">Session Key ID</span>
-                                    <strong id="transportDiagKid">Connecting...</strong>
+                                    <strong id="transportDiagKid" data-no-i18n="true">Connecting...</strong>
                                 </div>
                                 <div class="transport-stat-box">
                                     <span class="transport-stat-label">Key Exchange / Cipher</span>
-                                    <strong id="transportDiagCipher">X25519 -> AES-256-CTR + HMAC-SHA256</strong>
+                                    <strong id="transportDiagCipher" data-no-i18n="true">X25519 -> AES-256-CTR + HMAC-SHA256</strong>
                                 </div>
                                 <div class="transport-stat-box">
                                     <span class="transport-stat-label">Encrypted Wire Traffic</span>
-                                    <strong id="transportDiagStats">0 reqs · 0 KB</strong>
+                                    <strong id="transportDiagStats" data-no-i18n="true">0 reqs · 0 KB</strong>
                                 </div>
                             </div>
                             <div class="settings-inline-actions transport-action-bar">
@@ -2499,6 +2480,13 @@
                         <!-- Card C: Workspace, Agenda Defaults & Security Shortcuts -->
                         <section class="card settings-card settings-card-wide">
                             <h3>🎛️ Workspace Defaults &amp; Security</h3>
+                            <div class="form-group">
+                                <label for="setUiLanguage">Interface Language (English / Español):</label>
+                                <select id="setUiLanguage">
+                                    <option value="en">🌐 English (100% UI)</option>
+                                    <option value="es">🇲🇽 Español (100% UI)</option>
+                                </select>
+                            </div>
                             <div class="form-row-2">
                                 <div class="form-group">
                                     <label for="setDefaultCat">Default Agenda Category:</label>
@@ -2549,6 +2537,15 @@
                                     <button type="button" class="agenda-chip-btn" id="btnClearE2eeKey">Clear from Browser</button>
                                 </div>
                             </div>
+                            <div class="e2ee-key-box version-settings-box">
+                                <div>
+                                    <strong>Application Version &amp; Release History (SemVer 2.0.0):</strong>
+                                    <span id="settingsVersionSummary" class="muted-text">v1.0.0 · Checking deployment history...</span>
+                                </div>
+                                <div class="settings-inline-actions">
+                                    <button type="button" class="agenda-chip-btn" id="btnSettingsVersionHistory">📜 View Version History</button>
+                                </div>
+                            </div>
 
                             <div class="settings-save-bar">
                                 <div id="settingsStatusBanner" class="english-status-banner" hidden></div>
@@ -2558,7 +2555,38 @@
                     </form>
                 </div>
             </section>
+
+            <!-- ==========================================
+                 VIEW 9: VISUAL USER GUIDE (LOW-TEXT INTERACTIVE)
+            ========================================== -->
+            <section class="app-view" id="view-guia" data-title="Visual Guide">
+                <div class="view-shell">
+                    <div id="visualGuideAppHost"></div>
+                </div>
+            </section>
         </main>
+    </div>
+
+    <!-- Modal: Automatic SemVer 2.0.0 Version History -->
+    <div class="modal-overlay" id="versionHistoryModal" hidden aria-modal="true" role="dialog"
+        aria-labelledby="versionModalTitle">
+        <div class="modal-card modal-card-wide">
+            <div class="modal-header">
+                <h3 id="versionModalTitle">🏷️ Version History</h3>
+                <button type="button" class="modal-close-btn" id="btnCloseVersionModal" aria-label="Close">✕</button>
+            </div>
+            <p class="muted-text version-modal-subtitle" id="versionHistorySubtitle">
+                Automatic deployment releases using Semantic Versioning (SemVer 2.0.0) &amp; Conventional Commits.
+            </p>
+            <div class="version-standard-legend" id="versionStandardLegend">
+                <span class="ver-legend-chip"><span class="ver-badge is-major">MAJOR +1.0.0</span> <code>BREAKING CHANGE / !:</code></span>
+                <span class="ver-legend-chip"><span class="ver-badge is-minor">MINOR +0.1.0</span> <code>feat:</code></span>
+                <span class="ver-legend-chip"><span class="ver-badge is-patch">PATCH +0.0.1</span> <code>fix: / chore: / docs:</code></span>
+            </div>
+            <div id="versionHistoryBody" class="version-history-list">
+                <p class="muted-text">Loading version history...</p>
+            </div>
+        </div>
     </div>
 
     <!-- Modal to add / edit Agenda activity -->
@@ -2586,6 +2614,17 @@
                             <option value="personal">👤 Personal</option>
                         </select>
                     </div>
+                </div>
+
+                <div class="form-group" id="agendaMateriaGroup" hidden>
+                    <div class="label-with-helper">
+                        <label for="agendaMateriaId" id="agendaMateriaLabel">Linked university class (active semester):</label>
+                        <button type="button" class="agenda-link-inline" id="btnGoToPlannerClasses">🎓 Manage classes</button>
+                    </div>
+                    <select id="agendaMateriaId">
+                        <option value="">General University (no specific class)</option>
+                    </select>
+                    <small class="muted-text" id="agendaMateriaHint">Links university tasks to a current class so the card badge shows the class name.</small>
                 </div>
 
                 <div class="form-row-2">
@@ -2679,7 +2718,7 @@
                 <button type="button" class="modal-close-btn" id="btnCloseE2eeModal" aria-label="Close modal">✕</button>
             </div>
             <form id="e2eeKeyForm" autocomplete="off">
-                <p class="modal-subtitle">
+                <p class="modal-subtitle" data-i18n-html="e2ee_modal_subtitle">
                     Your Journal and English Notebook entries are encrypted in your browser before leaving this device. Enter your exact <strong>32-character AES key</strong> (stored only in this browser, never sent to the server).
                 </p>
                 <div class="form-group">
@@ -2825,7 +2864,7 @@
                 <h2 id="quickLocationModalTitle">📍 Set Location &amp; Recalculate Commute</h2>
                 <button type="button" class="modal-close-btn" id="btnCloseQuickLocModal" aria-label="Close modal">✕</button>
             </div>
-            <div id="quickLocationHttpNotice" class="quick-loc-hint-box" hidden>
+            <div id="quickLocationHttpNotice" class="quick-loc-hint-box" data-i18n-html="quick_loc_http_notice" hidden>
                 <strong>📱 Phone GPS over Plain HTTP (No Domain Needed):</strong> Browsers (Chrome on OPPO A79, Edge on PC) block <code>navigator.geolocation</code> on plain <code>http://</code> unless enabled in flags below. Use <strong>📲 Ping My Phone (ntfy)</strong>, pick <strong>Saved Home / 1-Tap Presets</strong>, or paste your <strong>street address or Google Maps Share link</strong>:
             </div>
 
@@ -2857,8 +2896,8 @@
             <details class="quick-loc-details">
                 <summary>⚙️ Enable 1-Tap Phone Hardware GPS on Chrome (OPPO A79) / Edge HTTP</summary>
                 <p class="form-hint" style="margin-top:6px;">
-                    1. On your phone Chrome open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> (Edge PC: <code>edge://flags/#unsafely-treat-insecure-origin-as-secure</code>).<br>
-                    2. Add <code id="quickLocationOriginCode" class="quick-loc-origin-code">http://...</code> <button type="button" class="agenda-chip-btn" id="btnCopyQuickLocOrigin" style="padding:2px 8px;font-size:0.74rem;">📋 Copy</button>, select <strong>Enabled</strong>, tap <strong>Relaunch</strong>.
+                    <span data-i18n-html="chrome_flags_step1">1. On your phone Chrome open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> (Edge PC: <code>edge://flags/#unsafely-treat-insecure-origin-as-secure</code>).</span><br>
+                    <span data-i18n="chrome_flags_step2_pre">2. Add </span><code id="quickLocationOriginCode" class="quick-loc-origin-code">http://...</code> <button type="button" class="agenda-chip-btn" id="btnCopyQuickLocOrigin" style="padding:2px 8px;font-size:0.74rem;">📋 Copy</button><span data-i18n-html="chrome_flags_step2_post">, select <strong>Enabled</strong>, tap <strong>Relaunch</strong>.</span>
                 </p>
                 <div style="margin-top:8px;">
                     <button type="button" class="agenda-chip-btn" id="btnRetryBrowserGps">🛰️ Retry Phone / Browser Hardware GPS</button>
@@ -2875,13 +2914,16 @@
     </button>
 
     <aside class="floating-translator-drawer" id="floatingTranslatorModal" hidden aria-label="Quick Extension Translator">
-        <div class="floating-translator-header">
+        <div class="floating-translator-header" id="floatingTranslatorDragHandle" title="Drag to move window">
             <div class="floating-translator-title">
+                <span class="floating-translator-drag-grip" aria-hidden="true">⋮⋮</span>
                 <span aria-hidden="true">🌐</span>
                 <strong>Quick Translator</strong>
                 <span class="lang-ai-badge">Alt+T</span>
             </div>
             <div class="floating-translator-win-actions">
+                <button type="button" class="btn-secondary btn-small" id="btnResetFloatTranslatorPos"
+                    title="Reset window position to bottom-right">↺</button>
                 <button type="button" class="btn-secondary btn-small" id="btnFloatPopoutTranslator"
                     title="Open in separate mini browser window alongside YouTube / PDFs">🪟 Window</button>
                 <button type="button" class="modal-close-btn" id="btnCloseFloatingTranslator" aria-label="Close translator">✕</button>
@@ -2889,40 +2931,43 @@
         </div>
 
         <div class="lang-translator-dirs" id="floatTranslatorDirPills" role="group" aria-label="Quick Translation Direction">
-            <button type="button" class="lang-dir-pill active" data-dir="en_es">EN → ES</button>
-            <button type="button" class="lang-dir-pill" data-dir="ko_en">KO → EN</button>
-            <button type="button" class="lang-dir-pill" data-dir="ko_es">KO → ES</button>
-            <button type="button" class="lang-dir-pill" data-dir="auto">Auto</button>
-            <button type="button" class="lang-dir-pill" data-dir="es_en">ES → EN</button>
-            <button type="button" class="lang-dir-pill" data-dir="es_ko">ES → KO</button>
+            <button type="button" class="lang-dir-pill active" data-dir="en_es">🇺🇸 → 🇪🇸 EN → ES</button>
+            <button type="button" class="lang-dir-pill" data-dir="ko_en">🇰🇷 → 🇺🇸 KO → EN</button>
+            <button type="button" class="lang-dir-pill" data-dir="ko_es">🇰🇷 → 🇪🇸 KO → ES</button>
+            <button type="button" class="lang-dir-pill" data-dir="auto">🌐 Auto</button>
+            <button type="button" class="lang-dir-pill" data-dir="es_en">🇪🇸 → 🇺🇸 ES → EN</button>
+            <button type="button" class="lang-dir-pill" data-dir="es_ko">🇪🇸 → 🇰🇷 ES → KO</button>
         </div>
 
         <div class="translator-popup-toolbar">
-            <button type="button" class="btn-secondary btn-small" id="btnFloatTranslatorPaste">📋 Paste</button>
+            <button type="button" class="btn-secondary btn-small" id="btnFloatTranslatorPaste">📋 Paste &amp; Translate</button>
             <button type="button" class="btn-secondary btn-small" id="btnFloatTranslatorClear">🧹 Clear</button>
-            <select id="floatTranslatorDirectionSelect" class="select-input select-compact" aria-label="Quick translation direction">
-                <option value="en_es" selected>English → Español</option>
-                <option value="ko_en">Coreano → English</option>
-                <option value="ko_es">Coreano → Español</option>
-                <option value="auto">Auto Detect (EN/KO)</option>
-                <option value="es_en">Español → English</option>
-                <option value="es_ko">Español → Coreano</option>
-            </select>
-            <select id="floatTranslatorEngineSelect" class="select-input select-compact" aria-label="Quick translator engine">
-                <option value="auto">Auto</option>
-                <option value="gemini">Gemini</option>
-                <option value="offline">Local</option>
-            </select>
+            <span class="lang-ai-badge">Drag Header · Alt+T</span>
         </div>
 
-        <div class="floating-translator-input-row">
-            <textarea id="floatTranslatorInput" rows="2" maxlength="4000"
-                placeholder="Type or select text + Alt+T... Enter to translate (Shift+Enter newline)"></textarea>
-            <button type="button" class="btn-submit" id="btnRunFloatTranslator">Translate</button>
+        <div class="lang-translator-bar floating-translator-input-row">
+            <textarea id="floatTranslatorInput" class="english-textarea translator-extension-textarea" rows="4" maxlength="4000"
+                placeholder="Type or select text + Alt+T... Enter to translate (Shift+Enter for new line)"></textarea>
+            <div class="lang-translator-actions">
+                <select id="floatTranslatorDirectionSelect" class="select-input select-compact" aria-label="Quick translation direction">
+                    <option value="en_es" selected>English → Spanish</option>
+                    <option value="ko_en">Korean → English</option>
+                    <option value="ko_es">Korean → Spanish</option>
+                    <option value="auto">Auto Detect (EN/KO)</option>
+                    <option value="es_en">Spanish → English</option>
+                    <option value="es_ko">Spanish → Korean</option>
+                </select>
+                <select id="floatTranslatorEngineSelect" class="select-input select-compact" aria-label="Quick translator engine">
+                    <option value="auto">Auto (Gemini / Local)</option>
+                    <option value="gemini">Google Gemini AI</option>
+                    <option value="offline">Instant Local (0 RAM)</option>
+                </select>
+                <button type="button" class="btn-submit" id="btnRunFloatTranslator">Translate</button>
+            </div>
         </div>
 
-        <input type="text" id="floatTranslatorContextInput" maxlength="400"
-            placeholder="Optional context (song or phrase)...">
+        <input type="text" class="translator-context-input" id="floatTranslatorContextInput" maxlength="400"
+            placeholder="Optional context (song, PDF, sentence)...">
 
         <div id="floatTranslatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
     </aside>

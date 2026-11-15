@@ -42,12 +42,15 @@ CREATE TABLE IF NOT EXISTS RegistrosAgenda (
     actividad VARCHAR(255) NOT NULL,
     tipo ENUM('evento', 'tarea') NOT NULL DEFAULT 'evento',
     categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
+    materia_id VARCHAR(60) NULL DEFAULT NULL,
+    materia_nombre VARCHAR(120) NULL DEFAULT NULL,
     estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
     completada TINYINT(1) NOT NULL DEFAULT 0,
     recordatorio_min SMALLINT NULL DEFAULT NULL,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_agenda_fecha (fecha),
-    INDEX idx_agenda_categoria_estado (categoria, estado)
+    INDEX idx_agenda_categoria_estado (categoria, estado),
+    INDEX idx_agenda_materia (materia_id)
 );
 
 CREATE TABLE IF NOT EXISTS Usuarios (

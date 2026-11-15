@@ -1,0 +1,19 @@
+# Historial de Versiones / Changelog
+
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión base: **v1.0.0**
+>
+> Reglas automáticas en cada despliegue a `main`:
+> - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
+> - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
+> - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.0.0] - 2026-11-15 (INITIAL) · `baseline`
+**Initial production release of Personal Daily Hub (E2EE, Mood/Sleep/Crisis, ITS Schedule & Agenda, Music & Multilingual AI)**
+
+### ✨ Features / Nuevas Funciones
+- Mood, Sleep (including Late Night / Desvelos) and Spanish Crisis clinical read-only tracker
+- X25519 + AES-256-CTR + HMAC-SHA256 transport tunnel + 32-char E2EE Word vault bridge
+- Weekly Agenda (Jira To Do / In Progress / Done) linked to ITS classes, croquis & GPS commute
+- Learn with Music (YT Music + local/EC2 yt-dlp lyrics & progressive streaming) + AI Studio (EN/KR/K-Pop)
+- Permanent Dark Mode, full EN <-> ES bilingual engine & interactive Visual User Guide
+- Automated CI/CD SemVer 2.0.0 release & version history tracking per deployment

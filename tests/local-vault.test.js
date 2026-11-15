@@ -613,4 +613,77 @@ describe('Bóveda local (.env / .env.enc)', () => {
         assert.equal(plain.source, 'word-pc');
         assert.equal(plain.lyrics, 'Forever ever 빛나');
     });
+
+    test('sincronitation/sincronizador.py resuelve WORD_FILE_PATH y ENGLISH_WORD_FILE_PATH desde GitHub Variables con respaldo local', () => {
+        if (!fs.existsSync(PY_SYNC)) return;
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-vars-test-'));
+        try {
+            const pyCode = [
+                'import json, os, sys',
+                'sys.path.insert(0, sys.argv[1])',
+                'work_dir = sys.argv[2]',
+                'import requests, sincronizador as sc',
+                '',
+                'sc.LAST_WORD_PATHS_CACHE_PATH = os.path.join(work_dir, ".last_word_paths.json")',
+                'env_journal = os.path.join(work_dir, "env_docs", "DiarioPrivado.docx")',
+                'env_eng = os.path.join(work_dir, "env_docs", "MiIngles.docx")',
+                'gh_journal = os.path.join(work_dir, "moved_journal", "DiarioMovido.docx")',
+                'gh_eng_dir = os.path.join(work_dir, "moved_eng")',
+                'os.makedirs(gh_eng_dir, exist_ok=True)',
+                '',
+                '# 1. Sin GITHUB_TOKEN usa .env / os.environ',
+                'os.environ["WORD_FILE_PATH"] = env_journal',
+                'os.environ["ENGLISH_WORD_FILE_PATH"] = env_eng',
+                'os.environ.pop("GITHUB_TOKEN", None)',
+                'j1, e1 = sc.resolver_rutas_word()',
+                'assert j1 == os.path.abspath(env_journal), j1',
+                'assert e1 == os.path.abspath(env_eng), e1',
+                '',
+                '# 2. Con GITHUB_TOKEN + GITHUB_REPO, GitHub Variables anulan .env (archivo completo y carpeta)',
+                'os.environ["GITHUB_TOKEN"] = "ghp_test_token"',
+                'os.environ["GITHUB_REPO"] = "Flax64/personal-daily-hub"',
+                'sc.invalidar_cache_github()',
+                'gh_state = {"WORD_FILE_PATH": gh_journal, "ENGLISH_WORD_FILE_PATH": gh_eng_dir}',
+                'def fake_get_var(repo, token, name):',
+                '    if name in gh_state and gh_state[name] is not None:',
+                '        return gh_state[name], None',
+                '    return None, f"Variable \'{name}\' no encontrada en GitHub ({repo})"',
+                'sc._leer_variable_github = fake_get_var',
+                'j2, e2 = sc.resolver_rutas_word(refresh_cache=True)',
+                'assert j2 == os.path.abspath(gh_journal), j2',
+                'assert e2 == os.path.abspath(os.path.join(gh_eng_dir, "MiIngles.docx")), e2',
+                'assert os.path.exists(sc.LAST_WORD_PATHS_CACHE_PATH)',
+                '',
+                '# 3. Si cae la red contra GitHub, conserva respaldo desde .last_word_paths.json',
+                'sc._word_paths_cache = {"journal": None, "english": None, "fetched_at": 0.0, "last_error": None, "disk_loaded": False}',
+                'def failing_get_var(repo, token, name):',
+                '    raise requests.exceptions.ConnectionError("dns offline")',
+                'sc._leer_variable_github = failing_get_var',
+                'j3, e3 = sc.resolver_rutas_word(refresh_cache=True)',
+                'assert j3 == os.path.abspath(gh_journal), j3',
+                'assert e3 == os.path.abspath(os.path.join(gh_eng_dir, "MiIngles.docx")), e3',
+                '',
+                '# 4. Si se borra la variable en GitHub (404), revierte a .env sin fallo',
+                'gh_state["WORD_FILE_PATH"] = None',
+                'gh_state["ENGLISH_WORD_FILE_PATH"] = os.path.join(work_dir, "custom", "FinalNotebook.docx")',
+                'sc._leer_variable_github = fake_get_var',
+                'j4, e4 = sc.resolver_rutas_word(refresh_cache=True)',
+                'assert j4 == os.path.abspath(env_journal), j4',
+                'assert e4 == os.path.abspath(gh_state["ENGLISH_WORD_FILE_PATH"]), e4',
+                'print(json.dumps({"j2": j2, "e2": e2, "j4": j4, "e4": e4}))'
+            ].join('\n');
+
+            const res = spawnSync(
+                'python',
+                ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir],
+                { cwd: ROOT_DIR, encoding: 'utf8' }
+            );
+            assert.equal(res.status, 0, res.stderr || res.stdout);
+            const parsed = JSON.parse(res.stdout.trim());
+            assert.ok(parsed.e2.endsWith('MiIngles.docx'));
+            assert.ok(parsed.e4.endsWith('FinalNotebook.docx'));
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
 });

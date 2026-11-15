@@ -2,6 +2,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 
@@ -18,11 +19,15 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'lib/transport-crypto.js',
             'lib/language-studio.js',
             'lib/youtube-metadata.js',
+            'lib/ytdlp-service.js',
             'public/theme-init.js',
+            'public/i18n.js',
+            'public/guia-visual.js',
             'public/transport-crypto.js',
             'public/translator-widget.js',
             'public/translator-popup.js',
             'public/frontend.js',
+            'scripts/release-version.js',
             'tests/ci-summary.js'
         ]) {
             execFileSync(process.execPath, ['--check', path.join(ROOT, rel)], { stdio: 'pipe' });
@@ -35,6 +40,7 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             '<script src="translator-widget.js" defer></script>',
             '<script src="translator-popup.js" defer></script>',
             'id="popupTranslatorInput"',
+            'class="english-textarea translator-extension-textarea"',
             'id="btnRunPopupTranslator"',
             'id="popupTranslatorResultBox"'
         ]) {
@@ -297,9 +303,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnMusicQuickNewAlbum"',
             'id="btnMusicStudyEditSelected"',
             'id="btnDeleteMusicEntityModal"',
-            'id="languageTranslatorPanel"',
-            'id="translatorInput"',
-            'id="btnRunTranslator"',
             'id="quickLocationModal"',
             'id="homeLocationLabel"',
             'id="btnSaveHomeLocation"',
@@ -321,11 +324,14 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="settingsGeminiTestResult"',
             'id="btnFloatingTranslatorFab"',
             'id="floatingTranslatorModal"',
+            'id="floatingTranslatorDragHandle"',
+            'floating-translator-drag-grip',
+            'id="btnResetFloatTranslatorPos"',
             'id="btnFloatPopoutTranslator"',
             'id="btnSidebarOpenTranslator"',
             'id="btnMobileTranslator"',
-            'id="btnPopoutTranslator"',
             'id="floatTranslatorInput"',
+            'translator-extension-textarea',
             'id="musicLyricsViewerCard"',
             'id="musicLyricsMetaBadge"',
             'id="musicPcBridgeBadge"',
@@ -341,6 +347,16 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
+        assert.equal(
+            indexHtml.includes('id="languageTranslatorPanel"'),
+            false,
+            'public/index.html no debe incluir panel inline de traductor en Learn with AI'
+        );
+        assert.equal(
+            indexHtml.includes('id="translatorInput"'),
+            false,
+            'public/index.html no debe incluir translatorInput obsoleto'
+        );
         assert.match(indexHtml, /<script[^>]+src=["']transport-crypto\.js["']/i);
 
         const dockerfileText = readText('Dockerfile');
@@ -391,7 +407,11 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.music-lyrics-textarea',
             '.music-album-tracklist-box',
             '.music-album-track-btn',
-            '.ai-autosync-toggle'
+            '.ai-autosync-toggle',
+            '.lang-toggle-pill',
+            '.btn-lang-sidebar',
+            '.vg-root',
+            '.vg-standalone-shell'
         ]) {
             assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }
@@ -429,8 +449,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
 
     it('mantiene sincronizadas las variables env y envs en deploy.yml sin dejar .env en disco', () => {
         const deploy = readText('.github/workflows/deploy.yml');
-        const envSection = deploy.match(/\benv:\r?\n([\s\S]*?)\r?\n\s+with:/);
-        assert.ok(envSection, 'No se encontró bloque env: en deploy.yml');
+        const envSection = deploy.match(/uses:\s*appleboy\/ssh-action@[^\r\n]+\r?\n\s+env:\r?\n([\s\S]*?)\r?\n\s+with:/);
+        assert.ok(envSection, 'No se encontró bloque env: en el paso ssh-action de deploy.yml');
         const envKeys = [...envSection[1].matchAll(/^\s+([A-Z0-9_]+):/gm)].map((m) => m[1]);
 
         const envsLine = deploy.match(/\benvs:\s*([^\r\n]+)/);
@@ -460,5 +480,243 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(ci, /branches-ignore:\r?\n\s+-\s*main/);
         assert.match(ci, /pull_request:\r?\n\s+branches:\r?\n\s+-\s*main/);
         assert.match(ci, /GITHUB_STEP_SUMMARY|ci-summary\.js/);
+    });
+});
+
+describe('Modo Oscuro Permanente, Motor Bilingüe EN/ES y Guía Visual Interactiva', () => {
+    it('mantiene modo oscuro permanente sin botones de tema claro en HTML/JS', () => {
+        const indexHtml = readText('public/index.html');
+        const dashHtml = readText('public/dashboard.html');
+        const popupHtml = readText('public/translator-popup.html');
+        const guideHtml = readText('public/guia-visual.html');
+        const themeInit = readText('public/theme-init.js');
+
+        assert.match(indexHtml, /<html\b[^>]*lang=["']en["'][^>]*data-theme=["']dark["']/i);
+        assert.match(dashHtml, /<html\b[^>]*lang=["']en["'][^>]*data-theme=["']dark["']/i);
+        assert.match(popupHtml, /<html\b[^>]*data-theme=["']dark["']/i);
+        assert.match(guideHtml, /<html\b[^>]*data-theme=["']dark["']/i);
+        assert.match(themeInit, /data-theme.*dark|setAttribute\(['"]data-theme['"],\s*['"]dark['"]\)/);
+
+        for (const removedId of ['id="btnThemeToggle"', 'id="btnThemeToggleMobile"', 'id="btnThemeToggleAuth"', 'id="setTheme"', 'id="btnPopupThemeToggle"']) {
+            assert.equal(indexHtml.includes(removedId), false, `index.html no debe reintroducir ${removedId}`);
+            assert.equal(popupHtml.includes(removedId), false, `translator-popup.html no debe reintroducir ${removedId}`);
+        }
+
+        // CSP estricto sin script inline en guia-visual.html ni translator-popup.html
+        assert.equal(/<script\b(?![^>]*\bsrc=)[^>]*>/i.test(guideHtml), false, 'guia-visual.html no debe contener <script> inline');
+        assert.match(guideHtml, /<script\s+src=["']theme-init\.js["'][^>]*><\/script>/i);
+        assert.match(guideHtml, /<script\s+src=["']i18n\.js["'][^>]*><\/script>/i);
+        assert.match(guideHtml, /<script\s+src=["']guia-visual\.js["'][^>]*><\/script>/i);
+        assert.match(guideHtml, /id=["']visualGuideStandaloneHost["']/);
+    });
+
+    it('expone controles EN/ES y Guía Visual en index.html y popup', () => {
+        const indexHtml = readText('public/index.html');
+        const popupHtml = readText('public/translator-popup.html');
+
+        for (const requiredAttr of [
+            'id="btnLangToggleSidebar"',
+            'id="btnLangToggleMobile"',
+            'id="btnLangToggleAuth"',
+            'id="btnSettingsLangToggle"',
+            'id="setUiLanguage"',
+            'data-view="guia"',
+            'id="view-guia"',
+            'id="visualGuideAppHost"'
+        ]) {
+            assert.ok(indexHtml.includes(requiredAttr), `public/index.html debe incluir ${requiredAttr}`);
+        }
+
+        assert.ok(popupHtml.includes('id="btnPopupLangToggle"'), 'translator-popup.html debe incluir #btnPopupLangToggle');
+        assert.ok(popupHtml.includes('src="i18n.js"'), 'translator-popup.html debe cargar i18n.js');
+    });
+
+    it('verifica traducciones EN <-> ES, HTML_BLOCKS y conservación de claves MySQL en public/i18n.js y public/guia-visual.js', () => {
+        const i18nCode = readText('public/i18n.js');
+        const guideCode = readText('public/guia-visual.js');
+
+        const store = new Map();
+        const sandboxWindow = {
+            localStorage: {
+                getItem: (k) => (store.has(k) ? store.get(k) : null),
+                setItem: (k, v) => store.set(k, String(v)),
+                removeItem: (k) => store.delete(k)
+            },
+            document: {
+                readyState: 'complete',
+                documentElement: { lang: 'en', style: {}, setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } },
+                body: null,
+                getElementById: () => null,
+                querySelectorAll: () => [],
+                createTreeWalker: () => ({ nextNode: () => null }),
+                addEventListener: () => {}
+            },
+            addEventListener: () => {}
+        };
+        sandboxWindow.window = sandboxWindow;
+        const ctx = vm.createContext({
+            window: sandboxWindow,
+            document: sandboxWindow.document,
+            localStorage: sandboxWindow.localStorage,
+            NodeFilter: { SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1 },
+            MutationObserver: class { observe() {} },
+            console
+        });
+
+        vm.runInContext(i18nCode, ctx, { filename: 'public/i18n.js' });
+        vm.runInContext(guideCode, ctx, { filename: 'public/guia-visual.js' });
+
+        const i18n = sandboxWindow.DailyHubI18n;
+        const guide = sandboxWindow.DailyHubVisualGuide;
+        assert.ok(i18n && typeof i18n.setLang === 'function', 'DailyHubI18n debe exportarse');
+        assert.ok(guide && Array.isArray(guide.SECTIONS) && guide.SECTIONS.length >= 4, 'DailyHubVisualGuide.SECTIONS debe exportarse');
+        for (const sec of guide.SECTIONS) {
+            assert.ok(sec.badgeEn && sec.badgeEs, `Sección visual ${sec.id} debe incluir badgeEn y badgeEs`);
+        }
+
+        // Verificar que todo data-i18n-html usado en HTML exista en HTML_BLOCKS
+        for (const htmlFile of ['public/index.html', 'public/translator-popup.html', 'public/guia-visual.html']) {
+            const rawHtml = readText(htmlFile);
+            for (const m of rawHtml.matchAll(/data-i18n-html=["']([^"']+)["']/g)) {
+                const key = m[1];
+                assert.ok(i18n.HTML_BLOCKS[key], `Falta HTML_BLOCKS["${key}"] usado en ${htmlFile}`);
+                assert.ok(i18n.HTML_BLOCKS[key].en && i18n.HTML_BLOCKS[key].es, `HTML_BLOCKS["${key}"] debe tener .en y .es`);
+            }
+        }
+
+        // Roundtrip ES <-> EN + preservación de claves MySQL
+        i18n.setLang('es', { silent: true });
+        assert.equal(i18n.getLang(), 'es');
+        assert.equal(i18n.translateText('Home'), 'Inicio');
+        assert.equal(i18n.momentLabel('Madrugada'), 'Madrugada');
+        assert.equal(i18n.agendaStatusLabel('in_progress'), 'En progreso');
+        assert.match(i18n.translateServerMessage('Synced 3 schedule item(s) to Weekly Agenda.'), /Se sincronizaron 3 actividades a tu Agenda Semanal/i);
+        assert.match(i18n.translateServerMessage('Selected class was not found in your semester schedule.'), /La clase seleccionada no se encontró/i);
+        assert.equal(i18n.translateText('🎓 All Classes'), '🎓 Todas las clases');
+
+        i18n.setLang('en', { silent: true });
+        assert.equal(i18n.getLang(), 'en');
+        assert.equal(i18n.translateText('Inicio'), 'Home');
+        assert.equal(i18n.momentLabel('Madrugada'), 'Late Night');
+        assert.equal(i18n.agendaStatusLabel('in_progress'), 'In Progress');
+        assert.match(i18n.translateServerMessage('Sin traducción exacta en diccionario local (Gemini HTTP 404)'), /No exact match in local dictionary \(Gemini HTTP 404\)/i);
+
+        const indexHtml = readText('public/index.html');
+        const frontendJs = readText('public/frontend.js');
+        assert.ok(indexHtml.includes('id="agendaCourseFilter"'), 'index.html debe exponer filtro de clase actual en Agenda');
+        assert.ok(indexHtml.includes('id="agendaMateriaId"') && indexHtml.includes('id="agendaMateriaGroup"'), 'index.html debe exponer selector de materia universitaria');
+        assert.ok(frontendJs.includes('resolveAgendaItemClassLabel') && frontendJs.includes('syncAgendaMateriaFieldUI'), 'frontend.js debe vincular tareas universitarias con clases actuales');
+    });
+
+    it('adapta lib/language-studio.js al idioma uiLang (en vs es) sin envenenar languageMemory', async () => {
+        const langStudio = require('../lib/language-studio');
+        assert.equal(langStudio.normalizeUiLang('en-US'), 'en');
+        assert.equal(langStudio.normalizeUiLang('es-MX'), 'es');
+        assert.equal(langStudio.normalizeUiLang(undefined), 'es');
+
+        const offlineEs = langStudio.translateOffline({ text: 'not_in_dict_xyz', direction: 'en_es' });
+        assert.match(offlineEs.explanationEs, /Google Gemini API en Settings/i);
+        assert.equal(langStudio.isPoisonedMemoryMeaning(offlineEs.explanationEs), true);
+
+        const offlineEn = langStudio.translateOffline({ text: 'not_in_dict_xyz', direction: 'en_es', uiLang: 'en' });
+        assert.match(offlineEn.explanationEs, /Enable Google Gemini API in Settings/i);
+        assert.equal(langStudio.isPoisonedMemoryMeaning(offlineEn.explanationEs), true);
+
+        const analyzeEn = langStudio.analyzeTextOffline({ text: '사랑해\nI hold on', language: 'en_ko', uiLang: 'en' });
+        const analyzeEs = langStudio.analyzeTextOffline({ text: '사랑해\nI hold on', language: 'en_ko', uiLang: 'es' });
+        assert.match(analyzeEn.summary, /Instant Local Analysis/i);
+        assert.match(analyzeEs.summary, /Análisis Local Instantáneo/i);
+    });
+});
+
+describe('Versionado Automático SemVer 2.0.0 e Historial de Despliegues', () => {
+    it('calcula incrementos MAJOR/MINOR/PATCH con Conventional Commits y actualiza artefactos de versión', () => {
+        const relMod = require('../scripts/release-version');
+
+        assert.deepEqual(relMod.parseSemver('v1.2.3'), { major: 1, minor: 2, patch: 3 });
+        assert.equal(relMod.bumpSemver('1.0.0', 'patch'), '1.0.1');
+        assert.equal(relMod.bumpSemver('1.0.1', 'minor'), '1.1.0');
+        assert.equal(relMod.bumpSemver('1.1.0', 'major'), '2.0.0');
+
+        assert.equal(relMod.classifyCommit({ sha: 'a1', subject: 'fix: resolve agenda pill crash' }).kind, 'fix');
+        assert.equal(relMod.classifyCommit({ sha: 'a2', subject: 'feat(ui): add version history modal' }).kind, 'feature');
+        assert.equal(relMod.classifyCommit({ sha: 'a3', subject: 'feat!: redesign auth schema' }).kind, 'breaking');
+        assert.equal(relMod.classifyCommit({ sha: 'a4', subject: 'chore: docs', body: 'BREAKING CHANGE: drop legacy v0' }).kind, 'breaking');
+        assert.equal(relMod.analyzeCommits([{ sha: 'a1', subject: 'fix: resolve agenda pill crash' }]).bumpType, 'patch');
+        assert.equal(relMod.analyzeCommits([{ sha: 'a2', subject: 'feat(ui): add version history modal' }]).bumpType, 'minor');
+        assert.equal(relMod.analyzeCommits([{ sha: 'a3', subject: 'feat!: redesign auth schema' }]).bumpType, 'major');
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-semver-'));
+        try {
+            fs.writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'tmp-hub', version: '1.0.0' }, null, 2));
+            fs.writeFileSync(path.join(tmpDir, 'package-lock.json'), JSON.stringify({ name: 'tmp-hub', version: '1.0.0', lockfileVersion: 3, packages: { '': { version: '1.0.0' } } }, null, 2));
+
+            const r1 = relMod.runRelease({
+                cwd: tmpDir,
+                apply: true,
+                headShaOverride: 'abc1234',
+                releasedAt: '2026-11-15T10:00:00.000Z',
+                commitsOverride: [{ sha: 'abc1234', subject: 'fix(audio): repair range header check', body: '' }]
+            });
+            assert.equal(r1.nextVersion, '1.0.1');
+            assert.equal(r1.bumpType, 'patch');
+
+            const r2 = relMod.runRelease({
+                cwd: tmpDir,
+                apply: true,
+                headShaOverride: 'def5678',
+                releasedAt: '2026-11-15T11:00:00.000Z',
+                commitsOverride: [
+                    { sha: 'def5677', subject: 'fix: typo in tooltip', body: '' },
+                    { sha: 'def5678', subject: 'feat: link tasks to semester classes', body: '' }
+                ]
+            });
+            assert.equal(r2.nextVersion, '1.1.0');
+            assert.equal(r2.bumpType, 'minor');
+
+            const pkgAfter = JSON.parse(fs.readFileSync(path.join(tmpDir, 'package.json'), 'utf8'));
+            const lockAfter = JSON.parse(fs.readFileSync(path.join(tmpDir, 'package-lock.json'), 'utf8'));
+            const historyAfter = JSON.parse(fs.readFileSync(path.join(tmpDir, 'version-history.json'), 'utf8'));
+            const changelogAfter = fs.readFileSync(path.join(tmpDir, 'CHANGELOG.md'), 'utf8');
+
+            assert.equal(pkgAfter.version, '1.1.0');
+            assert.equal(lockAfter.version, '1.1.0');
+            assert.equal(lockAfter.packages[''].version, '1.1.0');
+            assert.equal(historyAfter.currentVersion, '1.1.0');
+            assert.equal(historyAfter.releases.length, 2);
+            assert.equal(historyAfter.releases[0].tag, 'v1.1.0');
+            assert.equal(historyAfter.releases[1].tag, 'v1.0.1');
+            assert.match(changelogAfter, /## \[v1\.1\.0\]/);
+            assert.match(changelogAfter, /## \[v1\.0\.1\]/);
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    it('integra auto-versionado en deploy.yml, Dockerfile y UI modal de Version History', () => {
+        const deploy = readText('.github/workflows/deploy.yml');
+        const dockerfile = readText('Dockerfile');
+        const historyJson = JSON.parse(readText('version-history.json'));
+        const changelog = readText('CHANGELOG.md');
+        const indexHtml = readText('public/index.html');
+        const styleCss = readText('public/style.css');
+        const frontendJs = readText('public/frontend.js');
+
+        assert.match(deploy, /scripts\/release-version\.js\s+--apply\s+--github-output/);
+        assert.match(deploy, /permissions:\r?\n\s+contents:\s*write/);
+        assert.match(deploy, /needs:\s*release/);
+        assert.match(deploy, /APP_VERSION/);
+        assert.match(deploy, /RELEASE_HISTORY_B64/);
+        assert.match(dockerfile, /version-history\.json/);
+        assert.match(dockerfile, /CHANGELOG\.md/);
+        assert.match(String(historyJson.standard), /SemVer 2\.0\.0/);
+        assert.ok(Array.isArray(historyJson.releases) && historyJson.releases.length >= 1);
+        assert.match(changelog, /^# Historial de Versiones/m);
+
+        for (const id of ['id="btnOpenVersionHistory"', 'id="sidebarVersionText"', 'id="btnSettingsVersionHistory"', 'id="versionHistoryModal"', 'id="versionHistoryBody"']) {
+            assert.ok(indexHtml.includes(id), `public/index.html debe incluir ${id}`);
+        }
+        assert.ok(styleCss.includes('.ver-badge') && styleCss.includes('.version-history-list'));
+        assert.ok(frontendJs.includes('cargarVersionInfo') && frontendJs.includes('initVersionHistoryHandlers'));
     });
 });

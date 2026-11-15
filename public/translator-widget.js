@@ -1,6 +1,28 @@
 (function (global) {
     'use strict';
 
+    function tr(en, es) {
+        if (global.DailyHubI18n && typeof global.DailyHubI18n.pick === 'function') {
+            return global.DailyHubI18n.pick(en, es);
+        }
+        return en;
+    }
+
+    function currentUiLang() {
+        if (global.DailyHubI18n && typeof global.DailyHubI18n.getLang === 'function') {
+            return global.DailyHubI18n.getLang();
+        }
+        return 'en';
+    }
+
+    function trServer(msg) {
+        if (!msg) return '';
+        if (global.DailyHubI18n && typeof global.DailyHubI18n.translateServerMessage === 'function') {
+            return global.DailyHubI18n.translateServerMessage(msg);
+        }
+        return String(msg);
+    }
+
     /**
      * Reusable Bilingual Translator Controller shared by:
      * 1) Inline Language Studio card (#languageTranslatorPanel)
@@ -66,8 +88,8 @@
                         data: null,
                         isNetworkIssue: res.status >= 500 || res.status === 0,
                         errorMessage: rawText && rawText.length < 220 && !/<[a-z][\s\S]*>/i.test(rawText)
-                            ? rawText
-                            : `Error del servidor (HTTP ${res.status}). Reintenta.`
+                            ? trServer(rawText)
+                            : tr(`Server error (HTTP ${res.status}). Please retry.`, `Error del servidor (HTTP ${res.status}). Reintenta.`)
                     };
                 }
                 try {
@@ -80,7 +102,10 @@
                         status: res.status,
                         data: null,
                         isNetworkIssue: true,
-                        errorMessage: 'Respuesta incompleta del servidor por posible corte de red.'
+                        errorMessage: tr(
+                            'Incomplete response from server due to a possible network interruption.',
+                            'Respuesta incompleta del servidor por posible corte de red.'
+                        )
                     };
                 }
             })
@@ -95,7 +120,10 @@
                         status: 0,
                         data: null,
                         isNetworkIssue: true,
-                        errorMessage: 'Tiempo de espera agotado (red lenta o corte temporal). Reintenta.'
+                        errorMessage: tr(
+                            'Request timed out (slow network or temporary cut). Please retry.',
+                            'Tiempo de espera agotado (red lenta o corte temporal). Reintenta.'
+                        )
                     };
                 }
                 return {
@@ -104,7 +132,10 @@
                     status: 0,
                     data: null,
                     isNetworkIssue: true,
-                    errorMessage: 'Sin conexión estable con el servidor. Revisa tu Wi-Fi o datos móviles e intenta de nuevo.'
+                    errorMessage: tr(
+                        'No stable connection to the server. Check your Wi-Fi or mobile data and try again.',
+                        'Sin conexión estable con el servidor. Revisa tu Wi-Fi o datos móviles e intenta de nuevo.'
+                    )
                 };
             })
             .finally(() => {
@@ -121,7 +152,7 @@
         const sp = document.createElement('span');
         sp.className = 'spinner-circle';
         const txt = document.createElement('span');
-        txt.textContent = message || 'Traduciendo...';
+        txt.textContent = message || tr('Translating...', 'Traduciendo...');
         wrap.append(sp, txt);
         return wrap;
     }
@@ -132,9 +163,9 @@
         box.className = 'ai-network-fallback';
 
         const h = document.createElement('strong');
-        h.textContent = `⚠️ ${title || 'Error temporal de conexión'}`;
+        h.textContent = `⚠️ ${title || tr('Temporary connection error', 'Error temporal de conexión')}`;
         const p = document.createElement('small');
-        p.textContent = message || 'No se pudo completar la traducción.';
+        p.textContent = message || tr('Could not complete the translation.', 'No se pudo completar la traducción.');
 
         const actions = document.createElement('div');
         actions.className = 'ai-network-fallback-actions';
@@ -142,7 +173,7 @@
             const btnRetry = document.createElement('button');
             btnRetry.type = 'button';
             btnRetry.className = 'btn-primary btn-small';
-            btnRetry.textContent = '🔄 Reintentar';
+            btnRetry.textContent = tr('🔄 Retry', '🔄 Reintentar');
             btnRetry.addEventListener('click', onRetry);
             actions.appendChild(btnRetry);
         }
@@ -151,7 +182,7 @@
         container.hidden = false;
     }
 
-    function defaultButtonLock(btn, fn, { loadingText = 'Translating...' } = {}) {
+    function defaultButtonLock(btn, fn, { loadingText = tr('Translating...', 'Traduciendo...') } = {}) {
         if (!btn) return Promise.resolve().then(fn);
         const origText = btn.textContent;
         btn.disabled = true;
@@ -195,13 +226,13 @@
 
         const dirBadge = document.createElement('span');
         dirBadge.className = 'lang-ai-badge';
-        dirBadge.textContent = `${data.directionLabel || data.direction || 'Translation'}`;
+        dirBadge.textContent = `${data.directionLabel || data.direction || tr('Translation', 'Traducción')}`;
 
         const engBadge = document.createElement('span');
         engBadge.className = 'lang-ai-badge';
         engBadge.textContent = data.engine === 'gemini'
             ? `🤖 Gemini (${data.model || 'gemini-2.5-flash'})`
-            : '⚡ Instant Local Dictionary (0 MB RAM)';
+            : tr('⚡ Instant Local Dictionary (0 MB RAM)', '⚡ Diccionario Local Instantáneo (0 MB RAM)');
 
         headRow.append(dirBadge, engBadge);
         resultBox.appendChild(headRow);
@@ -213,15 +244,19 @@
         mainCard.className = 'lang-translator-card';
         const mainLbl = document.createElement('small');
         mainLbl.className = 'muted-text';
-        mainLbl.textContent = data.partOfSpeech ? `Translation (${data.partOfSpeech})` : 'Translation';
+        mainLbl.textContent = data.partOfSpeech
+            ? tr(`Translation (${data.partOfSpeech})`, `Traducción (${data.partOfSpeech})`)
+            : tr('Translation', 'Traducción');
         const mainVal = document.createElement('div');
         mainVal.className = 'lang-translator-main-value';
+        mainVal.setAttribute('data-no-i18n', 'true');
         mainVal.textContent = data.translatedText || '';
         mainCard.append(mainLbl, mainVal);
         if (data.romanization) {
             const rom = document.createElement('div');
             rom.className = 'lang-translator-rom';
-            rom.textContent = `Pronunciación / Romanization: ${data.romanization}`;
+            rom.setAttribute('data-no-i18n', 'true');
+            rom.textContent = `${tr('Pronunciation / Romanization', 'Pronunciación / Romanización')}: ${data.romanization}`;
             mainCard.appendChild(rom);
         }
         grid.appendChild(mainCard);
@@ -231,20 +266,23 @@
             esCard.className = 'lang-translator-card';
             const esLbl = document.createElement('small');
             esLbl.className = 'muted-text';
-            esLbl.textContent = 'Significado y explicación en Español';
+            esLbl.textContent = tr('Meaning & Explanation', 'Significado y explicación en Español');
             const esVal = document.createElement('div');
             esVal.className = 'lang-translator-main-value';
+            esVal.setAttribute('data-no-i18n', 'true');
             esVal.textContent = data.spanishMeaning || data.translatedText || '';
             esCard.append(esLbl, esVal);
 
             if (data.englishBridge && data.direction !== 'ko_en') {
                 const bridge = document.createElement('small');
-                bridge.textContent = `English bridge: ${data.englishBridge}`;
+                bridge.setAttribute('data-no-i18n', 'true');
+                bridge.textContent = `${tr('English bridge', 'Puente en inglés')}: ${data.englishBridge}`;
                 esCard.appendChild(bridge);
             }
             if (data.explanationEs) {
                 const exp = document.createElement('small');
                 exp.className = 'muted-text';
+                exp.setAttribute('data-no-i18n', 'true');
                 exp.textContent = data.explanationEs;
                 esCard.appendChild(exp);
             }
@@ -256,13 +294,15 @@
         if (data.literalMeaning) {
             const lit = document.createElement('small');
             lit.className = 'muted-text';
+            lit.setAttribute('data-no-i18n', 'true');
             lit.textContent = `Literal: ${data.literalMeaning}`;
             resultBox.appendChild(lit);
         }
 
         if (Array.isArray(data.alternatives) && data.alternatives.length) {
             const alts = document.createElement('small');
-            alts.textContent = `Otras formas / matices: ${data.alternatives.join(' · ')}`;
+            alts.setAttribute('data-no-i18n', 'true');
+            alts.textContent = `${tr('Other forms / nuances', 'Otras formas / matices')}: ${data.alternatives.join(' · ')}`;
             resultBox.appendChild(alts);
         }
 
@@ -274,7 +314,8 @@
             if (exText) {
                 const ex = document.createElement('small');
                 ex.className = 'muted-text';
-                ex.textContent = `Ejemplo: ${exText}`;
+                ex.setAttribute('data-no-i18n', 'true');
+                ex.textContent = `${tr('Example', 'Ejemplo')}: ${exText}`;
                 resultBox.appendChild(ex);
             }
         }
@@ -282,7 +323,7 @@
         if (data.autoSwitchedNote) {
             const note = document.createElement('small');
             note.className = 'muted-text';
-            note.textContent = `ℹ️ ${data.autoSwitchedNote}`;
+            note.textContent = `ℹ️ ${trServer(data.autoSwitchedNote)}`;
             resultBox.appendChild(note);
         }
 
@@ -291,14 +332,14 @@
             warnRow.className = 'lang-translator-fallback-hint';
             const warn = document.createElement('small');
             warn.className = 'muted-text';
-            warn.textContent = `⚠️ ${data.fallbackReason}`;
+            warn.textContent = `⚠️ ${trServer(data.fallbackReason)}`;
             warnRow.appendChild(warn);
 
             if (/Gemini|GEMINI_API_KEY|404|401|403/i.test(String(data.fallbackReason))) {
                 const cfgBtn = document.createElement('button');
                 cfgBtn.type = 'button';
                 cfgBtn.className = 'btn-secondary btn-small';
-                cfgBtn.textContent = '⚙️ Configurar / Probar IA en Settings';
+                cfgBtn.textContent = tr('⚙️ Configure / Test AI in Settings', '⚙️ Configurar / Probar IA en Settings');
                 cfgBtn.addEventListener('click', () => {
                     if (typeof onOpenAiSettings === 'function') {
                         onOpenAiSettings();
@@ -321,7 +362,7 @@
             const sendBtn = document.createElement('button');
             sendBtn.type = 'button';
             sendBtn.className = 'btn-secondary btn-small';
-            sendBtn.textContent = '📝 Send to Vocabulary Study Form';
+            sendBtn.textContent = tr('📝 Send to Vocabulary Study Form', '📝 Enviar al Formulario de Estudio');
             sendBtn.addEventListener('click', () => onSendToStudyForm(data));
             footer.appendChild(sendBtn);
         }
@@ -329,11 +370,16 @@
         const copyBtn = document.createElement('button');
         copyBtn.type = 'button';
         copyBtn.className = 'btn-secondary btn-small';
-        copyBtn.textContent = '📋 Copy Translation';
+        copyBtn.textContent = tr('📋 Copy Translation', '📋 Copiar Traducción');
         copyBtn.addEventListener('click', async () => {
             const txt = data.translatedText || '';
             const ok = await copyTextFallback(txt);
-            notify(ok ? 'ok' : 'info', ok ? 'Translation copied to clipboard.' : `Translation: ${txt}`);
+            notify(
+                ok ? 'ok' : 'info',
+                ok
+                    ? tr('Translation copied to clipboard.', 'Traducción copiada al portapapeles.')
+                    : `${tr('Translation', 'Traducción')}: ${txt}`
+            );
         });
         footer.appendChild(copyBtn);
 
@@ -341,10 +387,13 @@
             const copyRomBtn = document.createElement('button');
             copyRomBtn.type = 'button';
             copyRomBtn.className = 'btn-secondary btn-small';
-            copyRomBtn.textContent = '🔤 Copy Romanization';
+            copyRomBtn.textContent = tr('🔤 Copy Romanization', '🔤 Copiar Romanización');
             copyRomBtn.addEventListener('click', async () => {
                 const ok = await copyTextFallback(data.romanization);
-                notify(ok ? 'ok' : 'info', ok ? 'Romanization copied.' : data.romanization);
+                notify(
+                    ok ? 'ok' : 'info',
+                    ok ? tr('Romanization copied.', 'Romanización copiada.') : data.romanization
+                );
             });
             footer.appendChild(copyRomBtn);
         }
@@ -407,7 +456,10 @@
             if (!btnRun) return;
             const text = (inputEl && inputEl.value ? inputEl.value : '').trim();
             if (!text) {
-                notify('err', 'Type a word, phrase, or lyric line to translate.');
+                notify('err', tr(
+                    'Type a word, phrase, or lyric line to translate.',
+                    'Escribe una palabra, frase o línea de canción para traducir.'
+                ));
                 if (inputEl) inputEl.focus();
                 return;
             }
@@ -421,13 +473,16 @@
 
             if (resultBox) {
                 resultBox.hidden = false;
-                resultBox.replaceChildren(createLoadingFn('Traduciendo...', 'sm'));
+                resultBox.replaceChildren(createLoadingFn(tr('Translating...', 'Traduciendo...'), 'sm'));
             }
 
             buttonLockFn(btnRun, async () => {
                 const resp = await fetchJsonFn('/api/language/translate', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-UI-Lang': currentUiLang()
+                    },
                     body: JSON.stringify({ text, direction, mode, context })
                 }, { timeoutMs: 26000, externalSignal: activeController ? activeController.signal : null });
 
@@ -435,18 +490,19 @@
 
                 if (resp.status === 401 || resp.status === 403) {
                     if (typeof onUnauthorized === 'function') onUnauthorized(resp);
-                    notify('err', resp.errorMessage || 'Session required. Sign in on Daily Hub.');
+                    notify('err', trServer(resp.errorMessage) || tr('Session required. Sign in on Daily Hub.', 'Sesión requerida. Inicia sesión en Daily Hub.'));
                     return;
                 }
 
                 if (!resp.ok || !resp.data) {
+                    const errMsg = trServer(resp.errorMessage);
                     renderFallbackFn(resultBox, {
-                        title: 'No se pudo completar la traducción por red',
-                        message: resp.errorMessage,
+                        title: tr('Could not complete translation over the network', 'No se pudo completar la traducción por red'),
+                        message: errMsg,
                         sampleText: text,
                         onRetry: triggerTranslate
                     });
-                    notify('err', resp.errorMessage);
+                    notify('err', errMsg);
                     return;
                 }
 
@@ -460,8 +516,20 @@
                     onOpenAiSettings,
                     onToast: notify
                 });
-            }, { loadingText: 'Translating...' });
+            }, { loadingText: tr('Translating...', 'Traduciendo...') });
         };
+
+        if (global.DailyHubI18n && typeof global.DailyHubI18n.onChange === 'function') {
+            global.DailyHubI18n.onChange(() => {
+                if (lastTranslation && resultBox && !resultBox.hidden) {
+                    renderTranslationCard(resultBox, lastTranslation, {
+                        onSendToStudyForm: onSendToStudyForm ? () => onSendToStudyForm(lastTranslation) : null,
+                        onOpenAiSettings,
+                        onToast: notify
+                    });
+                }
+            });
+        }
 
         if (btnRun) btnRun.addEventListener('click', triggerTranslate);
 
@@ -485,7 +553,10 @@
         if (btnPaste) {
             btnPaste.addEventListener('click', async () => {
                 if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
-                    notify('info', 'Presiona Ctrl+V en el cuadro de texto para pegar (HTTP restringe lectura automática del portapapeles).');
+                    notify('info', tr(
+                        'Press Ctrl+V inside the text box to paste (HTTP restricts automatic clipboard reading).',
+                        'Presiona Ctrl+V en el cuadro de texto para pegar (HTTP restringe lectura automática del portapapeles).'
+                    ));
                     if (inputEl) inputEl.focus();
                     return;
                 }
@@ -495,11 +566,11 @@
                         inputEl.value = clip.trim().slice(0, 4000);
                         triggerTranslate();
                     } else {
-                        notify('info', 'Clipboard is empty — paste with Ctrl+V.');
+                        notify('info', tr('Clipboard is empty — paste with Ctrl+V.', 'Portapapeles vacío — pega con Ctrl+V.'));
                         if (inputEl) inputEl.focus();
                     }
                 } catch (_) {
-                    notify('info', 'Browser denied clipboard read — paste with Ctrl+V here.');
+                    notify('info', tr('Browser denied clipboard read — paste with Ctrl+V here.', 'El navegador bloqueó el acceso al portapapeles — pega aquí con Ctrl+V.'));
                     if (inputEl) inputEl.focus();
                 }
             });
@@ -527,7 +598,10 @@
                     context: contextEl ? contextEl.value.trim() : ''
                 });
                 if (!opened) {
-                    notify('err', 'Tu navegador bloqueó la ventana emergente. Permite popups para este sitio.');
+                    notify('err', tr(
+                        'Your browser blocked the popup window. Please allow popups for this site.',
+                        'Tu navegador bloqueó la ventana emergente. Permite popups para este sitio.'
+                    ));
                 }
             });
         }

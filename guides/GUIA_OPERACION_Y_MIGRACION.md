@@ -8,7 +8,7 @@
 
 | Tarea | Sección |
 | :--- | :--- |
-| Usar paso a paso cada pantalla (Mood, Sueño, Diario, Traductor `Alt+T`, Música PC/Celular, Agenda, ntfy) | [Manual de Usuario](./MANUAL_DE_USUARIO.md) |
+| Usar paso a paso cada pantalla (Mood, Sueño, Diario, Traductor `Alt+T`, Música PC/Celular, idioma EN/ES, Guía Visual) | [Manual de Usuario](./MANUAL_DE_USUARIO.md) |
 | Ver estado de `.env` / `.env.enc` en mi PC | [1.1 Ver estado actual](#11-ver-estado-actual-de-la-bóveda) |
 | Consultar una variable local sin crear `.env` en disco | [1.2 Consultar variables solo en RAM](#12-consultar-variables-sin-escribir-env-en-disco) |
 | Ver completo o editar `.env` y volver a cifrarlo | [1.3 Ver completo, editar y re-sellar](#13-ver-completo-editar-y-re-sellar) |
@@ -21,7 +21,7 @@
 | Resolver errores típicos (`winpty`, permisos SSH, `main`) | [7. Solución rápida de problemas](#7-solución-rápida-de-problemas) |
 | Activar notificaciones en celular (`ntfy`), Jira y recordatorios | [8. Notificaciones Móviles, Agenda Jira y Settings](#8-notificaciones-móviles-agenda-jira-y-settings) |
 | Confirmar seguridad de cuenta YouTube Music (cero contraseñas/tokens) | [9. Seguridad en YouTube Music (Cero Credenciales)](#9-seguridad-en-youtube-music-cero-credenciales) |
-| Cambiar nombre del repo en GitHub/PC y reiniciar Python local | [10. Renombrar Repositorio y Reiniciar Python Local](#10-renombrar-repositorio-y-reiniciar-python-local) |
+| Cambiar nombre del repo en GitHub/PC, comportamiento al reiniciar Windows y reiniciar Python local | [10. Renombrar Repositorio, Autoinicio y Reiniciar Python Local](#10-renombrar-repositorio-autoinicio-y-reiniciar-python-local) |
 | Verificar cifrado HTTP en EC2 (`tcpdump`, integridad HMAC y `GEMINI_API_KEY`) | [11. Verificación del Túnel Cifrado e IA Gemini en EC2](#11-verificación-del-túnel-cifrado-e-ia-gemini-en-ec2) |
 
 ---
@@ -96,14 +96,16 @@ El script `sincronitation/sincronizador.py` detecta automáticamente `.env` o `.
 2. **English Learning Notebook (`english-notes/English_Learning_Notebook.docx`, sin contraseña):** carpeta ignorada por Git; ordena tus registros en **4 apartados** (*Glossary & New Words*, *Grammar & Usage Notes*, *Phrasal Verbs* y *Songs & Music Study* para **Learn with Music**) y regenera automáticamente la **Tabla de Contenidos** al inicio del archivo en cada registro desde `/api/pull-english`. Su ruta es **relativa al proyecto**, por lo que **no requiere modificar `.env`, `.env.enc` ni rutas al migrar de instancia EC2**.
    *(En **Learn with Music**, el botón **Find in YouTube Music** abre la búsqueda en tu propia sesión iniciada de YouTube Music y al pegar la URL de la canción se autocompletan título y artista. Si algún día quieres resultados embebidos dentro de la app, puedes añadir opcionalmente la variable `YOUTUBE_API_KEY` en tu entorno del servidor, sin ser obligatoria).*
 
-### Variables que utiliza tu `.env` / `.env.enc` local
+### Variables que utiliza tu `.env` / `.env.enc` local y sobrescritura automática desde GitHub Variables
+> **Automatización sin re-editar `.env.enc`:** si cambias de carpeta tu archivo de **Journal (`WORD_FILE_PATH`)** o tu **Notebook de Inglés (`ENGLISH_WORD_FILE_PATH`)** (o `YT_DLP_PATH` / `EC2_HOST`), solo actualiza la variable en **GitHub → Settings → Secrets and variables → Actions → Variables**. `sincronizador.py` lee automáticamente ambas rutas cada 5 minutos desde GitHub API (o al instante si el archivo ya no está en la ruta previa) con respaldo local en `.last_word_paths.json`, aceptando tanto ruta completa `.docx` como ruta de carpeta.
+
 | Variable | Obligatoria | Para qué sirve |
 | :--- | :---: | :--- |
-| `WORD_FILE_PATH` | Sí | Ruta local completa hacia tu `.docx` de Journal diario (ej. OneDrive / Documentos) |
+| `WORD_FILE_PATH` | Sí *(o en GitHub Vars)* | Ruta local Windows (`.docx` o carpeta) hacia tu **Journal diario** (la GitHub Variable sobrescribe `.env.enc` si está definida) |
 | `WORD_PASSWORD` | Sí | Contraseña para abrir y guardar únicamente tu `.docx` de Journal diario |
-| `ENGLISH_WORD_FILE_PATH` | Opcional | Solo si quisieras mover el notebook de inglés fuera de `english-notes/English_Learning_Notebook.docx` |
+| `ENGLISH_WORD_FILE_PATH` | Opcional | Ruta `.docx` o carpeta para tu notebook de inglés si lo mueves fuera de `english-notes/English_Learning_Notebook.docx` (actualizable desde GitHub Variables) |
 | `JOURNAL_SECRET_KEY` | Sí | Clave E2EE de exactamente **32 bytes UTF-8** (usada tanto por Journal Notes como por English Notebook en el navegador) |
-| `GITHUB_TOKEN` | Recomendada | Token personal de GitHub (solo lectura de Actions Variables) para autodetectar cambios de `EC2_HOST` y `PORT` |
+| `GITHUB_TOKEN` | Recomendada | Token personal de GitHub (solo lectura de Actions Variables) para autodetectar cambios de `EC2_HOST`, `PORT`, `WORD_FILE_PATH`, `ENGLISH_WORD_FILE_PATH` y `YT_DLP_PATH` |
 | `GITHUB_REPO` | Si usas token | Repositorio en formato `Flax64/mood-tracker` (valor por defecto si se omite) |
 | `PORT` | Opcional | Puerto respaldo si no está en GitHub Variables (por defecto `3000`) |
 | `URL_AWS` / `AWS_HOST` | Solo sin token | Respaldo manual (`http://IP:3000/api/pull-text` o solo la IP; para inglés sustituye `/api/pull-english` solo) si no configuras `GITHUB_TOKEN` |
@@ -122,18 +124,25 @@ python sincronitation/sincronizador.py --probar-autoinicio
 python sincronitation/sincronizador.py --quitar-autoinicio
 ```
 
-### Cómo reiniciar, ejecutar o revisar el log del sincronizador
+### Cómo reiniciar, ejecutar o revisar el log del sincronizador (y qué pasa con los archivos Word)
+
+> **¿Se crea automáticamente el Word de notas de idiomas si no existe?**
+> - **`English_Learning_Notebook.docx`** (`ENGLISH_WORD_FILE_PATH` o `english-notes/English_Learning_Notebook.docx`): **Sí.** Si la carpeta o el `.docx` no existen, la función `_asegurar_documento_ingles()` en `sincronizador.py` los crea automáticamente con portada, **Tabla de Contenidos** y las 4 secciones `Heading 1` (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs` y `4. Songs & Music Study`).
+> - **Word de Diario protegido con contraseña (`WORD_FILE_PATH`)**: **No.** Por seguridad de contraseña (`WORD_PASSWORD`), `agregar_texto_a_word()` exige que el archivo `.docx` ya exista (si falta, registra el error en `sincronitation/historial.log` sin sobrescribir ni crear archivos sin clave).
+
 ```bash
-# 1. Ver y detener cualquier proceso antiguo de sincronizador.py en segundo plano
+# 1. Detener cualquier instancia previa de sincronizador.py / pythonw.exe en Windows (Git Bash)
 powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; "Detenido PID: $($_.ProcessId)" }'
 
-# 2. Volver a iniciarlo en segundo plano (sin ventana) usando el autoinicio DPAPI
-powershell.exe -NoProfile -Command 'Start-Process -FilePath pythonw -WorkingDirectory "<RUTA_DEL_REPOSITORIO>" -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden'
+# 2. Volver a iniciarlo en segundo plano (sin ventana) desde la carpeta actual usando DPAPI
+powershell.exe -NoProfile -Command 'Start-Process -FilePath pythonw.exe -WorkingDirectory (Get-Location).Path -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden'
 
-# (O ejecutarlo visible en terminal:)
-python sincronitation/sincronizador.py
+# (Alternativa en PowerShell directo:)
+# Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+# Start-Process -FilePath pythonw.exe -WorkingDirectory "C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub" -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden
 
-# 3. Consultar los últimos eventos del sincronizador
+# 3. Verificar que quedó corriendo y leer los últimos eventos del log
+powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | Select-Object ProcessId, CommandLine'
 tail -n 30 sincronitation/historial.log
 ```
 
@@ -161,10 +170,12 @@ python sincronitation/yt_lyrics_helper.py --clean-file subtitulos.vtt --clip
 * En la app web (**Learn with Music -> Song Study Notes**), también puedes importar archivos `.srt`, `.vtt`, `.lrc` o `.txt` directamente en el navegador con **`📥 Import .srt/.vtt/.lrc`** o limpiar timestamps pegados con **`🧹 Clean Timestamps`**.
 * *(Nota técnica: muchos "Art Tracks" automáticos de `music.youtube.com` no contienen pista CC; en ese caso el comando indica qué subtítulos faltan y puedes apuntar al M/V oficial o Lyric Video en YouTube).*
 
-### 2.2 Fijar el Traductor como Ventana / Extensión de Escritorio o Celular
-1. Abre **`🌐 Quick Translator`** (botón flotante o atajo **`Alt + T`**) y presiona **`🪟 Window`** (o accede directo a `http://TU_IP:3000/translator-popup.html`).
-2. En **Chrome / Edge (Windows)**: clic en **`⋮` → Guardar y compartir → Crear acceso directo** y marca **Abrir como ventana**.
-3. En **Chrome (Android / OPPO A79)**: menú **`⋮` → Agregar a pantalla principal** para usarlo como mini app independiente mientras ves YouTube o lees PDFs.
+### 2.2 Movilidad del Cajón Flotante y Extensión de Escritorio o Celular
+1. Abre **`🌐 Quick Translator`** (botón flotante inferior derecho, menú lateral, botón **`🌐 Traducir`** al seleccionar letras o atajo **`Alt + T`**).
+2. Para no tapar tu vista mientras lees o repasas canciones, **arrastra la cabecera (`⋮⋮`)** hacia cualquier parte de la pantalla (la posición se guarda automáticamente y se restablece con **`↺`**).
+3. Para usar la mini ventana externa, presiona **`🪟 Window`** (o accede directo a `http://TU_IP:3000/translator-popup.html`):
+   - En **Chrome / Edge (Windows)**: clic en **`⋮` → Guardar y compartir → Crear acceso directo** y marca **Abrir como ventana**.
+   - En **Chrome (Android / OPPO A79)**: menú **`⋮` → Agregar a pantalla principal** para usarlo como mini app independiente junto a YouTube o PDFs.
 
 ---
 
@@ -202,7 +213,7 @@ El servidor EC2 **no conserva `.env` en disco** (`SEAL_ENV_AFTER_DEPLOY=true`): 
 
 ### 4.1 Consultar configuración en GitHub
 Ve en GitHub a **Settings → Secrets and variables → Actions**:
-* **Variables (visibles en claro):** `EC2_HOST`, `EC2_USER`, `PORT`, `TZ`, `DB_HOST`, `DB_USER`, `DB_NAME`, `RCLONE_REMOTE`, `RCLONE_BACKUP_DIR`, `BACKUP_CRON_SCHEDULE` (`30 3 * * *`), `SEAL_ENV_AFTER_DEPLOY` (`true`).
+* **Variables (visibles en claro):** `EC2_HOST`, `EC2_USER`, `PORT`, `TZ`, `DB_HOST`, `DB_USER`, `DB_NAME`, `RCLONE_REMOTE`, `RCLONE_BACKUP_DIR`, `BACKUP_CRON_SCHEDULE` (`30 3 * * *`), `SEAL_ENV_AFTER_DEPLOY` (`true`), además de las variables opcionales del sincronizador Windows: `WORD_FILE_PATH`, `ENGLISH_WORD_FILE_PATH` y `YT_DLP_PATH`.
 * **Secrets (por seguridad GitHub nunca muestra su valor, solo permite reemplazarlos):** `EC2_SSH_KEY`, `DB_PASS`, `ADMIN_EMAIL`, `ADMIN_SECRET`, `WORD_PASSWORD`, `JOURNAL_SECRET_KEY`, `SMTP_USER`, `SMTP_PASS`, `RCLONE_CONF_B64`.
 * Si no creas `APP_BASE_URL`, `deploy.yml` calcula automáticamente `http://${EC2_HOST}:${PORT}` en cada despliegue (solo créala si conectas un dominio propio HTTPS).
 
@@ -398,9 +409,32 @@ El módulo **🎵 Learn with Music** fue diseñado bajo arquitectura **Zero-Cred
 
 ---
 
-## 10. Renombrar Repositorio y Reiniciar Python Local
+## 10. Renombrar Repositorio, Autoinicio y Reiniciar Python Local
 
 El pipeline [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) obtiene el nombre del repositorio dinámicamente desde `${{ github.repository }}` y actualiza automáticamente el `origin` remoto dentro de EC2 (`git remote set-url origin ...`), manteniendo intacto el directorio interno `~/projects/mood-tracker` en el servidor para **no perder ni duplicar** tu volumen de base de datos MySQL en Docker ni romper el `cron` de respaldos.
+
+### ¿Qué pasa al apagar o reiniciar tu PC con Windows?
+1. Al iniciar sesión en Windows, la carpeta de inicio (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\iniciar_diario.vbs`) lanza automáticamente `pythonw.exe` en segundo plano **sin pedir contraseña**, porque la clave maestra se descifra en memoria mediante **Windows DPAPI** (`%LOCALAPPDATA%\mood-tracker\vault.dpapi`).
+2. **Importante sobre la ruta de `iniciar_diario.vbs`:** si renombraste o moviste la carpeta local de `mood-tracker` a `personal-daily-hub`, asegúrate de actualizar ese script `.vbs` (el siguiente comando lo corrige de inmediato y puedes verificar su contenido):
+   ```powershell
+   # Ver qué ruta tiene actualmente tu script de Inicio de Windows:
+   Get-Content "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\iniciar_diario.vbs"
+
+   # Actualizar la ruta de mood-tracker -> personal-daily-hub (ejecutar 1 sola vez en PowerShell):
+   @'
+   Set WshShell = CreateObject("WScript.Shell")
+   WshShell.CurrentDirectory = "C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub"
+   WshShell.Run "pythonw.exe ""C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub\sincronitation\sincronizador.py""", 0, False
+   '@ | Set-Content -Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\iniciar_diario.vbs" -Encoding ASCII
+   ```
+3. **¿Se actualiza solo al apagar o reiniciar la PC?**
+   - **Lo que SÍ ocurre automáticamente tras apagar/reiniciar la PC:** Windows vuelve a iniciar `sincronizador.py` de forma silenciosa mediante `iniciar_diario.vbs` + **DPAPI** (`%LOCALAPPDATA%\mood-tracker\vault.dpapi`, sin dejar contraseñas planas en disco ni pedir clave manual), y `sincronizador.py` **actualiza automáticamente en caliente** las variables remotas desde **GitHub Actions Variables API** al arrancar y cada 5 minutos (`EC2_HOST`, `PORT`, `WORD_FILE_PATH`, `ENGLISH_WORD_FILE_PATH` y `YT_DLP_PATH`), retomando de inmediato el vaciado E2EE de tus notas pendientes.
+   - **Lo que NO se actualiza solo sin tu acción:** `sincronitation/sincronizador.py` está en `.gitignore` para proteger tu bitácora y configuración local en Windows, así que al reiniciar la PC se vuelve a ejecutar la versión que ya tienes en disco. Si descargaste código nuevo del repositorio (`git pull`) o editaste `sincronitation/sincronizador.py`, detén y vuelve a lanzar `pythonw.exe` (Paso 1 y Paso 5) o usa este bloque opcional en `iniciar_diario.vbs` si quieres que cada reinicio de Windows haga `git pull --ff-only` seguro de los archivos rastreados antes de levantar Python:
+   ```vbscript
+   Set WshShell = CreateObject("WScript.Shell")
+   WshShell.CurrentDirectory = "C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub"
+   WshShell.Run "cmd.exe /c git pull --ff-only origin main >NUL 2>&1 & pythonw.exe ""C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub\sincronitation\sincronizador.py""", 0, False
+   ```
 
 Sigue este orden exacto en **Git Bash** para renombrar tanto en GitHub como en tu PC sin interrumpir el pipeline ni dejar ejecutándose una versión vieja de Python:
 
@@ -470,3 +504,20 @@ Además de usar los botones **🔍 Inspect Live Wire Packet** y **⚡ Benchmark 
 - **`RegistrosCrisis`, `RegistrosSleep` y migración:** se crean y actualizan automáticamente al iniciar `server.js` mediante `inicializarTablasSeguridad()` e igualmente están declaradas en `init.sql` (13 tablas totales), garantizando migración sin pérdida de datos en nuevas instancias EC2.
 - **Memoria Persistente (`languageMemory`) + Repertorio (`MusicaCanciones` / `MusicaAlbumes`) + Traductor:** los endpoints `POST /api/language/analyze` y `POST /api/language/translate` consultan en tiempo real tu catálogo de canciones registradas y tu memoria léxica almacenada en `ConfiguracionUsuario`, de modo que tanto el Tutor IA como el Traductor Flotante (`Alt+T` / `/translator-popup.html`) mantienen consistencia terminológica tras migrar de servidor o restaurar respaldos.
 - **Resolución YouTube / YT Music, Puente Cifrado PC ↔ Word y Media Proxy (`yt-dlp` multiplataforma):** `POST /api/english/music/resolve` mantiene detección de álbum/año con `0 MB RAM` extra. Las letras nunca se almacenan en MySQL ni disco EC2: **`POST/GET /api/english/music/pc-jobs`** enlaza cifrado (**E2EE AES-256-CBC + HMAC-SHA256**) con el hilo `pc-music-bridge` de `sincronizador.py` para leer/organizar `English_Learning_Notebook.docx` (Álbum `Heading 2` → Pistas ordenadas `Heading 3` + auto-registro IA) y ejecutar `yt-dlp` en Windows usando `YT_DLP_PATH` (dejando cualquier nota pendiente en RAM EC2 cuando la PC está apagada). Además, `Dockerfile` instala `python3` + `/usr/local/bin/yt-dlp` y `lib/ytdlp-service.js` alimenta el extractor de respaldo en RAM (`storedInDb: false`) y el stream progresivo **`GET /api/english/music/songs/:id/media`** (`stream.pipeline`, sin buffering en disco).
+
+---
+
+## 12. Historial de Versiones y Auto-Versionado por Despliegue (`SemVer 2.0.0`)
+
+Cada despliegue a producción desde `main` (o mediante **Actions → Run workflow**) genera automáticamente una nueva versión siguiendo el estándar **Semantic Versioning 2.0.0 (`MAJOR.MINOR.PATCH`) + Conventional Commits**:
+
+| Prefijo del commit (o selección manual) | Incremento | Ejemplo | Cuándo usarlo |
+| --- | --- | --- | --- |
+| `fix:`, `perf:`, `security:`, `docs:`, `chore:` | **PATCH (`+0.0.1`)** | `1.0.0` → `1.0.1` | Corrección de errores/bugs, parches de seguridad, documentación o ajustes internos |
+| `feat:` / `feat(alcance):` | **MINOR (`+0.1.0`)** | `1.0.1` → `1.1.0` | Nuevas funcionalidades o pantallas retrocompatibles |
+| `BREAKING CHANGE:` o `<tipo>!:` | **MAJOR (`+1.0.0`)** | `1.1.0` → `2.0.0` | Cambios estructurales incompatibles |
+
+### ¿Qué automatiza [`deploy.yml`](../.github/workflows/deploy.yml)?
+1. **Job `release`:** Ejecuta [`scripts/release-version.js`](../scripts/release-version.js) `--apply --github-output`, analiza los commits incluidos desde el tag/despliegue anterior y calcula la siguiente versión exacta.
+2. **Registro persistente:** Actualiza [`package.json`](../package.json), `package-lock.json`, [`version-history.json`](../version-history.json) y [`CHANGELOG.md`](../CHANGELOG.md), crea el commit `chore(release): vX.Y.Z ... [skip ci]` (si la rama permite push directo), etiqueta el repo con `vX.Y.Z` y publica el **GitHub Release**.
+3. **Despliegue sincronizado a EC2:** Pasa `APP_VERSION` y `RELEASE_HISTORY_B64` por el paso SSH antes de reconstruir el contenedor (`docker compose up -d --build`), garantizando que **`GET /api/version`** y el modal **🏷️ Version History** dentro de la app reflejen al instante la versión recién desplegada.

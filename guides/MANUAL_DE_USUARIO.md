@@ -22,6 +22,7 @@
 - [10. Resumen Semanal y Gestión de Acceso a Psiquiatra](#10-resumen-semanal-y-gestión-de-acceso-a-psiquiatra)
 - [11. Configuración, Notificaciones en Celular (ntfy) y Cifrado de Transporte X25519](#11-configuración-notificaciones-en-celular-ntfy-y-cifrado-de-transporte-x25519)
 - [12. Atajos de Teclado Óptimos](#12-atajos-de-teclado-óptimos)
+- [13. Modo Oscuro Permanente, Cambio de Idioma (EN ↔ ES), Guía Visual y Word Automático](#13-modo-oscuro-permanente-cambio-de-idioma-en--es-guía-visual-y-word-automático)
 
 ---
 
@@ -127,17 +128,16 @@ Accede desde **`📖 English Notebook`** (o desde el **Traductor Global `🌐`**
 
 ### 7.1 Traductor Bilingüe Global (Cualquier Pestaña, Alt+T y Ventana tipo Extensión)
 
-Cuando estás leyendo un artículo, viendo un PDF, revisando tu Agenda o estudiando letras y aparece una palabra desconocida en inglés o coreano, tienes **3 formas instantáneas** de traducirla sin perder tu lugar ni abrir otra app:
+Cuando estás leyendo un artículo, viendo un PDF, revisando tu Agenda o estudiando letras y aparece una palabra desconocida en inglés o coreano, el **Traductor Bilingüe (`EN ↔ ES` · `한국어 ↔ EN/ES`)** funciona como una extensión global sin ocupar espacio fijo dentro de *Learn with AI*:
 
-1. **Panel Integrado (en `📖 English Notebook` -> `Learn with Music`):**
-   - El panel **`🌐 Instant Bilingual Translator (Español · English · 한국어)`** ofrece direcciones rápidas (`EN → ES`, `KO → EN`, `KO → ES`, `Auto`, `ES → EN`, `ES → KO`), contexto opcional y botón **`✨ Pop Out Window`** para desprenderlo cuando quieras.
-2. **Botón Flotante `🌐 Translator` + Atajo Global `Alt + T` *(En toda la aplicación)*:**
-   - Disponible en **PC y Celular (OPPO A79)** mediante el botón flotante inferior derecho (**`🌐 Translator`**), el enlace **`🌐 Quick Translator`** de la barra lateral o el ícono **`🌐`** en la barra superior móvil *(solo visible para Admin)*.
-   - **Auto-captura inteligente:** si seleccionas/subrayas una palabra o frase en pantalla y presionas **`Alt + T`** (o tocas `🌐`), el traductor flotante se abre al instante con ese texto ya cargado. También incluye **`📋 Paste`** para pegar del portapapeles con 1 toque.
-3. **Ventana Independiente tipo Extensión (`/translator-popup.html`):**
-   - Haz clic en **`🪟 Window`** (en el traductor flotante) o **`✨ Pop Out Window`** para abrir una mini ventana independiente conectada a tu sesión y tu `Gemini API Key` (si Gemini falla o no hay internet, cae automáticamente al diccionario local `0 MB RAM`).
+1. **Cajón Flotante Movible `🌐 Quick Translator` + Atajo Global `Alt + T` *(En toda la aplicación)*:**
+   - Disponible en **PC y Celular (OPPO A79)** mediante el botón flotante inferior derecho (**`🌐 Translator`**), el enlace **`🌐 Quick Translator`** de la barra lateral, el ícono **`🌐`** en la barra superior móvil *(solo visible para Admin)* o al seleccionar parte de una letra en Música y presionar **`🌐 Traducir`**.
+   - **Auto-captura inteligente:** si seleccionas/subrayas una palabra o frase en pantalla y presionas **`Alt + T`** (o tocas `🌐`), el traductor flotante se abre al instante con ese texto ya cargado. Incluye **`📋 Paste & Translate`**, caja de texto amplia redimensionable con estilo unificado al resto de la app, y selector rápido de dirección y motor (**Auto / Gemini / Local 0 RAM**).
+   - **Ventana movible (sin tapar tu vista):** arrastra el traductor desde su barra superior (**`⋮⋮`**) para colocarlo en cualquier lugar de la pantalla; tu posición se guarda automáticamente en el navegador y puedes volver a la esquina original en cualquier momento con el botón **`↺`**.
+2. **Ventana Independiente tipo Extensión (`/translator-popup.html`):**
+   - Haz clic en **`🪟 Window`** en el cajón flotante para abrir una mini ventana independiente conectada a tu sesión y tu `Gemini API Key` (si Gemini falla o no hay internet, cae automáticamente al diccionario local `0 MB RAM`).
    - **Fijar como extensión / app en Chrome o Edge (Windows / Android):** abre la ventana emergente → menú **`⋮` → Guardar y compartir → Crear acceso directo** marcando **Abrir como ventana** (en Android: **Agregar a pantalla principal**). Así queda fijado en tu barra de tareas o celular como una extensión independiente junto a YouTube, PDFs o Teams.
-   - **Guardar en tu cuaderno:** cualquier resultado muestra IPA/Romanización Hangul, ejemplo y el botón **`📥 Send to Study Form`** (incluso desde la ventana emergente), enviando la palabra y su traducción directo a tu formulario de Word.
+   - **Guardar en tu cuaderno:** cualquier resultado muestra IPA/Romanización Hangul, ejemplo y el botón **`📥 Send to Vocabulary Study Form`** (incluso desde la ventana emergente), enviando la palabra y su traducción directo a tu formulario de Word.
 
 ### 7.2 Cómo configurar la IA de Google Gemini paso a paso
 
@@ -242,7 +242,8 @@ Accede desde **`🗓️ Weekly Agenda`**. Qué poner en cada campo:
 | Campo | Qué ingresar / comportamiento |
 | --- | --- |
 | **Activity type** | `📌 Event (Class / Appointment)` para clases o citas con hora fija, o `☑️ Task / Deliverable (Jira Workflow)` para tareas y entregas con tablero Kanban. |
-| **Category** | `🎓 University` o `👤 Personal` (filtra arriba entre All, University o Personal). |
+| **Category** | `🎓 University` o `👤 Personal` (filtra arriba entre All, University, Personal y clase específica). |
+| **Linked university class** | Visible **solo** al elegir `🎓 University` (oculto y limpiado automáticamente en `👤 Personal`). Vincula tus tareas o entregas con una materia de tu semestre actual (ITS) para que la tarjeta muestre su etiqueta con el nombre de la clase (`🎓 Nombre de la clase`) y permita filtrar la semana por materia. |
 | **Date** & **Time** | Al cambiar la hora en **`Time`**, el sistema **selecciona automáticamente el bloque del día (`Time block`)** (`Morning` 05:00–11:59, `School / University` 12:00–15:59, `Afternoon` 16:00–19:59, `Night` 20:00–04:59). |
 | **Workflow status (Jira)** | `To Do`, `In Progress` o `Done` (avanza estados desde las tarjetas semanales o usa el modo Kanban). |
 | **Title / Activity Tag** & **Description** | Separa el título corto de la descripción detallada. Ambos cuadros cuentan con validación en tiempo real de **ortografía y gramática en inglés estilo Microsoft Word** (subrayado de sugerencias y corrección con un clic). |
@@ -320,7 +321,7 @@ Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes 
 | Dónde estás | Tecla rápida | Qué hace |
 | --- | --- | --- |
 | **Cualquier pantalla de la app *(Global Admin)*** | `Alt + T` | Abre/cierra el **Traductor Rápido Flotante (`🌐`)** y captura automáticamente cualquier palabra o frase que tengas subrayada/seleccionada. |
-| **Traductor Bilingüe (`translatorInput` / `floatTranslatorInput` / `popupTranslatorInput`)** | `Enter` | Traduce al instante (`Shift + Enter` inserta salto de línea). |
+| **Traductor Flotante / Extensión (`floatTranslatorInput` / `popupTranslatorInput`)** | `Enter` | Traduce al instante (`Shift + Enter` inserta salto de línea). |
 | **Traductor Flotante / Modales abiertos** | `Esc` | Cierra el traductor flotante, menús móviles o ventanas modales activas. |
 | **Music Song Finder (`musicYtSearchQuery`)** | `Enter` | Abre/ejecuta la búsqueda de la canción al instante sin soltar el teclado. |
 | **Campo URL de Canción (`musicSongYtUrl`)** | `Enter` | Dispara **Auto-fill** (rellena título, artista y álbum/año desde YouTube/YT Music antes de guardar). |
@@ -331,3 +332,24 @@ Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes 
 | **Motivo de Desvelo (`sleepMotivoDesvelo`)** | `Ctrl + Enter` | Guarda directamente el registro de sueño / desvelo. |
 | **Modal de Ubicación / Link de Maps (`quickLocationInput`)** | `Enter` | Aplica el enlace de Google Maps o coordenadas y recalcula las rutas al instante. |
 | **Formulario de Vacaciones (`vacName`)** | `Enter` | Envía el formulario para añadir el periodo vacacional cuando ya elegiste fechas. |
+
+---
+
+## 13. Modo Oscuro Permanente, Cambio de Idioma (EN ↔ ES), Guía Visual y Word Automático
+
+- **🌙 Modo Oscuro Permanente:** Toda la aplicación (Login, Dashboard, Modales, **Traductor Bilingüe**, Ventana Popup y **Guía Visual**) funciona siempre en **tema oscuro unificado**, evitando cambios bruscos de brillo nocturno.
+- **🌐 Cambio Completo de Idioma (`English` ↔ `Español`):**
+  - Puedes cambiar el idioma completo desde la esquina del panel lateral (`🇺🇸 EN` / `🇲🇽 ES`), la cabecera móvil, el Login, **`⚙️ Settings → Interface Language`** o el selector superior de **`/translator-popup.html`**.
+  - Al cambiar de idioma se traducen menús, botones, tarjetas, fechas, mensajes de confirmación, respuestas del servidor, el **Traductor Global** y las explicaciones de la IA (**Gemini** / motor local), **sin modificar jamás el contenido real de tus notas, canciones o agenda** (`data-no-i18n`).
+- **📖 Guía Visual Interactiva (Sin exceso de texto):**
+  - Si prefieres ver todo rápido y visual sin leer párrafos largos, haz clic en **`📖 Visual Guide`** en la barra lateral, en la tarjeta rápida de **`Home`** o abre `/guia-visual.html`. Incluye mapa de pantallas, flujo gráfico del **Traductor (`Alt+T` / movible)**, esquema visual de seguridad (**E2EE + X25519**) y guía exprés de uso diario.
+- **🏷️ Historial de Versiones Automático (`SemVer 2.0.0`):**
+  - En la esquina inferior del panel lateral verás el botón **`🏷️ Version vX.Y.Z`** (y también dentro de **`⚙️ Settings → Application Version & Release History`**).
+  - Al hacer clic se abre el historial completo de despliegues con su clasificación estándar **Semantic Versioning 2.0.0**:
+    - **PATCH (`+0.0.1`, ej. `1.0.0 → 1.0.1`):** Correcciones de errores (`fix:`), seguridad o mejoras menores.
+    - **MINOR (`+0.1.0`, ej. `1.0.1 → 1.1.0`):** Nuevas funcionalidades (`feat:`).
+    - **MAJOR (`+1.0.0`, ej. `1.1.0 → 2.0.0`):** Cambios incompatibles (`BREAKING CHANGE` / `!:`).
+- **📄 Creación Automática del Word de Idiomas vs Journal:**
+  - **`English_Learning_Notebook.docx` (`ENGLISH_WORD_FILE_PATH` o `english-notes/English_Learning_Notebook.docx`)**: si no existe todavía en esa ruta al enviar o extraer algo, `sincronizador.py` **lo crea automáticamente** junto con su carpeta, portada, **Tabla de Contenidos** y sus 4 secciones (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs`, `4. Songs & Music Study`).
+  - **Journal `.docx` (`WORD_FILE_PATH` con contraseña):** por integridad y seguridad de contraseña, **debe existir previamente** en tu PC (el script no crea ni sobrescribe un `.docx` diario nuevo con contraseña).
+  - Para comandos exactos de **reinicio del Python local** y configuración de **arranque tras apagar/reiniciar tu PC**, consulta la [Guía de Operación, Secciones 2 y 10](./GUIA_OPERACION_Y_MIGRACION.md#10-renombrar-repositorio-autoinicio-y-reiniciar-python-local).
