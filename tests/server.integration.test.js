@@ -3015,6 +3015,50 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             assert.strictEqual(multiHopJson.suggestedModel, 'gemini-flash-latest');
             assert.strictEqual(multiHopJson.availableModels.some(m => m.includes('-tts')), false);
 
+            // 4c. Recuperación ante TimeoutError en primer intento (p.ej. modelo lento / IPv6 stall)
+            global.fetch = async (url) => {
+                const target = String(url);
+                if (target.endsWith('/v1beta/models')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            models: [
+                                { name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] },
+                                { name: 'models/gemini-flash-latest', supportedGenerationMethods: ['generateContent'] }
+                            ]
+                        })
+                    };
+                }
+                if (target.includes('/models/gemini-2.5-pro:generateContent')) {
+                    const err = new Error('The operation was aborted due to timeout');
+                    err.name = 'TimeoutError';
+                    throw err;
+                }
+                if (target.includes('/models/gemini-flash-latest:generateContent')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            candidates: [{ content: { parts: [{ text: 'OK' }] } }]
+                        })
+                    };
+                }
+                const errBody = JSON.stringify({ error: { message: 'Not found' } });
+                return { ok: false, status: 404, text: async () => errBody, json: async () => JSON.parse(errBody) };
+            };
+            const timeoutRecDiag = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/test-gemini',
+                headers: { Cookie: adminCookie },
+                body: { model: 'gemini-2.5-pro' }
+            });
+            assert.strictEqual(timeoutRecDiag.status, 200);
+            const timeoutRecJson = JSON.parse(timeoutRecDiag.body);
+            assert.strictEqual(timeoutRecJson.ok, true);
+            assert.strictEqual(timeoutRecJson.suggestedModel, 'gemini-flash-latest');
+
             // 5. Si Gemini falla completamente con 404 en palabra desconocida, cae a local SIN envenenar languageMemory
             global.fetch = async (url) => {
                 const target = String(url);
