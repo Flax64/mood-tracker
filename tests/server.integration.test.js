@@ -664,6 +664,12 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: song ? 1 : 0 });
                 }
 
+                if (normalized.startsWith('SELECT id, titulo, idioma, yt_music_url, yt_video_id FROM MusicaCanciones WHERE id = ? AND usuario_id = ?')) {
+                    const [songId, uid] = params;
+                    const match = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    return finish(null, match ? [match] : []);
+                }
+
                 if (normalized.startsWith('UPDATE MusicaCanciones SET estado_estudio = ?')) {
                     const [estado, wordSynced, ultimoEstudio, songId, uid] = params;
                     const song = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
@@ -3231,6 +3237,275 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             assert.strictEqual(wguData.suggestedAlbumYear, 2025);
             assert.strictEqual(wguData.embeddable, true);
         } finally {
+            global.fetch = origFetch;
+        }
+    });
+
+    it('soporta puente E2EE en RAM PC <-> EC2 (HMAC), extracción sin BD y streaming media 206 seguro', async () => {
+        const nodeCrypto = require('node:crypto');
+        const ytdlpService = require(path.join(ROOT, 'lib', 'ytdlp-service'));
+        const origExtract = ytdlpService.extractSongLyrics;
+        const origStream = ytdlpService.resolvePlayableMediaStream;
+        const origFetch = global.fetch;
+
+        const signPcBridge = (method, reqPath, encryptedBlob = '') => {
+            const secret = process.env.JOURNAL_SECRET_KEY || process.env.ADMIN_SECRET;
+            const cleanPath = reqPath.split('?')[0];
+            const ts = String(Math.floor(Date.now() / 1000));
+            const bodyHash = nodeCrypto.createHash('sha256').update(encryptedBlob, 'utf8').digest('hex');
+            const canonical = `${method.toUpperCase()}:${cleanPath}:${ts}:${bodyHash}`;
+            const sig = nodeCrypto.createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
+            return { 'X-PC-Timestamp': ts, 'X-PC-Signature': sig };
+        };
+
+        // 1. RBAC: solo admin puede consultar estado yt-dlp
+        const medicoStatus = await request({
+            port,
+            reqPath: '/api/english/music/ytdlp-status',
+            headers: { Cookie: medicoCookie }
+        });
+        assert.strictEqual(medicoStatus.status, 403);
+
+        const adminStatusInitial = await request({
+            port,
+            reqPath: '/api/english/music/ytdlp-status',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(adminStatusInitial.status, 200);
+        const statusInitJson = JSON.parse(adminStatusInitial.body);
+        assert.strictEqual(typeof statusInitJson.available, 'boolean');
+        assert.strictEqual(statusInitJson.jsRuntime, 'node');
+        assert.strictEqual(statusInitJson.pcOnline, false);
+
+        // 2. Registrar canción para extraer letras y probar puente PC / stream
+        const createRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'FOREVER',
+                mainArtist: 'BABYMONSTER',
+                artistType: 'group',
+                albumTitle: 'Drip',
+                albumType: 'album',
+                albumYear: 2024,
+                numeroPista: 7,
+                idioma: 'English + Korean',
+                ytMusicUrl: 'https://www.youtube.com/watch?v=eJCHKjt0MPw'
+            }
+        });
+        assert.strictEqual(createRes.status, 201);
+        const { songId } = JSON.parse(createRes.body);
+        assert.ok(songId);
+
+        ytdlpService.extractSongLyrics = async ({ videoId }) => ({
+            ok: true,
+            videoId,
+            lyrics: 'Forever ever never fade\n영원히 빛나',
+            source: 'yt-dlp:en',
+            language: 'en',
+            ytdlpAvailable: true,
+            availableLangs: ['en', 'ko'],
+            suggestedCommand: `python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=${videoId}" --clip`
+        });
+
+        ytdlpService.resolvePlayableMediaStream = async ({ videoId }) => ({
+            ok: true,
+            videoId,
+            streamUrl: 'https://rr1---sn-test.googlevideo.com/videoplayback?id=forever',
+            contentType: 'video/mp4',
+            headers: { 'User-Agent': 'MockPlayerUA/1.0' }
+        });
+
+        global.fetch = async (url, opts) => {
+            if (String(url).includes('googlevideo.com/videoplayback')) {
+                assert.strictEqual(opts.headers.Range, 'bytes=0-9');
+                return new Response(Buffer.from('0123456789'), {
+                    status: 206,
+                    headers: {
+                        'Content-Type': 'video/mp4',
+                        'Content-Length': '10',
+                        'Content-Range': 'bytes 0-9/100'
+                    }
+                });
+            }
+            return origFetch(url, opts);
+        };
+
+        try {
+            // 3. Extracción fallback sin almacenar en DB ni disco (storedInDb: false)
+            const extractRes = await request({
+                port,
+                method: 'POST',
+                reqPath: `/api/english/music/songs/${songId}/lyrics/extract`,
+                headers: { Cookie: adminCookie },
+                body: {}
+            });
+            assert.strictEqual(extractRes.status, 200);
+            const extJson = JSON.parse(extractRes.body);
+            assert.strictEqual(extJson.ok, true);
+            assert.strictEqual(extJson.storedInDb, false);
+            assert.strictEqual(extJson.source, 'yt-dlp:en');
+            assert.match(extJson.lyrics, /Forever ever never fade/);
+
+            // 4. Catálogo NO expone ni guarda letras en MySQL
+            const catRes = await request({
+                port,
+                reqPath: '/api/english/music/catalog',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(catRes.status, 200);
+            const catData = JSON.parse(catRes.body);
+            const savedSong = catData.songs.find((s) => Number(s.id) === Number(songId));
+            assert.ok(savedSong);
+            assert.strictEqual(savedSong.lyrics_text, undefined);
+            assert.strictEqual(savedSong.lyrics_source, undefined);
+
+            // 5. El endpoint antiguo PUT /lyrics en BD fue retirado
+            const removedPutRes = await request({
+                port,
+                method: 'PUT',
+                reqPath: `/api/english/music/songs/${songId}/lyrics`,
+                headers: { Cookie: adminCookie },
+                body: { lyrics: 'should not persist in DB' }
+            });
+            assert.strictEqual(removedPutRes.status, 404);
+
+            // 6. Puente E2EE Site-to-Site PC <-> EC2 RAM (HMAC + purga inmediata en RAM)
+            const unsignedPoll = await request({
+                port,
+                reqPath: '/api/english/music/pc-jobs/poll?waitMs=0'
+            });
+            assert.strictEqual(unsignedPoll.status, 401);
+
+            const signedEmptyPoll = await request({
+                port,
+                reqPath: '/api/english/music/pc-jobs/poll?waitMs=0',
+                headers: signPcBridge('GET', '/api/english/music/pc-jobs/poll')
+            });
+            assert.strictEqual(signedEmptyPoll.status, 200);
+            assert.deepStrictEqual(JSON.parse(signedEmptyPoll.body).jobs, []);
+
+            // Tras el poll de la PC, ytdlp-status reporta pcOnline: true
+            const adminStatusOnline = await request({
+                port,
+                reqPath: '/api/english/music/ytdlp-status',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(JSON.parse(adminStatusOnline.body).pcOnline, true);
+
+            const medicoPostJob = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/pc-jobs',
+                headers: { Cookie: medicoCookie },
+                body: { encryptedRequest: 'deadbeef:abc' }
+            });
+            assert.strictEqual(medicoPostJob.status, 403);
+
+            const encryptedReqBlob = '00112233445566778899aabbccddeeff:ENCRYPTED_REQUEST_PAYLOAD';
+            const postJobRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/pc-jobs',
+                headers: { Cookie: adminCookie },
+                body: { encryptedRequest: encryptedReqBlob }
+            });
+            assert.strictEqual(postJobRes.status, 201);
+            const postJobJson = JSON.parse(postJobRes.body);
+            assert.strictEqual(postJobJson.ok, true);
+            assert.strictEqual(postJobJson.pcOnline, true);
+            assert.match(postJobJson.jobId, /^[0-9a-f]{32}$/);
+
+            const signedJobPoll = await request({
+                port,
+                reqPath: '/api/english/music/pc-jobs/poll?waitMs=0',
+                headers: signPcBridge('GET', '/api/english/music/pc-jobs/poll')
+            });
+            assert.strictEqual(signedJobPoll.status, 200);
+            const polledJobs = JSON.parse(signedJobPoll.body).jobs;
+            assert.strictEqual(polledJobs.length, 1);
+            assert.strictEqual(polledJobs[0].jobId, postJobJson.jobId);
+            assert.strictEqual(polledJobs[0].encryptedRequest, encryptedReqBlob);
+
+            const encryptedResultBlob = 'ffeeddccbbaa99887766554433221100:ENCRYPTED_LYRICS_RESULT';
+            const unsignedResult = await request({
+                port,
+                method: 'POST',
+                reqPath: `/api/english/music/pc-jobs/${postJobJson.jobId}/result`,
+                body: { encryptedResult: encryptedResultBlob }
+            });
+            assert.strictEqual(unsignedResult.status, 401);
+
+            const signedResult = await request({
+                port,
+                method: 'POST',
+                reqPath: `/api/english/music/pc-jobs/${postJobJson.jobId}/result`,
+                headers: signPcBridge('POST', `/api/english/music/pc-jobs/${postJobJson.jobId}/result`, encryptedResultBlob),
+                body: { encryptedResult: encryptedResultBlob }
+            });
+            assert.strictEqual(signedResult.status, 200);
+
+            const medicoGetJob = await request({
+                port,
+                reqPath: `/api/english/music/pc-jobs/${postJobJson.jobId}`,
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoGetJob.status, 403);
+
+            const adminGetJob = await request({
+                port,
+                reqPath: `/api/english/music/pc-jobs/${postJobJson.jobId}`,
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(adminGetJob.status, 200);
+            const adminJobJson = JSON.parse(adminGetJob.body);
+            assert.strictEqual(adminJobJson.status, 'completed');
+            assert.strictEqual(adminJobJson.encryptedResult, encryptedResultBlob);
+
+            // Al entregarlo al navegador, el trabajo se purga inmediatamente de la RAM EC2
+            const purgedGetJob = await request({
+                port,
+                reqPath: `/api/english/music/pc-jobs/${postJobJson.jobId}`,
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(purgedGetJob.status, 404);
+
+            // 7. Media streaming 206 Range passthrough + RBAC 403
+            const medicoMedia = await request({
+                port,
+                reqPath: `/api/english/music/songs/${songId}/media`,
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoMedia.status, 403);
+
+            const mediaRes = await request({
+                port,
+                reqPath: `/api/english/music/songs/${songId}/media`,
+                headers: { Cookie: adminCookie, Range: 'bytes=0-9' }
+            });
+            assert.strictEqual(mediaRes.status, 206);
+            assert.strictEqual(mediaRes.headers['content-type'], 'video/mp4');
+            assert.strictEqual(mediaRes.headers['accept-ranges'], 'bytes');
+            assert.strictEqual(mediaRes.headers['content-range'], 'bytes 0-9/100');
+            assert.strictEqual(mediaRes.body, '0123456789');
+
+            // 8. Defensa SSRF: URL CDN no permitida debe bloquearse con 502
+            ytdlpService.resolvePlayableMediaStream = async ({ videoId }) => ({
+                ok: true,
+                videoId,
+                streamUrl: 'http://169.254.169.254/latest/meta-data/'
+            });
+            const ssrfRes = await request({
+                port,
+                reqPath: `/api/english/music/songs/${songId}/media`,
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(ssrfRes.status, 502);
+        } finally {
+            ytdlpService.extractSongLyrics = origExtract;
+            ytdlpService.resolvePlayableMediaStream = origStream;
             global.fetch = origFetch;
         }
     });

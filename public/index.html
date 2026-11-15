@@ -1138,6 +1138,13 @@
                                 <button type="button" class="btn-secondary btn-small" id="btnApplyAiToForm" hidden>↘ Fill Study Form</button>
                             </div>
                         </div>
+                        <div class="ai-autosync-bar">
+                            <label class="ai-autosync-toggle">
+                                <input type="checkbox" id="chkAutoSyncQuickAiToWord" checked>
+                                <span>☁️ Registrar respuestas IA automáticamente en Word PC (si está offline queda cifrado E2EE en RAM EC2)</span>
+                            </label>
+                            <span id="quickAiWordSyncHint" class="small-note muted-text" hidden></span>
+                        </div>
                         <div id="langAiResultBox" class="lang-ai-result" hidden></div>
                     </section>
 
@@ -1378,6 +1385,28 @@
 
                             <div id="musicEmbedPlayerBox" class="music-embed-box" hidden></div>
 
+                            <section id="musicLyricsViewerCard" class="music-lyrics-viewer-card" hidden>
+                                <div class="music-lyrics-viewer-head">
+                                    <div class="music-lyrics-viewer-title-wrap">
+                                        <h4>📄 Letra en Word PC (E2EE · 0 KB en BD)</h4>
+                                        <span id="musicLyricsMetaBadge" class="badge-pill">Solo en Word PC</span>
+                                        <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle">⚪ Verificando PC...</span>
+                                    </div>
+                                    <div class="music-lyrics-viewer-actions">
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicExtractLyrics">🎙️ Cargar / Extraer letra (PC yt-dlp)</button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicSaveLyrics">📝 Guardar letra a Word (PC)</button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy">⬇ Pasar a Breakdown / IA</button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateLyricsSel">🌐 Traducir</button>
+                                    </div>
+                                </div>
+                                <div id="musicLyricsAlbumPlaylistBox" class="music-album-tracklist-box" hidden></div>
+                                <textarea id="musicSongLyricsViewer" class="music-lyrics-textarea" rows="8" maxlength="50000"
+                                    placeholder="Presiona '🎙️ Cargar / Extraer letra (PC yt-dlp)' para pedirle a tu PC (vía túnel cifrado E2EE) que lea tu Word o ejecute yt-dlp automáticamente..."></textarea>
+                                <div class="music-lyrics-viewer-foot">
+                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Las letras nunca se guardan en MySQL ni disco de EC2: viven organizadas por álbum/pista en tu Word PC y viajan cifradas E2EE por RAM.</span>
+                                </div>
+                            </section>
+
                             <form id="musicWordNotesForm">
                                 <input type="hidden" id="musicWordSongId" value="">
                                 <div class="form-group">
@@ -1401,6 +1430,13 @@
                                     </div>
                                     <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
                                         placeholder="Paste English, Korean (한국어), or mixed K-Pop lyrics here (or import .srt/.vtt/.lrc from yt-dlp) -> click 'Explain Lyrics & Romanize (AI)' (encrypted E2EE before leaving your browser)..."></textarea>
+                                    <div class="ai-autosync-bar">
+                                        <label class="ai-autosync-toggle">
+                                            <input type="checkbox" id="chkAutoSyncAiToWord" checked>
+                                            <span>☁️ Registrar análisis de IA automáticamente en Word PC ordenado por Álbum/Pista (o en RAM EC2 si PC está offline)</span>
+                                        </label>
+                                        <span id="musicAiWordSyncHint" class="small-note muted-text" hidden></span>
+                                    </div>
                                 </div>
                                 <div id="musicAiBreakdownPanel" class="lang-ai-result" hidden></div>
                                 <div class="music-ai-apply-row" id="musicAiApplyRow" hidden>

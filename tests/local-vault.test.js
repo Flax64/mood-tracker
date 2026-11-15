@@ -333,7 +333,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
         assert.equal(out.specs.pv.section_title, '3. Phrasal Verbs');
         assert.equal(out.specs.pv.heading, 'work out — Hacer ejercicio / resolver');
         assert.equal(out.specs.music.section_title, '4. Songs & Music Study');
-        assert.equal(out.specs.music.heading, 'ROSÉ (feat. Bruno Mars) — APT. [APT.]');
+        assert.equal(out.specs.music.group_heading, 'APT. (Collab Single, 2024)');
+        assert.equal(out.specs.music.heading, 'APT. — ROSÉ (feat. Bruno Mars)');
         assert.equal(out.url_host, 'http://1.2.3.4:3000/api/pull-english');
         assert.equal(out.url_direct, 'http://5.6.7.8:3000/api/pull-english');
     });
@@ -523,5 +524,93 @@ describe('Bóveda local (.env / .env.enc)', () => {
         } finally {
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
+    });
+
+    test('sincronitation/sincronizador.py cifra/descifra E2EE compatible con Node, firma HMAC y organiza Word por Álbum y Pista', () => {
+        if (!fs.existsSync(PY_SYNC)) return;
+        const crypto = require('node:crypto');
+        const secretKey = '0123456789abcdef0123456789abcdef';
+        const samplePayload = JSON.stringify({
+            action: 'load_or_extract_lyrics',
+            songTitle: 'DRIP',
+            lyrics: 'Baby got no chill · 네 맘을 사로잡아'
+        });
+
+        // Cifrado desde Node con formato ivHex:cipherB64 igual que frontend.js
+        const nodeIv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(secretKey, 'utf8'), nodeIv);
+        const nodeEnc = Buffer.concat([cipher.update(samplePayload, 'utf8'), cipher.final()]);
+        const nodeEnvelope = `${nodeIv.toString('hex')}:${nodeEnc.toString('base64')}`;
+
+        const pyCode = [
+            'import hashlib, hmac, json, sys',
+            'sys.path.insert(0, sys.argv[1])',
+            'import sincronizador as sc',
+            'secret = sys.argv[2]',
+            'node_env = sys.argv[3]',
+            'sc.LLAVE_SECRETA = secret.encode("utf-8")',
+            '',
+            '# 1. Interoperabilidad E2EE AES-256-CBC Node -> Python -> Node',
+            'dec_from_node = json.loads(sc.desencriptar_texto(node_env))',
+            'assert dec_from_node["songTitle"] == "DRIP"',
+            'assert "네 맘을 사로잡아" in dec_from_node["lyrics"]',
+            'py_env = sc.encriptar_texto(json.dumps({"ok": True, "source": "word-pc", "lyrics": "Forever ever 빛나"}, ensure_ascii=False))',
+            '',
+            '# 2. Firma HMAC-SHA256 site-to-site PC <-> EC2',
+            'sig_headers = sc._firmar_pc_request("POST", "/api/english/music/pc-jobs/abc/result?foo=1", py_env, secret=secret, timestamp=1700000000)',
+            'body_hash = hashlib.sha256(py_env.encode("utf-8")).hexdigest()',
+            'expected_sig = hmac.new(secret.encode("utf-8"), f"POST:/api/english/music/pc-jobs/abc/result:1700000000:{body_hash}".encode("utf-8"), hashlib.sha256).hexdigest()',
+            'assert sig_headers["X-PC-Timestamp"] == "1700000000"',
+            'assert sig_headers["X-PC-Signature"] == expected_sig',
+            '',
+            '# 3. Organización de Word por Álbum / Lista -> Pista ordenada + fusión sin pérdida',
+            'entry_lyrics = sc.parsear_entrada_ingles(json.dumps({',
+            '  "category": "music", "language": "English + Korean", "song_title": "DRIP",',
+            '  "artists_display": "BABYMONSTER", "album_title": "Drip", "album_type": "Album", "release_year": "2024",',
+            '  "track_number": 2, "lyrics_study": "Line 1\\nLine 2"',
+            '}))',
+            'assert entry_lyrics["track_number"] == 2',
+            'spec1 = sc.formatear_entrada_ingles(entry_lyrics)',
+            'assert spec1["group_heading"] == "Drip (Album, 2024)"',
+            'assert spec1["track_heading"] == "02. DRIP — BABYMONSTER"',
+            'assert sc._clave_grupo_album("Drip") == sc._clave_grupo_album("Drip (Album, 2024)")',
+            'assert sc._clave_orden_pista(1, "CLIK CLAK") < sc._clave_orden_pista(2, "DRIP") < sc._clave_orden_pista(None, "Alpha")',
+            '',
+            '# 4. Reconstrucción desde Word y fusión automática con análisis de IA (append_study_fields=True)',
+            'word_lines = [f"{ln[\'label\']}{ln[\'text\']}" for ln in spec1["lines"]]',
+            'parsed_back = sc._extraer_campos_bloque_word(word_lines, spec1["track_heading"])',
+            'assert parsed_back["lyrics_study"] == "Line 1\\nLine 2"',
+            'assert parsed_back["track_number"] == 2',
+            'ai_update = sc.parsear_entrada_ingles(json.dumps({',
+            '  "category": "music", "append_study_fields": True, "song_title": "DRIP", "artists_display": "BABYMONSTER",',
+            '  "album_title": "Drip", "lyrics_study": "[AI] Drip = estilo", "vocabulary_list": "• drip: estilo", "pronunciation_notes": "맘 -> mam"',
+            '}))',
+            'merged = sc._combinar_metadata_cancion_word(parsed_back, ai_update)',
+            'assert "Line 1\\nLine 2" in merged["lyrics_study"]',
+            'assert "[AI] Drip = estilo" in merged["lyrics_study"]',
+            'assert "drip: estilo" in merged["vocabulary_list"]',
+            'assert "맘 -> mam" in merged["pronunciation_notes"]',
+            'assert merged["track_number"] == 2',
+            'print(json.dumps({"py_env": py_env}))'
+        ].join('\n');
+
+        const res = spawnSync(
+            'python',
+            ['-B', '-c', pyCode, path.dirname(PY_SYNC), secretKey, nodeEnvelope],
+            { cwd: ROOT_DIR, encoding: 'utf8' }
+        );
+        assert.equal(res.status, 0, res.stderr || res.stdout);
+        const out = JSON.parse(res.stdout.trim());
+
+        // Descifrado en Node del sobre generado por Python
+        const sep = out.py_env.indexOf(':');
+        assert.ok(sep > 0);
+        const iv = Buffer.from(out.py_env.slice(0, sep), 'hex');
+        const ct = Buffer.from(out.py_env.slice(sep + 1), 'base64');
+        const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(secretKey, 'utf8'), iv);
+        const plain = JSON.parse(Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8'));
+        assert.equal(plain.ok, true);
+        assert.equal(plain.source, 'word-pc');
+        assert.equal(plain.lyrics, 'Forever ever 빛나');
     });
 });

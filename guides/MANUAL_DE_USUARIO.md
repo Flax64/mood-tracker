@@ -185,9 +185,9 @@ En la pestaña **`🎵 Music & Songs`**:
   - En tu **PC**, los enlaces externos abren **YouTube normal** (`youtube.com/watch?v=...`).
   - En tu **celular**, los botones abren **YouTube Music** (`music.youtube.com/watch?v=...`).
 - También puedes forzar **`📺 YouTube (PC)`** o **`🎵 YT Music (Mobile)`** en cualquier momento.
-- **Mini Player embebido y Videos con restricción VEVO/YouTube (`Este video no está disponible`):**
-  - El botón **`Mini Player`** abre el reproductor dentro de la misma página usando `https://www.youtube.com/embed/...` (y permite cambiar a `youtube-nocookie.com` si lo prefieres).
-  - Si un sello discográfico o canal bloquea la reproducción incrustada en webs externas, verás controles instantáneos en la barra superior del Mini Player: **`📺 Ventana flotante`** (abre el reproductor en una mini ventana emergente junto a tus notas) y **`↗ Abrir en YouTube`** (sin recargar ni alterar tus playlists).
+- **Mini Player directo (`yt-dlp` sin bloqueo) + Iframe embebido + Ventana Flotante (`Este video no está disponible`):**
+  - El botón **`Mini Player`** reproduce la pista dentro de la app mediante streaming directo **`yt-dlp`** (`/api/english/music/songs/:id/media` con soporte HTTP `Range` en reproductor `<video>` nativo), evitando los bloqueos de iframe de sellos discográficos (p. ej. K-Pop/VEVO) o orígenes HTTP sin HTTPS.
+  - Desde la barra superior del Mini Player también puedes cambiar en un clic entre **`🎧 Reproducir en App (yt-dlp · sin bloqueo)`**, **`▶️ Probar YouTube iframe`** (con cambio `youtube.com` / `youtube-nocookie.com`), **`📺 Ventana flotante (sin bloqueo)`** y **`↗ Abrir en YouTube`**.
 - **Seguridad garantizada de tus playlists**: todos los enlaces son de solo lectura hacia pistas individuales (`watch?v=...`) sin OAuth ni permisos de escritura sobre tu cuenta de YouTube, así tu lista de reproducción personal nunca se modifica ni se altera.
 
 ### 7.5 Qué poner en cada campo del Registro de Canciones y Álbumes
@@ -225,12 +225,13 @@ Justo arriba de las tarjetas del catálogo verás el **Explorador de Repertorio 
 - **Editar Artista:** haz clic en **`✏️ Edit Artist`** junto al nombre del artista para corregir su nombre, cambiar su formato (`Group`, `Solo Artist`, `Duo`, `Collab Unit`) o agregar notas en todas sus canciones al instante.
 - **Editar o Eliminar Álbum:** haz clic en **`✏️ Edit Album`** junto al lanzamiento para modificar título, tipo o año, o en **`🗑️`** para eliminarlo (las canciones asociadas pasan limpiamente a `Standalone Singles` sin perderse).
 
-**Importar y explicar letras / subtítulos (incluyendo `yt-dlp` desde tu PC):**
+**Apartado dedicado de Letra en Word PC (0 KB en BD), Selector de Álbum/Pistas y Auto-registro IA:**
 En **`Song Study Notes -> Encrypted Word (PC)`**:
-- **Desde archivo o comando `yt-dlp` local:** si el video de YouTube incluye subtítulos (`CC`/captions), puedes descargarlos y limpiarlos automáticamente en tu PC con:
-  `python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip`
-  Luego usa **`📥 Import .srt/.vtt/.lrc`** para cargar el archivo limpio directamente al editor, o **`🧹 Clean Timestamps`** si pegaste texto con marcas de tiempo, y presiona **`💻 yt-dlp (PC)`** para copiar el comando exacto de la canción seleccionada.
-- **Explicar y guardar cifrado E2EE en Word:** presiona **`✨ Explain Lyrics & Romanize (AI)`** (o **`Ctrl + Enter`**), luego **`↘ Append Romanization & Vocabulary into Study Fields Below`** y **`Save & Queue to Encrypted Word`** para enviarlo cifrado hacia tu Word local.
+- **Panel `📄 Letra en Word PC (E2EE · 0 KB en BD)`:** al seleccionar cualquier canción se muestra el selector rápido del álbum o lista ordenada por número de pista (**`01.`**, **`02.`**, etc.) y el indicador del puente PC (`🟢 PC online · Word sync` o `☁️ PC offline · Cola RAM EC2`):
+  - Presiona **`🎙️ Cargar / Extraer letra (PC yt-dlp)`** para que la app consulte cifradamente (**E2EE + HMAC**) a tu PC vía RAM: si la letra ya está en `English_Learning_Notebook.docx` la carga al instante; si aún no existe, tu PC ejecuta automáticamente `yt-dlp` local (`YT_DLP_PATH`), la organiza dentro de **Sección 4 → Álbum/Lista → Pista ordenada** en Word y te la muestra en pantalla sin guardar nada en MySQL. Si tu PC está apagada, usa la extracción temporal en RAM del servidor y deja la nota cifrada en la RAM de EC2 lista para guardarse cuando enciendas tu PC.
+  - Presiona **`📝 Guardar letra a Word (PC)`** para enviar cambios manuales cifrados E2EE hacia Word PC, **`🌐 Traducir`** para traducir cualquier fragmento sombreado, o **`⬇ Pasar a Breakdown / IA`** para analizarla línea por línea.
+- **Auto-registro de aprendizaje IA en Word PC:** tanto en **`✨ AI Language Tutor`** como en **`✨ Explain Lyrics & Romanize (AI)`**, la casilla **`☁️ Registrar automáticamente en Word PC`** envía al instante las explicaciones, romanización y vocabulario generados por la IA directamente hacia tu Word (fusionándolos bajo la misma pista sin borrar la letra original), o los conserva cifrados E2EE en la RAM de EC2 mientras tu PC está desconectada.
+- **Desde archivo o comando `yt-dlp` local (PC):** también puedes importar manualmente `.srt/.vtt/.lrc` con **`📥 Import .srt/.vtt/.lrc`**, limpiar tiempos con **`🧹 Clean Timestamps`** o copiar el comando CLI con **`💻 yt-dlp (PC)`**.
 
 ---
 

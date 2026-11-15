@@ -67,6 +67,7 @@ services:
       - SMTP_PASS=${SMTP_PASS:-}
       - APP_BASE_URL=${APP_BASE_URL:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - YT_DLP_PATH=${YT_DLP_PATH:-}
     depends_on:
       db:
         condition: service_healthy

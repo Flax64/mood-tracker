@@ -325,7 +325,19 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnSidebarOpenTranslator"',
             'id="btnMobileTranslator"',
             'id="btnPopoutTranslator"',
-            'id="floatTranslatorInput"'
+            'id="floatTranslatorInput"',
+            'id="musicLyricsViewerCard"',
+            'id="musicLyricsMetaBadge"',
+            'id="musicPcBridgeBadge"',
+            'id="musicLyricsAlbumPlaylistBox"',
+            'id="btnMusicExtractLyrics"',
+            'id="btnMusicSaveLyrics"',
+            'id="btnMusicCopyLyricsToStudy"',
+            'id="btnMusicTranslateLyricsSel"',
+            'id="musicSongLyricsViewer"',
+            'id="musicLyricsStatusHint"',
+            'id="chkAutoSyncAiToWord"',
+            'id="chkAutoSyncQuickAiToWord"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
@@ -333,6 +345,15 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
 
         const dockerfileText = readText('Dockerfile');
         assert.ok(dockerfileText.includes('COPY lib ./lib'), 'Dockerfile debe copiar carpeta lib/');
+        assert.match(dockerfileText, /python3/);
+        assert.match(dockerfileText, /\/usr\/local\/bin\/yt-dlp/);
+
+        const serverJs = readText('server.js');
+        assert.match(serverJs, /media-src 'self'/);
+
+        const initSql = readText('init.sql');
+        assert.doesNotMatch(initSql, /\blyrics_text\b/i);
+        assert.doesNotMatch(initSql, /\blyrics_source\b/i);
 
         const styleCss = readText('public/style.css');
         for (const requiredClass of [
@@ -364,7 +385,13 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.music-ytdlp-helper',
             '.translator-fab',
             '.floating-translator-drawer',
-            '.translator-popup-shell'
+            '.translator-popup-shell',
+            '.music-html5-player',
+            '.music-lyrics-viewer-card',
+            '.music-lyrics-textarea',
+            '.music-album-tracklist-box',
+            '.music-album-track-btn',
+            '.ai-autosync-toggle'
         ]) {
             assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }
@@ -397,6 +424,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(compose, /mem_limit:\s*220m/);
         assert.match(compose, /--performance-schema=OFF/);
         assert.match(compose, /--skip-log-bin/);
+        assert.match(compose, /YT_DLP_PATH=\$\{YT_DLP_PATH:-\}/);
     });
 
     it('mantiene sincronizadas las variables env y envs en deploy.yml sin dejar .env en disco', () => {
@@ -426,6 +454,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         );
         assert.match(deploy, /BACKUP_CRON_SCHEDULE:-30 3 \* \* \*/);
         assert.match(deploy, /SEAL_ENV_AFTER_DEPLOY:-true/);
+        assert.match(deploy, /SECRET_YT_DLP_PATH/);
 
         const ci = readText('.github/workflows/ci.yml');
         assert.match(ci, /branches-ignore:\r?\n\s+-\s*main/);

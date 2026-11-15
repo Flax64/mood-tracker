@@ -8,6 +8,8 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
+const { Readable } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const {
@@ -35,6 +37,7 @@ const {
     extractYouTubeWatchPageMetadata,
     mergeResolvedTrackMetadata
 } = require('./lib/youtube-metadata');
+const ytdlpService = require('./lib/ytdlp-service');
 
 const transportManager = createTransportManager();
 
@@ -56,7 +59,7 @@ app.use((req, res, next) => {
     res.setHeader('X-DNS-Prefetch-Control', 'off');
     res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
     );
     const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
     if (req.secure || proto === 'https') {
@@ -5434,8 +5437,8 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
             `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
                     al.anio AS album_anio, c.titulo, c.numero_pista, c.idioma,
                     c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
-                    c.enfoque_corto, c.word_sincronizado, c.ultimo_estudio_en,
-                    c.creado_en, c.actualizado_en
+                    c.enfoque_corto, c.word_sincronizado,
+                    c.ultimo_estudio_en, c.creado_en, c.actualizado_en
              FROM MusicaCanciones c
              LEFT JOIN MusicaAlbumes al ON al.id = c.album_id
              WHERE c.usuario_id = ?
@@ -5861,6 +5864,495 @@ app.delete('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAd
     } catch (err) {
         console.error(err);
         res.status(500).send('Error deleting song.');
+    }
+});
+
+const SAFE_MEDIA_CONTENT_TYPES = new Set([
+    'video/mp4',
+    'audio/mp4',
+    'video/webm',
+    'audio/webm',
+    'audio/mpeg'
+]);
+
+async function fetchOwnedMusicSongForMediaOrLyrics(songId, uid) {
+    const rows = await dbQueryAsync(
+        `SELECT id, titulo, idioma, yt_music_url, yt_video_id
+         FROM MusicaCanciones
+         WHERE id = ? AND usuario_id = ?
+         LIMIT 1`,
+        [songId, uid]
+    );
+    return rows[0] || null;
+}
+
+// ==========================================
+// PUENTE CIFRADO SITE-TO-SITE (EC2 RAM <-> SINCRONIZADOR PC)
+// ==========================================
+const MAX_PC_MUSIC_JOBS = 25;
+const PC_MUSIC_JOB_TTL_MS = 5 * 60 * 1000;
+const PC_HEARTBEAT_ONLINE_MS = 45 * 1000;
+const pcMusicJobs = new Map();
+const pcPollWaiters = new Set();
+const pcJobResultWaiters = new Map();
+let lastPcHeartbeatAt = 0;
+
+function isPcBridgeOnline() {
+    return lastPcHeartbeatAt > 0 && (Date.now() - lastPcHeartbeatAt) <= PC_HEARTBEAT_ONLINE_MS;
+}
+
+function getPcBridgeSecrets() {
+    return [process.env.JOURNAL_SECRET_KEY, process.env.ADMIN_SECRET]
+        .map(v => String(v || '').trim())
+        .filter(Boolean);
+}
+
+function purgeExpiredPcMusicJobs() {
+    const now = Date.now();
+    for (const [jid, job] of pcMusicJobs.entries()) {
+        if (!job || (now - job.createdAt) > PC_MUSIC_JOB_TTL_MS) {
+            pcMusicJobs.delete(jid);
+            const waiters = pcJobResultWaiters.get(jid);
+            if (waiters) {
+                for (const wake of waiters) wake();
+                pcJobResultWaiters.delete(jid);
+            }
+        }
+    }
+}
+
+function verifyPcBridgeAuth(req, res, next) {
+    const secrets = getPcBridgeSecrets();
+    if (!secrets.length) {
+        return res.status(503).send('PC bridge authentication secret is not configured.');
+    }
+
+    const tsRaw = String(req.headers['x-pc-timestamp'] || '').trim();
+    const sigHex = String(req.headers['x-pc-signature'] || '').trim().toLowerCase();
+    const tsSec = Number(tsRaw);
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!Number.isFinite(tsSec) || Math.abs(nowSec - tsSec) > 120 || !/^[0-9a-f]{64}$/.test(sigHex)) {
+        return res.status(401).send('Invalid or expired PC bridge signature.');
+    }
+
+    const payloadBlob = (req.method === 'POST' && req.body && typeof req.body.encryptedResult === 'string')
+        ? req.body.encryptedResult
+        : '';
+    const bodyHash = crypto.createHash('sha256').update(payloadBlob, 'utf8').digest('hex');
+    const canonical = `${req.method.toUpperCase()}:${req.path}:${tsRaw}:${bodyHash}`;
+
+    const providedBuf = Buffer.from(sigHex, 'hex');
+    const valid = secrets.some((sec) => {
+        const expected = crypto.createHmac('sha256', sec).update(canonical, 'utf8').digest();
+        return expected.length === providedBuf.length && crypto.timingSafeEqual(expected, providedBuf);
+    });
+
+    if (!valid) {
+        return res.status(401).send('PC bridge HMAC verification failed.');
+    }
+    return next();
+}
+
+function popPendingPcJobs() {
+    purgeExpiredPcMusicJobs();
+    const dispatched = [];
+    for (const job of pcMusicJobs.values()) {
+        if (job.status === 'pending') {
+            job.status = 'dispatched';
+            job.updatedAt = Date.now();
+            dispatched.push({
+                jobId: job.jobId,
+                encryptedRequest: job.encryptedRequest,
+                createdAt: job.createdAt
+            });
+        }
+    }
+    return dispatched;
+}
+
+function notifyPcPollWaiters() {
+    if (!pcPollWaiters.size) return;
+    const snapshot = [...pcPollWaiters];
+    pcPollWaiters.clear();
+    for (const wake of snapshot) wake();
+}
+
+function notifyPcJobResultWaiters(jobId) {
+    const waiters = pcJobResultWaiters.get(jobId);
+    if (!waiters || !waiters.size) return;
+    pcJobResultWaiters.delete(jobId);
+    for (const wake of waiters) wake();
+}
+
+async function openAllowedMediaUpstreamResponse(initialUrl, headers, signal) {
+    let currentUrl = initialUrl;
+    for (let hop = 0; hop <= 3; hop++) {
+        if (!ytdlpService.isAllowedMediaCdnUrl(currentUrl)) {
+            return null;
+        }
+        const upstream = await fetch(currentUrl, {
+            method: 'GET',
+            headers,
+            signal,
+            redirect: 'manual'
+        });
+        if (upstream.status >= 300 && upstream.status < 400) {
+            const loc = upstream.headers.get('location');
+            try { await upstream.body?.cancel(); } catch (_) {}
+            if (!loc) return null;
+            currentUrl = new URL(loc, currentUrl).toString();
+            continue;
+        }
+        return upstream;
+    }
+    return null;
+}
+
+app.get('/api/english/music/ytdlp-status', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
+    purgeExpiredPcMusicJobs();
+    res.json({
+        ...ytdlpService.getYtDlpStatus(),
+        pcOnline: isPcBridgeOnline(),
+        lastPcSeenAt: lastPcHeartbeatAt ? new Date(lastPcHeartbeatAt).toISOString() : null,
+        pendingPcJobs: pcMusicJobs.size,
+        pendingEnglishQueueCount: englishQueue.size()
+    });
+});
+
+app.post('/api/english/music/pc-jobs', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, (req, res) => {
+    purgeExpiredPcMusicJobs();
+    const { encryptedRequest } = req.body || {};
+    if (typeof encryptedRequest !== 'string' || !encryptedRequest.trim() || encryptedRequest.length > 48000) {
+        return res.status(400).send('Invalid E2EE encryptedRequest payload.');
+    }
+
+    while (pcMusicJobs.size >= MAX_PC_MUSIC_JOBS) {
+        const oldestKey = pcMusicJobs.keys().next().value;
+        if (!oldestKey) break;
+        pcMusicJobs.delete(oldestKey);
+    }
+
+    const jobId = crypto.randomBytes(16).toString('hex');
+    const now = Date.now();
+    pcMusicJobs.set(jobId, {
+        jobId,
+        usuarioId: req.user.id,
+        encryptedRequest: encryptedRequest.trim(),
+        status: 'pending',
+        encryptedResult: null,
+        createdAt: now,
+        updatedAt: now
+    });
+
+    notifyPcPollWaiters();
+    return res.status(201).json({
+        ok: true,
+        jobId,
+        pcOnline: isPcBridgeOnline(),
+        expiresInMs: PC_MUSIC_JOB_TTL_MS
+    });
+});
+
+app.get('/api/english/music/pc-jobs/poll', pcPullLimiter.middleware, verifyPcBridgeAuth, async (req, res) => {
+    lastPcHeartbeatAt = Date.now();
+    let jobs = popPendingPcJobs();
+    const requestedWaitMs = Number.parseInt(String(req.query.waitMs || '0'), 10);
+    const waitMs = Number.isFinite(requestedWaitMs) ? Math.min(Math.max(requestedWaitMs, 0), 25000) : 0;
+
+    if (!jobs.length && waitMs > 0) {
+        await new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                pcPollWaiters.delete(finish);
+                req.off('close', finish);
+                resolve();
+            };
+            const timer = setTimeout(finish, waitMs);
+            pcPollWaiters.add(finish);
+            req.on('close', finish);
+        });
+        lastPcHeartbeatAt = Date.now();
+        jobs = popPendingPcJobs();
+    }
+
+    if (res.headersSent || res.destroyed) return;
+    return res.json({ ok: true, jobs });
+});
+
+app.post('/api/english/music/pc-jobs/:jobId/result', pcPullLimiter.middleware, verifyPcBridgeAuth, requireNonEmptyBody, (req, res) => {
+    lastPcHeartbeatAt = Date.now();
+    purgeExpiredPcMusicJobs();
+    const jobId = String(req.params.jobId || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(jobId)) {
+        return res.status(400).send('Invalid job ID.');
+    }
+
+    const job = pcMusicJobs.get(jobId);
+    if (!job) {
+        return res.status(404).send('PC job expired or not found.');
+    }
+
+    const { encryptedResult } = req.body || {};
+    if (typeof encryptedResult !== 'string' || !encryptedResult.trim() || encryptedResult.length > 64000) {
+        return res.status(400).send('Invalid encryptedResult payload.');
+    }
+
+    job.status = 'completed';
+    job.encryptedResult = encryptedResult.trim();
+    job.updatedAt = Date.now();
+    notifyPcJobResultWaiters(jobId);
+
+    return res.json({ ok: true, jobId });
+});
+
+app.get('/api/english/music/pc-jobs/:jobId', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    purgeExpiredPcMusicJobs();
+    const jobId = String(req.params.jobId || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(jobId)) {
+        return res.status(400).send('Invalid job ID.');
+    }
+
+    let job = pcMusicJobs.get(jobId);
+    if (!job || Number(job.usuarioId) !== Number(req.user.id)) {
+        return res.status(404).send('PC job expired or not found.');
+    }
+
+    const requestedWaitMs = Number.parseInt(String(req.query.waitMs || '0'), 10);
+    const waitMs = Number.isFinite(requestedWaitMs) ? Math.min(Math.max(requestedWaitMs, 0), 25000) : 0;
+
+    if (job.status !== 'completed' && waitMs > 0) {
+        await new Promise((resolve) => {
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                const set = pcJobResultWaiters.get(jobId);
+                if (set) {
+                    set.delete(finish);
+                    if (set.size === 0) pcJobResultWaiters.delete(jobId);
+                }
+                req.off('close', finish);
+                resolve();
+            };
+            const timer = setTimeout(finish, waitMs);
+            if (!pcJobResultWaiters.has(jobId)) pcJobResultWaiters.set(jobId, new Set());
+            pcJobResultWaiters.get(jobId).add(finish);
+            req.on('close', finish);
+        });
+        purgeExpiredPcMusicJobs();
+        job = pcMusicJobs.get(jobId);
+        if (!job) {
+            return res.status(404).send('PC job expired.');
+        }
+    }
+
+    if (res.headersSent || res.destroyed) return;
+    if (job.status === 'completed' && job.encryptedResult) {
+        const encryptedResult = job.encryptedResult;
+        pcMusicJobs.delete(jobId);
+        return res.json({
+            ok: true,
+            jobId,
+            status: 'completed',
+            encryptedResult
+        });
+    }
+
+    return res.json({
+        ok: true,
+        jobId,
+        status: job.status,
+        pcOnline: isPcBridgeOnline()
+    });
+});
+
+app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 2500 }), async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+
+    const uid = req.user.id;
+    try {
+        const song = await fetchOwnedMusicSongForMediaOrLyrics(songId, uid);
+        if (!song) return res.status(404).send('Song not found.');
+
+        const videoId =
+            ytdlpService.extractValidYouTubeVideoId(song.yt_video_id) ||
+            ytdlpService.extractValidYouTubeVideoId(song.yt_music_url);
+        if (!videoId) {
+            return res.status(400).send('This song does not have a valid YouTube or YouTube Music link yet.');
+        }
+
+        const preferredLangs = Array.isArray(req.body?.preferredLangs) ? req.body.preferredLangs : null;
+        const extracted = await ytdlpService.extractSongLyrics({
+            videoId,
+            url: song.yt_music_url || '',
+            idioma: song.idioma || '',
+            preferredLangs
+        });
+
+        if (extracted.ok && extracted.lyrics) {
+            const cleanLyrics = String(extracted.lyrics).trim().slice(0, 50000);
+            const cleanSource = String(extracted.source || 'yt-dlp').trim().slice(0, 80) || 'yt-dlp';
+            return res.json({
+                ok: true,
+                songId,
+                videoId,
+                lyrics: cleanLyrics,
+                source: cleanSource,
+                language: extracted.language || '',
+                ytdlpAvailable: Boolean(extracted.ytdlpAvailable),
+                availableLangs: extracted.availableLangs || [],
+                suggestedCommand: extracted.suggestedCommand || '',
+                storedInDb: false
+            });
+        }
+
+        return res.json({
+            ok: false,
+            songId,
+            videoId,
+            reason: extracted.reason || 'no_subtitles',
+            error: extracted.error || 'Could not extract lyrics automatically for this video.',
+            ytdlpAvailable: Boolean(extracted.ytdlpAvailable),
+            availableLangs: extracted.availableLangs || [],
+            suggestedCommand: extracted.suggestedCommand || '',
+            storedInDb: false
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error extracting song lyrics.');
+    }
+});
+
+app.get('/api/english/music/songs/:id/media', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+
+    const uid = req.user.id;
+    let headerTimer = null;
+    const controller = new AbortController();
+    const onClientClose = () => controller.abort();
+    req.on('close', onClientClose);
+
+    try {
+        const song = await fetchOwnedMusicSongForMediaOrLyrics(songId, uid);
+        if (!song) return res.status(404).send('Song not found.');
+
+        const videoId =
+            ytdlpService.extractValidYouTubeVideoId(song.yt_video_id) ||
+            ytdlpService.extractValidYouTubeVideoId(song.yt_music_url);
+        if (!videoId) {
+            return res.status(400).send('This song does not have a valid YouTube or YouTube Music link yet.');
+        }
+
+        const rawRange = String(req.headers.range || '').trim();
+        const safeRange = /^bytes=\d*-\d*$/i.test(rawRange) ? rawRange : '';
+
+        let streamInfo = await ytdlpService.resolvePlayableMediaStream({
+            videoId,
+            url: song.yt_music_url || ''
+        });
+        if (!streamInfo.ok || !streamInfo.streamUrl) {
+            const status = streamInfo.reason === 'ytdlp_missing' ? 503 : 502;
+            return res.status(status).json({
+                error: streamInfo.error || 'Could not resolve playable stream via yt-dlp.',
+                reason: streamInfo.reason || 'ytdlp_stream_error'
+            });
+        }
+
+        const buildUpstreamHeaders = (info) => {
+            const h = { ...(info.headers || {}) };
+            if (safeRange) h.Range = safeRange;
+            return h;
+        };
+
+        headerTimer = setTimeout(() => controller.abort(), 30000);
+        let upstream = await openAllowedMediaUpstreamResponse(
+            streamInfo.streamUrl,
+            buildUpstreamHeaders(streamInfo),
+            controller.signal
+        );
+
+        // Retry once with forced fresh CDN signature if cached URL expired (HTTP 403/410)
+        if (upstream && (upstream.status === 403 || upstream.status === 410)) {
+            try { await upstream.body?.cancel(); } catch (_) {}
+            streamInfo = await ytdlpService.resolvePlayableMediaStream({
+                videoId,
+                url: song.yt_music_url || '',
+                forceRefresh: true
+            });
+            if (streamInfo.ok && streamInfo.streamUrl) {
+                upstream = await openAllowedMediaUpstreamResponse(
+                    streamInfo.streamUrl,
+                    buildUpstreamHeaders(streamInfo),
+                    controller.signal
+                );
+            } else {
+                upstream = null;
+            }
+        }
+
+        if (headerTimer) {
+            clearTimeout(headerTimer);
+            headerTimer = null;
+        }
+
+        if (!upstream || (upstream.status !== 200 && upstream.status !== 206) || !upstream.body) {
+            try { await upstream?.body?.cancel(); } catch (_) {}
+            return res.status(502).json({
+                error: 'Upstream media stream rejected playback or returned no body.',
+                reason: 'upstream_rejected'
+            });
+        }
+
+        const rawType = String(upstream.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+        const contentType = SAFE_MEDIA_CONTENT_TYPES.has(rawType)
+            ? rawType
+            : (streamInfo.contentType || 'video/mp4');
+
+        res.status(upstream.status === 206 ? 206 : 200);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+
+        const contentLength = upstream.headers.get('content-length');
+        if (contentLength && /^\d+$/.test(contentLength)) {
+            res.setHeader('Content-Length', contentLength);
+        }
+        const contentRange = upstream.headers.get('content-range');
+        if (contentRange && upstream.status === 206) {
+            res.setHeader('Content-Range', contentRange);
+        }
+
+        if (req.method === 'HEAD') {
+            try { await upstream.body.cancel(); } catch (_) {}
+            return res.end();
+        }
+
+        await pipeline(Readable.fromWeb(upstream.body), res);
+    } catch (err) {
+        if (headerTimer) {
+            clearTimeout(headerTimer);
+            headerTimer = null;
+        }
+        const code = err?.code || err?.name;
+        if (code === 'ABORT_ERR' || code === 'AbortError' || code === 'ERR_STREAM_PREMATURE_CLOSE') {
+            return;
+        }
+        console.error('Error streaming yt-dlp song media:', err.message);
+        if (!res.headersSent) {
+            res.status(502).json({ error: 'Failed to stream track through server.' });
+        } else if (!res.destroyed) {
+            res.destroy();
+        }
+    } finally {
+        if (headerTimer) clearTimeout(headerTimer);
+        req.off('close', onClientClose);
     }
 });
 
