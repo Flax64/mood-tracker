@@ -603,7 +603,7 @@ function updateYouTubePlatformUI() {
 // ==========================================
 // MAIN NAVIGATION & FIXED SIDEBAR
 // ==========================================
-const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'english', 'agenda', 'resumen', 'medico', 'settings']);
+const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'english', 'agenda', 'horario', 'resumen', 'medico', 'settings']);
 let currentUser = null;
 let sundayWatcherInterval = null;
 let reminderPollInterval = null;
@@ -685,6 +685,8 @@ function showView(viewName, updateHash = true) {
         if (selectSemana) selectSemana.dispatchEvent(new Event('change'));
     } else if (targetView === 'agenda') {
         cargarAgendaSemana();
+    } else if (targetView === 'horario') {
+        if (typeof cargarPlannerVista === 'function') cargarPlannerVista();
     } else if (targetView === 'medico') {
         cargarMedicos();
     } else if (targetView === 'settings') {
@@ -1494,12 +1496,22 @@ if (journalForm) {
     const draftStatusEl = document.getElementById('journalDraftStatus');
     const clearDraftBtn = document.getElementById('btnJournalClearDraft');
     const journalE2eeBtn = document.getElementById('journalE2eePill');
+    const titleInput = document.getElementById('journalTitle');
 
     if (journalE2eeBtn) {
         journalE2eeBtn.addEventListener('click', () => {
             solicitarLlaveE2EEAsync({ forceEdit: true });
         });
     }
+
+    document.querySelectorAll('#journalLabelChips [data-journal-tag]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            if (!titleInput) return;
+            titleInput.value = chip.getAttribute('data-journal-tag') || '';
+            titleInput.focus();
+            titleInput.dispatchEvent(new Event('input'));
+        });
+    });
 
     const refreshJournalEditorMeta = (saveDraft = false) => {
         if (!textInput) return;
@@ -1509,7 +1521,7 @@ if (journalForm) {
             wordCountEl.textContent = `${words} ${words === 1 ? 'word' : 'words'} · ${val.length} chars`;
         }
         if (clearDraftBtn) {
-            clearDraftBtn.hidden = val.trim().length === 0;
+            clearDraftBtn.hidden = val.trim().length === 0 && !(titleInput && titleInput.value.trim().length > 0);
         }
         if (saveDraft) {
             if (val.trim()) {
@@ -1545,6 +1557,7 @@ if (journalForm) {
             });
             if (!ok) return;
             if (textInput) textInput.value = '';
+            if (titleInput) titleInput.value = '';
             refreshJournalEditorMeta(true);
         });
     }
@@ -1554,6 +1567,7 @@ if (journalForm) {
         const btnEnviarWord = document.getElementById('btn-send-word');
         if (!btnEnviarWord || busyActionElements.has(btnEnviarWord) || btnEnviarWord.disabled) return;
 
+        const titleClean = titleInput ? titleInput.value.trim() : '';
         const texto = textInput.value;
         const textoLimpio = texto.trim();
         if (!textoLimpio) {
@@ -1561,7 +1575,10 @@ if (journalForm) {
             return;
         }
 
-        if (textoLimpio === lastSentJournalText) {
+        const composedJournalText = titleClean ? `[${titleClean}] — ${textoLimpio}` : texto;
+        const composedClean = composedJournalText.trim();
+
+        if (composedClean === lastSentJournalText) {
             setInlineBanner('journalStatusBanner', 'info', 'This exact note was already queued in this session. Edit the text before sending again.');
             return;
         }
@@ -1577,11 +1594,12 @@ if (journalForm) {
                     url: '/api/send-to-pc',
                     method: 'POST',
                     scopeKey: 'journal',
-                    signature: textoLimpio,
-                    buildBody: () => ({ texto: encriptarTextoE2EE(texto, llaveTexto) })
+                    signature: composedClean,
+                    buildBody: () => ({ texto: encriptarTextoE2EE(composedJournalText, llaveTexto) })
                 });
-                lastSentJournalText = textoLimpio;
+                lastSentJournalText = composedClean;
                 textInput.value = '';
+                if (titleInput) titleInput.value = '';
                 refreshJournalEditorMeta(true);
                 const msg = 'Note encrypted & queued! Your PC sync will add it to Word on the next scan.';
                 setInlineBanner('journalStatusBanner', 'ok', msg);
@@ -2849,9 +2867,17 @@ function crearElementoActividad(item) {
 
     metaRow.append(timePill, catPill, typePill);
 
+    const parsedParts = splitAgendaActividadClient(item.actividad, item.titulo, item.descripcion);
+
     const text = document.createElement('span');
     text.className = 'agenda-item-text';
-    text.textContent = item.actividad;
+    text.textContent = parsedParts.titulo || item.actividad;
+
+    const descEl = parsedParts.descripcion ? document.createElement('span') : null;
+    if (descEl) {
+        descEl.className = 'agenda-item-desc';
+        descEl.textContent = parsedParts.descripcion;
+    }
 
     const jiraRow = document.createElement('div');
     jiraRow.className = 'jira-status-row';
@@ -2872,7 +2898,11 @@ function crearElementoActividad(item) {
     statusSelect.value = estado;
 
     jiraRow.appendChild(statusSelect);
-    content.append(metaRow, text, jiraRow);
+    if (descEl) {
+        content.append(metaRow, text, descEl, jiraRow);
+    } else {
+        content.append(metaRow, text, jiraRow);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'agenda-item-actions';
@@ -3226,27 +3256,77 @@ const agendaForm = document.getElementById('agendaForm');
 
 let agendaOriginalSnapshot = null;
 
+function inferAgendaBlockClient(horaStr, categoria = 'personal') {
+    const m = /^(\d{2}):(\d{2})/.exec(String(horaStr || '').trim());
+    if (!m) return 'manana';
+    const hour = Number(m[1]);
+    if (categoria === 'universidad' && hour >= 7 && hour < 17) return 'cole';
+    if (hour >= 5 && hour < 12) return 'manana';
+    if (hour >= 12 && hour < 19) return 'tarde';
+    return 'noche';
+}
+
+function splitAgendaActividadClient(rawActividad, explicitTitulo = '', explicitDesc = '') {
+    const tExp = String(explicitTitulo || '').trim();
+    const dExp = String(explicitDesc || '').trim();
+    if (tExp) return { titulo: tExp, descripcion: dExp };
+    const clean = String(rawActividad || '').trim();
+    if (!clean) return { titulo: '', descripcion: '' };
+    const sepIdx = clean.indexOf(' — ');
+    if (sepIdx > 0) {
+        return {
+            titulo: clean.slice(0, sepIdx).trim(),
+            descripcion: clean.slice(sepIdx + 3).trim()
+        };
+    }
+    return { titulo: clean, descripcion: '' };
+}
+
+function composeAgendaActividadClient(titulo, descripcion) {
+    const t = String(titulo || '').replace(/\s+/g, ' ').trim();
+    const d = String(descripcion || '').replace(/\s+/g, ' ').trim();
+    if (!t) return d;
+    if (!d) return t;
+    return `${t} — ${d}`.slice(0, 255);
+}
+
+function syncAgendaBlockFromTimeUI() {
+    const horaEl = document.getElementById('agendaHora');
+    const catEl = document.getElementById('agendaCategoria');
+    const bloqueEl = document.getElementById('agendaBloque');
+    const hintEl = document.getElementById('agendaBloqueAutoHint');
+    if (!horaEl || !bloqueEl || !horaEl.value) return;
+    const autoBlock = inferAgendaBlockClient(horaEl.value, catEl ? catEl.value : 'personal');
+    bloqueEl.value = autoBlock;
+    if (hintEl) {
+        const blockLabels = { manana: '☕ Morning', cole: '🎓 School / University', tarde: '☀️ Afternoon', noche: '🌙 Night' };
+        hintEl.textContent = `Auto-selected ${blockLabels[autoBlock] || autoBlock} from ${horaEl.value.slice(0, 5)}`;
+    }
+}
+
 function abrirAgendaModal(prefill = {}) {
     if (!agendaModal || !agendaForm) return;
     const isEdit = Boolean(prefill.id);
 
     const now = new Date();
-    const info = getMomentoInfo(now.getHours());
     const defaultDate = agendaState.layoutMode === 'day'
         ? agendaState.selectedDate
         : formatLocalDate(now);
     const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     const resolvedFecha = prefill.fecha || defaultDate;
-    const resolvedBloque = prefill.bloque || info.agendaBloque;
     const resolvedHora = String(prefill.hora || defaultTime).slice(0, 5);
-    const resolvedActividad = String(prefill.actividad || '').trim();
-    const resolvedTipo = prefill.tipo === 'tarea' ? 'tarea' : 'evento';
     const resolvedCategoria = prefill.categoria === 'universidad'
         ? 'universidad'
         : prefill.categoria === 'personal'
             ? 'personal'
             : (agendaState.filterCategory !== 'all' ? agendaState.filterCategory : 'personal');
+    const resolvedBloque = prefill.bloque || inferAgendaBlockClient(resolvedHora, resolvedCategoria);
+    const splitAct = splitAgendaActividadClient(prefill.actividad, prefill.titulo, prefill.descripcion);
+    const resolvedTitulo = splitAct.titulo;
+    const resolvedDescripcion = splitAct.descripcion;
+    const resolvedActividad = composeAgendaActividadClient(resolvedTitulo, resolvedDescripcion);
+    const resolvedTipo = prefill.tipo === 'tarea' ? 'tarea' : 'evento';
     const resolvedEstado = getAgendaItemStatus(prefill);
     const resolvedRemMin = prefill.recordatorio_min !== undefined && prefill.recordatorio_min !== null && prefill.recordatorio_min !== ''
         ? String(prefill.recordatorio_min)
@@ -3257,7 +3337,9 @@ function abrirAgendaModal(prefill = {}) {
     document.getElementById('agendaFecha').value = resolvedFecha;
     document.getElementById('agendaBloque').value = resolvedBloque;
     document.getElementById('agendaHora').value = resolvedHora;
-    document.getElementById('agendaActividad').value = resolvedActividad;
+    document.getElementById('agendaActividad').value = resolvedTitulo;
+    const descInputEl = document.getElementById('agendaDescripcion');
+    if (descInputEl) descInputEl.value = resolvedDescripcion;
 
     const tipoEl = document.getElementById('agendaTipo');
     const catEl = document.getElementById('agendaCategoria');
@@ -3366,9 +3448,20 @@ if (agendaForm) {
             if (input) {
                 input.value = chip.getAttribute('data-text') || '';
                 input.focus();
+                input.dispatchEvent(new Event('input'));
             }
         });
     });
+
+    const agendaHoraInput = document.getElementById('agendaHora');
+    const agendaCatInput = document.getElementById('agendaCategoria');
+    if (agendaHoraInput) {
+        agendaHoraInput.addEventListener('change', syncAgendaBlockFromTimeUI);
+        agendaHoraInput.addEventListener('input', syncAgendaBlockFromTimeUI);
+    }
+    if (agendaCatInput) {
+        agendaCatInput.addEventListener('change', syncAgendaBlockFromTimeUI);
+    }
 
     agendaForm.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -3381,12 +3474,19 @@ if (agendaForm) {
         const estadoVal = document.getElementById('agendaEstado')?.value || 'todo';
         const remRaw = document.getElementById('agendaRecordatorioMin')?.value ?? '';
         const remVal = remRaw === '' ? null : Number(remRaw);
+        const tituloRaw = document.getElementById('agendaActividad')?.value || '';
+        const descRaw = document.getElementById('agendaDescripcion')?.value || '';
+        const composedAct = composeAgendaActividadClient(tituloRaw, descRaw);
+        const horaClean = String(document.getElementById('agendaHora').value || '').slice(0, 5);
+        const bloqueVal = document.getElementById('agendaBloque').value || inferAgendaBlockClient(horaClean, catVal);
 
         const payload = {
             fecha: document.getElementById('agendaFecha').value,
-            bloque: document.getElementById('agendaBloque').value,
-            hora: String(document.getElementById('agendaHora').value || '').slice(0, 5),
-            actividad: document.getElementById('agendaActividad').value.replace(/\s+/g, ' ').trim(),
+            bloque: bloqueVal,
+            hora: horaClean,
+            titulo: tituloRaw.replace(/\s+/g, ' ').trim(),
+            descripcion: descRaw.replace(/\s+/g, ' ').trim(),
+            actividad: composedAct,
             tipo: tipoVal,
             categoria: catVal,
             estado: estadoVal,
@@ -4396,6 +4496,7 @@ function populateSettingsForm(settings = {}) {
     setCheck('setDesktopNotify', settings.desktopNotificationsEnabled);
 
     setCheck('setMoodEnabled', settings.moodRemindersEnabled !== false);
+    setCheck('setMoodNotifyPending', settings.moodNotifyPending !== false);
     setCheck('setMoodLateNight', settings.moodIncludeLateNight === true);
     setCheck('setSleepEnabled', settings.sleepReminderEnabled !== false);
     setVal('setSleepTime', settings.sleepReminderTime || '08:30');
@@ -4403,6 +4504,7 @@ function populateSettingsForm(settings = {}) {
     setCheck('setAgendaRemEnabled', settings.agendaRemindersEnabled !== false);
     setCheck('setAgendaEvents', settings.agendaNotifyEvents !== false);
     setCheck('setAgendaTasks', settings.agendaNotifyTasks !== false);
+    setCheck('setAgendaNotifyPendingTasks', settings.agendaNotifyPendingTasks !== false);
     setVal('setAgendaLeadMin', settings.agendaLeadMinutes ?? 10);
 
     setCheck('setWordEodEnabled', settings.wordEodReminderEnabled !== false);
@@ -4439,6 +4541,7 @@ function collectSettingsFormPayload() {
         desktopNotificationsEnabled: Boolean(document.getElementById('setDesktopNotify')?.checked),
 
         moodRemindersEnabled: Boolean(document.getElementById('setMoodEnabled')?.checked),
+        moodNotifyPending: Boolean(document.getElementById('setMoodNotifyPending')?.checked),
         moodIncludeLateNight: Boolean(document.getElementById('setMoodLateNight')?.checked),
         sleepReminderEnabled: Boolean(document.getElementById('setSleepEnabled')?.checked),
         sleepReminderTime: String(document.getElementById('setSleepTime')?.value || '08:30').slice(0, 5),
@@ -4446,6 +4549,7 @@ function collectSettingsFormPayload() {
         agendaRemindersEnabled: Boolean(document.getElementById('setAgendaRemEnabled')?.checked),
         agendaNotifyEvents: Boolean(document.getElementById('setAgendaEvents')?.checked),
         agendaNotifyTasks: Boolean(document.getElementById('setAgendaTasks')?.checked),
+        agendaNotifyPendingTasks: Boolean(document.getElementById('setAgendaNotifyPendingTasks')?.checked),
         agendaLeadMinutes: Number(document.getElementById('setAgendaLeadMin')?.value ?? 10),
 
         wordEodReminderEnabled: Boolean(document.getElementById('setWordEodEnabled')?.checked),
@@ -4711,6 +4815,1057 @@ function initSettingsHandlers() {
 }
 
 // ==========================================
+// WORD-STYLE ENGLISH SPELLING & GRAMMAR PROOFING ENGINE
+// ==========================================
+const WORD_SPELLING_DICTIONARY = {
+    accomodate: 'accommodate',
+    acheive: 'achieve',
+    adress: 'address',
+    agressive: 'aggressive',
+    alot: 'a lot',
+    apparantly: 'apparently',
+    arguement: 'argument',
+    assigment: 'assignment',
+    assingment: 'assignment',
+    basicly: 'basically',
+    becuase: 'because',
+    beacuse: 'because',
+    begining: 'beginning',
+    beleive: 'believe',
+    buisness: 'business',
+    calender: 'calendar',
+    catagory: 'category',
+    collegue: 'colleague',
+    comming: 'coming',
+    commited: 'committed',
+    concious: 'conscious',
+    curiousity: 'curiosity',
+    definately: 'definitely',
+    definitly: 'definitely',
+    dependant: 'dependent',
+    desireable: 'desirable',
+    developement: 'development',
+    diffrent: 'different',
+    disapoint: 'disappoint',
+    embarass: 'embarrass',
+    enviroment: 'environment',
+    existance: 'existence',
+    experiance: 'experience',
+    explaination: 'explanation',
+    familar: 'familiar',
+    finaly: 'finally',
+    foriegn: 'foreign',
+    fourty: 'forty',
+    freind: 'friend',
+    futher: 'further',
+    goverment: 'government',
+    grammer: 'grammar',
+    gaurd: 'guard',
+    happend: 'happened',
+    harass: 'harass',
+    homewrok: 'homework',
+    humourous: 'humorous',
+    immediatly: 'immediately',
+    independant: 'independent',
+    interupt: 'interrupt',
+    irresistable: 'irresistible',
+    knowlege: 'knowledge',
+    labratory: 'laboratory',
+    liason: 'liaison',
+    maintainance: 'maintenance',
+    managment: 'management',
+    millenium: 'millennium',
+    mischievious: 'mischievous',
+    neccessary: 'necessary',
+    necesary: 'necessary',
+    noticable: 'noticeable',
+    occassion: 'occasion',
+    occured: 'occurred',
+    ocurred: 'occurred',
+    parliment: 'parliament',
+    passtime: 'pastime',
+    perseverence: 'perseverance',
+    personel: 'personnel',
+    plagarism: 'plagiarism',
+    posession: 'possession',
+    prefered: 'preferred',
+    priviledge: 'privilege',
+    proffesor: 'professor',
+    programing: 'programming',
+    pronounciation: 'pronunciation',
+    publically: 'publicly',
+    questionaire: 'questionnaire',
+    recieve: 'receive',
+    recieved: 'received',
+    recomend: 'recommend',
+    refference: 'reference',
+    relevent: 'relevant',
+    religous: 'religious',
+    rember: 'remember',
+    repitition: 'repetition',
+    resistence: 'resistance',
+    responsability: 'responsibility',
+    restaraunt: 'restaurant',
+    rythm: 'rhythm',
+    scedule: 'schedule',
+    scheduel: 'schedule',
+    seperate: 'separate',
+    seperated: 'separated',
+    sieze: 'seize',
+    similer: 'similar',
+    sincerly: 'sincerely',
+    speach: 'speech',
+    studing: 'studying',
+    succesful: 'successful',
+    successfull: 'successful',
+    suprise: 'surprise',
+    tattooes: 'tattoos',
+    tendancy: 'tendency',
+    therefor: 'therefore',
+    threshhold: 'threshold',
+    tommorow: 'tomorrow',
+    tomorow: 'tomorrow',
+    tounge: 'tongue',
+    truely: 'truly',
+    unforeseen: 'unforeseen',
+    unfortunatly: 'unfortunately',
+    univeristy: 'university',
+    untill: 'until',
+    weird: 'weird',
+    whereever: 'wherever',
+    wich: 'which',
+    wierd: 'weird',
+    writting: 'writing',
+    dont: "don't",
+    doesnt: "doesn't",
+    didnt: "didn't",
+    cant: "can't",
+    wont: "won't",
+    isnt: "isn't",
+    arent: "aren't",
+    wasnt: "wasn't",
+    werent: "weren't",
+    ive: "I've",
+    im: "I'm",
+    id: "I'd",
+    youre: "you're",
+    theyre: "they're",
+    weve: "we've"
+};
+
+const WORD_GRAMMAR_PATTERNS = [
+    {
+        regex: /\bi\b/g,
+        fix: () => 'I',
+        reason: 'Capitalize pronoun "I"'
+    },
+    {
+        regex: /\b(a)\s+([aeiouAEIOU][a-zA-Z]{2,})\b/g,
+        filter: (match, art, nextWord) => !/^(uni|use|usu|eur|one)/i.test(nextWord),
+        fix: (match, art, nextWord) => `${art === 'A' ? 'An' : 'an'} ${nextWord}`,
+        reason: 'Use "an" before vowel sounds'
+    },
+    {
+        regex: /\b(an)\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ][a-zA-Z]{1,})\b/g,
+        filter: (match, art, nextWord) => !/^(hour|honest|honor|heir)/i.test(nextWord),
+        fix: (match, art, nextWord) => `${art === 'An' ? 'A' : 'a'} ${nextWord}`,
+        reason: 'Use "a" before consonant sounds'
+    },
+    {
+        regex: /\b([A-Za-z]+)\s+\1\b/gi,
+        fix: (match, word) => word,
+        reason: 'Repeated word'
+    },
+    {
+        regex: /\b(should|could|would|must|might)\s+of\b/gi,
+        fix: (match, modal) => `${modal} have`,
+        reason: 'Use "have" instead of "of" after modal verbs'
+    },
+    {
+        regex: /\b(he|she|it)\s+don't\b/gi,
+        fix: (match, subj) => `${subj} doesn't`,
+        reason: 'Subject-verb agreement ("doesn\'t")'
+    },
+    {
+        regex: /\b(he|she|it)\s+have\b/gi,
+        fix: (match, subj) => `${subj} has`,
+        reason: 'Subject-verb agreement ("has")'
+    },
+    {
+        regex: /\b(I|you|we|they)\s+was\b/gi,
+        fix: (match, subj) => `${subj === 'I' || subj === 'i' ? 'I was' : `${subj} were`}`,
+        filter: (match, subj) => subj.toLowerCase() !== 'i',
+        reason: 'Plural verb agreement ("were")'
+    },
+    {
+        regex: /\b(informations|homeworks|advices|equipments|knowledges|furnitures)\b/gi,
+        fix: (match) => match.slice(0, -1),
+        reason: 'Uncountable noun (no plural "-s")'
+    },
+    {
+        regex: /\b(didn't|did not)\s+(went|saw|ate|took|made|did|wrote|bought|came|found|gave|knew|left|ran|said|thought|told)\b/gi,
+        fix: (match, aux, verb) => {
+            const baseMap = {
+                went: 'go', saw: 'see', ate: 'eat', took: 'take', made: 'make', did: 'do',
+                wrote: 'write', bought: 'buy', came: 'come', found: 'find', gave: 'give',
+                knew: 'know', left: 'leave', ran: 'run', said: 'say', thought: 'think', told: 'tell'
+            };
+            return `${aux} ${baseMap[verb.toLowerCase()] || verb}`;
+        },
+        reason: 'Use base verb after "didn\'t"'
+    },
+    {
+        regex: /\bI\s+am\s+agree\b/gi,
+        fix: () => 'I agree',
+        reason: '"Agree" is a verb ("I agree")'
+    },
+    {
+        regex: /\bdepends\s+of\b/gi,
+        fix: () => 'depends on',
+        reason: 'Preposition: "depends on"'
+    }
+];
+
+function analyzeEnglishTextWordStyle(text, fieldElement, fieldLabel = '') {
+    const raw = String(text || '');
+    if (!raw.trim()) return [];
+    const issues = [];
+
+    // 1. Spelling check word-by-word
+    const wordRegex = /\b([A-Za-z']{2,})\b/g;
+    let m;
+    while ((m = wordRegex.exec(raw)) !== null) {
+        const original = m[1];
+        const lower = original.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(WORD_SPELLING_DICTIONARY, lower)) {
+            let suggestion = WORD_SPELLING_DICTIONARY[lower];
+            if (original[0] === original[0].toUpperCase() && original[0] !== original[0].toLowerCase() && suggestion[0]) {
+                suggestion = suggestion[0].toUpperCase() + suggestion.slice(1);
+            }
+            if (suggestion !== original) {
+                issues.push({
+                    type: 'spelling',
+                    original,
+                    replacement: suggestion,
+                    reason: 'Spelling',
+                    fieldElement,
+                    fieldLabel
+                });
+            }
+        }
+    }
+
+    // 2. Grammar & style patterns
+    WORD_GRAMMAR_PATTERNS.forEach(rule => {
+        const rgx = new RegExp(rule.regex.source, rule.regex.flags);
+        let gm;
+        while ((gm = rgx.exec(raw)) !== null) {
+            if (typeof rule.filter === 'function' && !rule.filter(...gm)) continue;
+            const replacement = rule.fix(...gm);
+            if (replacement && replacement !== gm[0]) {
+                issues.push({
+                    type: 'grammar',
+                    original: gm[0],
+                    replacement,
+                    reason: rule.reason || 'Grammar',
+                    fieldElement,
+                    fieldLabel
+                });
+            }
+        }
+    });
+
+    // 3. Sentence initial capitalization
+    const firstCharMatch = /^\s*([a-z][a-z]{1,})\b/.exec(raw);
+    if (firstCharMatch) {
+        const w = firstCharMatch[1];
+        const cap = w[0].toUpperCase() + w.slice(1);
+        if (!issues.some(it => it.original === w)) {
+            issues.push({
+                type: 'grammar',
+                original: w,
+                replacement: cap,
+                reason: 'Capitalize start of sentence',
+                fieldElement,
+                fieldLabel
+            });
+        }
+    }
+
+    return issues.slice(0, 12);
+}
+
+function applySingleProofingFix(issue) {
+    if (!issue || !issue.fieldElement) return;
+    const current = String(issue.fieldElement.value || '');
+    const escaped = issue.original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rgx = new RegExp(`\\b${escaped}\\b`);
+    if (rgx.test(current)) {
+        issue.fieldElement.value = current.replace(rgx, issue.replacement);
+    } else {
+        issue.fieldElement.value = current.replace(issue.original, issue.replacement);
+    }
+    issue.fieldElement.dispatchEvent(new Event('input'));
+}
+
+function bindProofingSuite({ fields, badgeId, fixAllBtnId, listId }) {
+    const badgeEl = document.getElementById(badgeId);
+    const fixAllBtn = document.getElementById(fixAllBtnId);
+    const listEl = document.getElementById(listId);
+    if (!badgeEl || !listEl) return;
+
+    let currentIssues = [];
+
+    const evaluateSuite = () => {
+        currentIssues = [];
+        let hasText = false;
+        fields.forEach(f => {
+            const el = document.getElementById(f.id);
+            if (!el) return;
+            if (String(el.value || '').trim()) hasText = true;
+            const found = analyzeEnglishTextWordStyle(el.value, el, f.label);
+            currentIssues.push(...found);
+        });
+
+        listEl.innerHTML = '';
+
+        if (!hasText) {
+            badgeEl.className = 'proofing-status-badge is-ok';
+            badgeEl.textContent = '✓ Ready to check English spelling & grammar';
+            if (fixAllBtn) fixAllBtn.hidden = true;
+            return;
+        }
+
+        if (currentIssues.length === 0) {
+            badgeEl.className = 'proofing-status-badge is-ok';
+            badgeEl.textContent = '✓ Spelling & Grammar look great (Word check passed)';
+            if (fixAllBtn) fixAllBtn.hidden = true;
+            return;
+        }
+
+        const spellCount = currentIssues.filter(i => i.type === 'spelling').length;
+        const gramCount = currentIssues.filter(i => i.type === 'grammar').length;
+        badgeEl.className = 'proofing-status-badge has-issues';
+        badgeEl.textContent = `⚠ ${spellCount} Spelling · ${gramCount} Grammar suggestion${currentIssues.length === 1 ? '' : 's'} (tap to fix)`;
+        if (fixAllBtn) fixAllBtn.hidden = false;
+
+        currentIssues.forEach(issue => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = `proofing-issue-chip ${issue.type === 'spelling' ? 'is-spelling' : 'is-grammar'}`;
+            chip.title = `${issue.reason} — Click to replace "${issue.original}" with "${issue.replacement}"`;
+            const prefix = issue.fieldLabel ? `${issue.fieldLabel}: ` : '';
+            chip.innerHTML = `<span class="issue-wrong">${prefix}${issue.original}</span><span class="issue-arrow">→</span><span class="issue-fix">${issue.replacement}</span><span class="issue-reason">(${issue.reason})</span>`;
+            chip.addEventListener('click', () => {
+                applySingleProofingFix(issue);
+            });
+            listEl.appendChild(chip);
+        });
+    };
+
+    fields.forEach(f => {
+        const el = document.getElementById(f.id);
+        if (el) {
+            el.setAttribute('spellcheck', 'true');
+            el.setAttribute('lang', 'en');
+            el.addEventListener('input', evaluateSuite);
+            el.addEventListener('change', evaluateSuite);
+        }
+    });
+
+    if (fixAllBtn) {
+        fixAllBtn.addEventListener('click', () => {
+            const snapshot = [...currentIssues];
+            snapshot.forEach(issue => applySingleProofingFix(issue));
+            evaluateSuite();
+            showToast('ok', 'Applied all English spelling & grammar suggestions.');
+        });
+    }
+
+    evaluateSuite();
+}
+
+function initWordStyleProofing() {
+    bindProofingSuite({
+        fields: [
+            { id: 'journalTitle', label: 'Title' },
+            { id: 'journalText', label: 'Note' }
+        ],
+        badgeId: 'journalProofingBadge',
+        fixAllBtnId: 'btnJournalFixAll',
+        listId: 'journalProofingIssues'
+    });
+
+    bindProofingSuite({
+        fields: [
+            { id: 'palabra', label: 'Word' },
+            { id: 'significado', label: 'Meaning' },
+            { id: 'ejemplo', label: 'Example' }
+        ],
+        badgeId: 'englishProofingBadge',
+        fixAllBtnId: 'btnEnglishFixAll',
+        listId: 'englishProofingIssues'
+    });
+
+    bindProofingSuite({
+        fields: [
+            { id: 'agendaActividad', label: 'Title' },
+            { id: 'agendaDescripcion', label: 'Desc' }
+        ],
+        badgeId: 'agendaProofingBadge',
+        fixAllBtnId: 'btnAgendaFixAll',
+        listId: 'agendaProofingIssues'
+    });
+}
+
+// ==========================================
+// ITS SALTILLO ACADEMIC PLANNER, CROQUIS, VACATIONS, RESIDENCIAS, WORK & GPS
+// ==========================================
+let academicPlannerState = null;
+
+function setPlannerBanner(type, message) {
+    setInlineBanner('plannerStatusBanner', type, message);
+}
+
+function renderItsCroquisDirectory(directory) {
+    const grid = document.getElementById('itsCroquisCampusGrid');
+    if (!grid || !directory) return;
+    grid.innerHTML = '';
+    Object.values(directory).forEach(camp => {
+        const card = document.createElement('div');
+        card.className = 'its-croquis-card';
+        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${camp.lat},${camp.lng}`;
+        const buildingsHtml = (camp.buildings || [])
+            .map(b => `<span class="its-room-pill" title="${b.notes || ''}"><strong>${b.code}</strong> · ${b.name} (${(b.prefixes || []).join('/')})</span>`)
+            .join('');
+        card.innerHTML = `
+            <h4>🏫 ${camp.name} (${camp.code || ''})</h4>
+            <p class="form-hint" style="margin:0;">📍 ${camp.address || ''}</p>
+            <p class="form-hint" style="margin:0;">🅿️ ${(camp.parking || []).join(' · ')}</p>
+            <div class="its-croquis-buildings">${buildingsHtml}</div>
+            <div style="margin-top:6px;">
+                <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-sm" style="display:inline-flex;text-decoration:none;">🗺️ View on Google Maps</a>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function getActiveSemesterObj() {
+    if (!academicPlannerState || !Array.isArray(academicPlannerState.semesters)) return null;
+    return academicPlannerState.semesters.find(s => s.id === academicPlannerState.activeSemesterId) || academicPlannerState.semesters[0] || null;
+}
+
+function renderPlannerSemesterUI() {
+    const semSelect = document.getElementById('plannerSemesterSelect');
+    const semName = document.getElementById('plannerSemesterName');
+    const semStart = document.getElementById('plannerSemesterStart');
+    const semEnd = document.getElementById('plannerSemesterEnd');
+    const coursesList = document.getElementById('plannerCoursesList');
+    if (!academicPlannerState || !semSelect) return;
+
+    semSelect.innerHTML = '';
+    (academicPlannerState.semesters || []).forEach(sem => {
+        const opt = document.createElement('option');
+        opt.value = sem.id;
+        opt.textContent = `${sem.nombre} (${(sem.courses || []).length} courses)`;
+        semSelect.appendChild(opt);
+    });
+    const activeSem = getActiveSemesterObj();
+    if (!activeSem) return;
+
+    semSelect.value = activeSem.id;
+    if (semName) semName.value = activeSem.nombre || '';
+    if (semStart) semStart.value = activeSem.fechaInicio || '';
+    if (semEnd) semEnd.value = activeSem.fechaFin || '';
+
+    if (!coursesList) return;
+    coursesList.innerHTML = '';
+    const dayLabels = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' };
+
+    if (!Array.isArray(activeSem.courses) || activeSem.courses.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'agenda-empty';
+        empty.textContent = 'No classes in this semester yet. Add a class below or click "Load 9th Sem MindBox Preset".';
+        coursesList.appendChild(empty);
+        return;
+    }
+
+    activeSem.courses.forEach((course, idx) => {
+        const card = document.createElement('div');
+        card.className = 'planner-course-card';
+        const sessionsHtml = (course.sessions || [])
+            .map(s => `<span class="planner-session-pill">📅 ${(s.days || []).map(d => dayLabels[d] || d).join('/')} · ⏰ ${s.startTime}–${s.endTime} · 🚪 Aula <strong>${s.room || 'TBD'}</strong></span>`)
+            .join('');
+        card.innerHTML = `
+            <div class="planner-course-meta">
+                <h4><span class="badge-pill">${course.clave || 'ITS'}</span> ${course.nombre} <small class="text-muted">(Grp ${course.grupo || 'A'})</small></h4>
+                <p>👩‍🏫 ${course.docente || 'Docente ITS'} · 🏛️ ${course.buildingName || course.campusKey || 'Campus TecNM Saltillo'}</p>
+                <div class="planner-session-pills">${sessionsHtml}</div>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <button type="button" class="btn-secondary btn-sm btn-danger-outline" data-delete-course-idx="${idx}">Remove</button>
+            </div>
+        `;
+        coursesList.appendChild(card);
+    });
+
+    coursesList.querySelectorAll('[data-delete-course-idx]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = Number(btn.getAttribute('data-delete-course-idx'));
+            const sem = getActiveSemesterObj();
+            if (!sem || !Array.isArray(sem.courses)) return;
+            sem.courses.splice(idx, 1);
+            renderPlannerSemesterUI();
+        });
+    });
+}
+
+function renderPlannerVacationsUI() {
+    const listEl = document.getElementById('plannerVacationsList');
+    if (!listEl || !academicPlannerState) return;
+    listEl.innerHTML = '';
+    const vacations = academicPlannerState.vacations || [];
+    if (vacations.length === 0) {
+        listEl.innerHTML = '<div class="agenda-empty">No vacation periods registered.</div>';
+        return;
+    }
+    vacations.forEach((vac, idx) => {
+        const item = document.createElement('div');
+        item.className = 'planner-course-card';
+        item.innerHTML = `
+            <div class="planner-course-meta">
+                <h4>🏖️ ${vac.nombre}</h4>
+                <p>📅 ${vac.fechaInicio} → ${vac.fechaFin}</p>
+            </div>
+            <button type="button" class="btn-secondary btn-sm btn-danger-outline" data-delete-vac-idx="${idx}">Remove</button>
+        `;
+        listEl.appendChild(item);
+    });
+    listEl.querySelectorAll('[data-delete-vac-idx]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = Number(btn.getAttribute('data-delete-vac-idx'));
+            academicPlannerState.vacations.splice(idx, 1);
+            renderPlannerVacationsUI();
+        });
+    });
+}
+
+function renderPlannerResidenciasAndWorkUI() {
+    if (!academicPlannerState) return;
+    const res = academicPlannerState.residencias || {};
+    const setCheck = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = String(v); };
+
+    setCheck('resActiva', res.activa);
+    setVal('resEmpresa', res.empresa || '');
+    setVal('resProyecto', res.proyecto || '');
+    setVal('resAsesorInterno', res.asesorInterno || '');
+    setVal('resAsesorExterno', res.asesorExterno || '');
+    setVal('resHorasTotales', res.horasTotales ?? 500);
+    setVal('resHorasAcumuladas', res.horasAcumuladas ?? 0);
+    setVal('resHoraInicio', res.horaInicio || '08:00');
+    setVal('resHoraFin', res.horaFin || '13:00');
+    setVal('resModalidad', res.modalidad || 'presencial');
+    setVal('resUbicacionUrl', res.ubicacion?.mapsUrl || (res.ubicacion?.lat ? `${res.ubicacion.lat}, ${res.ubicacion.lng}` : ''));
+
+    const resDays = new Set(Array.isArray(res.dias) ? res.dias.map(Number) : [1, 2, 3, 4, 5]);
+    document.querySelectorAll('#resDiasGroup input[type="checkbox"]').forEach(cb => {
+        cb.checked = resDays.has(Number(cb.value));
+    });
+
+    const totalH = Math.max(1, Number(res.horasTotales) || 500);
+    const doneH = Math.max(0, Number(res.horasAcumuladas) || 0);
+    const pct = Math.min(100, Math.round((doneH / totalH) * 100));
+    const fillEl = document.getElementById('resProgressBarFill');
+    const lblEl = document.getElementById('resProgressLabel');
+    if (fillEl) fillEl.style.width = `${pct}%`;
+    if (lblEl) lblEl.textContent = `${doneH} / ${totalH} hrs (${pct}%)`;
+
+    const tr = academicPlannerState.trabajo || {};
+    setCheck('workActivo', tr.activo);
+    setVal('workModalidad', tr.modalidadJornada || 'medio_tiempo');
+    setVal('workEmpresa', tr.empresa || '');
+    setVal('workPuesto', tr.puesto || '');
+    setVal('workRegimen', tr.regimenUbicacion || 'presencial');
+    setVal('workHoraInicio', tr.horaInicio || '14:00');
+    setVal('workHoraFin', tr.horaFin || '18:00');
+    setVal('workUbicacionUrl', tr.ubicacion?.mapsUrl || (tr.ubicacion?.lat ? `${tr.ubicacion.lat}, ${tr.ubicacion.lng}` : ''));
+
+    const workDays = new Set(Array.isArray(tr.dias) ? tr.dias.map(Number) : [1, 2, 3, 4, 5]);
+    document.querySelectorAll('#workDiasGroup input[type="checkbox"]').forEach(cb => {
+        cb.checked = workDays.has(Number(cb.value));
+    });
+
+    const locs = academicPlannerState.locations || {};
+    setVal('locCasaInput', locs.casa?.mapsUrl || (locs.casa?.lat ? `${locs.casa.lat}, ${locs.casa.lng}` : ''));
+    setVal('locUniCampusDefault', locs.universidad?.campusKey || 'principal');
+    setVal('locUniInput', locs.universidad?.mapsUrl || (locs.universidad?.lat ? `${locs.universidad.lat}, ${locs.universidad.lng}` : '25.443706, -100.993845'));
+
+    const notif = academicPlannerState.notifications || {};
+    setCheck('notifClassEnabled', notif.classRemindersEnabled !== false);
+    setCheck('notifUseTraffic', notif.useTrafficEstimate !== false);
+    setCheck('notifResEnabled', notif.residenciasRemindersEnabled !== false);
+    setCheck('notifWorkEnabled', notif.workRemindersEnabled !== false);
+    setVal('notifMinLeadFar', notif.minLeadMinutesFar ?? 30);
+    setVal('notifLeadNear', notif.leadMinutesNear ?? 10);
+    setVal('notifParkingBuffer', notif.parkingBufferMinutes ?? 8);
+    setVal('notifNearRadius', notif.nearRadiusKm ?? 0.85);
+}
+
+function collectPlannerStateFromDOM() {
+    if (!academicPlannerState) return null;
+    const activeSem = getActiveSemesterObj();
+    if (activeSem) {
+        activeSem.nombre = String(document.getElementById('plannerSemesterName')?.value || activeSem.nombre || '9no Semestre').trim();
+        activeSem.fechaInicio = document.getElementById('plannerSemesterStart')?.value || activeSem.fechaInicio;
+        activeSem.fechaFin = document.getElementById('plannerSemesterEnd')?.value || activeSem.fechaFin;
+    }
+
+    const resDays = Array.from(document.querySelectorAll('#resDiasGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
+    academicPlannerState.residencias = {
+        activa: Boolean(document.getElementById('resActiva')?.checked),
+        empresa: String(document.getElementById('resEmpresa')?.value || '').trim(),
+        proyecto: String(document.getElementById('resProyecto')?.value || '').trim(),
+        asesorInterno: String(document.getElementById('resAsesorInterno')?.value || '').trim(),
+        asesorExterno: String(document.getElementById('resAsesorExterno')?.value || '').trim(),
+        horasTotales: Number(document.getElementById('resHorasTotales')?.value || 500),
+        horasAcumuladas: Number(document.getElementById('resHorasAcumuladas')?.value || 0),
+        fechaInicio: academicPlannerState.residencias?.fechaInicio || '2026-08-17',
+        fechaFin: academicPlannerState.residencias?.fechaFin || '2026-12-18',
+        dias: resDays,
+        horaInicio: String(document.getElementById('resHoraInicio')?.value || '08:00').slice(0, 5),
+        horaFin: String(document.getElementById('resHoraFin')?.value || '13:00').slice(0, 5),
+        modalidad: document.getElementById('resModalidad')?.value || 'presencial',
+        ubicacion: {
+            label: String(document.getElementById('resEmpresa')?.value || 'Empresa Residencias').trim(),
+            mapsUrl: String(document.getElementById('resUbicacionUrl')?.value || '').trim()
+        }
+    };
+
+    const workDays = Array.from(document.querySelectorAll('#workDiasGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
+    academicPlannerState.trabajo = {
+        activo: Boolean(document.getElementById('workActivo')?.checked),
+        modalidadJornada: document.getElementById('workModalidad')?.value || 'medio_tiempo',
+        empresa: String(document.getElementById('workEmpresa')?.value || '').trim(),
+        puesto: String(document.getElementById('workPuesto')?.value || '').trim(),
+        regimenUbicacion: document.getElementById('workRegimen')?.value || 'presencial',
+        dias: workDays,
+        horaInicio: String(document.getElementById('workHoraInicio')?.value || '14:00').slice(0, 5),
+        horaFin: String(document.getElementById('workHoraFin')?.value || '18:00').slice(0, 5),
+        ubicacion: {
+            label: String(document.getElementById('workEmpresa')?.value || 'Lugar de Trabajo').trim(),
+            mapsUrl: String(document.getElementById('workUbicacionUrl')?.value || '').trim()
+        }
+    };
+
+    academicPlannerState.locations = {
+        ...academicPlannerState.locations,
+        casa: {
+            label: 'Casa',
+            mapsUrl: String(document.getElementById('locCasaInput')?.value || '').trim()
+        },
+        universidad: {
+            label: 'Instituto Tecnológico de Saltillo (ITS)',
+            campusKey: document.getElementById('locUniCampusDefault')?.value || 'principal',
+            mapsUrl: String(document.getElementById('locUniInput')?.value || '25.443706, -100.993845').trim()
+        }
+    };
+
+    academicPlannerState.notifications = {
+        classRemindersEnabled: Boolean(document.getElementById('notifClassEnabled')?.checked),
+        residenciasRemindersEnabled: Boolean(document.getElementById('notifResEnabled')?.checked),
+        workRemindersEnabled: Boolean(document.getElementById('notifWorkEnabled')?.checked),
+        minLeadMinutesFar: Number(document.getElementById('notifMinLeadFar')?.value || 30),
+        leadMinutesNear: Number(document.getElementById('notifLeadNear')?.value || 10),
+        nearRadiusKm: Number(document.getElementById('notifNearRadius')?.value || 0.85),
+        useTrafficEstimate: Boolean(document.getElementById('notifUseTraffic')?.checked),
+        parkingBufferMinutes: Number(document.getElementById('notifParkingBuffer')?.value || 8)
+    };
+
+    return academicPlannerState;
+}
+
+function cargarPlannerVista() {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    fetch('/api/planner', { cache: 'no-store' })
+        .then(res => (res.ok ? res.json() : Promise.reject(new Error('Could not load ITS Planner'))))
+        .then(data => {
+            academicPlannerState = data.planner || {};
+            renderItsCroquisDirectory(data.campusDirectory);
+            renderPlannerSemesterUI();
+            renderPlannerVacationsUI();
+            renderPlannerResidenciasAndWorkUI();
+        })
+        .catch(err => {
+            setPlannerBanner('err', 'Error loading ITS planner: ' + err.message);
+        });
+}
+
+function initAcademicPlannerHandlers() {
+    const viewEl = document.getElementById('view-horario');
+    if (!viewEl) return;
+
+    // Tab switching
+    document.querySelectorAll('#plannerSubTabs [data-planner-tab]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.getAttribute('data-planner-tab');
+            document.querySelectorAll('#plannerSubTabs [data-planner-tab]').forEach(b => {
+                const active = b === btn;
+                b.classList.toggle('is-active', active);
+                b.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            document.querySelectorAll('.planner-tab-panel').forEach(panel => {
+                panel.hidden = panel.id !== `plannerTab-${tab}`;
+            });
+        });
+    });
+
+    const semSelect = document.getElementById('plannerSemesterSelect');
+    if (semSelect) {
+        semSelect.addEventListener('change', () => {
+            if (!academicPlannerState) return;
+            academicPlannerState.activeSemesterId = semSelect.value;
+            renderPlannerSemesterUI();
+        });
+    }
+
+    const btnNewSem = document.getElementById('btnNewSemester');
+    if (btnNewSem) {
+        btnNewSem.addEventListener('click', () => {
+            if (!academicPlannerState) return;
+            const newId = `sem-${Date.now()}`;
+            academicPlannerState.semesters = academicPlannerState.semesters || [];
+            academicPlannerState.semesters.push({
+                id: newId,
+                nombre: `Nuevo Semestre ITS (${academicPlannerState.semesters.length + 1})`,
+                institucion: 'Instituto Tecnológico de Saltillo (TecNM)',
+                fechaInicio: '2027-01-18',
+                fechaFin: '2027-06-04',
+                activo: true,
+                courses: []
+            });
+            academicPlannerState.activeSemesterId = newId;
+            renderPlannerSemesterUI();
+            setPlannerBanner('info', 'Created new semester. Customize its name/dates and click "Save All Planner Changes".');
+        });
+    }
+
+    const btnLoadPreset = document.getElementById('btnLoadMindboxPreset');
+    if (btnLoadPreset) {
+        btnLoadPreset.addEventListener('click', () => {
+            fetch('/api/planner', { cache: 'no-store' })
+                .then(r => r.json())
+                .then(() => {
+                    const activeSem = getActiveSemesterObj();
+                    if (!activeSem) return;
+                    activeSem.courses = [
+                        {
+                            id: 'ACA0910', clave: 'ACA0910', nombre: 'TALLER DE INVESTIGACIÓN II',
+                            docente: 'Sorkee Quiroz Roxana Karina', grupo: 'B', aulaDefault: 'R02', campusKey: 'boillot',
+                            sessions: [{ days: [1, 2, 3, 4], startTime: '09:00', endTime: '10:00', room: 'R02' }]
+                        },
+                        {
+                            id: 'SCG1009', clave: 'SCG1009', nombre: 'GESTIÓN DE PROYECTOS DE SOFTWARE',
+                            docente: 'Fernández Chávez Eduardo', grupo: 'B', aulaDefault: 'S12', campusKey: 'principal',
+                            sessions: [
+                                { days: [1, 2, 3, 4], startTime: '13:00', endTime: '14:00', room: 'S12' },
+                                { days: [5], startTime: '12:00', endTime: '14:00', room: 'S12' }
+                            ]
+                        },
+                        {
+                            id: 'DED2504', clave: 'DED2504', nombre: 'Integración y Despliegue Continuos',
+                            docente: 'Manrique Peña Paola Denis', grupo: 'A', aulaDefault: 'LC2', campusKey: 'principal',
+                            sessions: [{ days: [1, 2, 3, 4, 5], startTime: '14:00', endTime: '15:00', room: 'LC2' }]
+                        },
+                        {
+                            id: 'SCC1019', clave: 'SCC1019', nombre: 'PROGRAMACIÓN LÓGICA Y FUNCIONAL',
+                            docente: 'Espinoza Arzola Jesús Alberto', grupo: 'A', aulaDefault: 'S14', campusKey: 'principal',
+                            sessions: [{ days: [1, 2, 3, 4], startTime: '15:00', endTime: '16:00', room: 'S14' }]
+                        },
+                        {
+                            id: 'DED2505', clave: 'DED2505', nombre: 'Desarrollo Seguro',
+                            docente: 'Cabrera Fraga Pricila', grupo: 'A', aulaDefault: 'S15', campusKey: 'principal',
+                            sessions: [{ days: [1, 2, 3, 4, 5], startTime: '16:00', endTime: '17:00', room: 'S15' }]
+                        }
+                    ];
+                    renderPlannerSemesterUI();
+                    setPlannerBanner('ok', 'Loaded your 5 MindBox 9th-semester ITS courses! Click "Save All Planner Changes" to persist.');
+                });
+        });
+    }
+
+    // Live classroom croquis detector
+    const courseAulaInput = document.getElementById('courseAula');
+    const roomBadge = document.getElementById('courseRoomDetectBadge');
+    if (courseAulaInput && roomBadge) {
+        let roomTimer = null;
+        courseAulaInput.addEventListener('input', () => {
+            clearTimeout(roomTimer);
+            const roomVal = courseAulaInput.value.trim();
+            if (!roomVal) {
+                roomBadge.textContent = 'Enter a classroom code (e.g. R02, R11, N21, S14) to detect ITS Campus & Building.';
+                return;
+            }
+            roomTimer = setTimeout(() => {
+                submitMutationRequest({
+                    url: '/api/planner/resolve-room',
+                    method: 'POST',
+                    scopeKey: 'resolve-room',
+                    signature: roomVal,
+                    buildBody: () => ({ room: roomVal }),
+                    parseJson: true
+                }).then(data => {
+                    if (data && data.resolved) {
+                        const r = data.resolved;
+                        roomBadge.textContent = `📍 Aula ${r.room} → ${r.buildingName} · ${r.campusName} (${r.croquisCode})`;
+                    }
+                }).catch(() => {});
+            }, 180);
+        });
+    }
+
+    const btnAddCourse = document.getElementById('btnAddCourseToSemester');
+    if (btnAddCourse) {
+        btnAddCourse.addEventListener('click', () => {
+            const activeSem = getActiveSemesterObj();
+            if (!activeSem) return;
+            const clave = String(document.getElementById('courseClave')?.value || '').trim().toUpperCase();
+            const nombre = String(document.getElementById('courseNombre')?.value || '').trim();
+            const docente = String(document.getElementById('courseDocente')?.value || '').trim();
+            const grupo = String(document.getElementById('courseGrupo')?.value || 'A').trim().toUpperCase();
+            const aula = String(document.getElementById('courseAula')?.value || 'R02').trim().toUpperCase();
+            const start = String(document.getElementById('courseHoraInicio')?.value || '09:00').slice(0, 5);
+            const end = String(document.getElementById('courseHoraFin')?.value || '10:00').slice(0, 5);
+            const days = Array.from(document.querySelectorAll('#courseDaysGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
+
+            if (!nombre || days.length === 0) {
+                showToast('err', 'Please enter a subject name and select at least one day.');
+                return;
+            }
+
+            activeSem.courses = activeSem.courses || [];
+            activeSem.courses.push({
+                id: clave || `COURSE_${Date.now()}`,
+                clave: clave || 'ITS',
+                nombre,
+                docente,
+                grupo,
+                aulaDefault: aula,
+                sessions: [{ days, startTime: start, endTime: end, room: aula }]
+            });
+            document.getElementById('courseClave').value = '';
+            document.getElementById('courseNombre').value = '';
+            document.getElementById('courseDocente').value = '';
+            renderPlannerSemesterUI();
+            showToast('ok', `Added "${nombre}" (${aula}) to semester.`);
+        });
+    }
+
+    const btnAddVac = document.getElementById('btnAddVacation');
+    if (btnAddVac) {
+        btnAddVac.addEventListener('click', () => {
+            if (!academicPlannerState) return;
+            const nombre = String(document.getElementById('vacNombre')?.value || '').trim();
+            const fechaInicio = document.getElementById('vacInicio')?.value || '';
+            const fechaFin = document.getElementById('vacFin')?.value || '';
+            if (!nombre || !fechaInicio || !fechaFin) {
+                showToast('err', 'Enter vacation name, start date, and end date.');
+                return;
+            }
+            academicPlannerState.vacations = academicPlannerState.vacations || [];
+            academicPlannerState.vacations.push({
+                id: `vac-${Date.now()}`,
+                nombre,
+                fechaInicio,
+                fechaFin
+            });
+            document.getElementById('vacNombre').value = '';
+            renderPlannerVacationsUI();
+            showToast('ok', `Added vacation period: ${nombre}`);
+        });
+    }
+
+    // GPS Helper
+    const captureGpsInto = (inputId, labelText) => {
+        if (!navigator.geolocation) {
+            showToast('err', 'Geolocation is not supported by this browser.');
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const lat = pos.coords.latitude.toFixed(6);
+                const lng = pos.coords.longitude.toFixed(6);
+                const coordStr = `${lat}, ${lng}`;
+                if (inputId) {
+                    const inputEl = document.getElementById(inputId);
+                    if (inputEl) inputEl.value = coordStr;
+                }
+                showToast('ok', `${labelText} GPS coordinates captured: ${coordStr}`);
+            },
+            (err) => {
+                showToast('err', `Could not read GPS (${err.message}). You can paste a Google Maps link or lat,lng directly.`);
+            },
+            { enableHighAccuracy: true, timeout: 10000 }
+        );
+    };
+
+    document.getElementById('btnUseCurrentGpsForCasa')?.addEventListener('click', () => captureGpsInto('locCasaInput', 'Home'));
+    document.getElementById('btnResUseGps')?.addEventListener('click', () => captureGpsInto('resUbicacionUrl', 'Residencias'));
+    document.getElementById('btnWorkUseGps')?.addEventListener('click', () => captureGpsInto('workUbicacionUrl', 'Work'));
+
+    const btnUpdateLiveGps = document.getElementById('btnUpdateLiveGps');
+    if (btnUpdateLiveGps) {
+        btnUpdateLiveGps.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                showToast('err', 'Geolocation is not supported on this browser. Use the manual test field below.');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    const manualEl = document.getElementById('locCurrentManualInput');
+                    if (manualEl) manualEl.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                    submitMutationRequest({
+                        url: '/api/planner/location',
+                        method: 'POST',
+                        scopeKey: 'planner-gps-live',
+                        signature: `${lat},${lng}`,
+                        buildBody: () => ({ lat, lng, label: 'Phone/Browser GPS' }),
+                        parseJson: true
+                    }).then(data => {
+                        renderLiveCommuteCards(data.commutes || []);
+                        showToast('ok', 'Live GPS updated & traffic routes recalculated!');
+                    }).catch(err => showToast('err', err.message));
+                },
+                (err) => showToast('err', 'GPS permission error: ' + err.message),
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        });
+    }
+
+    const btnTestManualCommute = document.getElementById('btnTestManualCommute');
+    if (btnTestManualCommute) {
+        btnTestManualCommute.addEventListener('click', () => {
+            const raw = String(document.getElementById('locCurrentManualInput')?.value || '').trim();
+            if (!raw) {
+                showToast('err', 'Enter coordinates (e.g. 25.421, -100.995) or a Google Maps link first.');
+                return;
+            }
+            runWithButtonLock(btnTestManualCommute, async () => {
+                try {
+                    const data = await submitMutationRequest({
+                        url: '/api/planner/location',
+                        method: 'POST',
+                        scopeKey: 'planner-gps-manual',
+                        signature: raw + Date.now(),
+                        buildBody: () => ({ mapsUrl: raw, label: 'Simulated Location' }),
+                        parseJson: true
+                    });
+                    renderLiveCommuteCards(data.commutes || []);
+                    showToast('ok', 'Calculated driving time & notification lead time!');
+                } catch (err) {
+                    showToast('err', err.message);
+                }
+            }, { loadingText: 'Calculating...' });
+        });
+    }
+
+    const btnSaveAll = document.getElementById('btnSaveAllPlanner');
+    if (btnSaveAll) {
+        btnSaveAll.addEventListener('click', () => {
+            const payload = collectPlannerStateFromDOM();
+            if (!payload) return;
+            runWithButtonLock(btnSaveAll, async () => {
+                try {
+                    const resData = await submitMutationRequest({
+                        url: '/api/planner',
+                        method: 'PUT',
+                        scopeKey: 'planner-save-all',
+                        signature: JSON.stringify(payload),
+                        buildBody: () => payload,
+                        parseJson: true
+                    });
+                    if (resData && resData.planner) {
+                        academicPlannerState = resData.planner;
+                        renderPlannerSemesterUI();
+                        renderPlannerVacationsUI();
+                        renderPlannerResidenciasAndWorkUI();
+                    }
+                    setPlannerBanner('ok', resData.message || 'ITS Schedule, Vacations, Residencias, Work & Locations saved!');
+                    showToast('ok', 'Planner saved!');
+                    cargarRecordatoriosActivos();
+                } catch (err) {
+                    setPlannerBanner('err', 'Failed to save planner: ' + err.message);
+                    showToast('err', err.message);
+                }
+            }, { loadingText: 'Saving...' });
+        });
+    }
+
+    const btnSyncWeek = document.getElementById('btnSyncPlannerToAgenda');
+    if (btnSyncWeek) {
+        btnSyncWeek.addEventListener('click', () => {
+            const payload = collectPlannerStateFromDOM();
+            runWithButtonLock(btnSyncWeek, async () => {
+                try {
+                    if (payload) {
+                        await submitMutationRequest({
+                            url: '/api/planner',
+                            method: 'PUT',
+                            scopeKey: 'planner-save-before-sync',
+                            signature: JSON.stringify(payload),
+                            buildBody: () => payload,
+                            parseJson: true
+                        });
+                    }
+                    const syncRes = await submitMutationRequest({
+                        url: '/api/planner/sync-agenda',
+                        method: 'POST',
+                        scopeKey: 'planner-sync-agenda',
+                        signature: String(Date.now()),
+                        buildBody: () => ({ weekStartDate: getMonday(new Date()) ? formatLocalDate(getMonday(new Date())) : formatLocalDate(new Date()) }),
+                        parseJson: true
+                    });
+                    setPlannerBanner('ok', syncRes.message || 'Synced classes, Residencias & work to Weekly Agenda!');
+                    showToast('ok', syncRes.message || 'Synced to Weekly Agenda!');
+                } catch (err) {
+                    setPlannerBanner('err', 'Failed to sync to Agenda: ' + err.message);
+                    showToast('err', err.message);
+                }
+            }, { loadingText: 'Syncing...' });
+        });
+    }
+}
+
+function renderLiveCommuteCards(commutes = []) {
+    const box = document.getElementById('liveCommuteResultBox');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!commutes.length) {
+        box.hidden = true;
+        return;
+    }
+    box.hidden = false;
+    commutes.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'its-croquis-card';
+        const statusBadge = c.isNearCampus
+            ? `<span class="proofing-status-badge is-ok">📍 On / Near Campus (${c.distanceKm} km) → Notify ${c.recommendedLeadMinutes} min before</span>`
+            : `<span class="proofing-status-badge has-issues">🚗 Far / Driving (${c.distanceKm} km · ${c.trafficLabel}) → Est. ${c.driveMinutesWithTraffic} min drive · Notify ${c.recommendedLeadMinutes} min before</span>`;
+        card.innerHTML = `
+            <h4>🎯 ${c.target}</h4>
+            <div>${statusBadge}</div>
+            <div style="margin-top:6px;">
+                <a href="${c.mapsDirectionsUrl}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-sm" style="display:inline-flex;text-decoration:none;">🗺️ Open Google Maps Driving Route</a>
+            </div>
+        `;
+        box.appendChild(card);
+    });
+}
+
+// ==========================================
 // APP INITIALIZATION
 // ==========================================
 function initApp() {
@@ -4719,6 +5874,8 @@ function initApp() {
     initPasswordToggles();
     initAuthHandlers();
     initSettingsHandlers();
+    initWordStyleProofing();
+    initAcademicPlannerHandlers();
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('resetToken') && params.get('email')) {

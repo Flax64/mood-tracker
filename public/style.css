@@ -4632,3 +4632,160 @@ select,
         width: calc(100% - 24px);
     }
 }
+
+/* =========================================
+   WORD-STYLE ENGLISH SPELLING & GRAMMAR PROOFING + ITS PLANNER
+========================================= */
+.word-proofing-panel {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 8px 0 12px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.word-proofing-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.word-proofing-badge {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #334155;
+}
+
+.word-proofing-badge.has-issues {
+    color: #b91c1c;
+}
+
+.word-proofing-issues {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.proofing-issue-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #1e293b;
+    transition: transform 0.12s ease, background 0.15s ease;
+}
+
+.proofing-issue-chip:hover {
+    transform: translateY(-1px);
+}
+
+.proofing-issue-chip.is-spelling {
+    border-color: #fca5a5;
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.proofing-issue-chip.is-spelling .proofing-bad-word {
+    text-decoration: underline wavy #ef4444;
+}
+
+.proofing-issue-chip.is-grammar {
+    border-color: #93c5fd;
+    background: #eff6ff;
+    color: #1e40af;
+}
+
+.proofing-issue-chip.is-grammar .proofing-bad-word {
+    text-decoration: underline double #2563eb;
+}
+
+.agenda-item-desc {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.35;
+}
+
+.its-croquis-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.its-croquis-card,
+.planner-course-card {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.planner-course-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.84rem;
+}
+
+.planner-room-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+:root[data-theme="dark"] .word-proofing-panel,
+:root[data-theme="dark"] .its-croquis-card,
+:root[data-theme="dark"] .planner-course-card {
+    background: #0f172a;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .word-proofing-badge {
+    color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .word-proofing-badge.has-issues {
+    color: #fca5a5;
+}
+
+:root[data-theme="dark"] .proofing-issue-chip.is-spelling {
+    background: rgba(220, 38, 38, 0.18);
+    border-color: rgba(248, 113, 113, 0.45);
+    color: #fecaca;
+}
+
+:root[data-theme="dark"] .proofing-issue-chip.is-grammar {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: rgba(96, 165, 250, 0.45);
+    color: #bfdbfe;
+}
+
+:root[data-theme="dark"] .planner-room-pill {
+    background: rgba(59, 130, 246, 0.25);
+    color: #93c5fd;
+}

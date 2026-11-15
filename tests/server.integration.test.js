@@ -1671,6 +1671,125 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(afterDel.stats.totalSongs, 1);
     });
 
+    it('gestiona Horario ITS por semestre, croquis de aulas (R02/R11/N21), vacaciones, residencias, trabajo, auto-bloque de agenda y rutas con tráfico', async () => {
+        // 1. RBAC: psiquiatra no puede acceder al planificador académico/laboral
+        const psychPlannerRes = await request({ port, reqPath: '/api/planner', headers: { Cookie: medicoCookie } });
+        assert.strictEqual(psychPlannerRes.status, 403);
+
+        // 2. Obtener planificador inicial con materias MindBox 9no semestre del ITS y directorio del croquis
+        const getPlannerRes = await request({ port, reqPath: '/api/planner', headers: { Cookie: adminCookie } });
+        assert.strictEqual(getPlannerRes.status, 200);
+        const plannerBody = JSON.parse(getPlannerRes.body);
+        assert.ok(plannerBody.planner);
+        assert.ok(plannerBody.campusDirectory);
+        assert.ok(plannerBody.campusDirectory.principal);
+        assert.ok(plannerBody.campusDirectory.miravalle);
+        assert.ok(plannerBody.campusDirectory.boillot);
+        assert.strictEqual(plannerBody.planner.activeSemesterId, 'sem-9no-2026');
+        assert.ok(plannerBody.planner.semesters[0].courses.length >= 5, 'Debe incluir las 5 materias MindBox de 9no semestre');
+
+        // 3. Resolver aulas del croquis oficial del ITS (R02/R11 -> Boillot CTO-004, N21 -> Miravalle CTO-003, S14 -> Principal CTO-002)
+        const roomR02Res = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/resolve-room',
+            headers: { Cookie: adminCookie },
+            body: { room: 'R02' }
+        });
+        assert.strictEqual(roomR02Res.status, 200);
+        const r02 = JSON.parse(roomR02Res.body).resolved;
+        assert.strictEqual(r02.campusKey, 'boillot');
+        assert.strictEqual(r02.croquisCode, 'CTO-004');
+
+        const roomN21Res = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/resolve-room',
+            headers: { Cookie: adminCookie },
+            body: { room: 'N21' }
+        });
+        assert.strictEqual(roomN21Res.status, 200);
+        const n21 = JSON.parse(roomN21Res.body).resolved;
+        assert.strictEqual(n21.campusKey, 'miravalle');
+        assert.strictEqual(n21.croquisCode, 'CTO-003');
+
+        // 4. Calcular tiempo de traslado en carro y anticipación de notificación (lejos >= 30 min con tráfico vs cerca = 10 min)
+        const farLocRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/location',
+            headers: { Cookie: adminCookie },
+            body: { mapsUrl: '25.380000, -101.020000', label: 'Casa Sur Saltillo' }
+        });
+        assert.strictEqual(farLocRes.status, 200);
+        const farData = JSON.parse(farLocRes.body);
+        assert.ok(Array.isArray(farData.commutes) && farData.commutes.length >= 3);
+        const farPrincipal = farData.commutes.find((c) => c.campusKey === 'principal');
+        assert.strictEqual(farPrincipal.isNearCampus, false);
+        assert.ok(farPrincipal.recommendedLeadMinutes >= 30, 'Si está lejos del ITS debe notificar mínimo 30 minutos antes');
+        assert.ok(farPrincipal.mapsDirectionsUrl.includes('google.com/maps/dir/'));
+
+        const nearLocRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/location',
+            headers: { Cookie: adminCookie },
+            body: { lat: 25.4438, lng: -100.9939, label: 'En el Tec de Saltillo' }
+        });
+        assert.strictEqual(nearLocRes.status, 200);
+        const nearData = JSON.parse(nearLocRes.body);
+        const nearPrincipal = nearData.commutes.find((c) => c.campusKey === 'principal');
+        assert.strictEqual(nearPrincipal.isNearCampus, true);
+        assert.strictEqual(nearPrincipal.recommendedLeadMinutes, 10, 'Si ya está en o cerca del ITS debe notificar 10 minutos antes');
+
+        // 5. Agenda: separación de título y descripción + auto-selección de bloque del día a partir de la hora
+        const insertSeparatedRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-16',
+                hora: '14:30',
+                titulo: 'Software Engineering Sprint Review',
+                descripcion: 'Present continuous deployment pipeline in room LC2',
+                tipo: 'tarea',
+                categoria: 'universidad',
+                estado: 'todo'
+            }
+        });
+        assert.strictEqual(insertSeparatedRes.status, 201);
+        const insertedBody = JSON.parse(insertSeparatedRes.body).item;
+        assert.strictEqual(insertedBody.bloque, 'cole', 'Con hora 14:30 y categoría universidad debe auto-seleccionar bloque cole');
+        assert.strictEqual(insertedBody.titulo, 'Software Engineering Sprint Review');
+        assert.strictEqual(insertedBody.descripcion, 'Present continuous deployment pipeline in room LC2');
+        assert.ok(insertedBody.actividad.includes('Software Engineering Sprint Review — Present continuous deployment pipeline'));
+
+        // 6. Sincronizar horario ITS a la Agenda Semanal (respetando vacaciones)
+        const syncRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/sync-agenda',
+            headers: { Cookie: adminCookie },
+            body: { weekStartDate: '2026-11-16' }
+        });
+        assert.strictEqual(syncRes.status, 200);
+        const syncBody = JSON.parse(syncRes.body);
+        assert.ok(syncBody.inserted >= 5, 'Debe sincronizar las clases de la semana a la agenda');
+
+        // Si sincronizamos en semana de vacaciones (2026-03-30 Semana Santa), no debe insertar clases
+        const syncVacRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/sync-agenda',
+            headers: { Cookie: adminCookie },
+            body: { weekStartDate: '2026-03-30' }
+        });
+        assert.strictEqual(syncVacRes.status, 200);
+        const syncVacBody = JSON.parse(syncVacRes.body);
+        assert.strictEqual(syncVacBody.inserted, 0, 'Durante periodo de vacaciones no debe programar clases');
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;
