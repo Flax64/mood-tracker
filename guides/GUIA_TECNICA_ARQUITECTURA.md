@@ -64,7 +64,7 @@ El sistema se divide en cinco capas desacopladas:
 | Tabla | Propósito | Restricciones / Índices clave |
 | :--- | :--- | :--- |
 | `RegistrosMood` | Estados de ánimo por franja horaria | `UNIQUE(fecha, momento_dia)` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`) |
-| `RegistrosSleep` | Horas y calidad de sueño diario | `horas DECIMAL(4,2)`, `calidad` (`Good`, `Regular`, `Bad`) |
+| `RegistrosSleep` | Horas, horarios exactos, calidad y desvelos diarios | `horas DECIMAL(4,2)`, `calidad` (`Good`, `Regular`, `Bad`), `hora_dormir`, `hora_despertar`, `es_desvelo`, `tipo_registro` (`normal`, `desvelo_tarde`, `desvelo_total`), `motivo_desvelo` |
 | `RegistrosCrisis` | Bitácora clínica de crisis emocionales en español | `fecha DATE`, `hora VARCHAR(5)`, `tipo_crisis`, `intensidad TINYINT (1-5)`, `motivo VARCHAR(1000)`, índice `idx_crisis_fecha` (visible solo lectura a `psiquiatra`) |
 | `RegistrosAgenda` | Eventos y tareas divididos en `universidad` / `personal` | `bloque` (`manana`, `cole`, `tarde`, `noche`), `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `recordatorio_min`, índices `idx_agenda_fecha` y `idx_agenda_categoria_estado` |
 | `Usuarios` | Cuentas registradas y su rol | `email UNIQUE`, `password_hash` (`bcryptjs` 12 rondas), `rol ENUM('admin','psiquiatra')`, `estado ENUM('activo','inactivo','suspendido')` |
@@ -77,7 +77,7 @@ El sistema se divide en cinco capas desacopladas:
 | `MusicaCanciones` | Metadatos de canciones para estudio (sin letras) | `album_id` (`FK`), `yt_music_url`, `yt_video_id`, `estado_estudio` (`to_study`/`in_progress`/`mastered`), `enfoque_corto <= 255`, `word_sincronizado` |
 | `MusicaCancionArtistas` | Relación muchos-a-muchos para colaboraciones (`feat` / `collab`) | `PRIMARY KEY (cancion_id, artista_id)`, `rol ENUM('main','feat','collab','producer')`, `orden` |
 
-> **Auto-migración sin pérdida de datos:** Al iniciar `server.js`, `inicializarTablasSeguridad()` garantiza la existencia de las tablas nuevas y ejecuta `SHOW COLUMNS FROM RegistrosAgenda` para añadir de forma idempotente `tipo`, `categoria`, `estado` (sincronizando `completada = 1` → `'done'`) y `recordatorio_min` en bases de datos ya desplegadas en EC2.
+> **Auto-migración sin pérdida de datos:** Al iniciar `server.js`, `inicializarTablasSeguridad()` garantiza la existencia de las tablas nuevas y ejecuta `SHOW COLUMNS FROM RegistrosAgenda` y `SHOW COLUMNS FROM RegistrosSleep` de forma idempotente para añadir columnas nuevas (`tipo`, `categoria`, `estado`, `recordatorio_min` en Agenda; `hora_dormir`, `hora_despertar`, `es_desvelo`, `tipo_registro`, `motivo_desvelo` en Sueño/Desvelos) en bases de datos ya desplegadas en EC2.
 
 ---
 
@@ -98,7 +98,7 @@ El sistema se divide en cinco capas desacopladas:
   - Clave secreta personal (`ADMIN_SECRET`, `WORD_PASSWORD` o `JOURNAL_SECRET_KEY`), comparada en tiempo constante mediante `safeCompareStrings()` (`crypto.timingSafeEqual` sobre SHA-256).
 - **Middleware `requireAuth`:** valida cookie `mt_session` y vigencia en `SesionesAuth`.
 - **Middleware `requireAdmin`:** exige `req.user.rol === 'admin'`; si un `psiquiatra` intenta escribir ánimo, dormir, leer/editar agenda o enviar notas a Word, responde HTTP `403`.
-- El psiquiatra solo puede consultar en solo lectura `/api/get-moods`, `/api/get-sleep` y `/api/get-crisis` (mientras que crear o eliminar crisis en `/api/insert-crisis` y `/api/delete-crisis/:id` está bloqueado con `403`).
+- El psiquiatra solo puede consultar en solo lectura `/api/get-moods`, `/api/get-sleep` (incluyendo horarios de dormir/despertar, indicador `es_desvelo`, `tipo_registro` y `motivo_desvelo`) y `/api/get-crisis` (mientras que crear, editar o eliminar sueño en `/api/insert-sleep`, `/api/update-sleep/:id`, `/api/delete-sleep/:id` o crisis en `/api/insert-crisis` y `/api/delete-crisis/:id` está bloqueado con `403`).
 
 ### 3.3 Cabeceras HTTP, Validación, Rate Limiting y Protección Anti-Duplicados
 - `app.disable('x-powered-by')` para no exponer el framework.
