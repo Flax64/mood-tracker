@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.1.1",
+  "updatedAt": "2026-11-15T15:13:29.562Z",
   "releases": [
+    {
+      "version": "1.1.1",
+      "tag": "v1.1.1",
+      "bumpType": "patch",
+      "previousVersion": "1.1.0",
+      "releasedAt": "2026-11-15T15:13:29.562Z",
+      "commitSha": "bdb2f66",
+      "trigger": "push",
+      "summary": "fix: lyrics",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: lyrics (2fd0775)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",
