@@ -140,6 +140,9 @@ tail -n 30 sincronitation/historial.log
 ### 2.1 Extractor local de subtítulos / letras con `yt-dlp` (`sincronitation/yt_lyrics_helper.py`)
 Para videos de YouTube o YouTube Music que incluyan subtítulos (`CC` manuales o auto-generados) puedes extraerlos en tu PC sin cargar librerías Python pesadas ni `yt-dlp` dentro de AWS EC2:
 ```bash
+# Verificar desde dónde detecta yt-dlp (PATH o GitHub Variable YT_DLP_PATH)
+python sincronitation/yt_lyrics_helper.py --check-yt-dlp --refresh-github-var
+
 # Extrae subtítulos (en, ko, es), limpia timestamps y los copia al portapapeles
 python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip
 
@@ -149,7 +152,12 @@ python sincronitation/yt_lyrics_helper.py "https://music.youtube.com/watch?v=VID
 # Limpiar un archivo .srt / .vtt / .lrc ya descargado sin usar red
 python sincronitation/yt_lyrics_helper.py --clean-file subtitulos.vtt --clip
 ```
-* Banderas disponibles: `--langs`, `--all-langs`, `--out`, `--clip`, `--json`, `--yt-dlp-bin` y `--clean-file`.
+* **Configurar la ruta de `yt-dlp` mediante GitHub Repository Variables (`YT_DLP_PATH`):**
+  1. En GitHub abre tu repositorio → **Settings → Secrets and variables → Actions → Variables → New repository variable**.
+  2. Crea la variable **`YT_DLP_PATH`** con el valor de tu carpeta o ejecutable en Windows, por ejemplo `C:\Users\flavi\Desktop\Download Videos\yt-dlp.exe` (o solo `C:\Users\flavi\Desktop\Download Videos`; el script detecta ambos automáticamente).
+  3. Como ya tienes `GITHUB_TOKEN` + `GITHUB_REPO` en tu `.env.enc` (con autoinicio DPAPI activo para `sincronizador.py`), `yt_lyrics_helper.py` descifra el token en RAM silenciosamente, consulta `YT_DLP_PATH` vía GitHub API y lo cachea por 5 minutos en `.last_yt_dlp_path.json`.
+  4. Prueba que la lee al instante con: `python sincronitation/yt_lyrics_helper.py --check-yt-dlp --refresh-github-var`.
+* Banderas disponibles: `--langs`, `--all-langs`, `--out`, `--clip`, `--json`, `--yt-dlp-bin`, `--check-yt-dlp`, `--refresh-github-var` y `--clean-file`.
 * En la app web (**Learn with Music -> Song Study Notes**), también puedes importar archivos `.srt`, `.vtt`, `.lrc` o `.txt` directamente en el navegador con **`📥 Import .srt/.vtt/.lrc`** o limpiar timestamps pegados con **`🧹 Clean Timestamps`**.
 * *(Nota técnica: muchos "Art Tracks" automáticos de `music.youtube.com` no contienen pista CC; en ese caso el comando indica qué subtítulos faltan y puedes apuntar al M/V oficial o Lyric Video en YouTube).*
 

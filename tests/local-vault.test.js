@@ -452,10 +452,43 @@ describe('Bóveda local (.env / .env.enc)', () => {
                 'utf8'
             );
 
+            const dlDir = path.join(tmpDir, 'Download Videos');
+            fs.mkdirSync(dlDir, { recursive: true });
+            const fakeBinName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+            const fakeBinPath = path.join(dlDir, fakeBinName);
+            fs.writeFileSync(fakeBinPath, 'echo ok', 'utf8');
+            const cliOverrideBin = path.join(tmpDir, process.platform === 'win32' ? 'custom-yt-dlp.exe' : 'custom-yt-dlp');
+            fs.writeFileSync(cliOverrideBin, 'echo custom', 'utf8');
+
             const pyCode = [
-                'import json, sys',
+                'import json, os, sys',
                 'sys.path.insert(0, sys.argv[1])',
                 'import yt_lyrics_helper as ylh',
+                'tmp_dir = sys.argv[3]',
+                'dl_dir = sys.argv[4]',
+                'fake_bin = sys.argv[5]',
+                'cli_bin = sys.argv[6]',
+                'ylh.LAST_YTDLP_CACHE_PATH = os.path.join(tmp_dir, ".last_yt_dlp_path.json")',
+                'assert os.path.abspath(ylh._resolve_candidate_binary(dl_dir)) == os.path.abspath(fake_bin)',
+                'assert os.path.abspath(ylh._resolve_candidate_binary(fake_bin)) == os.path.abspath(fake_bin)',
+                'os.environ["GITHUB_TOKEN"] = "ghp_test_token"',
+                'os.environ["GITHUB_REPO"] = "Flax64/personal-daily-hub"',
+                'os.environ.pop("YT_DLP_PATH", None)',
+                'os.environ.pop("YT_DLP_BIN", None)',
+                'calls = []',
+                'def fake_fetch(repo, token, var_name, timeout=5):',
+                '    calls.append((repo, var_name))',
+                '    return dl_dir if var_name == "YT_DLP_PATH" else None',
+                'ylh._fetch_github_variable = fake_fetch',
+                'resolved, src = ylh.resolve_yt_dlp_executable(refresh_cache=True, base_dir=tmp_dir)',
+                'assert os.path.abspath(resolved) == os.path.abspath(fake_bin)',
+                'assert src == "github-var:Flax64/personal-daily-hub/YT_DLP_PATH", src',
+                'cached_res, cached_src = ylh.resolve_yt_dlp_executable(refresh_cache=False, base_dir=tmp_dir)',
+                'assert os.path.abspath(cached_res) == os.path.abspath(fake_bin)',
+                'assert cached_src == "github-var-cache:Flax64/personal-daily-hub", cached_src',
+                'cli_res, cli_src = ylh.resolve_yt_dlp_executable(explicit_bin=cli_bin, base_dir=tmp_dir)',
+                'assert os.path.abspath(cli_res) == os.path.abspath(cli_bin)',
+                'assert cli_src == "cli:--yt-dlp-bin"',
                 'assert ylh.extract_video_id("https://music.youtube.com/watch?v=Zp-Jhuhq0bQ&list=RDAMVM") == "Zp-Jhuhq0bQ"',
                 'assert ylh.extract_video_id("https://youtu.be/Zp-Jhuhq0bQ") == "Zp-Jhuhq0bQ"',
                 'meta = ylh.extract_metadata_from_info_json({',
@@ -472,16 +505,21 @@ describe('Bóveda local (.env / .env.enc)', () => {
                 'assert meta["release_year"] == 2024',
                 'assert meta["playable_in_embed"] is False',
                 'cleaned = ylh.clean_caption_text(open(sys.argv[2], encoding="utf-8").read())',
-                'print(json.dumps({"cleaned": cleaned, "meta": meta}, ensure_ascii=False))'
+                'print(json.dumps({"cleaned": cleaned, "meta": meta, "calls": calls}, ensure_ascii=False))'
             ].join('\n');
 
-            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(pyHelper), vttFile], {
-                cwd: ROOT_DIR,
-                encoding: 'utf8'
-            });
+            const res = spawnSync(
+                'python',
+                ['-B', '-c', pyCode, path.dirname(pyHelper), vttFile, tmpDir, dlDir, fakeBinPath, cliOverrideBin],
+                {
+                    cwd: ROOT_DIR,
+                    encoding: 'utf8'
+                }
+            );
             assert.equal(res.status, 0, res.stderr || res.stdout);
             const out = JSON.parse(res.stdout.trim());
             assert.equal(out.cleaned, 'Baby got no chill\n네 맘을 사로잡아 & shine');
+            assert.deepEqual(out.calls, [['Flax64/personal-daily-hub', 'YT_DLP_PATH']]);
         } finally {
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
