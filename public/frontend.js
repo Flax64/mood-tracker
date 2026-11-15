@@ -347,13 +347,232 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
     }
 }
 
+function formatHumanNetworkError(status, rawText = '', err = null) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'Sin conexión a internet. Tus notas permanecen guardadas localmente; reintenta cuando vuelva la red.';
+    }
+    if (err && err.name === 'TimeoutError') {
+        return 'La conexión tardó demasiado en responder (timeout). Reintenta en unos segundos.';
+    }
+    if (isAbortError(err)) {
+        return 'Petición cancelada o tiempo agotado por red inestable. Reintenta sin recargar la página.';
+    }
+    if (err && /failed to fetch|networkerror|load failed/i.test(String(err.message || ''))) {
+        return 'No se pudo contactar al servidor (red inestable o desconectada). Tus datos no se perdieron.';
+    }
+    if (status === 401) {
+        return 'Tu sesión expiró. Vuelve a iniciar sesión (tus borradores locales se mantienen seguros).';
+    }
+    if (status === 429) {
+        return 'Demasiadas peticiones seguidas. Espera unos segundos e intenta de nuevo.';
+    }
+    if (status === 502 || status === 503 || status === 504) {
+        return `El servidor o proxy respondió temporalmente con HTTP ${status}. Reintenta en un momento.`;
+    }
+    const cleanText = String(rawText || '').trim();
+    if (!cleanText || /^\s*</.test(cleanText)) {
+        return status ? `Error temporal de red/servidor (HTTP ${status}).` : 'Error de red inesperado.';
+    }
+    return cleanText.slice(0, 260);
+}
+
+async function resilientFetchJson(url, fetchOpts = {}, { timeoutMs = 26000, externalSignal = null } = {}) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timedOut = false;
+    const timer = controller && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, timeoutMs)
+        : null;
+    const onExternalAbort = () => {
+        if (controller) controller.abort();
+    };
+    if (externalSignal && typeof externalSignal.addEventListener === 'function') {
+        if (externalSignal.aborted) controller?.abort();
+        else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+
+    try {
+        const res = await fetch(url, {
+            ...fetchOpts,
+            signal: controller ? controller.signal : externalSignal || undefined
+        });
+        const rawText = await res.text();
+        if (!res.ok) {
+            return {
+                ok: false,
+                aborted: false,
+                status: res.status,
+                data: null,
+                isNetworkIssue: res.status >= 500 || res.status === 0,
+                errorMessage: formatHumanNetworkError(res.status, rawText)
+            };
+        }
+        try {
+            const parsed = rawText ? JSON.parse(rawText) : {};
+            return { ok: true, aborted: false, status: res.status, data: parsed, isNetworkIssue: false, errorMessage: '' };
+        } catch (_) {
+            return {
+                ok: false,
+                aborted: false,
+                status: res.status,
+                data: null,
+                isNetworkIssue: true,
+                errorMessage: 'Respuesta inesperada del servidor (posible corte de red). Reintenta.'
+            };
+        }
+    } catch (err) {
+        if (isAbortError(err) && !timedOut && externalSignal?.aborted) {
+            return { ok: false, aborted: true, status: 0, data: null, isNetworkIssue: false, errorMessage: '' };
+        }
+        const effectiveErr = timedOut ? Object.assign(new Error('Request timeout'), { name: 'TimeoutError' }) : err;
+        return {
+            ok: false,
+            aborted: false,
+            status: 0,
+            data: null,
+            isNetworkIssue: true,
+            errorMessage: formatHumanNetworkError(0, '', effectiveErr)
+        };
+    } finally {
+        if (timer) clearTimeout(timer);
+        if (externalSignal && typeof externalSignal.removeEventListener === 'function') {
+            externalSignal.removeEventListener('abort', onExternalAbort);
+        }
+    }
+}
+
+function hangulToRomanizationClient(text = '') {
+    const INITIALS = ['g', 'kk', 'n', 'd', 'tt', 'r', 'm', 'b', 'pp', 's', 'ss', '', 'j', 'jj', 'ch', 'k', 't', 'p', 'h'];
+    const MEDIALS = ['a', 'ae', 'ya', 'yae', 'eo', 'e', 'yeo', 'ye', 'o', 'wa', 'wae', 'oe', 'yo', 'u', 'wo', 'we', 'wi', 'yu', 'eu', 'ui', 'i'];
+    const FINALS = ['', 'k', 'k', 'k', 'n', 'n', 'n', 't', 'l', 'lk', 'lm', 'lb', 'ls', 'lt', 'lp', 'lh', 'm', 'p', 'p', 't', 't', 'ng', 't', 't', 'k', 't', 'p', 't'];
+    return String(text || '')
+        .split(/(\s+)/)
+        .map(chunk => {
+            if (!chunk || /^\s+$/.test(chunk)) return chunk;
+            let out = '';
+            let prevHangul = false;
+            for (const ch of chunk) {
+                const code = ch.charCodeAt(0);
+                if (code >= 0xAC00 && code <= 0xD7A3) {
+                    const offset = code - 0xAC00;
+                    const iIdx = Math.floor(offset / 588);
+                    const mIdx = Math.floor((offset % 588) / 28);
+                    const fIdx = offset % 28;
+                    const syl = `${INITIALS[iIdx]}${MEDIALS[mIdx]}${FINALS[fIdx]}`;
+                    out += (prevHangul ? '-' : '') + syl;
+                    prevHangul = true;
+                } else {
+                    out += ch;
+                    prevHangul = false;
+                }
+            }
+            return out;
+        })
+        .join('')
+        .trim();
+}
+
+function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin red', message = '', sampleText = '', onRetry = null, onInsertOfflineRom = null } = {}) {
+    if (!container) return;
+    container.replaceChildren();
+    container.hidden = false;
+
+    const card = document.createElement('div');
+    card.className = 'ai-network-fallback';
+
+    const strong = document.createElement('strong');
+    strong.textContent = `⚠️ ${title}`;
+    const desc = document.createElement('p');
+    desc.className = 'muted-text';
+    desc.style.margin = '0';
+    desc.textContent = message || 'No se pudo completar la consulta en línea. Tus notas escritas permanecen intactas.';
+    card.append(strong, desc);
+
+    const hasHangul = /[\uAC00-\uD7A3]/.test(String(sampleText || ''));
+    const offlineRom = hasHangul ? hangulToRomanizationClient(sampleText) : '';
+    if (offlineRom) {
+        const romBox = document.createElement('div');
+        romBox.className = 'ai-line-rom';
+        romBox.textContent = `Romanización local sin internet: ${offlineRom}`;
+        card.appendChild(romBox);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'ai-network-fallback-actions';
+    if (typeof onRetry === 'function') {
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'btn-secondary btn-small';
+        retryBtn.textContent = '🔄 Reintentar conexión';
+        retryBtn.addEventListener('click', () => onRetry());
+        actions.appendChild(retryBtn);
+    }
+    if (offlineRom && typeof onInsertOfflineRom === 'function') {
+        const useRomBtn = document.createElement('button');
+        useRomBtn.type = 'button';
+        useRomBtn.className = 'btn-mini-add';
+        useRomBtn.textContent = '↘ Usar romanización local en notas';
+        useRomBtn.addEventListener('click', () => onInsertOfflineRom(offlineRom));
+        actions.appendChild(useRomBtn);
+    }
+    if (actions.childElementCount) {
+        card.appendChild(actions);
+    }
+    container.appendChild(card);
+}
+
+const STUDY_DRAFTS_CONFIG = {
+    english: ['engWord', 'engRomanization', 'engSpanish', 'engVocabExample', 'engVocabNotes', 'engGrammarTitle', 'engGrammarExplanation', 'engPvVerb', 'engPvMeaningEs'],
+    music: ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'],
+    ai: ['langAiQuestion', 'translatorInput']
+};
+const STUDY_DRAFTS_STORAGE_PREFIX = 'mt_study_draft_v1:';
+
+function syncStudyDraftForId(elId) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    try {
+        const v = String(el.value || '');
+        if (v.trim()) localStorage.setItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${elId}`, v);
+        else localStorage.removeItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${elId}`);
+    } catch (_) {}
+}
+
+function clearStudyNoteDrafts(scope = 'all') {
+    const groups = scope === 'all'
+        ? [...STUDY_DRAFTS_CONFIG.english, ...STUDY_DRAFTS_CONFIG.music, ...STUDY_DRAFTS_CONFIG.ai]
+        : (STUDY_DRAFTS_CONFIG[scope] || []);
+    groups.forEach(id => {
+        try { localStorage.removeItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${id}`); } catch (_) {}
+    });
+}
+
+function initStudyNoteDrafts() {
+    const allIds = [...STUDY_DRAFTS_CONFIG.english, ...STUDY_DRAFTS_CONFIG.music, ...STUDY_DRAFTS_CONFIG.ai];
+    allIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.draftWired === 'true') return;
+        el.dataset.draftWired = 'true';
+        try {
+            const saved = localStorage.getItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${id}`);
+            if (saved && !String(el.value || '').trim()) {
+                el.value = saved;
+            }
+        } catch (_) {}
+        el.addEventListener('input', () => syncStudyDraftForId(id));
+    });
+}
+
 async function submitMutationRequest({
     url,
     method = 'POST',
     scopeKey = '',
     signature = '',
     buildBody = null,
-    parseJson = false
+    parseJson = false,
+    timeoutMs = 20000
 }) {
     let idempotencyKey = createIdempotencyKey();
     let bodyObj = buildBody ? buildBody() : null;
@@ -372,17 +591,37 @@ async function submitMutationRequest({
         fetchOpts.body = JSON.stringify(bodyObj);
     }
 
-    const res = await fetch(url, fetchOpts);
-    if (!res.ok) {
-        if (scopeKey && res.status >= 400 && res.status < 500 && res.status !== 408) {
-            clearIdempotentSubmission(scopeKey);
-        }
-        const errText = await res.text();
-        throw new Error(errText || `HTTP ${res.status}`);
-    }
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timedOut = false;
+    const timer = controller && timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, timeoutMs)
+        : null;
+    if (controller) fetchOpts.signal = controller.signal;
 
-    clearIdempotentSubmission(scopeKey);
-    return parseJson ? res.json() : res.text();
+    try {
+        const res = await fetch(url, fetchOpts);
+        if (!res.ok) {
+            if (scopeKey && res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+                clearIdempotentSubmission(scopeKey);
+            }
+            const errText = await res.text().catch(() => '');
+            throw new Error(formatHumanNetworkError(res.status, errText));
+        }
+
+        clearIdempotentSubmission(scopeKey);
+        return parseJson ? res.json() : res.text();
+    } catch (err) {
+        if (timedOut || isAbortError(err) || /failed to fetch|networkerror|load failed/i.test(String(err?.message || ''))) {
+            const effectiveErr = timedOut ? Object.assign(new Error('Timeout'), { name: 'TimeoutError' }) : err;
+            throw new Error(formatHumanNetworkError(0, '', effectiveErr));
+        }
+        throw err;
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
 }
 
 const homeSummaryTracker = createRequestTracker();
@@ -2870,6 +3109,7 @@ if (englishForm) {
                 sentEnglishSignatures.add(signature);
                 appendRecentEnglishItem(entry);
                 limpiarCamposEnglish(category);
+                clearStudyNoteDrafts('english');
 
                 // Also sync this studied item into the persistent AI Learning Memory bank (non-blocking)
                 const memPayload = category === 'vocabulary'
@@ -2912,6 +3152,7 @@ if (englishForm) {
 
     cambiarCategoriaEnglish('vocabulary');
     applyStudyLanguageUi(studyLanguageInput ? studyLanguageInput.value : 'en_ko');
+    initStudyNoteDrafts();
 }
 
 let cachedLanguageMemory = { terms: [], grammarNotes: [], songs: [], customContext: '' };
@@ -3095,47 +3336,70 @@ function initLanguageAiStudio() {
         });
     }
 
-    if (btnAskQuick) {
-        btnAskQuick.addEventListener('click', () => {
-            const questionEl = document.getElementById('langAiQuestion');
-            const fallbackWord = (document.getElementById('engWord')?.value || '').trim();
-            const query = (questionEl?.value || '').trim() || fallbackWord;
-            if (!query) {
-                showToast('err', 'Type a phrase, Korean lyric, or question for the AI tutor.');
+    const langAiTracker = createRequestTracker();
+    const musicAiTracker = createRequestTracker();
+
+    const triggerQuickAi = () => {
+        if (!btnAskQuick) return;
+        const questionEl = document.getElementById('langAiQuestion');
+        const fallbackWord = (document.getElementById('engWord')?.value || '').trim();
+        const query = (questionEl?.value || '').trim() || fallbackWord;
+        if (!query) {
+            showToast('err', 'Type a phrase, Korean lyric, or question for the AI tutor.');
+            questionEl?.focus();
+            return;
+        }
+        const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
+        const language = document.getElementById('studyLanguageInput')?.value || 'en_ko';
+        const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+        const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
+        const artistName = selected
+            ? (selected.artists || []).map(a => a.nombre).join(', ')
+            : (document.getElementById('musicMainArtist')?.value || '').trim();
+
+        const { seq, signal } = langAiTracker.begin();
+        if (quickBox) {
+            quickBox.hidden = false;
+            quickBox.replaceChildren(createLoadingBanner('Analizando frase / letra con IA o motor local...', 'sm'));
+        }
+
+        runWithButtonLock(btnAskQuick, async () => {
+            const resp = await resilientFetchJson('/api/language/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: query, question: query, language, mode, songTitle, artistName })
+            }, { timeoutMs: 28000, externalSignal: signal });
+
+            if (resp.aborted || !langAiTracker.isCurrent(seq)) return;
+
+            if (!resp.ok || !resp.data) {
+                renderAiNetworkFallback(quickBox, {
+                    title: 'No se pudo completar el análisis con IA',
+                    message: resp.errorMessage,
+                    sampleText: query,
+                    onRetry: triggerQuickAi
+                });
+                if (quickModeBadge) quickModeBadge.textContent = '⚠️ Sin conexión';
+                showToast('err', resp.errorMessage);
                 return;
             }
-            const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
-            const language = document.getElementById('studyLanguageInput')?.value || 'en_ko';
-            const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
-            const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
-            const artistName = selected
-                ? (selected.artists || []).map(a => a.nombre).join(', ')
-                : (document.getElementById('musicMainArtist')?.value || '').trim();
 
-            runWithButtonLock(btnAskQuick, async () => {
-                try {
-                    const res = await fetch('/api/language/analyze', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: query, question: query, language, mode, songTitle, artistName })
-                    });
-                    if (!res.ok) throw new Error(await res.text() || 'AI analysis failed');
-                    const data = await res.json();
-                    lastQuickAnalysis = data;
-                    renderAiAnalysisIntoBox(quickBox, data);
-                    if (quickModeBadge) {
-                        quickModeBadge.textContent = data.engine === 'gemini'
-                            ? `🤖 ${data.model}`
-                            : '⚡ Local KR+EN';
-                    }
-                    if (btnApplyQuick && data.wordNoteDraft) {
-                        btnApplyQuick.hidden = false;
-                    }
-                } catch (err) {
-                    showToast('err', err.message || 'Could not analyze language query.');
-                }
-            }, { loadingText: 'Analyzing...' });
-        });
+            const data = resp.data;
+            lastQuickAnalysis = data;
+            renderAiAnalysisIntoBox(quickBox, data);
+            if (quickModeBadge) {
+                quickModeBadge.textContent = data.engine === 'gemini'
+                    ? `🤖 ${data.model}`
+                    : '⚡ Local KR+EN';
+            }
+            if (btnApplyQuick && data.wordNoteDraft) {
+                btnApplyQuick.hidden = false;
+            }
+        }, { loadingText: 'Analyzing...' });
+    };
+
+    if (btnAskQuick) {
+        btnAskQuick.addEventListener('click', triggerQuickAi);
     }
 
     if (btnApplyQuick) {
@@ -3146,7 +3410,10 @@ function initLanguageAiStudio() {
             if (vocabBtn) vocabBtn.click();
             const setIf = (id, v) => {
                 const el = document.getElementById(id);
-                if (el && v) el.value = v;
+                if (el && v) {
+                    el.value = v;
+                    syncStudyDraftForId(id);
+                }
             };
             const firstVocab = lastQuickAnalysis?.vocabulary?.[0];
             setIf('engWord', firstVocab?.term || draft.word || '');
@@ -3163,45 +3430,72 @@ function initLanguageAiStudio() {
     const musicApplyRow = document.getElementById('musicAiApplyRow');
     const btnMusicInsert = document.getElementById('btnMusicAiInsertToNotes');
 
-    if (btnMusicAi) {
-        btnMusicAi.addEventListener('click', () => {
-            const lyrics = (document.getElementById('musicStudyLyrics')?.value || '').trim();
-            if (!lyrics) {
-                showToast('err', 'Paste song lyrics (English, Korean, or K-Pop) first.');
+    const triggerMusicLyricsAi = () => {
+        if (!btnMusicAi) return;
+        const lyrics = (document.getElementById('musicStudyLyrics')?.value || '').trim();
+        if (!lyrics) {
+            showToast('err', 'Paste song lyrics (English, Korean, or K-Pop) first.');
+            document.getElementById('musicStudyLyrics')?.focus();
+            return;
+        }
+        const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+        const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
+        const artistName = selected
+            ? (selected.artists || []).map(a => a.nombre).join(', ')
+            : (document.getElementById('musicMainArtist')?.value || '').trim();
+        const language = selected?.idioma || document.getElementById('musicSongLanguage')?.value || 'en_ko';
+        const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
+
+        const { seq, signal } = musicAiTracker.begin();
+        if (musicAiBox) {
+            musicAiBox.hidden = false;
+            musicAiBox.replaceChildren(createLoadingBanner('Desglosando letra, vocabulario y romanización Hangul...', 'sm'));
+        }
+
+        runWithButtonLock(btnMusicAi, async () => {
+            const resp = await resilientFetchJson('/api/language/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: lyrics,
+                    question: 'Explain the lyrics meanings, Korean Hangul romanization, grammar particles, idioms, and K-Pop code-switching.',
+                    language,
+                    songTitle,
+                    artistName,
+                    mode
+                })
+            }, { timeoutMs: 28000, externalSignal: signal });
+
+            if (resp.aborted || !musicAiTracker.isCurrent(seq)) return;
+
+            if (!resp.ok || !resp.data) {
+                renderAiNetworkFallback(musicAiBox, {
+                    title: 'Red inestable o sin conexión al analizar letra',
+                    message: resp.errorMessage,
+                    sampleText: lyrics,
+                    onRetry: triggerMusicLyricsAi,
+                    onInsertOfflineRom: (romText) => {
+                        const pronEl = document.getElementById('musicStudyPronunciation');
+                        if (pronEl && romText && !pronEl.value.includes(romText)) {
+                            pronEl.value = [pronEl.value.trim(), romText].filter(Boolean).join('\n');
+                            syncStudyDraftForId('musicStudyPronunciation');
+                            showToast('ok', 'Romanización local agregada a tus notas de pronunciación.');
+                        }
+                    }
+                });
+                showToast('err', resp.errorMessage);
                 return;
             }
-            const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
-            const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
-            const artistName = selected
-                ? (selected.artists || []).map(a => a.nombre).join(', ')
-                : (document.getElementById('musicMainArtist')?.value || '').trim();
-            const language = selected?.idioma || document.getElementById('musicSongLanguage')?.value || 'en_ko';
-            const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
 
-            runWithButtonLock(btnMusicAi, async () => {
-                try {
-                    const res = await fetch('/api/language/analyze', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            text: lyrics,
-                            question: 'Explain the lyrics meanings, Korean Hangul romanization, grammar particles, idioms, and K-Pop code-switching.',
-                            language,
-                            songTitle,
-                            artistName,
-                            mode
-                        })
-                    });
-                    if (!res.ok) throw new Error(await res.text() || 'Lyrics analysis failed');
-                    const data = await res.json();
-                    lastMusicAnalysis = data;
-                    renderAiAnalysisIntoBox(musicAiBox, data);
-                    if (musicApplyRow) musicApplyRow.hidden = false;
-                } catch (err) {
-                    showToast('err', err.message || 'Could not analyze song lyrics.');
-                }
-            }, { loadingText: 'Analyzing Lyrics...' });
-        });
+            const data = resp.data;
+            lastMusicAnalysis = data;
+            renderAiAnalysisIntoBox(musicAiBox, data);
+            if (musicApplyRow) musicApplyRow.hidden = false;
+        }, { loadingText: 'Analyzing Lyrics...' });
+    };
+
+    if (btnMusicAi) {
+        btnMusicAi.addEventListener('click', triggerMusicLyricsAi);
     }
 
     if (btnMusicInsert) {
@@ -3211,28 +3505,30 @@ function initLanguageAiStudio() {
             const pronEl = document.getElementById('musicStudyPronunciation');
             const notesEl = document.getElementById('musicStudyExtraNotes');
 
+            const appendUnique = (el, text) => {
+                if (!el || !text) return;
+                const clean = String(text).trim();
+                if (!clean || el.value.includes(clean)) return;
+                el.value = [el.value.trim(), clean].filter(Boolean).join('\n');
+                syncStudyDraftForId(el.id);
+            };
+
             const romLines = (lastMusicAnalysis.lines || [])
                 .filter(l => l.romanization)
                 .map(l => `${l.original} -> ${l.romanization}`)
                 .join('\n');
-            if (pronEl && romLines) {
-                pronEl.value = [pronEl.value.trim(), romLines].filter(Boolean).join('\n');
-            }
+            appendUnique(pronEl, romLines);
 
             const vocabLines = (lastMusicAnalysis.vocabulary || [])
                 .map(v => `• ${v.term}${v.romanization ? ` (${v.romanization})` : ''}: ${v.meaning}`)
                 .join('\n');
-            if (vocabEl && vocabLines) {
-                vocabEl.value = [vocabEl.value.trim(), vocabLines].filter(Boolean).join('\n');
-            }
+            appendUnique(vocabEl, vocabLines);
 
             const summaryNotes = [
                 lastMusicAnalysis.summary,
                 ...(lastMusicAnalysis.culturalAndGrammarNotes || [])
             ].filter(Boolean).join('\n');
-            if (notesEl && summaryNotes) {
-                notesEl.value = [notesEl.value.trim(), summaryNotes].filter(Boolean).join('\n\n');
-            }
+            appendUnique(notesEl, summaryNotes);
             showToast('ok', 'Added Romanization, Vocabulary & AI Notes below—ready to encrypt & save to Word!');
         });
     }
@@ -3382,7 +3678,10 @@ function initBilingualTranslatorPanel() {
             const draft = lastTranslation.wordNoteDraft || {};
             const setIf = (id, v) => {
                 const el = document.getElementById(id);
-                if (el && v) el.value = v;
+                if (el && v) {
+                    el.value = v;
+                    syncStudyDraftForId(id);
+                }
             };
             setIf('engWord', draft.word || lastTranslation.sourceText || '');
             setIf('engRomanization', draft.romanization || lastTranslation.romanization || '');
@@ -3413,41 +3712,57 @@ function initBilingualTranslatorPanel() {
         resultBox.appendChild(footer);
     };
 
-    if (btnRun) {
-        btnRun.addEventListener('click', () => {
-            const text = (inputEl?.value || '').trim();
-            if (!text) {
-                showToast('err', 'Type a word, phrase, or lyric line to translate.');
-                inputEl?.focus();
+    const translatorTracker = createRequestTracker();
+
+    const triggerTranslate = () => {
+        if (!btnRun) return;
+        const text = (inputEl?.value || '').trim();
+        if (!text) {
+            showToast('err', 'Type a word, phrase, or lyric line to translate.');
+            inputEl?.focus();
+            return;
+        }
+        const direction = dirSelect?.value || 'en_es';
+        const mode = engineSelect?.value || 'auto';
+        const context = (contextEl?.value || '').trim();
+
+        const { seq, signal } = translatorTracker.begin();
+        if (resultBox) {
+            resultBox.hidden = false;
+            resultBox.replaceChildren(createLoadingBanner('Traduciendo...', 'sm'));
+        }
+
+        runWithButtonLock(btnRun, async () => {
+            const resp = await resilientFetchJson('/api/language/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, direction, mode, context })
+            }, { timeoutMs: 26000, externalSignal: signal });
+
+            if (resp.aborted || !translatorTracker.isCurrent(seq)) return;
+
+            if (!resp.ok || !resp.data) {
+                renderAiNetworkFallback(resultBox, {
+                    title: 'No se pudo completar la traducción por red',
+                    message: resp.errorMessage,
+                    sampleText: text,
+                    onRetry: triggerTranslate
+                });
+                showToast('err', resp.errorMessage);
                 return;
             }
-            const direction = dirSelect?.value || 'en_es';
-            const mode = engineSelect?.value || 'auto';
-            const context = (contextEl?.value || '').trim();
 
-            runWithButtonLock(btnRun, async () => {
-                try {
-                    const res = await fetch('/api/language/translate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text, direction, mode, context })
-                    });
-                    if (!res.ok) {
-                        const msg = await res.text();
-                        showToast('err', msg || 'Could not translate text.');
-                        return;
-                    }
-                    const data = await res.json();
-                    lastTranslation = data;
-                    if (data.languageMemory) {
-                        updateAiMemoryBadgeUI(data.languageMemory);
-                    }
-                    renderTranslationResult(data);
-                } catch (_) {
-                    showToast('err', 'Network error while running translator.');
-                }
-            }, { loadingText: 'Translating...' });
-        });
+            const data = resp.data;
+            lastTranslation = data;
+            if (data.languageMemory) {
+                updateAiMemoryBadgeUI(data.languageMemory);
+            }
+            renderTranslationResult(data);
+        }, { loadingText: 'Translating...' });
+    };
+
+    if (btnRun) {
+        btnRun.addEventListener('click', triggerTranslate);
     }
 }
 
@@ -4187,12 +4502,32 @@ function renderMusicCatalog() {
     }
 
     if (!artistBuckets.size) {
+        const hasCatalogItems = Boolean(musicState.songs.length || (musicState.albums && musicState.albums.length));
+        const wrap = document.createElement('div');
         const emptyP = document.createElement('p');
         emptyP.className = 'muted-text';
-        emptyP.textContent = (musicState.songs.length || (musicState.albums && musicState.albums.length))
+        emptyP.textContent = hasCatalogItems
             ? 'No songs or albums match your current filters.'
             : 'No songs or albums registered yet. Create an Album / Mini Album or add your first song on the left!';
-        container.replaceChildren(emptyP);
+        wrap.appendChild(emptyP);
+
+        if (hasCatalogItems && (search || artistFilter || releaseFilter || langFilter || statusFilter)) {
+            const resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.id = 'btnResetMusicFilters';
+            resetBtn.className = 'btn-secondary btn-small';
+            resetBtn.textContent = 'Reset Catalog Filters';
+            resetBtn.addEventListener('click', () => {
+                ['musicFilterSearch', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterLanguage', 'musicFilterStatus'].forEach(fid => {
+                    const el = document.getElementById(fid);
+                    if (el) el.value = '';
+                });
+                renderMusicCatalog();
+            });
+            wrap.appendChild(resetBtn);
+        }
+
+        container.replaceChildren(wrap);
         return;
     }
 
@@ -4586,64 +4921,86 @@ if (englishMusicStudioRoot) {
 
     if (btnSearchYt) {
         btnSearchYt.addEventListener('click', async () => {
-            const q = (document.getElementById('musicYtSearchQuery')?.value || '').trim();
+            const qEl = document.getElementById('musicYtSearchQuery');
+            const q = (qEl?.value || '').trim();
+            const resultsBox = document.getElementById('musicYtSearchResults');
+            if (!q) {
+                showToast('err', 'Type a song or artist name first (e.g. BABYMONSTER DRIP).');
+                qEl?.focus();
+                return;
+            }
+
             const directUrl = getYouTubeSearchUrl(q);
             window.open(directUrl, '_blank', 'noopener,noreferrer');
 
-            const resultsBox = document.getElementById('musicYtSearchResults');
-            if (!q || !resultsBox) return;
+            if (!resultsBox) return;
+            resultsBox.hidden = false;
+            resultsBox.replaceChildren(createLoadingBanner('Buscando resultados en YouTube...', 'sm'));
 
             runWithButtonLock(btnSearchYt, async () => {
-                try {
-                    const res = await fetch(`/api/english/music/search?q=${encodeURIComponent(q)}`);
-                    if (!res.ok) return;
-                    const data = await res.json();
-                    const items = Array.isArray(data.results) ? data.results : [];
-                    if (!items.length) {
-                        resultsBox.hidden = true;
-                        return;
-                    }
-                    const effectivePlatform = getEffectiveYouTubePlatform();
-                    resultsBox.replaceChildren(...items.map(item => {
-                        const card = document.createElement('div');
-                        card.className = 'music-yt-result-item';
-                        if (item.thumbnailUrl && /^https:\/\/i\.ytimg\.com\//i.test(item.thumbnailUrl)) {
-                            const img = document.createElement('img');
-                            img.src = item.thumbnailUrl;
-                            img.alt = item.title;
-                            card.appendChild(img);
-                        }
-                        const meta = document.createElement('div');
-                        meta.className = 'music-yt-result-meta';
-                        const t = document.createElement('div');
-                        t.className = 'music-yt-result-title';
-                        t.textContent = item.title;
-                        const ch = document.createElement('div');
-                        ch.className = 'music-yt-result-channel';
-                        ch.textContent = item.channelTitle;
-                        const useBtn = document.createElement('button');
-                        useBtn.type = 'button';
-                        useBtn.className = 'btn-primary btn-small';
-                        useBtn.textContent = 'Select Song';
-                        useBtn.addEventListener('click', () => {
-                            const urlEl = document.getElementById('musicSongYtUrl');
-                            const titleEl = document.getElementById('musicSongTitle');
-                            const artistEl = document.getElementById('musicMainArtist');
-                            const chosenUrl = effectivePlatform === 'youtube'
-                                ? (item.youtubeUrl || item.ytMusicUrl || '')
-                                : (item.ytMusicUrl || item.youtubeUrl || '');
-                            if (urlEl) urlEl.value = chosenUrl;
-                            if (titleEl && !titleEl.value.trim()) titleEl.value = item.title || '';
-                            if (artistEl && !artistEl.value.trim()) artistEl.value = item.channelTitle || '';
-                        });
-                        meta.append(t, ch, useBtn);
-                        card.appendChild(meta);
-                        return card;
-                    }));
+                const resp = await resilientFetchJson(`/api/english/music/search?q=${encodeURIComponent(q)}`, {}, { timeoutMs: 10000 });
+                if (!resp.ok || !resp.data) {
+                    const hint = document.createElement('div');
+                    hint.className = 'music-yt-search-hint';
+                    hint.textContent = `No se pudieron cargar vistas previas dentro de la app (${resp.errorMessage}). Se abrió la búsqueda externa; pega el enlace encontrado abajo y presiona "Auto-fill".`;
+                    resultsBox.replaceChildren(hint);
                     resultsBox.hidden = false;
-                } catch (_err) {
-                    resultsBox.hidden = true;
+                    return;
                 }
+
+                const data = resp.data;
+                const items = Array.isArray(data.results) ? data.results : [];
+                if (!items.length) {
+                    const hint = document.createElement('div');
+                    hint.className = 'music-yt-search-hint';
+                    hint.textContent = data.configured === false
+                        ? 'YouTube Data API no configurada en servidor: usa la pestaña que se abrió arriba, copia el link de YouTube / YT Music, pégalo en el formulario y presiona "Auto-fill".'
+                        : (data.apiUnavailable
+                            ? 'La API de YouTube no respondió en este momento. Copia el enlace desde la pestaña externa y presiona "Auto-fill".'
+                            : `No direct preview results for "${q}". Copy the track link from the opened YouTube tab and click "Auto-fill".`);
+                    resultsBox.replaceChildren(hint);
+                    resultsBox.hidden = false;
+                    return;
+                }
+
+                const effectivePlatform = getEffectiveYouTubePlatform();
+                resultsBox.replaceChildren(...items.map(item => {
+                    const card = document.createElement('div');
+                    card.className = 'music-yt-result-item';
+                    if (item.thumbnailUrl && /^https:\/\/i\.ytimg\.com\//i.test(item.thumbnailUrl)) {
+                        const img = document.createElement('img');
+                        img.src = item.thumbnailUrl;
+                        img.alt = item.title;
+                        card.appendChild(img);
+                    }
+                    const meta = document.createElement('div');
+                    meta.className = 'music-yt-result-meta';
+                    const t = document.createElement('div');
+                    t.className = 'music-yt-result-title';
+                    t.textContent = item.title;
+                    const ch = document.createElement('div');
+                    ch.className = 'music-yt-result-channel';
+                    ch.textContent = item.channelTitle;
+                    const useBtn = document.createElement('button');
+                    useBtn.type = 'button';
+                    useBtn.className = 'btn-primary btn-small';
+                    useBtn.textContent = 'Select Song';
+                    useBtn.addEventListener('click', () => {
+                        const urlEl = document.getElementById('musicSongYtUrl');
+                        const titleEl = document.getElementById('musicSongTitle');
+                        const artistEl = document.getElementById('musicMainArtist');
+                        const chosenUrl = effectivePlatform === 'youtube'
+                            ? (item.youtubeUrl || item.ytMusicUrl || '')
+                            : (item.ytMusicUrl || item.youtubeUrl || '');
+                        if (urlEl) urlEl.value = chosenUrl;
+                        if (titleEl && !titleEl.value.trim()) titleEl.value = item.title || '';
+                        if (artistEl && !artistEl.value.trim()) artistEl.value = item.channelTitle || '';
+                    });
+                    meta.append(t, ch, useBtn);
+                    card.appendChild(meta);
+                    return card;
+                }));
+                resultsBox.hidden = false;
             }, { loadingText: 'Searching...' });
         });
     }
@@ -4832,20 +5189,25 @@ if (englishMusicStudioRoot) {
                         buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
                     });
 
-                    if (selected) {
-                        const nextStatus = selected.estado_estudio === 'to_study' ? 'in_progress' : selected.estado_estudio;
-                        await fetch(`/api/english/music/songs/${selected.id}/status`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
-                        });
-                        await cargarCatalogoMusical();
-                    }
-
+                    clearStudyNoteDrafts('music');
                     ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.value = '';
                     });
+
+                    if (selected) {
+                        const nextStatus = selected.estado_estudio === 'to_study' ? 'in_progress' : selected.estado_estudio;
+                        try {
+                            await resilientFetchJson(`/api/english/music/songs/${selected.id}/status`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
+                            }, { timeoutMs: 12000 });
+                            await cargarCatalogoMusical();
+                        } catch (_) {
+                            // E2EE note already queued safely; status refresh can recover on next catalog load
+                        }
+                    }
 
                     mostrarBannerMusica(
                         'musicWordStatusBanner',
@@ -6329,6 +6691,7 @@ function initAuthHandlers() {
                     // Proceed to clear UI session even on flaky network
                 } finally {
                     pendingSubmissions.clear();
+                    clearStudyNoteDrafts('all');
                     resetPasswordToggles();
                     setMobileMenuOpen(false);
                     showAuthScreen('authLoginForm');
