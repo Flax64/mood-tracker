@@ -139,19 +139,41 @@ En la pestaña **🎵 Learn with Music** cuentas con la barra **Playback Platfor
 
 ---
 
-## 🗓️ 7. Agenda Semanal (`Weekly Agenda`)
+## 🗓️ 7. Agenda Semanal (`Weekly Agenda`), Auto-Bloque y Corrector Tipo Word
 
 Organizador semanal visual compatible con vista de **cuadrícula semanal** (PC) o **enfoque por día** (celular / botón **Day View**):
-- **Categorías**: `🎓 University` y `👤 Personal` (filtrables arriba en `All | University | Personal`).
-- **Tipos**:
-  - `📅 Event`: horario o cita fija en bloque `Morning`, `Afternoon` o `Night`.
-  - `✅ Task (Jira)`: tarea con flujo de estado **`To Do` → `In Progress` → `Done`**, actualizable con un clic o desde el selector de cada fila.
-- **Recordatorio por actividad**: al crear o editar una actividad puedes heredar el valor de Configuración o elegir `At scheduled time`, `5/10/15/30/60 min before`, o `No reminder`.
-- Navega entre semanas con `◀` / `▶` o vuelve con **Today**, y oculta o muestra sábado/domingo con **Mon - Fri Only**.
+- **Auto-selección de bloque al elegir la hora**: al seleccionar **Time** (`#agendaHora`), el campo **Time block (part of day)** selecciona automáticamente `☕ Morning` (`05:00–11:59`), `🎓 School / University` (`07:00–16:59` cuando la categoría es Universidad), `☀️ Afternoon` (`12:00–18:59`) o `🌙 Night` (`19:00–04:59`).
+- **Título/Etiqueta y Descripción separados**: cada actividad o nota de Journal separa el **Title / Label** de la **Description**, permitiendo ver tarjetas limpias y estructuradas.
+- **Corrector de Ortografía y Gramática en Inglés (Estilo Microsoft Word)**:
+  - Disponible en **Journal Notes**, **English Notebook** y **Weekly Agenda**.
+  - Detecta errores de **Ortografía (`🔴 Spelling`)** y **Gramática (`🟦 Grammar`)** en inglés en tiempo real, permitiendo corregir cada sugerencia con un toque o aplicar todas con **✨ Apply All Fixes**.
+- **Categorías y Tipos**:
+  - `🎓 University` y `👤 Personal`.
+  - `📅 Event` (clases/citas) y `✅ Task (Jira)` con flujo **`To Do` → `In Progress` → `Done`** y notificaciones automáticas si una tarea o registro de ánimo queda pendiente.
 
 ---
 
-## 📈 8. Resumen Semanal (`Weekly Summary`) y Acceso Médico (`Psychiatrist Access`)
+## 🎓 8. Horario ITS por Semestre, Croquis (`R02`/`R11`/`N21`), Vacaciones, Residencias, Trabajo y Tráfico (`ITS, Residencias & Work`)
+
+Módulo diseñado específicamente para el **Instituto Tecnológico de Saltillo (TecNM - ITS)**:
+1. **Horario por Semestres y Croquis Oficial del ITS (`CTO-001` a `CTO-004`)**:
+   - Administra tus materias por semestre (incluye botón rápido **📥 Load 9th Sem MindBox Preset** con `ACA0910`, `SCG1009`, `DED2504`, `SCC1019` y `DED2505`).
+   - Al escribir el salón (`R02`, `R11`, `N21`, `S12`, `LC2`, `A14`, etc.), el sistema detecta automáticamente el edificio y campus según los planos oficiales del ITS (**Campus Principal** `CTO-002`, **Campus Miravalle** `CTO-003` o **Campus Boillot** `CTO-004`).
+   - El botón **🗓️ Sync Current Week to Agenda** vuelca tus clases, residencias y turnos de trabajo en la Agenda Semanal.
+2. **Periodos de Vacaciones (`Vacations`)**:
+   - Registra vacaciones de Semana Santa, verano o invierno. Durante esas fechas, el sistema pausa automáticamente las notificaciones de clases y evita agendarlas.
+3. **Residencias Profesionales (`Residencias 500h`)**:
+   - Lleva el control de tu proyecto, empresa, asesores (interno y externo), barra de progreso de **500 horas**, horario y ubicación de Google Maps.
+4. **Horario de Trabajo (`Work FT / PT`)**:
+   - Registra tu empleo de **Tiempo Completo (`Full-Time`)** o **Medio Tiempo (`Part-Time`)**, empresa, puesto, régimen (presencial, híbrido o remoto), días, horario y ubicación en Google Maps.
+5. **Ubicaciones GPS, Tráfico y Notificaciones Inteligentes en Carro**:
+   - Registra la ubicación de tu **Casa**, **Campus del ITS**, **Empresa de Residencias** y **Trabajo** (con el botón **📡 Use My Current GPS** o pegando un enlace/coordenadas de Google Maps).
+   - **Si es tu primera clase del día o estás en tu casa / lejos del Tec**: te envía la notificación con **mínimo 30 minutos de anticipación** (o más si el tiempo en carro + tráfico hora pico de Saltillo + estacionamiento requiere salir antes), incluyendo un botón directo **🗺️ Google Maps Route** en tu celular.
+   - **Si ya estás en el Tec o cerca del campus (`<= 0.85 km`)**: te notifica **10 minutos antes** indicando el aula y edificio del croquis al que debes caminar.
+
+---
+
+## 📈 9. Resumen Semanal (`Weekly Summary`) y Acceso Médico (`Psychiatrist Access`)
 
 ### Resumen Semanal (`Weekly Summary`)
 - Elige cualquier semana en **Select a week**.

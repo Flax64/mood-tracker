@@ -1664,6 +1664,65 @@ const AGENDA_CATEGORIAS_VALIDAS = new Set(['universidad', 'personal']);
 const AGENDA_ESTADOS_VALIDOS = new Set(['todo', 'in_progress', 'done']);
 const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+function inferAgendaBlockFromTimeServer(horaStr, categoria = 'personal') {
+    const match = String(horaStr || '').match(/^([01]\d|2[0-3]):([0-5]\d)/);
+    if (!match) return 'manana';
+    const hour = Number(match[1]);
+    if (hour >= 20 || hour < 5) return 'noche';
+    if (categoria === 'universidad' && hour >= 7 && hour < 19) return 'cole';
+    if (hour >= 5 && hour < 12) return 'manana';
+    return 'tarde';
+}
+
+function splitAgendaTitleAndDescription(rawActividad = '', rawTitulo = '', rawDescripcion = '') {
+    const explicitTitle = typeof rawTitulo === 'string' ? rawTitulo.replace(/\s+/g, ' ').trim() : '';
+    const explicitDesc = typeof rawDescripcion === 'string' ? rawDescripcion.replace(/\s+/g, ' ').trim() : '';
+    if (explicitTitle) {
+        return {
+            titulo: explicitTitle.slice(0, 120),
+            descripcion: explicitDesc.slice(0, 200)
+        };
+    }
+    const cleanAct = typeof rawActividad === 'string' ? rawActividad.replace(/\s+/g, ' ').trim() : '';
+    const sepMatch = cleanAct.match(/^(.+?)\s+(?:—|::|\|)\s+(.+)$/);
+    if (sepMatch) {
+        return {
+            titulo: sepMatch[1].trim().slice(0, 120),
+            descripcion: sepMatch[2].trim().slice(0, 200)
+        };
+    }
+    return {
+        titulo: cleanAct.slice(0, 120),
+        descripcion: explicitDesc.slice(0, 200)
+    };
+}
+
+function composeAgendaActividad(body = {}) {
+    const rawAct = typeof body.actividad === 'string' ? body.actividad.replace(/\s+/g, ' ').trim() : '';
+    const rawTit = typeof body.titulo === 'string' ? body.titulo.replace(/\s+/g, ' ').trim() : '';
+    const rawDesc = typeof body.descripcion === 'string' ? body.descripcion.replace(/\s+/g, ' ').trim() : '';
+    if (rawTit && rawDesc) {
+        return `${rawTit} — ${rawDesc}`.slice(0, 255);
+    }
+    if (rawTit && !rawAct) {
+        return rawTit.slice(0, 255);
+    }
+    if (rawAct && rawDesc && !rawAct.includes(rawDesc)) {
+        return `${rawAct} — ${rawDesc}`.slice(0, 255);
+    }
+    return rawAct;
+}
+
+function enrichAgendaRow(row) {
+    if (!row || typeof row !== 'object') return row;
+    const { titulo, descripcion } = splitAgendaTitleAndDescription(row.actividad, row.titulo, row.descripcion);
+    return {
+        ...row,
+        titulo,
+        descripcion
+    };
+}
+
 function normalizeAgendaItemFields(body = {}) {
     const tipo = body.tipo === undefined || body.tipo === null || body.tipo === ''
         ? 'evento'
@@ -1682,7 +1741,15 @@ function normalizeAgendaItemFields(body = {}) {
 }
 
 function validarDatosAgenda(body = {}) {
-    const { fecha, bloque, hora, actividad } = body;
+    const { fecha, hora } = body;
+    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(body);
+    const bloque = body.bloque && BLOQUES_VALIDOS.has(body.bloque)
+        ? body.bloque
+        : (body.bloque === undefined || body.bloque === null || body.bloque === ''
+            ? inferAgendaBlockFromTimeServer(hora, categoria)
+            : body.bloque);
+    const actividadCompuesta = composeAgendaActividad(body);
+
     if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
         return 'Date must use YYYY-MM-DD format.';
     }
@@ -1692,13 +1759,12 @@ function validarDatosAgenda(body = {}) {
     if (!hora || !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(hora)) {
         return 'Time must use HH:MM format.';
     }
-    if (typeof actividad !== 'string' || !actividad.trim()) {
+    if (typeof actividadCompuesta !== 'string' || !actividadCompuesta.trim()) {
         return 'Activity description is required.';
     }
-    if (actividad.trim().length > 255) {
+    if (actividadCompuesta.trim().length > 255) {
         return 'Activity cannot exceed 255 characters.';
     }
-    const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(body);
     if (!AGENDA_TIPOS_VALIDOS.has(tipo)) {
         return 'Invalid activity type (allowed: evento, tarea).';
     }
@@ -1743,7 +1809,7 @@ app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) =
             console.error(err);
             return res.status(500).send('Error querying agenda from database.');
         }
-        res.json(result);
+        res.json(Array.isArray(result) ? result.map(enrichAgendaRow) : []);
     });
 });
 
@@ -1753,10 +1819,14 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
         return res.status(400).send(errorValidacion);
     }
 
-    const { fecha, bloque, hora } = req.body;
-    const actividad = req.body.actividad.trim();
-    const horaNormalizada = hora.slice(0, 5);
+    const { fecha, hora } = req.body;
     const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
+    const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
+        ? req.body.bloque
+        : inferAgendaBlockFromTimeServer(hora, categoria);
+    const actividad = composeAgendaActividad(req.body);
+    const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
+    const horaNormalizada = hora.slice(0, 5);
     const completada = estado === 'done' ? 1 : 0;
 
     const sql = `
@@ -1776,6 +1846,8 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
                 bloque,
                 hora: horaNormalizada,
                 actividad,
+                titulo,
+                descripcion,
                 tipo,
                 categoria,
                 estado,
@@ -1795,10 +1867,14 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
         return res.status(400).send(errorValidacion);
     }
 
-    const { fecha, bloque, hora } = req.body;
-    const actividad = req.body.actividad.trim();
-    const horaNormalizada = hora.slice(0, 5);
+    const { fecha, hora } = req.body;
     const { tipo, categoria, estado, recordatorioMin } = normalizeAgendaItemFields(req.body);
+    const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
+        ? req.body.bloque
+        : inferAgendaBlockFromTimeServer(hora, categoria);
+    const actividad = composeAgendaActividad(req.body);
+    const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
+    const horaNormalizada = hora.slice(0, 5);
     const completada = estado === 'done' ? 1 : 0;
 
     const sql = `
@@ -1825,6 +1901,8 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
                 bloque,
                 hora: horaNormalizada,
                 actividad,
+                titulo,
+                descripcion,
                 tipo,
                 categoria,
                 estado,
@@ -1905,6 +1983,650 @@ function dbQueryAsync(sql, params = []) {
     });
 }
 
+// ==========================================
+// DIRECTORIO DE CROQUIS TEC DE SALTILLO (ITS), UBICACIONES Y TRÁFICO
+// ==========================================
+const ITS_CAMPUS_DIRECTORY = {
+    principal: {
+        id: 'principal',
+        name: 'ITS Campus Principal',
+        plano: 'CTO-002',
+        address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo, Coah.',
+        lat: 25.443706,
+        lng: -100.993845,
+        buildings: 'Aulas A-3..A-24 (Piso 1), B-2..B-21 (Piso 2), C-2..C-13 (Piso 3), CR-01..CR-15, AM-1..AM-5, TM1..TM3, LAC-L2A, SM1, LF1, SJMM'
+    },
+    miravalle: {
+        id: 'miravalle',
+        name: 'ITS Campus Miravalle',
+        plano: 'CTO-003',
+        address: 'Calle Miravalle y Calle Reynosa (Puente Peatonal 37), Saltillo, Coah.',
+        lat: 25.445350,
+        lng: -100.991200,
+        buildings: 'Aulas N-1..N-42 (Edif. 60-65), LMA, LE2..LE4, PLC, LM1..LM2, LEL, LIN, LS1..LS5, LC1..LC3, AP1'
+    },
+    boillot: {
+        id: 'boillot',
+        name: 'ITS Campus Boillot (Sistemas y Mecatrónica)',
+        plano: 'CTO-004',
+        address: 'Blvd. Saltillo, Calle Reynosa y Cuatrociénegas, Saltillo, Coah.',
+        lat: 25.443950,
+        lng: -100.989650,
+        buildings: 'Edif. 78 Sistemas (Aulas R-1..R-14), Edif. 79 Mecatrónica (S-13..S-20, LC3, CLO), Edif. 80 Ed. Distancia (ED1..ED4), Edif. 81 Vinculación (AV1..AV2)'
+    }
+};
+
+function withRoomAliases(obj) {
+    return {
+        ...obj,
+        campusKey: obj.campusId,
+        croquisCode: obj.plano,
+        buildingName: obj.building
+    };
+}
+
+function resolveItsClassroom(rawRoom = '') {
+    const clean = String(rawRoom || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!clean) {
+        return withRoomAliases({
+            room: 'S/A',
+            campusId: 'principal',
+            campusName: ITS_CAMPUS_DIRECTORY.principal.name,
+            plano: 'CTO-002',
+            building: 'Campus General ITS',
+            lat: ITS_CAMPUS_DIRECTORY.principal.lat,
+            lng: ITS_CAMPUS_DIRECTORY.principal.lng
+        });
+    }
+
+    const normalized = clean.replace(/^(AULA|SALON|LAB)/, '').replace(/^-+/, '');
+
+    if (/^R-?0?\d+$/.test(normalized)) {
+        const num = parseInt(normalized.replace(/\D/g, ''), 10) || 1;
+        return withRoomAliases({
+            room: `R${String(num).padStart(2, '0')}`,
+            campusId: 'boillot',
+            campusName: ITS_CAMPUS_DIRECTORY.boillot.name,
+            plano: 'CTO-004',
+            building: 'Edif. 78 Sistemas y Computación (Aulas R-1 a R-14)',
+            lat: ITS_CAMPUS_DIRECTORY.boillot.lat,
+            lng: ITS_CAMPUS_DIRECTORY.boillot.lng
+        });
+    }
+
+    if (/^(S-?\d+|CLO)$/.test(normalized)) {
+        return withRoomAliases({
+            room: normalized,
+            campusId: 'boillot',
+            campusName: ITS_CAMPUS_DIRECTORY.boillot.name,
+            plano: 'CTO-004',
+            building: 'Edif. 79 Ingeniería Mecatrónica (Aulas S-13 a S-20 / CLO)',
+            lat: ITS_CAMPUS_DIRECTORY.boillot.lat,
+            lng: ITS_CAMPUS_DIRECTORY.boillot.lng
+        });
+    }
+
+    if (/^ED-?\d+$/.test(normalized)) {
+        return withRoomAliases({
+            room: normalized,
+            campusId: 'boillot',
+            campusName: ITS_CAMPUS_DIRECTORY.boillot.name,
+            plano: 'CTO-004',
+            building: 'Edif. 80 Educación a Distancia (Aulas ED1 a ED4)',
+            lat: ITS_CAMPUS_DIRECTORY.boillot.lat,
+            lng: ITS_CAMPUS_DIRECTORY.boillot.lng
+        });
+    }
+
+    if (/^AV-?\d+$/.test(normalized)) {
+        return withRoomAliases({
+            room: normalized,
+            campusId: 'boillot',
+            campusName: ITS_CAMPUS_DIRECTORY.boillot.name,
+            plano: 'CTO-004',
+            building: 'Edif. 81 Gestión Tecnológica y Vinculación (AV1 - AV2)',
+            lat: ITS_CAMPUS_DIRECTORY.boillot.lat,
+            lng: ITS_CAMPUS_DIRECTORY.boillot.lng
+        });
+    }
+
+    if (/^N-?0?\d+$/.test(normalized)) {
+        const num = parseInt(normalized.replace(/\D/g, ''), 10) || 1;
+        let edif = 'Edif. 60-65 (Aulas N-1 a N-42)';
+        if (num >= 1 && num <= 8) edif = 'Edif. 60 (Aulas N-1 a N-8)';
+        else if (num >= 9 && num <= 16) edif = 'Edif. 61 (Aulas N-9 a N-16)';
+        else if (num >= 17 && num <= 24) edif = 'Edif. 62 (Aulas N-17 a N-24)';
+        else if (num >= 25 && num <= 26) edif = 'Edif. 63 (Aulas N-25 a N-26)';
+        else if (num >= 27 && num <= 28) edif = 'Edif. 64 (Aulas N-27 a N-28)';
+        else if (num >= 29) edif = 'Edif. 65 (Aulas N-29 a N-42)';
+        return withRoomAliases({
+            room: `N${String(num).padStart(2, '0')}`,
+            campusId: 'miravalle',
+            campusName: ITS_CAMPUS_DIRECTORY.miravalle.name,
+            plano: 'CTO-003',
+            building: edif,
+            lat: ITS_CAMPUS_DIRECTORY.miravalle.lat,
+            lng: ITS_CAMPUS_DIRECTORY.miravalle.lng
+        });
+    }
+
+    if (/^(LMA|LE[234]|PLC|LM[12]|LEL|LIN|LS[1-5]|LC[123]|AP1)$/.test(normalized)) {
+        return withRoomAliases({
+            room: normalized,
+            campusId: 'miravalle',
+            campusName: ITS_CAMPUS_DIRECTORY.miravalle.name,
+            plano: 'CTO-003',
+            building: 'Laboratorios y Aulas Especializadas Campus Miravalle (Edif. 50-66)',
+            lat: ITS_CAMPUS_DIRECTORY.miravalle.lat,
+            lng: ITS_CAMPUS_DIRECTORY.miravalle.lng
+        });
+    }
+
+    if (/^[ABC]-?0?\d+$/.test(normalized)) {
+        const letter = normalized[0];
+        const piso = letter === 'A' ? 'Piso 1 (Edif. 22)' : (letter === 'B' ? 'Piso 2 (Edif. 23)' : 'Piso 3 (Edif. 24)');
+        return withRoomAliases({
+            room: normalized,
+            campusId: 'principal',
+            campusName: ITS_CAMPUS_DIRECTORY.principal.name,
+            plano: 'CTO-002',
+            building: `Aulas ${letter} · ${piso}`,
+            lat: ITS_CAMPUS_DIRECTORY.principal.lat,
+            lng: ITS_CAMPUS_DIRECTORY.principal.lng
+        });
+    }
+
+    return withRoomAliases({
+        room: normalized,
+        campusId: 'principal',
+        campusName: ITS_CAMPUS_DIRECTORY.principal.name,
+        plano: 'CTO-002',
+        building: 'Campus Principal ITS (CR / AM / TM / SM / LAC)',
+        lat: ITS_CAMPUS_DIRECTORY.principal.lat,
+        lng: ITS_CAMPUS_DIRECTORY.principal.lng
+    });
+}
+
+function parseCoordinatesFromInput(input = {}) {
+    if (!input || typeof input !== 'object') return null;
+    let lat = input.lat !== undefined && input.lat !== null && input.lat !== '' ? Number(input.lat) : NaN;
+    let lng = input.lng !== undefined && input.lng !== null && input.lng !== '' ? Number(input.lng) : NaN;
+
+    if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && typeof input.mapsUrl === 'string' && input.mapsUrl.trim()) {
+        const rawUrl = input.mapsUrl.trim();
+        const atMatch = rawUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
+                        rawUrl.match(/[?&](?:q|ll|destination|origin)=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/) ||
+                        rawUrl.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+        if (atMatch) {
+            lat = Number(atMatch[1]);
+            lng = Number(atMatch[2]);
+        }
+    }
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return null;
+    }
+    return {
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6))
+    };
+}
+
+function calculateHaversineKm(lat1, lng1, lat2, lng2) {
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getSaltilloTrafficFactor(minutesOfDay, weekday = 1) {
+    const isWeekend = weekday === 0 || weekday === 6;
+    if (isWeekend) {
+        return { level: 'low', label: 'Tráfico ligero', factor: 1.1 };
+    }
+    // Horas pico en Saltillo (Blvd. V. Carranza / Reynosa / Blvd. Saltillo)
+    if (
+        (minutesOfDay >= 7 * 60 && minutesOfDay <= 9 * 60 + 15) ||
+        (minutesOfDay >= 13 * 60 && minutesOfDay <= 15 * 60 + 15) ||
+        (minutesOfDay >= 17 * 60 + 30 && minutesOfDay <= 20 * 60)
+    ) {
+        return { level: 'high', label: 'Tráfico hora pico', factor: 1.48 };
+    }
+    if (minutesOfDay >= 6 * 60 + 30 && minutesOfDay <= 21 * 60) {
+        return { level: 'moderate', label: 'Tráfico moderado', factor: 1.24 };
+    }
+    return { level: 'low', label: 'Tráfico fluido', factor: 1.05 };
+}
+
+function buildGoogleMapsDirectionsUrl(originCoords, destCoords, mode = 'driving') {
+    if (!destCoords || !Number.isFinite(destCoords.lat) || !Number.isFinite(destCoords.lng)) return '';
+    const destParam = `${destCoords.lat},${destCoords.lng}`;
+    const travelMode = mode === 'walking' ? 'walking' : 'driving';
+    if (originCoords && Number.isFinite(originCoords.lat) && Number.isFinite(originCoords.lng)) {
+        const origParam = `${originCoords.lat},${originCoords.lng}`;
+        return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origParam)}&destination=${encodeURIComponent(destParam)}&travelmode=${travelMode}`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destParam)}&travelmode=${travelMode}`;
+}
+
+function estimateCommuteDetails({
+    originCoords,
+    destCoords,
+    targetMinutesOfDay = 9 * 60,
+    weekday = 1,
+    isFirstOfDay = true,
+    nearRadiusKm = 0.85,
+    minFarLeadMinutes = 30,
+    nearLeadMinutes = 10,
+    parkingBufferMinutes = 8
+}) {
+    if (!destCoords || !Number.isFinite(destCoords.lat) || !Number.isFinite(destCoords.lng)) {
+        return {
+            hasOrigin: false,
+            isNear: !isFirstOfDay,
+            distanceKm: 0,
+            roadDistanceKm: 0,
+            driveMinutes: isFirstOfDay ? 22 : 0,
+            walkMinutes: 6,
+            trafficLabel: 'Ruta estándar',
+            recommendedLeadMinutes: isFirstOfDay ? Math.max(30, minFarLeadMinutes) : nearLeadMinutes,
+            mapsUrl: ''
+        };
+    }
+
+    if (!originCoords || !Number.isFinite(originCoords.lat) || !Number.isFinite(originCoords.lng)) {
+        const fallbackLead = isFirstOfDay ? Math.max(30, minFarLeadMinutes) : nearLeadMinutes;
+        return {
+            hasOrigin: false,
+            isNear: !isFirstOfDay,
+            distanceKm: 0,
+            roadDistanceKm: 0,
+            driveMinutes: isFirstOfDay ? 20 : 0,
+            walkMinutes: 5,
+            trafficLabel: isFirstOfDay ? 'Estimado desde casa (sin GPS activo)' : 'En campus / cerca',
+            recommendedLeadMinutes: fallbackLead,
+            mapsUrl: buildGoogleMapsDirectionsUrl(null, destCoords, isFirstOfDay ? 'driving' : 'walking')
+        };
+    }
+
+    const straightKm = calculateHaversineKm(originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng);
+    const roadKm = Number((straightKm * 1.32).toFixed(2));
+    const isNear = straightKm <= nearRadiusKm;
+    const traffic = getSaltilloTrafficFactor(targetMinutesOfDay, weekday);
+    // Velocidad base urbana en Saltillo ~30 km/h ajustada por factor de tráfico
+    const baseDriveMin = (roadKm / 30) * 60 * traffic.factor;
+    const driveMinutes = Math.max(3, Math.round(baseDriveMin));
+    const walkMinutes = Math.max(2, Math.round((straightKm * 1.25 / 4.6) * 60));
+
+    let recommendedLeadMinutes;
+    if (isNear && !isFirstOfDay) {
+        recommendedLeadMinutes = Math.max(nearLeadMinutes, Math.min(25, walkMinutes + 4));
+    } else if (isNear && isFirstOfDay) {
+        recommendedLeadMinutes = Math.max(nearLeadMinutes, Math.min(25, walkMinutes + 5));
+    } else {
+        recommendedLeadMinutes = Math.min(120, Math.max(30, minFarLeadMinutes, driveMinutes + parkingBufferMinutes));
+    }
+
+    return {
+        hasOrigin: true,
+        isNear,
+        distanceKm: Number(straightKm.toFixed(2)),
+        roadDistanceKm: roadKm,
+        driveMinutes,
+        walkMinutes,
+        trafficLevel: traffic.level,
+        trafficLabel: traffic.label,
+        recommendedLeadMinutes,
+        mapsUrl: buildGoogleMapsDirectionsUrl(originCoords, destCoords, isNear ? 'walking' : 'driving')
+    };
+}
+
+function getItsMindboxPresetCourses() {
+    return [
+        {
+            id: 'its-aca0910',
+            code: 'ACA0910',
+            name: 'Taller de Investigación II',
+            teacher: 'Sorkee Quiroz Roxana Karina',
+            group: 'B',
+            room: 'R02',
+            campusId: 'boillot',
+            days: [1, 2, 3, 4],
+            startTime: '09:00',
+            endTime: '10:00'
+        },
+        {
+            id: 'its-scg1009-lj',
+            code: 'SCG1009',
+            name: 'Gestión de Proyectos de Software',
+            teacher: 'Fernández Chávez Eduardo',
+            group: 'B',
+            room: 'R11',
+            campusId: 'boillot',
+            days: [1, 2, 3, 4],
+            startTime: '13:00',
+            endTime: '14:00'
+        },
+        {
+            id: 'its-scg1009-v',
+            code: 'SCG1009',
+            name: 'Gestión de Proyectos de Software (Viernes)',
+            teacher: 'Fernández Chávez Eduardo',
+            group: 'B',
+            room: 'R11',
+            campusId: 'boillot',
+            days: [5],
+            startTime: '12:00',
+            endTime: '14:00'
+        },
+        {
+            id: 'its-ded2504',
+            code: 'DED2504',
+            name: 'Integración y Despliegue Continuos',
+            teacher: 'Manrique Peña Paola Denis',
+            group: 'A',
+            room: 'R11',
+            campusId: 'boillot',
+            days: [1, 2, 3, 4, 5],
+            startTime: '14:00',
+            endTime: '15:00'
+        },
+        {
+            id: 'its-scc1019',
+            code: 'SCC1019',
+            name: 'Programación Lógica y Funcional',
+            teacher: 'Espinoza Arzola Jesus Alberto',
+            group: 'A',
+            room: 'R11',
+            campusId: 'boillot',
+            days: [1, 2, 3, 4],
+            startTime: '15:00',
+            endTime: '16:00'
+        },
+        {
+            id: 'its-ded2505',
+            code: 'DED2505',
+            name: 'Desarrollo Seguro',
+            teacher: 'Cabrera Fraga Pricila',
+            group: 'A',
+            room: 'R11',
+            campusId: 'boillot',
+            days: [1, 2, 3, 4, 5],
+            startTime: '16:00',
+            endTime: '17:00'
+        }
+    ];
+}
+
+function getDefaultAcademicPlanner() {
+    return {
+        universityName: 'Instituto Tecnológico de Saltillo (TecNM)',
+        activeSemesterId: 'sem-9no-2026',
+        classRemindersEnabled: true,
+        farLeadMinutesMin: 30,
+        nearLeadMinutes: 10,
+        nearRadiusKm: 0.85,
+        parkingBufferMinutes: 8,
+        locations: {
+            home: {
+                label: 'Mi Casa',
+                address: 'Saltillo, Coahuila',
+                mapsUrl: '',
+                lat: null,
+                lng: null
+            },
+            university: {
+                label: 'Instituto Tecnológico de Saltillo (Blvd. V. Carranza #2400)',
+                address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo',
+                mapsUrl: 'https://www.google.com/maps?q=25.443706,-100.993845',
+                lat: 25.443706,
+                lng: -100.993845
+            },
+            current: {
+                label: 'Ubicación actual',
+                lat: null,
+                lng: null,
+                updatedAt: null,
+                source: 'none'
+            }
+        },
+        semesters: [
+            {
+                id: 'sem-9no-2026',
+                name: '9no Semestre · Ing. en Sistemas Computacionales',
+                termCode: '2026-2',
+                startDate: '2026-08-17',
+                endDate: '2026-12-18',
+                active: true,
+                courses: getItsMindboxPresetCourses()
+            }
+        ],
+        vacations: [
+            {
+                id: 'vac-semana-santa-2026',
+                name: 'Vacaciones de Semana Santa TecNM',
+                nombre: 'Vacaciones de Semana Santa TecNM',
+                startDate: '2026-03-30',
+                endDate: '2026-04-10',
+                fechaInicio: '2026-03-30',
+                fechaFin: '2026-04-10'
+            },
+            {
+                id: 'vac-invierno-2026',
+                name: 'Vacaciones de Invierno TecNM',
+                nombre: 'Vacaciones de Invierno TecNM',
+                startDate: '2026-12-19',
+                endDate: '2027-01-17',
+                fechaInicio: '2026-12-19',
+                fechaFin: '2027-01-17'
+            }
+        ],
+        residencias: {
+            enabled: false,
+            projectName: '',
+            companyName: '',
+            advisorName: '',
+            modality: 'presencial',
+            totalHoursGoal: 500,
+            loggedHours: 0,
+            days: [1, 2, 3, 4, 5],
+            startTime: '08:00',
+            endTime: '13:00',
+            location: {
+                label: 'Empresa de Residencias',
+                address: '',
+                mapsUrl: '',
+                lat: null,
+                lng: null
+            }
+        },
+        work: {
+            enabled: false,
+            scheduleType: 'medio_tiempo',
+            companyName: '',
+            roleTitle: '',
+            modality: 'presencial',
+            days: [1, 2, 3, 4, 5],
+            startTime: '08:00',
+            endTime: '16:00',
+            location: {
+                label: 'Lugar de Trabajo',
+                address: '',
+                mapsUrl: '',
+                lat: null,
+                lng: null
+            }
+        }
+    };
+}
+
+function sanitizeLocationObject(rawLoc = {}, fallback = {}) {
+    const base = {
+        label: String(fallback.label || 'Ubicación').slice(0, 120),
+        address: String(fallback.address || '').slice(0, 200),
+        mapsUrl: String(fallback.mapsUrl || '').slice(0, 500),
+        lat: fallback.lat ?? null,
+        lng: fallback.lng ?? null
+    };
+    if (!rawLoc || typeof rawLoc !== 'object') return base;
+    if (typeof rawLoc.label === 'string') base.label = rawLoc.label.trim().slice(0, 120) || base.label;
+    if (typeof rawLoc.address === 'string') base.address = rawLoc.address.trim().slice(0, 200);
+    if (typeof rawLoc.mapsUrl === 'string') base.mapsUrl = rawLoc.mapsUrl.trim().slice(0, 500);
+
+    const parsedCoords = parseCoordinatesFromInput({
+        lat: rawLoc.lat,
+        lng: rawLoc.lng,
+        mapsUrl: base.mapsUrl
+    });
+    if (parsedCoords) {
+        base.lat = parsedCoords.lat;
+        base.lng = parsedCoords.lng;
+    } else if (rawLoc.lat === null || rawLoc.lat === '' || rawLoc.lng === null || rawLoc.lng === '') {
+        base.lat = null;
+        base.lng = null;
+    }
+    return base;
+}
+
+function sanitizeAcademicPlanner(rawPlanner = {}, basePlanner = getDefaultAcademicPlanner()) {
+    const def = getDefaultAcademicPlanner();
+    const src = rawPlanner && typeof rawPlanner === 'object' ? rawPlanner : {};
+    const prev = basePlanner && typeof basePlanner === 'object' ? basePlanner : def;
+
+    const out = {
+        universityName: typeof src.universityName === 'string' && src.universityName.trim()
+            ? src.universityName.trim().slice(0, 140)
+            : (prev.universityName || def.universityName),
+        activeSemesterId: typeof src.activeSemesterId === 'string' && src.activeSemesterId.trim()
+            ? src.activeSemesterId.trim().slice(0, 60)
+            : (prev.activeSemesterId || def.activeSemesterId),
+        classRemindersEnabled: typeof src.classRemindersEnabled === 'boolean'
+            ? src.classRemindersEnabled
+            : (typeof prev.classRemindersEnabled === 'boolean' ? prev.classRemindersEnabled : true),
+        farLeadMinutesMin: Number.isFinite(Number(src.farLeadMinutesMin))
+            ? Math.max(30, Math.min(120, Math.round(Number(src.farLeadMinutesMin))))
+            : (prev.farLeadMinutesMin || 30),
+        nearLeadMinutes: Number.isFinite(Number(src.nearLeadMinutes))
+            ? Math.max(5, Math.min(45, Math.round(Number(src.nearLeadMinutes))))
+            : (prev.nearLeadMinutes || 10),
+        nearRadiusKm: Number.isFinite(Number(src.nearRadiusKm))
+            ? Math.max(0.2, Math.min(5, Number(Number(src.nearRadiusKm).toFixed(2))))
+            : (prev.nearRadiusKm || 0.85),
+        parkingBufferMinutes: Number.isFinite(Number(src.parkingBufferMinutes))
+            ? Math.max(0, Math.min(30, Math.round(Number(src.parkingBufferMinutes))))
+            : (prev.parkingBufferMinutes ?? 8),
+        locations: {
+            home: sanitizeLocationObject(src.locations?.home, prev.locations?.home || def.locations.home),
+            university: sanitizeLocationObject(src.locations?.university, prev.locations?.university || def.locations.university),
+            current: {
+                label: 'Ubicación actual',
+                lat: null,
+                lng: null,
+                updatedAt: src.locations?.current?.updatedAt || prev.locations?.current?.updatedAt || null,
+                source: String(src.locations?.current?.source || prev.locations?.current?.source || 'none').slice(0, 30)
+            }
+        },
+        semesters: [],
+        vacations: [],
+        residencias: {},
+        work: {}
+    };
+
+    const currCoords = parseCoordinatesFromInput(src.locations?.current || prev.locations?.current || {});
+    if (currCoords) {
+        out.locations.current.lat = currCoords.lat;
+        out.locations.current.lng = currCoords.lng;
+    }
+
+    const rawSemesters = Array.isArray(src.semesters) ? src.semesters : (Array.isArray(prev.semesters) ? prev.semesters : def.semesters);
+    out.semesters = rawSemesters.slice(0, 16).map((sem, idx) => {
+        const sId = typeof sem?.id === 'string' && sem.id.trim() ? sem.id.trim().slice(0, 60) : `sem-${idx + 1}`;
+        const rawCourses = Array.isArray(sem?.courses) ? sem.courses : [];
+        const courses = rawCourses.slice(0, 30).map((c, cIdx) => {
+            const roomInfo = resolveItsClassroom(c?.room || '');
+            const days = Array.isArray(c?.days)
+                ? Array.from(new Set(c.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b)
+                : [1, 2, 3, 4, 5];
+            return {
+                id: typeof c?.id === 'string' && c.id.trim() ? c.id.trim().slice(0, 60) : `course-${idx + 1}-${cIdx + 1}`,
+                code: String(c?.code || '').trim().slice(0, 30),
+                name: String(c?.name || 'Materia').trim().slice(0, 120) || 'Materia',
+                teacher: String(c?.teacher || '').trim().slice(0, 120),
+                group: String(c?.group || '').trim().slice(0, 20),
+                room: roomInfo.room,
+                campusId: ['principal', 'miravalle', 'boillot'].includes(c?.campusId) ? c.campusId : roomInfo.campusId,
+                days: days.length ? days : [1, 2, 3, 4, 5],
+                startTime: HHMM_REGEX.test(String(c?.startTime || '').trim()) ? String(c.startTime).trim() : '09:00',
+                endTime: HHMM_REGEX.test(String(c?.endTime || '').trim()) ? String(c.endTime).trim() : '10:00'
+            };
+        });
+        return {
+            id: sId,
+            name: String(sem?.name || `Semestre ${idx + 1}`).trim().slice(0, 120),
+            termCode: String(sem?.termCode || '').trim().slice(0, 30),
+            startDate: /^\d{4}-\d{2}-\d{2}$/.test(String(sem?.startDate || '')) ? String(sem.startDate) : '2026-08-17',
+            endDate: /^\d{4}-\d{2}-\d{2}$/.test(String(sem?.endDate || '')) ? String(sem.endDate) : '2026-12-18',
+            active: Boolean(sem?.active),
+            courses
+        };
+    });
+    if (out.semesters.length === 0) {
+        out.semesters = def.semesters;
+    }
+    if (!out.semesters.some(s => s.id === out.activeSemesterId)) {
+        out.activeSemesterId = out.semesters[0].id;
+    }
+
+    const rawVacations = Array.isArray(src.vacations) ? src.vacations : (Array.isArray(prev.vacations) ? prev.vacations : def.vacations);
+    out.vacations = rawVacations.slice(0, 30).filter(v =>
+        v && /^\d{4}-\d{2}-\d{2}$/.test(String(v.startDate || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(v.endDate || ''))
+    ).map((v, vIdx) => ({
+        id: typeof v.id === 'string' && v.id.trim() ? v.id.trim().slice(0, 60) : `vac-${vIdx + 1}`,
+        name: String(v.name || 'Periodo vacacional').trim().slice(0, 120),
+        startDate: String(v.startDate),
+        endDate: String(v.endDate)
+    }));
+
+    const rawRes = src.residencias && typeof src.residencias === 'object' ? src.residencias : (prev.residencias || def.residencias);
+    const resDays = Array.isArray(rawRes.days)
+        ? Array.from(new Set(rawRes.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b)
+        : [1, 2, 3, 4, 5];
+    out.residencias = {
+        enabled: Boolean(rawRes.enabled),
+        projectName: String(rawRes.projectName || '').trim().slice(0, 160),
+        companyName: String(rawRes.companyName || '').trim().slice(0, 140),
+        advisorName: String(rawRes.advisorName || '').trim().slice(0, 120),
+        modality: ['presencial', 'hibrido', 'remoto'].includes(rawRes.modality) ? rawRes.modality : 'presencial',
+        totalHoursGoal: Number.isFinite(Number(rawRes.totalHoursGoal)) ? Math.max(1, Math.min(2000, Math.round(Number(rawRes.totalHoursGoal)))) : 500,
+        loggedHours: Number.isFinite(Number(rawRes.loggedHours)) ? Math.max(0, Math.min(2000, Number(Number(rawRes.loggedHours).toFixed(1)))) : 0,
+        days: resDays.length ? resDays : [1, 2, 3, 4, 5],
+        startTime: HHMM_REGEX.test(String(rawRes.startTime || '').trim()) ? String(rawRes.startTime).trim() : '08:00',
+        endTime: HHMM_REGEX.test(String(rawRes.endTime || '').trim()) ? String(rawRes.endTime).trim() : '13:00',
+        location: sanitizeLocationObject(rawRes.location, prev.residencias?.location || def.residencias.location)
+    };
+
+    const rawWork = src.work && typeof src.work === 'object' ? src.work : (prev.work || def.work);
+    const workDays = Array.isArray(rawWork.days)
+        ? Array.from(new Set(rawWork.days.map(Number).filter(d => Number.isInteger(d) && d >= 0 && d <= 6))).sort((a, b) => a - b)
+        : [1, 2, 3, 4, 5];
+    out.work = {
+        enabled: Boolean(rawWork.enabled),
+        scheduleType: ['tiempo_completo', 'medio_tiempo', 'por_turnos'].includes(rawWork.scheduleType) ? rawWork.scheduleType : 'medio_tiempo',
+        companyName: String(rawWork.companyName || '').trim().slice(0, 140),
+        roleTitle: String(rawWork.roleTitle || '').trim().slice(0, 120),
+        modality: ['presencial', 'hibrido', 'remoto'].includes(rawWork.modality) ? rawWork.modality : 'presencial',
+        days: workDays.length ? workDays : [1, 2, 3, 4, 5],
+        startTime: HHMM_REGEX.test(String(rawWork.startTime || '').trim()) ? String(rawWork.startTime).trim() : '08:00',
+        endTime: HHMM_REGEX.test(String(rawWork.endTime || '').trim()) ? String(rawWork.endTime).trim() : '16:00',
+        location: sanitizeLocationObject(rawWork.location, prev.work?.location || def.work.location)
+    };
+
+    return out;
+}
+
 function getDefaultUserSettings() {
     return {
         defaultAgendaCategory: 'all',
@@ -1919,19 +2641,22 @@ function getDefaultUserSettings() {
         ntfyPriority: 4,
         desktopNotificationsEnabled: false,
         moodRemindersEnabled: true,
+        moodNotifyPending: true,
         moodIncludeLateNight: false,
         sleepReminderEnabled: true,
         sleepReminderTime: '08:30',
         agendaRemindersEnabled: true,
         agendaNotifyEvents: true,
         agendaNotifyTasks: true,
+        agendaNotifyPendingTasks: true,
         agendaLeadMinutes: 10,
         wordEodReminderEnabled: true,
         wordEodReminderTime: '21:30',
         englishReminderEnabled: false,
         englishReminderTime: '19:00',
         englishReminderDays: [1, 2, 3, 4, 5],
-        englishReminderTopic: 'Practice vocabulary, grammar notes, and phrasal verbs'
+        englishReminderTopic: 'Practice vocabulary, grammar notes, and phrasal verbs',
+        academicPlanner: getDefaultAcademicPlanner()
     };
 }
 
@@ -2016,11 +2741,13 @@ function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()
         'phoneNotificationsEnabled',
         'desktopNotificationsEnabled',
         'moodRemindersEnabled',
+        'moodNotifyPending',
         'moodIncludeLateNight',
         'sleepReminderEnabled',
         'agendaRemindersEnabled',
         'agendaNotifyEvents',
         'agendaNotifyTasks',
+        'agendaNotifyPendingTasks',
         'wordEodReminderEnabled',
         'englishReminderEnabled'
     ];
@@ -2113,6 +2840,12 @@ function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()
         next.englishReminderTopic = topicText || getDefaultUserSettings().englishReminderTopic;
     }
 
+    if (input.academicPlanner !== undefined) {
+        next.academicPlanner = sanitizeAcademicPlanner(input.academicPlanner, base.academicPlanner);
+    } else {
+        next.academicPlanner = sanitizeAcademicPlanner(base.academicPlanner);
+    }
+
     return { settings: next };
 }
 
@@ -2186,11 +2919,44 @@ const MOOD_REMINDER_WINDOWS = [
     { key: 'Madrugada', label: 'Late Night', triggerMin: 3 * 60, startMin: 0, endMin: 6 * 60, optional: true }
 ];
 
-function computeCandidateReminders({ settings, localNow, moodLogsToday = [], sleepLogsToday = [], agendaItemsToday = [], queueCounts = { journal: 0, english: 0 } }) {
+function isDateInVacation(dateStr, vacations = []) {
+    if (!Array.isArray(vacations)) return null;
+    return vacations.find(v => v && v.startDate && v.endDate && dateStr >= v.startDate && dateStr <= v.endDate) || null;
+}
+
+function resolveUserOriginCoords(planner, isFirstClassOrShift = true) {
+    const curr = parseCoordinatesFromInput(planner?.locations?.current || {});
+    const home = parseCoordinatesFromInput(planner?.locations?.home || {});
+    const uni = parseCoordinatesFromInput(planner?.locations?.university || {}) || {
+        lat: ITS_CAMPUS_DIRECTORY.principal.lat,
+        lng: ITS_CAMPUS_DIRECTORY.principal.lng
+    };
+
+    if (curr) {
+        return { coords: curr, sourceLabel: 'tu ubicación GPS actual' };
+    }
+    if (isFirstClassOrShift && home) {
+        return { coords: home, sourceLabel: planner?.locations?.home?.label || 'tu Casa' };
+    }
+    if (!isFirstClassOrShift) {
+        return { coords: uni, sourceLabel: 'Campus ITS' };
+    }
+    return { coords: home || null, sourceLabel: home ? 'tu Casa' : 'tu ubicación' };
+}
+
+function computeCandidateReminders({
+    settings,
+    localNow,
+    moodLogsToday = [],
+    sleepLogsToday = [],
+    agendaItemsToday = [],
+    pendingTasksWeek = [],
+    queueCounts = { journal: 0, english: 0 }
+}) {
     const candidates = [];
     const { dateStr, weekday, minutesOfDay } = localNow;
 
-    // 1. Automatic Mood Tracker mid-window reminders (Late Night optional / OFF by default)
+    // 1. Automatic Mood Tracker mid-window reminders + Pending earlier mood check-ins
     if (settings.moodRemindersEnabled) {
         const loggedMoments = new Set(moodLogsToday.map(r => r.momento_dia));
         const activeWin = MOOD_REMINDER_WINDOWS.find(w =>
@@ -2209,6 +2975,28 @@ function computeCandidateReminders({ settings, localNow, moodLogsToday = [], sle
                 canSnooze: true,
                 canComplete: false
             });
+        }
+
+        if (settings.moodNotifyPending !== false) {
+            const missedWindows = MOOD_REMINDER_WINDOWS.filter(w =>
+                minutesOfDay >= w.endMin &&
+                (!w.optional || settings.moodIncludeLateNight) &&
+                !loggedMoments.has(w.key)
+            );
+            if (missedWindows.length > 0) {
+                const missedLabels = missedWindows.map(w => w.label).join(', ');
+                const latestMissed = missedWindows[missedWindows.length - 1];
+                candidates.push({
+                    key: `mood-pending:${dateStr}:${latestMissed.key}`,
+                    type: 'mood',
+                    refId: null,
+                    title: `Pending Mood Check-in (${missedLabels})`,
+                    message: `You still have unlogged mood block(s) for today (${missedLabels}). Tap to record your mood in Daily Hub.`,
+                    targetView: 'mood',
+                    canSnooze: true,
+                    canComplete: false
+                });
+            }
         }
     }
 
@@ -2229,8 +3017,10 @@ function computeCandidateReminders({ settings, localNow, moodLogsToday = [], sle
         }
     }
 
-    // 3. Weekly Agenda Events & Tasks reminders (University / Personal)
+    // 3. Weekly Agenda Events & Tasks reminders (University / Personal) + Pending Tasks
     if (settings.agendaRemindersEnabled) {
+        const notifiedTaskIds = new Set();
+
         agendaItemsToday.forEach(item => {
             const estado = item.estado || (Number(item.completada) === 1 ? 'done' : 'todo');
             if (estado === 'done' || Number(item.completada) === 1) return;
@@ -2246,26 +3036,201 @@ function computeCandidateReminders({ settings, localNow, moodLogsToday = [], sle
 
             const itemMin = hhmmToMinutes(item.hora);
             const triggerMin = Math.max(0, itemMin - itemLead);
-            const windowEndMin = Math.min(1439, itemMin + 120);
+            const windowEndMin = tipo === 'tarea' ? 1439 : Math.min(1439, itemMin + 120);
 
             if (minutesOfDay >= triggerMin && minutesOfDay <= windowEndMin) {
                 const catLabel = item.categoria === 'universidad' ? 'University' : 'Personal';
-                const typeLabel = tipo === 'tarea' ? 'Task' : 'Event';
+                const isOverdueToday = tipo === 'tarea' && minutesOfDay > itemMin + 30;
+                const typeLabel = tipo === 'tarea' ? (isOverdueToday ? 'Pending Task' : 'Task') : 'Event';
+                const statusBadge = estado === 'in_progress' ? ' [In Progress]' : '';
+                if (tipo === 'tarea') notifiedTaskIds.add(Number(item.id));
                 candidates.push({
                     key: `agenda:${item.id}:${dateStr}`,
                     type: 'agenda',
                     refId: item.id,
-                    title: `[${catLabel} ${typeLabel}] ${item.hora}`,
-                    message: `${item.actividad}${itemLead > 0 && minutesOfDay < itemMin ? ` (starts at ${item.hora})` : ''}`,
+                    title: `[${catLabel} ${typeLabel}] ${item.hora}${statusBadge}`,
+                    message: `${item.actividad}${itemLead > 0 && minutesOfDay < itemMin ? ` (starts at ${item.hora})` : (isOverdueToday ? ' — Pending completion' : '')}`,
                     targetView: 'agenda',
                     canSnooze: true,
                     canComplete: true
                 });
             }
         });
+
+        if (settings.agendaNotifyTasks && settings.agendaNotifyPendingTasks !== false && Array.isArray(pendingTasksWeek)) {
+            pendingTasksWeek.forEach(task => {
+                const estado = task.estado || (Number(task.completada) === 1 ? 'done' : 'todo');
+                if (estado === 'done' || Number(task.completada) === 1) return;
+                if ((task.tipo || 'evento') !== 'tarea') return;
+                if (notifiedTaskIds.has(Number(task.id))) return;
+                if (task.recordatorio_min !== null && task.recordatorio_min !== undefined && Number(task.recordatorio_min) < 0) return;
+
+                const isPastDay = task.fecha && task.fecha < dateStr;
+                const taskMin = hhmmToMinutes(task.hora || '09:00');
+                if (!isPastDay && minutesOfDay < taskMin) return;
+
+                const catLabel = task.categoria === 'universidad' ? 'University' : 'Personal';
+                candidates.push({
+                    key: `task-pending:${task.id}:${dateStr}`,
+                    type: 'agenda',
+                    refId: task.id,
+                    title: `[Pending ${catLabel} Task] ${task.fecha === dateStr ? task.hora : task.fecha}`,
+                    message: `${task.actividad} (${estado === 'in_progress' ? 'In Progress' : 'To Do'} — tap Mark Done when finished)`,
+                    targetView: 'agenda',
+                    canSnooze: true,
+                    canComplete: true
+                });
+            });
+        }
     }
 
-    // 4. End-of-day Word Notes check reminder
+    // 4. Smart Academic Semester Classes (Tec de Saltillo), Residencias & Work Schedule Commute Alerts
+    const planner = sanitizeAcademicPlanner(settings.academicPlanner);
+    const activeVacation = isDateInVacation(dateStr, planner.vacations);
+
+    if (planner.classRemindersEnabled && !activeVacation) {
+        const activeSem = planner.semesters.find(s => s.id === planner.activeSemesterId) ||
+                          planner.semesters.find(s => s.active) ||
+                          planner.semesters[0];
+
+        if (activeSem && dateStr >= activeSem.startDate && dateStr <= activeSem.endDate) {
+            const todaysCourses = (activeSem.courses || [])
+                .filter(c => Array.isArray(c.days) && c.days.includes(weekday))
+                .sort((a, b) => hhmmToMinutes(a.startTime) - hhmmToMinutes(b.startTime));
+
+            todaysCourses.forEach((course, idx) => {
+                const startMin = hhmmToMinutes(course.startTime);
+                const prevCourse = idx > 0 ? todaysCourses[idx - 1] : null;
+                const prevEndMin = prevCourse ? hhmmToMinutes(prevCourse.endTime) : -999;
+                const isFirstOrAfterLongBreak = idx === 0 || (startMin - prevEndMin >= 120);
+
+                const roomMeta = resolveItsClassroom(course.room);
+                const prevRoomMeta = prevCourse ? resolveItsClassroom(prevCourse.room) : null;
+
+                let originInfo;
+                if (!isFirstOrAfterLongBreak && prevRoomMeta && !parseCoordinatesFromInput(planner.locations?.current || {})) {
+                    originInfo = {
+                        coords: { lat: prevRoomMeta.lat, lng: prevRoomMeta.lng },
+                        sourceLabel: `Aula ${prevRoomMeta.room} (${prevRoomMeta.campusName})`
+                    };
+                } else {
+                    originInfo = resolveUserOriginCoords(planner, isFirstOrAfterLongBreak);
+                }
+
+                const commute = estimateCommuteDetails({
+                    originCoords: originInfo.coords,
+                    destCoords: { lat: roomMeta.lat, lng: roomMeta.lng },
+                    targetMinutesOfDay: startMin,
+                    weekday,
+                    isFirstOfDay: isFirstOrAfterLongBreak,
+                    nearRadiusKm: planner.nearRadiusKm || 0.85,
+                    minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+                    nearLeadMinutes: planner.nearLeadMinutes || 10,
+                    parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+                });
+
+                const leadMin = commute.recommendedLeadMinutes;
+                const triggerMin = Math.max(0, startMin - leadMin);
+                const endMin = Math.min(1439, startMin + 45);
+
+                if (minutesOfDay >= triggerMin && minutesOfDay <= endMin) {
+                    const routeSummary = commute.isNear
+                        ? `En el Tec / cerca (~${commute.walkMinutes} min caminando desde ${originInfo.sourceLabel})`
+                        : `Desde ${originInfo.sourceLabel}: ~${commute.driveMinutes} min en carro (${commute.trafficLabel}, ${commute.roadDistanceKm || '--'} km) + estacionamiento`;
+
+                    candidates.push({
+                        key: `class:${activeSem.id}:${course.id}:${dateStr}`,
+                        type: 'class',
+                        refId: null,
+                        title: `[Clase ITS ${course.startTime}] ${course.name} · Aula ${roomMeta.room}`,
+                        message: `${roomMeta.campusName} (${roomMeta.plano} · ${roomMeta.building}). ${routeSummary}. Aviso ${leadMin} min antes.`,
+                        targetView: 'horario',
+                        mapsUrl: commute.mapsUrl,
+                        canSnooze: true,
+                        canComplete: false
+                    });
+                }
+            });
+        }
+    }
+
+    if (planner.residencias && planner.residencias.enabled && Array.isArray(planner.residencias.days) && planner.residencias.days.includes(weekday)) {
+        const resStartMin = hhmmToMinutes(planner.residencias.startTime);
+        const destCoords = parseCoordinatesFromInput(planner.residencias.location || {}) || {
+            lat: ITS_CAMPUS_DIRECTORY.principal.lat,
+            lng: ITS_CAMPUS_DIRECTORY.principal.lng
+        };
+        const originInfo = resolveUserOriginCoords(planner, true);
+        const commute = estimateCommuteDetails({
+            originCoords: originInfo.coords,
+            destCoords,
+            targetMinutesOfDay: resStartMin,
+            weekday,
+            isFirstOfDay: true,
+            nearRadiusKm: planner.nearRadiusKm || 0.85,
+            minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+            nearLeadMinutes: 15,
+            parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+        });
+        const leadMin = planner.residencias.modality === 'remoto' ? 10 : commute.recommendedLeadMinutes;
+        const triggerMin = Math.max(0, resStartMin - leadMin);
+        if (minutesOfDay >= triggerMin && minutesOfDay <= Math.min(1439, resStartMin + 60)) {
+            const placeLabel = planner.residencias.companyName || planner.residencias.location?.label || 'Residencias Profesionales';
+            const transitText = planner.residencias.modality === 'remoto'
+                ? 'Modalidad remota — prepárate para iniciar sesión.'
+                : `Traslado en carro: ~${commute.driveMinutes} min (${commute.trafficLabel}) hacia ${placeLabel}.`;
+            candidates.push({
+                key: `residencias:${dateStr}:${planner.residencias.startTime}`,
+                type: 'residencias',
+                refId: null,
+                title: `[Residencias ${planner.residencias.startTime}] ${placeLabel}`,
+                message: `${planner.residencias.projectName ? `${planner.residencias.projectName}. ` : ''}${transitText}`,
+                targetView: 'horario',
+                mapsUrl: planner.residencias.modality === 'remoto' ? '' : commute.mapsUrl,
+                canSnooze: true,
+                canComplete: false
+            });
+        }
+    }
+
+    if (planner.work && planner.work.enabled && Array.isArray(planner.work.days) && planner.work.days.includes(weekday)) {
+        const workStartMin = hhmmToMinutes(planner.work.startTime);
+        const destCoords = parseCoordinatesFromInput(planner.work.location || {});
+        const originInfo = resolveUserOriginCoords(planner, true);
+        const commute = estimateCommuteDetails({
+            originCoords: originInfo.coords,
+            destCoords,
+            targetMinutesOfDay: workStartMin,
+            weekday,
+            isFirstOfDay: true,
+            nearRadiusKm: planner.nearRadiusKm || 0.85,
+            minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+            nearLeadMinutes: 15,
+            parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+        });
+        const leadMin = planner.work.modality === 'remoto' ? 10 : commute.recommendedLeadMinutes;
+        const triggerMin = Math.max(0, workStartMin - leadMin);
+        if (minutesOfDay >= triggerMin && minutesOfDay <= Math.min(1439, workStartMin + 60)) {
+            const shiftTypeLabel = planner.work.scheduleType === 'tiempo_completo' ? 'Tiempo Completo' : 'Medio Tiempo';
+            const companyLabel = planner.work.companyName || planner.work.location?.label || 'Trabajo';
+            const transitText = planner.work.modality === 'remoto'
+                ? 'Turno remoto por iniciar.'
+                : `Ruta en carro: ~${commute.driveMinutes} min (${commute.trafficLabel}) hacia ${companyLabel}.`;
+            candidates.push({
+                key: `work:${dateStr}:${planner.work.startTime}`,
+                type: 'work',
+                refId: null,
+                title: `[Trabajo ${shiftTypeLabel} ${planner.work.startTime}] ${companyLabel}`,
+                message: `${planner.work.roleTitle ? `${planner.work.roleTitle} — ` : ''}${transitText}`,
+                targetView: 'horario',
+                mapsUrl: planner.work.modality === 'remoto' ? '' : commute.mapsUrl,
+                canSnooze: true,
+                canComplete: false
+            });
+        }
+    }
+
+    // 5. End-of-day Word Notes check reminder
     if (settings.wordEodReminderEnabled) {
         const wordMin = hhmmToMinutes(settings.wordEodReminderTime);
         if (minutesOfDay >= wordMin) {
@@ -2286,7 +3251,7 @@ function computeCandidateReminders({ settings, localNow, moodLogsToday = [], sle
         }
     }
 
-    // 5. Configurable English Study reminder (OFF by default!)
+    // 6. Configurable English Study reminder (OFF by default!)
     if (settings.englishReminderEnabled) {
         const allowedDays = Array.isArray(settings.englishReminderDays) ? settings.englishReminderDays : [];
         const engMin = hhmmToMinutes(settings.englishReminderTime);
@@ -2347,6 +3312,9 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
         mood: 'brain',
         sleep: 'crescent_moon',
         agenda: 'calendar',
+        class: 'mortar_board',
+        residencias: 'office',
+        work: 'briefcase',
         word: 'memo',
         english: 'books',
         test: 'white_check_mark'
@@ -2370,6 +3338,14 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
             }
         ];
 
+        if (reminder.mapsUrl && /^https:\/\/www\.google\.com\/maps\//.test(reminder.mapsUrl)) {
+            actions.push({
+                action: 'view',
+                label: 'Google Maps Route',
+                url: reminder.mapsUrl
+            });
+        }
+
         if (reminder.canSnooze && userId && reminder.key && reminder.type !== 'test') {
             const snooze15Token = signReminderActionToken({
                 userId,
@@ -2387,42 +3363,44 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
                 clear: true
             });
 
-            if (reminder.canComplete && reminder.refId) {
-                const doneToken = signReminderActionToken({
-                    userId,
-                    reminderKey: reminder.key,
-                    type: reminder.type,
-                    refId: reminder.refId,
-                    action: 'complete'
-                });
-                actions.push({
-                    action: 'http',
-                    label: 'Mark Done',
-                    url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(doneToken)}`,
-                    method: 'POST',
-                    clear: true
-                });
-            } else {
-                const snooze30Token = signReminderActionToken({
-                    userId,
-                    reminderKey: reminder.key,
-                    type: reminder.type,
-                    refId: reminder.refId || null,
-                    action: 'snooze',
-                    mins: 30
-                });
-                actions.push({
-                    action: 'http',
-                    label: 'Snooze 30m',
-                    url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(snooze30Token)}`,
-                    method: 'POST',
-                    clear: true
-                });
+            if (actions.length < 3) {
+                if (reminder.canComplete && reminder.refId) {
+                    const doneToken = signReminderActionToken({
+                        userId,
+                        reminderKey: reminder.key,
+                        type: reminder.type,
+                        refId: reminder.refId,
+                        action: 'complete'
+                    });
+                    actions.push({
+                        action: 'http',
+                        label: 'Mark Done',
+                        url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(doneToken)}`,
+                        method: 'POST',
+                        clear: true
+                    });
+                } else {
+                    const snooze30Token = signReminderActionToken({
+                        userId,
+                        reminderKey: reminder.key,
+                        type: reminder.type,
+                        refId: reminder.refId || null,
+                        action: 'snooze',
+                        mins: 30
+                    });
+                    actions.push({
+                        action: 'http',
+                        label: 'Snooze 30m',
+                        url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(snooze30Token)}`,
+                        method: 'POST',
+                        clear: true
+                    });
+                }
             }
         }
 
         jsonPayload.click = targetUrl;
-        jsonPayload.actions = actions;
+        jsonPayload.actions = actions.slice(0, 3);
     }
 
     const response = await fetch(endpoint, {
@@ -2441,12 +3419,19 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
     return { sent: true };
 }
 
+function getDateStrDaysAgo(dateStr, daysAgo = 7) {
+    const [y, m, d] = String(dateStr || '2026-01-01').split('-').map(Number);
+    const dt = new Date(Date.UTC(y || 2026, (m || 1) - 1, (d || 1) - daysAgo));
+    return dt.toISOString().slice(0, 10);
+}
+
 async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req = null } = {}) {
     const settings = await loadUserSettings(user.id);
     const localNow = getLocalNowParts(settings.timezone);
     const baseUrl = buildPublicBaseUrlForUser(settings, req);
+    const sevenDaysAgoStr = getDateStrDaysAgo(localNow.dateStr, 7);
 
-    const [moodRows, sleepRows, agendaRows, stateRows] = await Promise.all([
+    const [moodRows, sleepRows, agendaRows, weekAgendaRows, stateRows] = await Promise.all([
         dbQueryAsync('SELECT momento_dia FROM RegistrosMood WHERE fecha = ?', [localNow.dateStr]),
         dbQueryAsync('SELECT id FROM RegistrosSleep WHERE fecha = ? LIMIT 1', [localNow.dateStr]),
         dbQueryAsync(
@@ -2461,6 +3446,18 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
             [localNow.dateStr]
         ),
         dbQueryAsync(
+            `SELECT id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, bloque,
+                    TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
+                    COALESCE(tipo, 'evento') AS tipo,
+                    COALESCE(categoria, 'personal') AS categoria,
+                    COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
+                    completada, recordatorio_min
+             FROM RegistrosAgenda
+             WHERE fecha BETWEEN ? AND ?
+             ORDER BY fecha ASC, hora ASC`,
+            [sevenDaysAgoStr, localNow.dateStr]
+        ),
+        dbQueryAsync(
             'SELECT clave_unica, tipo, titulo, mensaje, estado, snooze_hasta, enviado_push_en FROM RecordatoriosEstado WHERE usuario_id = ?',
             [user.id]
         )
@@ -2472,6 +3469,7 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
         moodLogsToday: Array.isArray(moodRows) ? moodRows : [],
         sleepLogsToday: Array.isArray(sleepRows) ? sleepRows : [],
         agendaItemsToday: Array.isArray(agendaRows) ? agendaRows : [],
+        pendingTasksWeek: Array.isArray(weekAgendaRows) ? weekAgendaRows : [],
         queueCounts: { journal: journalQueue.size(), english: englishQueue.size() }
     });
 
@@ -2629,6 +3627,300 @@ app.post('/api/settings/test-notification', apiWriteLimiter.middleware, requireA
     } catch (err) {
         console.error('[TEST_PUSH_ERROR]', err.message);
         res.status(502).send(err.message || 'Could not reach phone notification relay.');
+    }
+});
+
+function buildLiveCommutePreview(planner, localNow) {
+    const originInfo = resolveUserOriginCoords(planner, true);
+    const originCoords = originInfo.coords;
+    const campuses = {};
+    const commutes = [];
+    for (const [key, campus] of Object.entries(ITS_CAMPUS_DIRECTORY)) {
+        const comm = estimateCommuteDetails({
+            originCoords,
+            destCoords: { lat: campus.lat, lng: campus.lng },
+            targetMinutesOfDay: localNow.minutesOfDay,
+            weekday: localNow.weekday,
+            isFirstOfDay: true,
+            nearRadiusKm: planner.nearRadiusKm || 0.85,
+            minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+            nearLeadMinutes: planner.nearLeadMinutes || 10,
+            parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+        });
+        campuses[key] = {
+            ...campus,
+            commute: comm
+        };
+        commutes.push({
+            campusKey: key,
+            target: campus.name,
+            isNearCampus: comm.isNear,
+            distanceKm: comm.distanceKm,
+            driveMinutesWithTraffic: comm.driveMinutes,
+            trafficLabel: comm.trafficLabel,
+            recommendedLeadMinutes: comm.recommendedLeadMinutes,
+            mapsDirectionsUrl: comm.mapsUrl
+        });
+    }
+
+    const resCoords = parseCoordinatesFromInput(planner.residencias?.location || {});
+    const workCoords = parseCoordinatesFromInput(planner.work?.location || {});
+
+    return {
+        originSource: originInfo.sourceLabel,
+        originCoords,
+        campuses,
+        commutes,
+        residenciasCommute: resCoords
+            ? estimateCommuteDetails({
+                originCoords,
+                destCoords: resCoords,
+                targetMinutesOfDay: hhmmToMinutes(planner.residencias?.startTime || '08:00'),
+                weekday: localNow.weekday,
+                isFirstOfDay: true,
+                nearRadiusKm: planner.nearRadiusKm || 0.85,
+                minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+                nearLeadMinutes: 15,
+                parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+            })
+            : null,
+        workCommute: workCoords
+            ? estimateCommuteDetails({
+                originCoords,
+                destCoords: workCoords,
+                targetMinutesOfDay: hhmmToMinutes(planner.work?.startTime || '08:00'),
+                weekday: localNow.weekday,
+                isFirstOfDay: true,
+                nearRadiusKm: planner.nearRadiusKm || 0.85,
+                minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+                nearLeadMinutes: 15,
+                parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+            })
+            : null
+    };
+}
+
+app.get('/api/planner', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        const planner = sanitizeAcademicPlanner(settings.academicPlanner);
+        const localNow = getLocalNowParts(settings.timezone);
+        res.json({
+            planner,
+            campusDirectory: ITS_CAMPUS_DIRECTORY,
+            mindboxPreset: getItsMindboxPresetCourses(),
+            activeVacation: isDateInVacation(localNow.dateStr, planner.vacations),
+            commutePreview: buildLiveCommutePreview(planner, localNow)
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error loading academic & work planner.');
+    }
+});
+
+app.put('/api/planner', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
+    try {
+        const current = await loadUserSettings(req.user.id);
+        const incomingPlanner = req.body.planner !== undefined ? req.body.planner : req.body;
+        const nextPlanner = sanitizeAcademicPlanner(incomingPlanner, current.academicPlanner);
+        const nextSettings = {
+            ...current,
+            academicPlanner: nextPlanner
+        };
+        await saveUserSettings(req.user.id, nextSettings);
+        const localNow = getLocalNowParts(nextSettings.timezone);
+        res.json({
+            message: 'Academic, Residencias & Work schedule saved.',
+            planner: nextPlanner,
+            activeVacation: isDateInVacation(localNow.dateStr, nextPlanner.vacations),
+            commutePreview: buildLiveCommutePreview(nextPlanner, localNow)
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error saving academic & work planner.');
+    }
+});
+
+app.post('/api/planner/location', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
+    try {
+        const current = await loadUserSettings(req.user.id);
+        const planner = sanitizeAcademicPlanner(current.academicPlanner);
+        const target = String(req.body.target || 'current').trim();
+        const coords = parseCoordinatesFromInput(req.body);
+        if (!coords) {
+            return res.status(400).send('Valid latitude/longitude or a Google Maps link with coordinates is required.');
+        }
+
+        if (target === 'home') {
+            planner.locations.home = sanitizeLocationObject({ ...planner.locations.home, ...req.body, ...coords }, planner.locations.home);
+        } else if (target === 'university') {
+            planner.locations.university = sanitizeLocationObject({ ...planner.locations.university, ...req.body, ...coords }, planner.locations.university);
+        } else if (target === 'residencias') {
+            planner.residencias.location = sanitizeLocationObject({ ...planner.residencias.location, ...req.body, ...coords }, planner.residencias.location);
+        } else if (target === 'work') {
+            planner.work.location = sanitizeLocationObject({ ...planner.work.location, ...req.body, ...coords }, planner.work.location);
+        } else {
+            planner.locations.current = {
+                label: 'Ubicación GPS actual',
+                lat: coords.lat,
+                lng: coords.lng,
+                updatedAt: new Date().toISOString(),
+                source: String(req.body.source || 'gps').slice(0, 30)
+            };
+        }
+
+        const nextSettings = { ...current, academicPlanner: planner };
+        await saveUserSettings(req.user.id, nextSettings);
+        const localNow = getLocalNowParts(nextSettings.timezone);
+        const preview = buildLiveCommutePreview(planner, localNow);
+        res.json({
+            message: 'Location updated and routes recalculated.',
+            planner,
+            commutePreview: preview,
+            commutes: preview.commutes
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating location.');
+    }
+});
+
+app.post('/api/planner/resolve-room', apiReadLimiter.middleware, requireAdmin, (req, res) => {
+    const room = String((req.body && req.body.room) || (req.query && req.query.room) || '').trim();
+    const classroom = resolveItsClassroom(room);
+    res.json({ classroom, resolved: classroom });
+});
+
+app.post('/api/planner/sync-agenda', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 2000 }), async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        const planner = sanitizeAcademicPlanner(settings.academicPlanner);
+        const localNow = getLocalNowParts(settings.timezone);
+
+        const rawStart = String(req.body?.begin || req.body?.weekStartDate || '');
+        const begin = /^\d{4}-\d{2}-\d{2}$/.test(rawStart)
+            ? rawStart
+            : localNow.dateStr;
+        const end = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.end || ''))
+            ? String(req.body.end)
+            : getDateStrDaysAgo(begin, -6);
+
+        const existingRows = await dbQueryAsync(
+            `SELECT id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, bloque,
+                    TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
+                    COALESCE(tipo, 'evento') AS tipo,
+                    COALESCE(categoria, 'personal') AS categoria,
+                    COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
+                    completada, recordatorio_min
+             FROM RegistrosAgenda
+             WHERE fecha BETWEEN ? AND ?
+             ORDER BY fecha ASC, hora ASC`,
+            [begin, end]
+        );
+        const existingSet = new Set(
+            (Array.isArray(existingRows) ? existingRows : []).map(r => `${r.fecha}|${String(r.hora).slice(0, 5)}|${r.actividad}`)
+        );
+
+        const activeSem = planner.semesters.find(s => s.id === planner.activeSemesterId) || planner.semesters[0];
+        const [by, bm, bd] = begin.split('-').map(Number);
+        const [ey, em, ed] = end.split('-').map(Number);
+        const startDt = new Date(Date.UTC(by, bm - 1, bd));
+        const endDt = new Date(Date.UTC(ey, em - 1, ed));
+
+        let insertedCount = 0;
+        let skippedVacationDays = 0;
+
+        for (let dt = new Date(startDt); dt <= endDt && insertedCount < 70; dt.setUTCDate(dt.getUTCDate() + 1)) {
+            const dStr = dt.toISOString().slice(0, 10);
+            const dayOfWeek = dt.getUTCDay();
+            const vac = isDateInVacation(dStr, planner.vacations);
+            if (vac) {
+                skippedVacationDays += 1;
+            }
+
+            if (!vac && activeSem && dStr >= activeSem.startDate && dStr <= activeSem.endDate) {
+                const dayCourses = (activeSem.courses || [])
+                    .filter(c => Array.isArray(c.days) && c.days.includes(dayOfWeek))
+                    .sort((a, b) => hhmmToMinutes(a.startTime) - hhmmToMinutes(b.startTime));
+
+                for (let idx = 0; idx < dayCourses.length; idx++) {
+                    const c = dayCourses[idx];
+                    const roomMeta = resolveItsClassroom(c.room);
+                    const isFirst = idx === 0 || (hhmmToMinutes(c.startTime) - hhmmToMinutes(dayCourses[idx - 1].endTime) >= 120);
+                    const originInfo = resolveUserOriginCoords(planner, isFirst);
+                    const commute = estimateCommuteDetails({
+                        originCoords: originInfo.coords,
+                        destCoords: { lat: roomMeta.lat, lng: roomMeta.lng },
+                        targetMinutesOfDay: hhmmToMinutes(c.startTime),
+                        weekday: dayOfWeek,
+                        isFirstOfDay: isFirst,
+                        nearRadiusKm: planner.nearRadiusKm || 0.85,
+                        minFarLeadMinutes: planner.farLeadMinutesMin || 30,
+                        nearLeadMinutes: planner.nearLeadMinutes || 10,
+                        parkingBufferMinutes: planner.parkingBufferMinutes ?? 8
+                    });
+
+                    const titulo = `${c.code ? `${c.code} ` : ''}${c.name} (${roomMeta.room})`;
+                    const descripcion = `${roomMeta.campusName} · ${c.startTime}-${c.endTime}${c.teacher ? ` · Prof. ${c.teacher}` : ''}`;
+                    const actividad = composeAgendaActividad({ titulo, descripcion });
+                    const sig = `${dStr}|${c.startTime}|${actividad}`;
+                    if (existingSet.has(sig)) continue;
+
+                    await dbQueryAsync(
+                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [dStr, 'cole', c.startTime, actividad, 'evento', 'universidad', 'todo', 0, commute.recommendedLeadMinutes]
+                    );
+                    existingSet.add(sig);
+                    insertedCount += 1;
+                }
+            }
+
+            if (planner.residencias?.enabled && Array.isArray(planner.residencias.days) && planner.residencias.days.includes(dayOfWeek)) {
+                const titulo = `Residencias: ${planner.residencias.projectName || planner.residencias.companyName || 'Proyecto Profesional'}`;
+                const descripcion = `${planner.residencias.companyName || 'Empresa'} (${planner.residencias.startTime}-${planner.residencias.endTime})`;
+                const actividad = composeAgendaActividad({ titulo, descripcion });
+                const bloque = inferAgendaBlockFromTimeServer(planner.residencias.startTime, 'universidad');
+                const sig = `${dStr}|${planner.residencias.startTime}|${actividad}`;
+                if (!existingSet.has(sig)) {
+                    await dbQueryAsync(
+                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [dStr, bloque, planner.residencias.startTime, actividad, 'evento', 'universidad', 'todo', 0, Math.max(30, planner.farLeadMinutesMin || 30)]
+                    );
+                    existingSet.add(sig);
+                    insertedCount += 1;
+                }
+            }
+
+            if (planner.work?.enabled && Array.isArray(planner.work.days) && planner.work.days.includes(dayOfWeek)) {
+                const shiftLabel = planner.work.scheduleType === 'tiempo_completo' ? 'Tiempo Completo' : 'Medio Tiempo';
+                const titulo = `Trabajo (${shiftLabel}): ${planner.work.companyName || planner.work.roleTitle || 'Jornada'}`;
+                const descripcion = `${planner.work.roleTitle ? `${planner.work.roleTitle} · ` : ''}${planner.work.startTime}-${planner.work.endTime}`;
+                const actividad = composeAgendaActividad({ titulo, descripcion });
+                const bloque = inferAgendaBlockFromTimeServer(planner.work.startTime, 'personal');
+                const sig = `${dStr}|${planner.work.startTime}|${actividad}`;
+                if (!existingSet.has(sig)) {
+                    await dbQueryAsync(
+                        `INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [dStr, bloque, planner.work.startTime, actividad, 'evento', 'personal', 'todo', 0, Math.max(30, planner.farLeadMinutesMin || 30)]
+                    );
+                    existingSet.add(sig);
+                    insertedCount += 1;
+                }
+            }
+        }
+
+        res.json({
+            message: `Synced ${insertedCount} schedule item(s) to Weekly Agenda${skippedVacationDays ? ` (${skippedVacationDays} vacation day(s) skipped)` : ''}.`,
+            inserted: insertedCount,
+            insertedCount,
+            skippedVacationDays
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error syncing schedule to agenda.');
     }
 });
 

@@ -281,6 +281,10 @@
                             <span class="nav-icon" aria-hidden="true">🗓️</span>
                             <span class="nav-label">Weekly Agenda</span>
                         </button>
+                        <button type="button" class="nav-item admin-only-nav" data-view="horario" title="ITS Schedule, Residencias &amp; Work">
+                            <span class="nav-icon" aria-hidden="true">🎓</span>
+                            <span class="nav-label">ITS, Residencias &amp; Work</span>
+                        </button>
                         <button type="button" class="nav-item" data-view="resumen" title="Weekly Summary">
                             <span class="nav-icon" aria-hidden="true">📈</span>
                             <span class="nav-label">Weekly Summary</span>
@@ -418,6 +422,14 @@
                             <div>
                                 <strong>Weekly Agenda</strong>
                                 <p>Manage University &amp; Personal events and Jira-style tasks (To Do, In Progress, Done).</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="horario">
+                            <span class="shortcut-emoji">🎓</span>
+                            <div>
+                                <strong>ITS Schedule, Residencias &amp; Work</strong>
+                                <p>Track Tec de Saltillo semesters, classrooms (R02, R11, N21), vacations, residencias, work shifts, and Maps traffic alerts.</p>
                             </div>
                         </button>
 
@@ -676,9 +688,27 @@
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label for="journalText" class="sr-only">Journal entry text</label>
+                                <label for="journalTitle">Title / Label (optional):</label>
+                                <input type="text" id="journalTitle" lang="en" spellcheck="true" maxlength="120"
+                                    placeholder="e.g. Daily Reflection, ITS Project Progress, Work Notes...">
+                                <div class="agenda-suggestions" id="journalLabelChips">
+                                    <button type="button" class="suggestion-chip" data-journal-tag="Daily Reflection">Daily Reflection</button>
+                                    <button type="button" class="suggestion-chip" data-journal-tag="ITS University">ITS University</button>
+                                    <button type="button" class="suggestion-chip" data-journal-tag="Residencias">Residencias</button>
+                                    <button type="button" class="suggestion-chip" data-journal-tag="Work Log">Work Log</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="journalText">Description / Journal Entry (English):</label>
                                 <textarea id="journalText" lang="en" spellcheck="true"
                                     placeholder="Write your thoughts here in English... Your unfinished draft stays safe in this browser until you send it." required></textarea>
+                            </div>
+                            <div class="word-proofing-panel" id="journalProofingPanel">
+                                <div class="word-proofing-header">
+                                    <span class="word-proofing-badge" id="journalProofingBadge">✓ English Spelling &amp; Grammar: Ready</span>
+                                    <button type="button" class="agenda-chip-btn" id="btnJournalFixAll" hidden>✨ Apply All Fixes</button>
+                                </div>
+                                <div class="word-proofing-issues" id="journalProofingIssues" hidden></div>
                             </div>
                             <div id="journalStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
                             <button type="submit" class="btn-submit" id="btn-send-word">Encrypt E2EE &amp; Send to Word (PC)</button>
@@ -828,6 +858,14 @@
                                     placeholder="e.g. Has multiple meanings depending on context."></textarea>
                             </div>
                         </fieldset>
+
+                        <div class="word-proofing-panel" id="englishProofingPanel">
+                            <div class="word-proofing-header">
+                                <span class="word-proofing-badge" id="englishProofingBadge">✓ English Spelling &amp; Grammar: Ready</span>
+                                <button type="button" class="agenda-chip-btn" id="btnEnglishFixAll" hidden>✨ Apply All Fixes</button>
+                            </div>
+                            <div class="word-proofing-issues" id="englishProofingIssues" hidden></div>
+                        </div>
 
                         <div id="englishStatusBanner" class="english-status-banner" hidden></div>
 
@@ -1086,9 +1124,12 @@
                                 <p class="agenda-subtitle" id="agendaWeekStats">Loading activities...</p>
                             </div>
                         </div>
-                        <button type="button" class="btn-agenda-add-main" id="btnOpenAgendaModal">
-                            + New Activity
-                        </button>
+                        <div class="view-header-actions">
+                            <button type="button" class="btn-secondary-pill" data-go-view="horario">🎓 ITS Schedule &amp; Commute</button>
+                            <button type="button" class="btn-agenda-add-main" id="btnOpenAgendaModal">
+                                + New Activity
+                            </button>
+                        </div>
                     </div>
 
                     <div class="agenda-toolbar">
@@ -1125,6 +1166,482 @@
 
                     <div class="agenda-table-scroll" id="agendaTableScroll">
                         <div class="agenda-week-board" id="agendaWeekBoard"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VIEW 5B: ITS SEMESTER SCHEDULE, CROQUIS, RESIDENCIAS & WORK
+            ========================================== -->
+            <section class="app-view" id="view-horario" data-title="ITS, Residencias & Work">
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">🎓</span>
+                            <div>
+                                <h2>Tec de Saltillo (ITS) · Residencias · Work &amp; Maps Commute</h2>
+                                <p class="view-header-subtitle">Manage your semester class schedule by classroom (R02, R11, N21, etc.), vacation breaks, Residencias Profesionales, full/part-time work shifts, and smart traffic notifications.</p>
+                            </div>
+                        </div>
+                        <div class="view-header-actions">
+                            <button type="button" class="btn-secondary-pill" id="btnUpdateLiveGps">📍 Update My GPS</button>
+                            <button type="button" class="btn-primary-pill" id="btnSyncScheduleToAgenda">🗓️ Sync Week to Agenda</button>
+                        </div>
+                    </div>
+
+                    <div id="plannerVacationActiveBanner" class="inline-status-banner is-info" hidden></div>
+
+                    <div class="card english-card">
+                        <div class="english-tabs" id="plannerTabsBar" role="tablist" aria-label="Academic and Work Planner Tabs">
+                            <button type="button" class="english-tab-btn active" data-planner-tab="classes" role="tab" aria-selected="true">🎓 ITS Semester &amp; Croquis</button>
+                            <button type="button" class="english-tab-btn" data-planner-tab="vacations" role="tab" aria-selected="false">🏖️ Vacations &amp; Breaks</button>
+                            <button type="button" class="english-tab-btn" data-planner-tab="residencias" role="tab" aria-selected="false">🏢 Residencias Profesionales</button>
+                            <button type="button" class="english-tab-btn" data-planner-tab="work" role="tab" aria-selected="false">💼 Work (Full / Part-Time)</button>
+                            <button type="button" class="english-tab-btn" data-planner-tab="locations" role="tab" aria-selected="false">📍 Maps, GPS &amp; Traffic Alerts</button>
+                        </div>
+
+                        <!-- TAB 1: ITS SEMESTER & CLASS SCHEDULE -->
+                        <div class="planner-tab-panel" id="plannerPanelClasses">
+                            <div class="music-yt-finder-card">
+                                <div class="music-yt-finder-head">
+                                    <div>
+                                        <h3>Active Semester Control (Instituto Tecnológico de Saltillo)</h3>
+                                        <p class="muted-text">Track courses per semester. Class alerts pause automatically outside semester dates or during registered vacations.</p>
+                                    </div>
+                                    <div class="settings-inline-actions">
+                                        <button type="button" class="agenda-chip-btn" id="btnNewSemester">+ Add Semester</button>
+                                        <button type="button" class="agenda-chip-btn" id="btnLoadMindboxPreset">⚡ Load MindBox 9th Sem Preset</button>
+                                    </div>
+                                </div>
+                                <div class="form-row-2" style="margin-top: 10px;">
+                                    <div class="form-group">
+                                        <label for="plannerSemesterSelect">Selected Semester:</label>
+                                        <select id="plannerSemesterSelect" class="select-input"></select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="plannerSemName">Semester Name:</label>
+                                        <input type="text" id="plannerSemName" maxlength="120" placeholder="e.g. 9no Semestre · Ing. Sistemas">
+                                    </div>
+                                </div>
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="plannerSemCode">Term Code:</label>
+                                        <input type="text" id="plannerSemCode" maxlength="30" placeholder="e.g. 2026-2 (Ago-Dic)">
+                                    </div>
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="plannerSemStart">Semester Start:</label>
+                                            <input type="date" id="plannerSemStart">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="plannerSemEnd">Semester End:</label>
+                                            <input type="date" id="plannerSemEnd">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="music-studio-grid">
+                                <form id="plannerCourseForm" class="music-panel-card" autocomplete="off">
+                                    <div class="music-panel-head">
+                                        <h3 id="plannerCourseFormTitle">Add / Edit ITS Class</h3>
+                                        <button type="button" class="btn-secondary btn-small" id="btnCancelCourseEdit" hidden>Cancel Edit</button>
+                                    </div>
+                                    <input type="hidden" id="plannerCourseEditId" value="">
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="courseCode">Subject Key (MindBox):</label>
+                                            <input type="text" id="courseCode" maxlength="30" placeholder="e.g. ACA0910, SCG1009">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="courseGroup">Group:</label>
+                                            <input type="text" id="courseGroup" maxlength="20" placeholder="e.g. A, B">
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="courseName">Subject / Course Name *</label>
+                                        <input type="text" id="courseName" maxlength="120" required placeholder="e.g. Taller de Investigación II">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="courseTeacher">Professor / Teacher:</label>
+                                        <input type="text" id="courseTeacher" maxlength="120" placeholder="e.g. Sorkee Quiroz Roxana Karina">
+                                    </div>
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="courseRoom">ITS Classroom (Salón) *</label>
+                                            <input type="text" id="courseRoom" maxlength="20" required placeholder="e.g. R02, R11, N21, A12, LC3">
+                                            <small class="form-hint" id="courseRoomCroquisBadge">Type a room (R02, R11, N21, A10, S15) to detect ITS Campus &amp; Croquis building.</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="courseCampus">ITS Campus (Croquis):</label>
+                                            <select id="courseCampus" class="select-input">
+                                                <option value="boillot">Campus Boillot (CTO-004 · Sistemas R1-R14 / Mecatrónica S13-S20)</option>
+                                                <option value="miravalle">Campus Miravalle (CTO-003 · Aulas N1-N42 / Labs Eléctrica/Cómputo)</option>
+                                                <option value="principal">Campus Principal (CTO-002 · Aulas A, B, C, CR, AM, TM)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="courseStartTime">Start Time *</label>
+                                            <input type="time" id="courseStartTime" value="09:00" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="courseEndTime">End Time *</label>
+                                            <input type="time" id="courseEndTime" value="10:00" required>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Class Days:</label>
+                                        <div class="weekday-pills" id="courseDaysGroup">
+                                            <label class="day-check-pill"><input type="checkbox" value="1" checked>Mon</label>
+                                            <label class="day-check-pill"><input type="checkbox" value="2" checked>Tue</label>
+                                            <label class="day-check-pill"><input type="checkbox" value="3" checked>Wed</label>
+                                            <label class="day-check-pill"><input type="checkbox" value="4" checked>Thu</label>
+                                            <label class="day-check-pill"><input type="checkbox" value="5">Fri</label>
+                                            <label class="day-check-pill"><input type="checkbox" value="6">Sat</label>
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" class="btn-submit" id="btnSaveCourse">Save Class to Semester</button>
+                                </form>
+
+                                <div class="music-panel-card">
+                                    <div class="music-panel-head">
+                                        <h3>Registered Classes &amp; ITS Croquis Guide</h3>
+                                        <span class="muted-text" id="plannerCoursesCountBadge">0 classes</span>
+                                    </div>
+                                    <div id="plannerCoursesContainer" class="music-catalog-container"></div>
+
+                                    <hr class="section-divider">
+                                    <h4>🗺️ Croquis Oficial Tec de Saltillo (CTO-001 a CTO-004)</h4>
+                                    <div id="itsCroquisDirectoryCards" class="its-croquis-grid"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TAB 2: VACATIONS & ACADEMIC BREAKS -->
+                        <div class="planner-tab-panel" id="plannerPanelVacations" hidden>
+                            <div class="music-studio-grid">
+                                <form id="plannerVacationForm" class="music-panel-card">
+                                    <h3>Add Vacation / Academic Break</h3>
+                                    <p class="muted-text">During these dates, automatic class notifications are paused and Agenda sync skips class generation.</p>
+                                    <div class="form-group">
+                                        <label for="vacName">Period Name *</label>
+                                        <input type="text" id="vacName" maxlength="120" required placeholder="e.g. Vacaciones de Invierno TecNM, Semana Santa...">
+                                    </div>
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="vacStartDate">Start Date *</label>
+                                            <input type="date" id="vacStartDate" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="vacEndDate">End Date *</label>
+                                            <input type="date" id="vacEndDate" required>
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn-submit">Add Vacation Period</button>
+                                </form>
+                                <div class="music-panel-card">
+                                    <h3>Registered Vacation Periods</h3>
+                                    <div id="plannerVacationsList" class="music-catalog-container"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TAB 3: RESIDENCIAS PROFESIONALES -->
+                        <div class="planner-tab-panel" id="plannerPanelResidencias" hidden>
+                            <div class="music-panel-card">
+                                <h3>🏢 Residencias Profesionales (TecNM · 500 Hours Tracker &amp; Commute)</h3>
+                                <p class="muted-text">Configure your professional residency project, company location on Google Maps, schedule, and accumulated hours. Commute notifications calculate driving time with traffic automatically.</p>
+
+                                <label class="switch-row" style="margin: 12px 0;">
+                                    <input type="checkbox" id="resEnabled">
+                                    <span><strong>Enable Residencias Profesionales schedule &amp; commute notifications</strong></span>
+                                </label>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="resProjectName">Project Name:</label>
+                                        <input type="text" id="resProjectName" maxlength="160" placeholder="e.g. Plataforma Cloud DevSecOps / Automatización Industrial">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="resCompanyName">Company / Institution:</label>
+                                        <input type="text" id="resCompanyName" maxlength="140" placeholder="e.g. Magna, GM, Stellantis, Centro de Investigación...">
+                                    </div>
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="resAdvisorName">Internal / External Advisor:</label>
+                                        <input type="text" id="resAdvisorName" maxlength="120" placeholder="e.g. Ing. / Dr. Asesor">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="resModality">Modality:</label>
+                                        <select id="resModality" class="select-input">
+                                            <option value="presencial">Presencial (Car commute + traffic alert)</option>
+                                            <option value="hibrido">Híbrido (Car commute + traffic alert)</option>
+                                            <option value="remoto">Remoto (10 min before login alert)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="resLoggedHours">Logged Hours:</label>
+                                        <input type="number" id="resLoggedHours" min="0" max="2000" step="0.5" value="0">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="resTotalHours">Target Hours Goal (TecNM):</label>
+                                        <input type="number" id="resTotalHours" min="1" max="2000" value="500">
+                                    </div>
+                                </div>
+                                <div id="resHoursProgressBar" class="inline-status-banner is-info" style="margin-bottom: 14px;">Progress: 0 / 500 hrs (0%)</div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="resStartTime">Entry Time:</label>
+                                        <input type="time" id="resStartTime" value="08:00">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="resEndTime">Exit Time:</label>
+                                        <input type="time" id="resEndTime" value="13:00">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Attendance Days:</label>
+                                    <div class="weekday-pills" id="resDaysGroup">
+                                        <label class="day-check-pill"><input type="checkbox" value="1" checked>Mon</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="2" checked>Tue</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="3" checked>Wed</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="4" checked>Thu</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="5" checked>Fri</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="6">Sat</label>
+                                    </div>
+                                </div>
+
+                                <hr class="section-divider">
+                                <h4>📍 Company Location (Google Maps / Coordinates for Driving Traffic Route)</h4>
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="resLocationAddress">Address / Zone:</label>
+                                        <input type="text" id="resLocationAddress" maxlength="200" placeholder="e.g. Parque Industrial Ramos Arizpe / Derramadero">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="resLocationMapsUrl">Google Maps Link (paste URL or coordinates):</label>
+                                        <input type="text" id="resLocationMapsUrl" maxlength="500" placeholder="https://www.google.com/maps/@25.54,-100.95...">
+                                    </div>
+                                </div>
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="resLocationLat">Latitude:</label>
+                                        <input type="number" id="resLocationLat" step="any" placeholder="e.g. 25.543210">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="resLocationLng">Longitude:</label>
+                                        <input type="number" id="resLocationLng" step="any" placeholder="e.g. -100.951230">
+                                    </div>
+                                </div>
+                                <div class="settings-inline-actions">
+                                    <button type="button" class="agenda-chip-btn" data-use-gps-target="residencias">📍 Set Company Location from My Current GPS</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TAB 4: WORK SCHEDULE (FULL-TIME / PART-TIME) -->
+                        <div class="planner-tab-panel" id="plannerPanelWork" hidden>
+                            <div class="music-panel-card">
+                                <h3>💼 Work Schedule (Full-Time / Part-Time) &amp; Car Commute Alerts</h3>
+                                <p class="muted-text">Register your work shifts and workplace location. You will receive phone notifications before your shift based on driving time and traffic.</p>
+
+                                <label class="switch-row" style="margin: 12px 0;">
+                                    <input type="checkbox" id="workEnabled">
+                                    <span><strong>Enable Work Schedule &amp; driving commute notifications</strong></span>
+                                </label>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="workScheduleType">Employment / Shift Type:</label>
+                                        <select id="workScheduleType" class="select-input">
+                                            <option value="medio_tiempo">Medio Tiempo (Part-Time)</option>
+                                            <option value="tiempo_completo">Tiempo Completo (Full-Time)</option>
+                                            <option value="por_turnos">Por Turnos / Flexible</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="workModality">Modality:</label>
+                                        <select id="workModality" class="select-input">
+                                            <option value="presencial">Presencial (Car commute + traffic alert)</option>
+                                            <option value="hibrido">Híbrido (Car commute + traffic alert)</option>
+                                            <option value="remoto">Remoto / Home Office (10 min before)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="workCompanyName">Company / Organization:</label>
+                                        <input type="text" id="workCompanyName" maxlength="140" placeholder="e.g. Software Company / Tech Lab">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="workRoleTitle">Role / Position:</label>
+                                        <input type="text" id="workRoleTitle" maxlength="120" placeholder="e.g. Software Engineer / Intern">
+                                    </div>
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="workStartTime">Shift Start Time:</label>
+                                        <input type="time" id="workStartTime" value="08:00">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="workEndTime">Shift End Time:</label>
+                                        <input type="time" id="workEndTime" value="16:00">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Work Days:</label>
+                                    <div class="weekday-pills" id="workDaysGroup">
+                                        <label class="day-check-pill"><input type="checkbox" value="1" checked>Mon</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="2" checked>Tue</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="3" checked>Wed</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="4" checked>Thu</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="5" checked>Fri</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="6">Sat</label>
+                                        <label class="day-check-pill"><input type="checkbox" value="0">Sun</label>
+                                    </div>
+                                </div>
+
+                                <hr class="section-divider">
+                                <h4>📍 Workplace Location (Google Maps / Coordinates for Driving Traffic Route)</h4>
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="workLocationAddress">Workplace Address:</label>
+                                        <input type="text" id="workLocationAddress" maxlength="200" placeholder="e.g. Blvd. Nazario Ortiz Garza, Saltillo">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="workLocationMapsUrl">Google Maps Link (paste URL or coordinates):</label>
+                                        <input type="text" id="workLocationMapsUrl" maxlength="500" placeholder="https://www.google.com/maps/@25.45,-100.98...">
+                                    </div>
+                                </div>
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="workLocationLat">Latitude:</label>
+                                        <input type="number" id="workLocationLat" step="any" placeholder="e.g. 25.451200">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="workLocationLng">Longitude:</label>
+                                        <input type="number" id="workLocationLng" step="any" placeholder="e.g. -100.981200">
+                                    </div>
+                                </div>
+                                <div class="settings-inline-actions">
+                                    <button type="button" class="agenda-chip-btn" data-use-gps-target="work">📍 Set Workplace from My Current GPS</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TAB 5: MAPS LOCATIONS, LIVE GPS & SMART TRAFFIC RULES -->
+                        <div class="planner-tab-panel" id="plannerPanelLocations" hidden>
+                            <div class="music-studio-grid">
+                                <div class="music-panel-card">
+                                    <h3>📍 Saved Locations &amp; Commute Notification Rules</h3>
+                                    <p class="muted-text">
+                                        If you are at Home or far from the Tec (or it is your first class of the day), Daily Hub notifies you <strong>at least 30 minutes before</strong> (or earlier if driving + traffic takes longer). If you are already at or near the Tec, it notifies you <strong>10 minutes before</strong> with walking time between buildings.
+                                    </p>
+
+                                    <label class="switch-row" style="margin: 10px 0;">
+                                        <input type="checkbox" id="plannerClassRemindersEnabled" checked>
+                                        <span><strong>Enable smart class commute notifications on my phone</strong></span>
+                                    </label>
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="plannerFarLeadMin">Minimum alert when far / at Home (min):</label>
+                                            <input type="number" id="plannerFarLeadMin" min="30" max="120" value="30">
+                                            <small class="form-hint">Minimum 30 min; increases automatically if driving + traffic takes longer.</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="plannerNearLeadMin">Alert when inside / near ITS campus (min):</label>
+                                            <input type="number" id="plannerNearLeadMin" min="5" max="45" value="10">
+                                            <small class="form-hint">Default 10 min before class when already on campus.</small>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="plannerParkingBufferMin">Parking &amp; walking buffer (min):</label>
+                                            <input type="number" id="plannerParkingBufferMin" min="0" max="30" value="8">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="plannerNearRadiusKm">Campus proximity radius (km):</label>
+                                            <input type="number" id="plannerNearRadiusKm" min="0.2" max="5" step="0.05" value="0.85">
+                                        </div>
+                                    </div>
+
+                                    <hr class="section-divider">
+                                    <h4>🏠 Home / Base Location (for 1st Class &amp; Morning Commute)</h4>
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="homeLocationAddress">Address / Neighborhood:</label>
+                                            <input type="text" id="homeLocationAddress" maxlength="200" placeholder="e.g. Mi Casa, Saltillo, Coah.">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="homeLocationMapsUrl">Google Maps Link (optional):</label>
+                                            <input type="text" id="homeLocationMapsUrl" maxlength="500" placeholder="Paste Google Maps link or coordinates...">
+                                        </div>
+                                    </div>
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="homeLocationLat">Home Latitude:</label>
+                                            <input type="number" id="homeLocationLat" step="any" placeholder="e.g. 25.412300">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="homeLocationLng">Home Longitude:</label>
+                                            <input type="number" id="homeLocationLng" step="any" placeholder="e.g. -101.005400">
+                                        </div>
+                                    </div>
+                                    <div class="settings-inline-actions">
+                                        <button type="button" class="agenda-chip-btn" data-use-gps-target="home">📍 Set Home from My Current GPS</button>
+                                    </div>
+
+                                    <hr class="section-divider">
+                                    <h4>🎓 University Main Location (Instituto Tecnológico de Saltillo)</h4>
+                                    <div class="form-row-2">
+                                        <div class="form-group">
+                                            <label for="uniLocationLat">ITS Main Latitude (Croquis CTO-001):</label>
+                                            <input type="number" id="uniLocationLat" step="any" value="25.443706">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="uniLocationLng">ITS Main Longitude (Croquis CTO-001):</label>
+                                            <input type="number" id="uniLocationLng" step="any" value="-100.993845">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="music-panel-card">
+                                    <div class="music-panel-head">
+                                        <h3>🚗 Live Route, Distance &amp; Traffic Estimator</h3>
+                                        <button type="button" class="btn-secondary btn-small" data-use-gps-target="current">📍 Refresh GPS</button>
+                                    </div>
+                                    <p class="muted-text" id="liveCommuteOriginText">Origin: Detecting your saved Home or live GPS location...</p>
+                                    <div id="liveCommuteCardsContainer" class="music-catalog-container"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="plannerStatusBanner" class="inline-status-banner" hidden aria-live="polite" style="margin-top: 14px;"></div>
+
+                        <div class="settings-save-bar" style="margin-top: 16px;">
+                            <button type="button" class="btn-submit" id="btnSaveAllPlanner">💾 Save All ITS Schedule, Residencias, Work &amp; Locations</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1404,6 +1921,10 @@
                                 </label>
                                 <p class="form-hint">Notifies automatically at Morning (09:00), Noon (13:00), Afternoon (17:00), and Night (22:00) only if you haven't logged that block yet.</p>
                                 <label class="switch-row switch-sub-row">
+                                    <input type="checkbox" id="setMoodNotifyPending" checked>
+                                    <span>Also notify if an earlier Mood block today is still pending</span>
+                                </label>
+                                <label class="switch-row switch-sub-row">
                                     <input type="checkbox" id="setMoodLateNight">
                                     <span>Optional: include Late Night reminder (03:00 AM)</span>
                                 </label>
@@ -1427,6 +1948,7 @@
                                 <div class="rule-sub-controls">
                                     <label class="mini-check"><input type="checkbox" id="setAgendaEvents"> Events</label>
                                     <label class="mini-check"><input type="checkbox" id="setAgendaTasks"> Tasks</label>
+                                    <label class="mini-check"><input type="checkbox" id="setAgendaNotifyPendingTasks" checked> Pending / Overdue Tasks</label>
                                     <label class="mini-select-wrap">
                                         Remind
                                         <select id="setAgendaLeadMin">
@@ -1580,7 +2102,10 @@
 
                 <div class="form-row-2">
                     <div class="form-group">
-                        <label for="agendaBloque">Time block (part of day):</label>
+                        <div class="label-with-helper">
+                            <label for="agendaBloque">Time block (part of day):</label>
+                            <small class="muted-text" id="agendaBloqueAutoHint">⚡ Auto-selected from Time</small>
+                        </div>
                         <select id="agendaBloque" required>
                             <option value="manana">☕ Morning</option>
                             <option value="cole">🎓 School / University</option>
@@ -1613,16 +2138,30 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="agendaActividad">Title / Description:</label>
-                    <input type="text" id="agendaActividad" maxlength="255"
-                        placeholder="e.g. Software Engineering Lecture, Finish Lab Report..." required>
+                    <label for="agendaActividad">Title / Label *</label>
+                    <input type="text" id="agendaActividad" lang="en" spellcheck="true" maxlength="120"
+                        placeholder="e.g. SCG1009 Gestión de Proyectos, Finish Lab Report..." required>
                     <div class="agenda-suggestions" id="agendaSuggestions">
                         <button type="button" class="suggestion-chip" data-text="University Class">University Class</button>
                         <button type="button" class="suggestion-chip" data-text="Complete Assignment">Complete Assignment</button>
                         <button type="button" class="suggestion-chip" data-text="Study for Exam">Study for Exam</button>
-                        <button type="button" class="suggestion-chip" data-text="Have breakfast">Have breakfast</button>
-                        <button type="button" class="suggestion-chip" data-text="Workout">Workout</button>
+                        <button type="button" class="suggestion-chip" data-text="Residencias">Residencias</button>
+                        <button type="button" class="suggestion-chip" data-text="Work Shift">Work Shift</button>
                     </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="agendaDescripcion">Description / Classroom / Details (optional):</label>
+                    <textarea id="agendaDescripcion" lang="en" spellcheck="true" rows="2" maxlength="180"
+                        placeholder="e.g. Aula R11 (Campus Boillot) · Bring sprint backlog and architecture diagram..."></textarea>
+                </div>
+
+                <div class="word-proofing-panel" id="agendaProofingPanel">
+                    <div class="word-proofing-header">
+                        <span class="word-proofing-badge" id="agendaProofingBadge">✓ English Spelling &amp; Grammar: Ready</span>
+                        <button type="button" class="agenda-chip-btn" id="btnAgendaFixAll" hidden>✨ Apply All Fixes</button>
+                    </div>
+                    <div class="word-proofing-issues" id="agendaProofingIssues" hidden></div>
                 </div>
 
                 <div class="modal-actions">
