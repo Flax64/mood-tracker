@@ -22,6 +22,7 @@
 | Activar notificaciones en celular (`ntfy`), Jira y recordatorios | [8. Notificaciones Móviles, Agenda Jira y Settings](#8-notificaciones-móviles-agenda-jira-y-settings) |
 | Confirmar seguridad de cuenta YouTube Music (cero contraseñas/tokens) | [9. Seguridad en YouTube Music (Cero Credenciales)](#9-seguridad-en-youtube-music-cero-credenciales) |
 | Cambiar nombre del repo en GitHub/PC y reiniciar Python local | [10. Renombrar Repositorio y Reiniciar Python Local](#10-renombrar-repositorio-y-reiniciar-python-local) |
+| Verificar cifrado HTTP en EC2 (`tcpdump`, integridad HMAC y `GEMINI_API_KEY`) | [11. Verificación del Túnel Cifrado e IA Gemini en EC2](#11-verificación-del-túnel-cifrado-e-ia-gemini-en-ec2) |
 
 ---
 
@@ -409,3 +410,28 @@ Sigue este orden exacto en **Git Bash** para renombrar tanto en GitHub como en t
    ```
 
 > **Tip:** Cada vez que hagas `git pull` con mejoras nuevas en `sincronitation/sincronizador.py`, repite el **Paso 1** (detener `pythonw` anterior) y el **Paso 5** (volver a iniciar `pythonw` oculto) para asegurarte de que tu Word en PC esté usando la versión más reciente.
+
+---
+
+## 11. Verificación del Túnel Cifrado e IA Gemini en EC2
+
+### 11.1 Configurar `GEMINI_API_KEY` opcional con migración automática
+1. Puedes dejar que el sistema use el **motor local 0-RAM** de Hangul/Inglés sin costo, O activar **Google Gemini** de dos maneras:
+   - **Vía UI:** en **Settings → 🤖 Language AI & Multilingual Study** pega tu API Key (viajará cifrada dentro del túnel `X25519 + AES-256-CTR` y quedará guardada en `ConfiguracionUsuario` sin volver a exponerse al cliente).
+   - **Vía GitHub Secrets (migración 100% automatizada a cualquier EC2 nueva):** agrega el Secret `GEMINI_API_KEY` en GitHub; [`deploy.yml`](../.github/workflows/deploy.yml) y [`docker-compose.yml`](../docker-compose.yml) lo inyectan en RAM al contenedor durante el despliegue sin dejar `.env` plano en disco.
+
+### 11.2 Cómo auditar y probar en vivo que el tráfico por Internet viaja encriptado
+Además de usar los botones **🔍 Inspect Live Wire Packet** y **⚡ Benchmark Large Payloads** dentro de **Settings**:
+1. **Inspección de red real con `tcpdump` desde SSH en AWS EC2:**
+   ```bash
+   sudo tcpdump -A -i any port 3000 -s 0
+   ```
+   Mientras inicias sesión, guardas en el Journal o envías letras largas para análisis de IA, observarás que tanto las peticiones como las respuestas JSON solo contienen el sobre `{ "__enc": "x25519-aes256ctr-hmac-v1", "iv": "...", "ct": "...", "mac": "..." }` sin ninguna palabra legible del payload original.
+2. **Prueba automatizada de manipulación (HMAC), replay y carga pesada (`192 KB`):**
+   ```bash
+   node --test --test-reporter=spec tests/server.integration.test.js
+   ```
+   Verifica automáticamente:
+   - Intercambio efímero **X25519**, cifra/descifra de **>190 KB** ida y vuelta sin texto plano en el cable.
+   - Rechazo inmediato (`400 TRANSPORT_MAC_INVALID`) si un atacante altera un solo carácter de `ct`.
+   - Bloqueo (`409 TRANSPORT_REPLAY`) si se reenvía un paquete capturado anteriormente.

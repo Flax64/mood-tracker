@@ -11,12 +11,13 @@
 3. [Registro de Estado de Ánimo (`Mood Tracker`)](#-3-registro-de-estado-de-ánimo-mood-tracker)
 4. [Control de Sueño (`Sleep Tracker`)](#-4-control-de-sueño-sleep-tracker)
 5. [Diario Privado E2EE (`Journal Notes`)](#-5-diario-privado-e2ee-journal-notes)
-6. [Cuaderno de Inglés y Learn with Music (`English Notebook`)](#-6-cuaderno-de-inglés-y-learn-with-music-english-notebook)
+6. [Estudio de Idiomas (Inglés, Coreano, K-Pop + IA Gemini) y Learn with Music](#-6-cuaderno-de-inglés-y-learn-with-music-english-notebook)
    - [YouTube en PC vs YouTube Music en Celular (Protección de tus Playlists)](#youtube-en-pc-vs-youtube-music-en-celular-protección-de-tus-playlists)
-7. [Agenda Semanal (`Weekly Agenda`)](#-7-agenda-semanal-weekly-agenda)
-8. [Resumen Semanal (`Weekly Summary`) y Acceso Médico (`Psychiatrist Access`)](#-8-resumen-semanal-weekly-summary-y-acceso-médico-psychiatrist-access)
-9. [Configuración y Notificaciones al Celular (`Settings & Reminders`)](#-9-configuración-y-notificaciones-al-celular-settings--reminders)
-10. [Preguntas frecuentes (FAQ)](#-10-preguntas-frecuentes-faq)
+7. [Agenda Semanal (`Weekly Agenda`), Auto-Bloque y Corrector Tipo Word](#-7-agenda-semanal-weekly-agenda-auto-bloque-y-corrector-tipo-word)
+8. [Horario ITS, Croquis (`R02`/`R11`/`N21`), Vacaciones, Residencias, Trabajo y Tráfico](#-8-horario-its-por-semestre-croquis-r02r11n21-vacaciones-residencias-trabajo-y-tráfico-its-residencias--work)
+9. [Resumen Semanal (`Weekly Summary`) y Acceso Médico (`Psychiatrist Access`)](#-9-resumen-semanal-weekly-summary-y-acceso-médico-psychiatrist-access)
+10. [Configuración, IA Gemini, Notificaciones (`ntfy`) y Prueba de Encriptación de Red](#-10-configuración-ia-gemini-notificaciones-ntfy-y-prueba-de-encriptación-de-red)
+11. [Preguntas frecuentes (FAQ)](#-11-preguntas-frecuentes-faq)
 
 ---
 
@@ -187,34 +188,60 @@ Módulo diseñado específicamente para el **Instituto Tecnológico de Saltillo 
 
 ---
 
-## ⚙️ 9. Configuración y Notificaciones al Celular (`Settings & Reminders`)
+## ⚙️ 10. Configuración, IA Gemini, Notificaciones (`ntfy`) y Prueba de Encriptación de Red
 
 ### 📱 Recibir recordatorios en la barra de notificaciones de tu celular (`ntfy`)
-Así recibes avisos de agenda, sueño, ánimo o estudio de inglés directamente en tu teléfono aunque cierres el navegador:
+Así recibes avisos de agenda, sueño, ánimo, clases del Tec (con ruta en carro) o estudio de idiomas directamente en tu teléfono aunque cierres el navegador:
 1. Instala la app gratuita **ntfy** en tu celular (Android / iOS).
 2. En **Settings & Reminders → Phone Notification Bar (ntfy)** activa **Enable notifications on my phone's notification bar**.
-3. Presiona **Generate** para crear un tópico privado único (mínimo 8 caracteres), o escribe uno propio difícil de adivinar.
+3. Presiona **Generate** para crear un tópico privado único (mínimo 8 caracteres), o escribe uno propio difícil de adivinar, y pulsa **Copy** para copiarlo en tu teléfono.
 4. En la app **ntfy** de tu celular, pulsa `+` y suscríbete exactamente a ese mismo tópico.
-5. Guarda cambios con **Save All Settings** y pulsa **Send Test Notification** para comprobar que llega al instante a la barra de tu teléfono.
+5. En **Public server URL**, deja `http://3.149.248.153:3000` (o la URL pública de tu servidor EC2) para que funcionen los botones rápidos de la notificación.
+6. Guarda cambios con **Save All Settings** y pulsa **Send Test to Phone** para comprobar que llega al instante a la barra de tu teléfono.
+
+### 🤖 Language AI & Multilingual Study (Inglés · Coreano 한국어 · K-Pop)
+1. En **Language Learning Studio** (`#view-english`), elige tu idioma activo en la barra superior:
+   - `🇺🇸 English`
+   - `🇰🇷 Korean (한국어)` (romaniza Hangul automáticamente mientras escribes)
+   - `🎵 K-Pop (EN + KR)` (analiza líneas en inglés y coreano combinadas)
+2. En **✨ AI Language Tutor & Lyrics Breakdown**, escribe una frase, partícula (`은/는`, `마음`, `사랑해`), o pega la letra de una canción en **Learn with Music** y presiona **✨ Explain Lyrics & Romanize (AI)**:
+   - Si configuraste tu **Gemini API Key** (en **Settings** o como secreto `GEMINI_API_KEY` en EC2/GitHub), utiliza **Google Gemini** (`gemini-2.5-flash` por defecto, `gemini-2.5-pro`, o modelo personalizado) para darte explicación cultural, traducción natural, romanización línea por línea y vocabulario clave sin consumir RAM de tu instancia `t3.micro`.
+   - Si no has configurado API key o estás sin acceso externo, activa al instante el **Motor Lingüístico Local (0 MB RAM)** con romanización oficial coreana y detector de modismos/phrasal verbs.
+3. Pulsa **↘ Fill Study Form** o **↘ Append Romanization & Vocabulary into Study Fields Below** y guarda cifrado E2EE en tu Word local.
+
+### 🔐 Cómo probar que tus datos viajan encriptados por Internet y medir velocidad en grandes volúmenes
+Aunque accedas por HTTP (`http://<IP-EC2>:3000`), el indicador **`🔐 Wire: AES-256-CTR (...)`** en el login, móvil y menú lateral confirma que toda comunicación API viaja dentro de un túnel híbrido **X25519 ECDH + AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)**. Puedes comprobarlo tú mismo de **3 formas**:
+
+1. **Desde la app (Prueba de Velocidad y Paquete en Vivo):**
+   - Ve a **Settings → 🔐 Simulated HTTPS Network Encryption**.
+   - Haz clic en **🔍 Inspect Live Wire Packet** para ver el paquete JSON exacto cifrado (`{ "__enc": "x25519-aes256ctr-hmac-v1", "iv": "...", "ct": "...", "mac": "..." }`).
+   - Haz clic en **⚡ Benchmark Large Payloads (1 KB · 64 KB · 192 KB)** para medir en vivo la velocidad en **MB/s** y comprobar cómo la criptografía **asimétrica (`X25519`)** solo se ejecuta una vez en el handshake mientras el cifrado **simétrico de flujo (`AES-256-CTR`)** procesa cientos de kilobytes en pocos milisegundos.
+2. **Desde las herramientas de desarrollador del navegador (`F12`):**
+   - Abre la pestaña **Network / Red → Fetch/XHR**, inicia sesión o analiza una letra.
+   - Haz clic en la petición (p. ej. `/api/auth/login` o `/api/language/analyze`) y revisa **Payload** y **Response**: nunca verás tu contraseña, notas ni texto en claro, únicamente el sobre cifrado `ct` y la cabecera `X-Transport-Encrypted`.
+3. **Con captura real de paquetes en red (`tcpdump` / Wireshark):**
+   - Conéctate por SSH a EC2 y ejecuta `sudo tcpdump -A -i any port 3000 -s 0` mientras guardas un registro o analizas letras largas: en el tráfico TCP plano del puerto `3000` únicamente verás cadenas Base64 aleatorias de `ct` y etiquetas HMAC, nunca el contenido real.
 
 ### Recordatorios configurables y valores por defecto
-- **Mood Check-in Reminder** (opcional incluir `Late Night`), **Morning Sleep Log**, **Agenda Event & Task Reminders** (minutos de anticipación), **End-of-Day Word Notes Check** y **English Study Reminder** (días y horario personalizados).
-- **Workspace Defaults & Security**:
-  - Categoría y vista inicial de la Agenda, visibilidad de fin de semana y zona horaria (por defecto `America/Monterrey`).
-  - **Learn with Music YouTube Platform**: elige `Auto (YouTube on PC · YT Music on Mobile)` para mantener YouTube normal en PC y YouTube Music en el celular de forma automática.
-  - Botones para actualizar (**Update 32-char Key**) o borrar (**Clear from Browser**) la llave E2EE de ese navegador.
+- **Mood Check-in Reminder** (aviso por franja y pendientes), **Morning Sleep Log**, **Agenda Event & Task Reminders** (y tareas Jira pendientes), **ITS Smart Commute** (30+ min lejos / 10 min en campus), **End-of-Day Word Notes Check** y **Language Study Reminder**.
+- **Learn with Music YouTube Platform**: elige `Auto (YouTube on PC · YT Music on Mobile)` para mantener YouTube normal en PC y YouTube Music en celular sin modificar playlists.
+- Botones para actualizar (**Update 32-char Key**) o borrar (**Clear from Browser**) la llave E2EE de ese navegador.
 
 ---
 
-## ❓ 10. Preguntas frecuentes (FAQ)
+## ❓ 11. Preguntas frecuentes (FAQ)
 
+- **¿Por qué no se usó un modelo IA neuronal local (como Ollama/Llama) dentro de EC2?**  
+  Una instancia `t3.micro` tiene **1 GB de RAM**. Un modelo neuronal local requiere entre 2 GB y 6 GB de RAM y colapsaría el servidor (`OOM`). Usar **Google Gemini API** + nuestro **motor determinista local (Hangul Romanization + K-Pop/EN)** ofrece la máxima inteligencia y velocidad consumiendo prácticamente **0 MB de RAM**.
+- **¿Por qué usamos AES-256-CTR + HMAC-SHA256 después de X25519 en lugar de cifrar todo con clave pública asimétrica?**  
+  El cifrado asimétrico puro (RSA/ECC) es cientos de veces más lento y solo admite bloques pequeños. El diseño **híbrido** (igual que TLS 1.3) usa asimetría (`X25519`) solo una vez para acordar llaves temporales seguras y luego cifra grandes volúmenes (letras largas, catálogos, respuestas JSON completas) con **AES-256-CTR** simétrico en tiempo lineal $O(N)$ a decenas de MB/s.
 - **¿Por qué en mi PC `Learn with Music` abre YouTube normal y en mi celular abre YouTube Music?**  
-  Porque la configuración predeterminada es `Auto (PC / Mobile)`. Detecta si estás en una computadora (abre `youtube.com`) o en un dispositivo móvil (abre `music.youtube.com`). Si alguna vez quieres forzar uno u otro en ese dispositivo, cambia los botones en la barra **Playback Platform** dentro de **Learn with Music**.
+  Porque la configuración predeterminada es `Auto (PC / Mobile)`. Detecta si estás en una computadora (`youtube.com`) o en un dispositivo móvil (`music.youtube.com`).
 - **¿Se puede alterar mi playlist personal de YouTube Music al usar esta app?**  
-  No. La app no tiene inicio de sesión ni permisos OAuth sobre tu cuenta de Google/YouTube y solo abre enlaces individuales de canciones (`watch?v=...`).
+  No. La app no tiene credenciales ni tokens OAuth sobre tu cuenta y solo abre enlaces de canciones individuales (`watch?v=...`).
 - **¿Qué pasa si olvidé ingresar la llave E2EE antes de escribir en Journal o English Notebook?**  
   Al intentar guardar, se abrirá el modal **🔐 Local E2EE Secret Key** dentro de la misma página sin hacerte perder lo que ya redactaste.
-- **¿Dónde se almacenan mis notas del diario y apuntes de inglés?**  
+- **¿Dónde se almacenan mis notas del diario y apuntes de idiomas?**  
   Se cifran en tu navegador y únicamente pasan por una cola temporal cifrada hasta que tu script de PC las desencripta localmente y las agrega a tus archivos `.docx` de Word.
 
 ---

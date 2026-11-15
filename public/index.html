@@ -11,6 +11,7 @@
     <meta property="og:title" content="Personal Daily Hub">
     <meta property="og:type" content="website">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" defer></script>
+    <script src="transport-crypto.js" defer></script>
     <script src="frontend.js" defer></script>
 </head>
 
@@ -41,6 +42,7 @@
     <div class="auth-screen" id="authOverlay" hidden>
         <div class="auth-card">
             <div class="auth-top-bar">
+                <span class="tunnel-pill" id="authTunnelPill" title="Simulated HTTPS X25519 + AES-256-CTR + HMAC-SHA256">🔐 Wire Tunnel: Connecting...</span>
                 <button type="button" class="theme-toggle-pill" id="btnThemeToggleAuth"
                     aria-label="Toggle light or dark theme">☀️ Light Mode</button>
             </div>
@@ -205,6 +207,8 @@
             </button>
             <div class="mobile-topbar-title" id="mobileViewTitle">Home</div>
             <div class="mobile-topbar-right">
+                <button type="button" class="tunnel-pill tunnel-pill-compact" id="mobileTunnelPill"
+                    title="View Encrypted HTTP Transport Diagnostics" data-go-view="settings">🔐 E2E</button>
                 <button type="button" class="icon-btn theme-icon-btn" id="btnThemeToggleMobile"
                     title="Toggle light or dark theme" aria-label="Toggle theme">☀️</button>
                 <span class="moment-pill" id="mobileMomentBadge">--</span>
@@ -311,6 +315,9 @@
                 <div class="sidebar-status-row">
                     <span class="status-dot"></span>
                     <span class="sidebar-status-text" id="sidebarMomentoActual">Moment: --</span>
+                </div>
+                <div class="sidebar-tunnel-row" id="sidebarTunnelBadge" title="Simulated HTTPS: X25519 + AES-256-CTR + HMAC-SHA256">
+                    <span>🔐 Wire: Connecting...</span>
                 </div>
                 <div class="sidebar-date-text" id="sidebarFechaHoy">--</div>
                 <button type="button" class="btn-theme-sidebar" id="btnThemeToggleSidebar" title="Toggle theme">
@@ -718,16 +725,16 @@
             </section>
 
             <!-- ==========================================
-                 VIEW 4B: ENGLISH LEARNING NOTEBOOK
+                 VIEW 4B: LANGUAGE LEARNING STUDIO (EN · KR · K-POP)
             ========================================== -->
-            <section class="app-view" id="view-english" data-title="English Notebook">
+            <section class="app-view" id="view-english" data-title="Language Studio">
                 <div class="view-shell">
                     <div class="view-header-card">
                         <div class="view-header-main">
                             <span class="view-header-icon" aria-hidden="true">📖</span>
                             <div>
-                                <h2>English Learning Notebook</h2>
-                                <p class="view-header-subtitle">Save vocabulary, grammar rules, phrasal verbs, and song studies directly to your encrypted local Word notebook (<code>english-notes/</code>).</p>
+                                <h2>Language Learning Studio (EN · 한국어 · K-Pop)</h2>
+                                <p class="view-header-subtitle">Study English, Korean (Hangul + Romanization), or mixed K-Pop lyrics with AI breakdowns, and sync notes E2EE to your local Word notebook (<code>english-notes/</code>).</p>
                             </div>
                         </div>
                         <div class="view-header-actions">
@@ -737,47 +744,67 @@
 
                     <div class="card english-card">
 
+                    <div class="study-language-bar" id="studyLanguageSelectorBar">
+                        <div class="study-lang-label">
+                            <strong>Study Language:</strong>
+                            <span class="muted-text" id="studyLanguageHint">English + Korean (Auto Hangul Romanization &amp; K-Pop Code-Switching)</span>
+                        </div>
+                        <div class="study-lang-pills" role="group" aria-label="Select target language">
+                            <button type="button" class="study-lang-pill" data-study-lang="en">🇺🇸 English</button>
+                            <button type="button" class="study-lang-pill" data-study-lang="ko">🇰🇷 Korean (한국어)</button>
+                            <button type="button" class="study-lang-pill active" data-study-lang="en_ko">🎵 K-Pop (EN + KR)</button>
+                        </div>
+                    </div>
+
                     <div class="english-tabs" role="tablist" aria-label="Notebook section">
                         <button type="button" class="english-tab-btn active" data-english-cat="vocabulary" role="tab"
                             aria-selected="true">📖 Glossary / New Word</button>
                         <button type="button" class="english-tab-btn" data-english-cat="grammar" role="tab"
                             aria-selected="false">✍️ Grammar &amp; Usage Note</button>
                         <button type="button" class="english-tab-btn" data-english-cat="phrasal_verb" role="tab"
-                            aria-selected="false">🔗 Phrasal Verb</button>
+                            aria-selected="false">🔗 Phrasal Verbs &amp; Expressions</button>
                         <button type="button" class="english-tab-btn" data-english-cat="music" role="tab"
-                            aria-selected="false">🎵 Learn with Music</button>
+                            aria-selected="false">🎵 Learn with Music + AI</button>
                     </div>
 
                     <form id="englishForm">
                         <input type="hidden" id="englishCategoryInput" value="vocabulary">
+                        <input type="hidden" id="studyLanguageInput" value="en_ko">
 
                         <!-- Section 1: Glossary / New Word -->
                         <fieldset class="english-fieldset" id="englishFieldsVocabulary">
                             <div class="form-row-2">
                                 <div class="form-group">
-                                    <label for="engWord">Word / Expression (English) *</label>
+                                    <label for="engWord" id="engWordLabel">Word / Expression (EN or 한국어) *</label>
                                     <input type="text" id="engWord" maxlength="120"
-                                        placeholder="e.g. Resilience" required>
+                                        placeholder="e.g. Resilience / 마음 (maeum)" required>
                                 </div>
                                 <div class="form-group">
                                     <label for="engPos">Part of speech (optional)</label>
                                     <select id="engPos">
                                         <option value="">Optional...</option>
-                                        <option value="Noun">Noun</option>
-                                        <option value="Verb">Verb</option>
-                                        <option value="Adjective">Adjective</option>
-                                        <option value="Adverb">Adverb</option>
-                                        <option value="Expression">Expression</option>
-                                        <option value="Idiom">Idiom</option>
+                                        <option value="Noun">Noun (명사)</option>
+                                        <option value="Verb">Verb (동사)</option>
+                                        <option value="Adjective">Adjective (형용사)</option>
+                                        <option value="Adverb">Adverb (부사)</option>
+                                        <option value="Particle / Ending">Particle / Ending (조사/어미)</option>
+                                        <option value="Expression">Expression / K-Pop Hook</option>
+                                        <option value="Idiom">Idiom / Slang</option>
                                         <option value="Connector / Preposition">Connector / Preposition</option>
                                     </select>
                                 </div>
                             </div>
 
+                            <div class="form-group" id="engRomanizationGroup">
+                                <label for="engRomanization">Korean Romanization / Pronunciation Guide (auto-generated for Hangul)</label>
+                                <input type="text" id="engRomanization" maxlength="180"
+                                    placeholder="Auto-fills when you type Hangul (e.g. 사랑해 -> saranghae)">
+                            </div>
+
                             <div class="form-group">
-                                <label for="engSpanish">Spanish Meaning / Translation *</label>
+                                <label for="engSpanish">Meaning / Translation (ES / EN) *</label>
                                 <input type="text" id="engSpanish" maxlength="250"
-                                    placeholder="e.g. Resiliencia / capacidad de recuperarse" required>
+                                    placeholder="e.g. Resiliencia / Te quiero / Corazón y sentimientos" required>
                             </div>
 
                             <div class="form-group">
@@ -869,8 +896,36 @@
 
                         <div id="englishStatusBanner" class="english-status-banner" hidden></div>
 
-                        <button type="submit" class="btn-submit" id="btnSendEnglish">Save to English Word Notebook (PC)</button>
+                        <button type="submit" class="btn-submit" id="btnSendEnglish">Encrypt E2EE &amp; Save to Word Notebook (PC)</button>
                     </form>
+
+                    <!-- Interactive AI Tutor Panel (Gemini + Zero-RAM Offline Hangul/EN) -->
+                    <section class="lang-ai-panel" id="languageAiPanel" aria-label="AI Language Tutor">
+                        <div class="lang-ai-head">
+                            <div>
+                                <h3>✨ AI Language Tutor &amp; Lyrics Breakdown</h3>
+                                <p class="muted-text" id="langAiEngineHint">Uses Google Gemini (0 MB server RAM) or built-in instant Korean Romanization &amp; EN/KR analyzer when offline.</p>
+                            </div>
+                            <span class="lang-ai-badge" id="langAiModeBadge">Auto Engine</span>
+                        </div>
+                        <div class="lang-ai-controls">
+                            <div class="form-group">
+                                <label for="langAiQuestion">Ask about a phrase, lyric meaning, grammar particle, or K-Pop expression:</label>
+                                <textarea id="langAiQuestion" class="english-textarea" rows="2" maxlength="3000"
+                                    placeholder="e.g. Explain '너의 마음에 닿기를' + Romanization, OR Why does 'break down' mean two things here?"></textarea>
+                            </div>
+                            <div class="lang-ai-actions-row">
+                                <select id="langAiEngineSelect" class="select-input" aria-label="AI Engine mode">
+                                    <option value="auto">Auto (Gemini if configured, else Instant Local)</option>
+                                    <option value="gemini">Google Gemini API</option>
+                                    <option value="offline">Instant Local Engine (Hangul + EN, 0 RAM)</option>
+                                </select>
+                                <button type="button" class="btn-secondary" id="btnAskLangAi">✨ Explain &amp; Romanize</button>
+                                <button type="button" class="btn-secondary btn-small" id="btnApplyAiToForm" hidden>↘ Fill Study Form</button>
+                            </div>
+                        </div>
+                        <div id="langAiResultBox" class="lang-ai-result" hidden></div>
+                    </section>
 
                     <div class="english-recent-box" id="englishRecentBox">
                         <h3>Sent in this session</h3>
@@ -949,7 +1004,12 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="musicSongLanguage">Language</label>
-                                            <input type="text" id="musicSongLanguage" maxlength="40" value="English" placeholder="English / EN-KR">
+                                            <select id="musicSongLanguage" class="select-input">
+                                                <option value="English">🇺🇸 English</option>
+                                                <option value="Korean">🇰🇷 Korean (한국어)</option>
+                                                <option value="English + Korean (K-Pop)" selected>🎵 English + Korean (K-Pop)</option>
+                                                <option value="Other">🌐 Other</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
@@ -1048,6 +1108,12 @@
                                         <option value="collab_single">Collab Single</option>
                                         <option value="ost">OST</option>
                                     </select>
+                                    <select id="musicFilterLanguage" class="select-input" aria-label="Filter by language">
+                                        <option value="">All Languages</option>
+                                        <option value="English">🇺🇸 English</option>
+                                        <option value="Korean">🇰🇷 Korean</option>
+                                        <option value="English + Korean (K-Pop)">🎵 K-Pop (EN+KR)</option>
+                                    </select>
                                     <select id="musicFilterStatus" class="select-input" aria-label="Filter by status">
                                         <option value="">All Statuses</option>
                                         <option value="to_study">To Study</option>
@@ -1079,9 +1145,16 @@
                             <form id="musicWordNotesForm">
                                 <input type="hidden" id="musicWordSongId" value="">
                                 <div class="form-group">
-                                    <label for="musicStudyLyrics">Lyrics Breakdown, Meanings &amp; Explanations (E2EE -&gt; PC Word only)</label>
+                                    <div class="music-lyrics-label-row">
+                                        <label for="musicStudyLyrics">Lyrics Breakdown, Meanings &amp; Explanations (E2EE -&gt; PC Word only)</label>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics">✨ Explain Lyrics &amp; Romanize (AI)</button>
+                                    </div>
                                     <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
-                                        placeholder="Paste personal study lines and your translations/meaning breakdowns here (encrypted end-to-end before leaving your browser)..."></textarea>
+                                        placeholder="Paste English, Korean (한국어), or mixed K-Pop lyrics here -> click 'Explain Lyrics & Romanize (AI)' or add your own translations (encrypted E2EE before leaving your browser)..."></textarea>
+                                </div>
+                                <div id="musicAiBreakdownPanel" class="lang-ai-result" hidden></div>
+                                <div class="music-ai-apply-row" id="musicAiApplyRow" hidden>
+                                    <button type="button" class="btn-secondary btn-small" id="btnMusicAiInsertToNotes">↘ Append Romanization &amp; Vocabulary into Study Fields Below</button>
                                 </div>
                                 <div class="english-row-2">
                                     <div class="form-group">
@@ -1995,6 +2068,78 @@
                                         placeholder="e.g. Review 5 phrasal verbs and practice speaking">
                                 </div>
                             </div>
+                        </section>
+
+                        <!-- Card D: Multilingual AI Study (Gemini + Offline 0-RAM Engine) -->
+                        <section class="card settings-card settings-card-wide">
+                            <h3>🤖 Language AI &amp; Multilingual Study (English · 한국어 · K-Pop)</h3>
+                            <p class="muted-text">
+                                Optimized for AWS <code>t3.micro</code> (1 GB RAM): instead of heavy local LLMs that exhaust server memory, AI song &amp; phrase analysis uses <strong>Google Gemini API</strong> (0 MB idle RAM) plus a built-in zero-RAM <strong>Hangul Romanization &amp; EN/KR analyzer</strong> when offline.
+                            </p>
+                            <div class="form-row-2">
+                                <div class="form-group">
+                                    <label for="setPreferredStudyLang">Default Study Language:</label>
+                                    <select id="setPreferredStudyLang">
+                                        <option value="en_ko">🎵 English + Korean (K-Pop)</option>
+                                        <option value="en">🇺🇸 English Only</option>
+                                        <option value="ko">🇰🇷 Korean (한국어 + Romanization)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="setGeminiModel">Gemini Model Preset:</label>
+                                    <select id="setGeminiModel">
+                                        <option value="gemini-2.5-flash">gemini-2.5-flash (Recommended · Fast &amp; Optimal)</option>
+                                        <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Grammar &amp; Lyrics Poetry)</option>
+                                        <option value="gemini-2.0-flash">gemini-2.0-flash (Lightweight Fallback)</option>
+                                        <option value="__custom__">Custom Model ID (enter below)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row-2">
+                                <div class="form-group" id="setGeminiCustomModelGroup" hidden>
+                                    <label for="setGeminiCustomModel">Custom Gemini Model ID:</label>
+                                    <input type="text" id="setGeminiCustomModel" maxlength="80"
+                                        placeholder="e.g. gemini-2.5-flash-lite or preview model ID">
+                                </div>
+                                <div class="form-group">
+                                    <label for="setGeminiApiKey">Google Gemini API Key (optional · sent encrypted over X25519 tunnel):</label>
+                                    <div class="settings-inline-actions">
+                                        <input type="password" id="setGeminiApiKey" maxlength="180" autocomplete="off"
+                                            placeholder="Leave blank to keep existing key or use Instant Local Engine">
+                                        <button type="button" class="agenda-chip-btn" id="btnClearGeminiKey">Clear Key</button>
+                                    </div>
+                                    <small class="form-hint" id="settingsGeminiKeyStatus">Checking Gemini key status...</small>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Card E: Simulated HTTPS Transport Tunnel Diagnostics & Large-Payload Benchmark -->
+                        <section class="card settings-card settings-card-wide" id="transportSecurityCard">
+                            <h3>🔐 Simulated HTTPS Network Encryption (X25519 + AES-256-CTR + HMAC-SHA256)</h3>
+                            <p class="muted-text">
+                                Protects all API payloads traveling over plain HTTP using a hybrid architecture identical to TLS: ephemeral <strong>X25519 (Curve25519 ECDH) + HKDF-SHA256</strong> key exchange (forward secrecy), paired with high-speed <strong>AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)</strong> symmetric transport so large payloads encrypt in milliseconds.
+                            </p>
+                            <div class="transport-diag-grid" id="transportDiagSummary">
+                                <div class="transport-stat-box">
+                                    <span class="transport-stat-label">Session Key ID</span>
+                                    <strong id="transportDiagKid">Connecting...</strong>
+                                </div>
+                                <div class="transport-stat-box">
+                                    <span class="transport-stat-label">Key Exchange / Cipher</span>
+                                    <strong id="transportDiagCipher">X25519 -> AES-256-CTR + HMAC-SHA256</strong>
+                                </div>
+                                <div class="transport-stat-box">
+                                    <span class="transport-stat-label">Encrypted Wire Traffic</span>
+                                    <strong id="transportDiagStats">0 reqs · 0 KB</strong>
+                                </div>
+                            </div>
+                            <div class="settings-inline-actions transport-action-bar">
+                                <button type="button" class="agenda-chip-btn" id="btnTransportRotateKey">🔄 Rotate X25519 Session Keys</button>
+                                <button type="button" class="agenda-chip-btn" id="btnTransportBenchmark">⚡ Benchmark Large Payloads (1 KB · 64 KB · 192 KB)</button>
+                                <button type="button" class="agenda-chip-btn" id="btnTransportInspectPacket">🔍 Inspect Live Wire Packet</button>
+                            </div>
+                            <div id="transportBenchmarkResult" class="transport-benchmark-box" hidden></div>
                         </section>
 
                         <!-- Card C: Workspace, Agenda Defaults & Security Shortcuts -->

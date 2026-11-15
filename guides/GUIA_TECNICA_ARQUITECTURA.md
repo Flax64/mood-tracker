@@ -14,6 +14,7 @@
 * [6. Despliegue Automatizado Cero-`.env` y Respaldos Nocturnos](#6-despliegue-automatizado-cero-env-y-respaldos-nocturnos)
 * [7. Rama `main` Protegida, Pruebas Automatizadas y Bóveda Local](#7-rama-main-protegida-pruebas-automatizadas-y-bóveda-local)
 * [8. Sistema de Recordatorios, Flujo Jira y Notificaciones Móviles (`ntfy`)](#8-sistema-de-recordatorios-flujo-jira-y-notificaciones-móviles-ntfy)
+* [9. Túnel Híbrido sobre HTTP (`x25519-aes256ctr-hmac-v1`) e IA Multilingüe (`0 MB RAM`)](#9-túnel-híbrido-sobre-http-x25519-aes256ctr-hmac-v1-e-ia-multilingüe-0-mb-ram)
 
 ---
 
@@ -193,3 +194,23 @@ El sistema se divide en cinco capas desacopladas:
   * Las notificaciones en computadora (`desktopNotificationsEnabled`) permanecen desactivadas por defecto para priorizar únicamente la barra de notificaciones del celular y la bandeja interna `#reminderTray`.
   * Los botones de acción en la notificación móvil (**Snooze 15m**, **Snooze 30m**, **Mark Done**) apuntan a `POST /api/reminders/action?token=...` protegidos por firma **HMAC-SHA256** (`signReminderActionToken`, expiración 12 h) y por `reminderActionLimiter` (`30 req / 15 min`), mientras que `validatePushServerUrl()` bloquea direcciones locales/privadas (`localhost`, `127.0.0.1`, `10.x`, `172.16-31.x`, `192.168.x`, `169.254.x`) contra **SSRF**.
 * **Bóveda local en Windows (`scripts/local-vault.js`):** cifra `.env` → `.env.enc` con el formato estándar OpenSSL (`Salted__`, PBKDF2-HMAC-SHA256 de 600,000 iteraciones, AES-256-CBC + PKCS#7) usando solo módulos nativos de Node.js, destruye `.env` sobrescribiéndolo con ceros, y permite ejecutar cualquier comando (`run`) o correr `sincronizador.py` descifrando `.env.enc` únicamente en memoria RAM.
+
+---
+
+## 9. Túnel Híbrido sobre HTTP (`x25519-aes256ctr-hmac-v1`) e IA Multilingüe (`0 MB RAM`)
+
+### 9.1 Transporte Cifrado a Nivel de Aplicación (Simulación HTTPS sin `window.crypto.subtle`)
+Los navegadores modernos deshabilitan la API nativa `window.crypto.subtle` en orígenes HTTP (`http://<IP>:3000`). Para proteger contraseñas, tokens y datos privados de principio a fin entre navegador y Express sin requerir dominio ni certificado TLS:
+1. **Negociación Efímera (`POST /api/transport/handshake`):**
+   - El cliente ([`public/transport-crypto.js`](../public/transport-crypto.js)) genera un par efímero Curve25519 usando `window.crypto.getRandomValues` y la escalera de Montgomery RFC 7748 en `BigInt`.
+   - El servidor ([`lib/transport-crypto.js`](../lib/transport-crypto.js)) genera su par efímero nativo OpenSSL (`crypto.generateKeyPairSync('x25519')`), rechaza secretos nulos, y deriva dos llaves de 32 bytes mediante **HKDF-SHA256** (`encKey` + `macKey`) ligadas al `kid` y a un `salt` aleatorio de 16 bytes (*Forward Secrecy*, TTL 12 h, caché acotada a `250` sesiones para `t3.micro`).
+2. **Cifrado de Alto Rendimiento para Grandes Volúmenes (`AES-256-CTR + HMAC-SHA256`):**
+   - El wrapper transparente en [`public/frontend.js`](../public/frontend.js) cifra cada body saliente y envía las cabeceras `X-Transport-Session` + `X-Transport-Accept-Enc: 1`.
+   - **Encrypt-then-MAC:** antes de descifrar un solo byte, el middleware en `server.js` valida la etiqueta HMAC-SHA256 sobre `protocol|kid|dir|seq|ts|iv|ct` con `crypto.timingSafeEqual`, verifica la ventana temporal y bloquea *replays* mediante un LRU acotado de los últimos `512` IVs por sesión (`400 TRANSPORT_MAC_INVALID`, `409 TRANSPORT_REPLAY`, `428 TRANSPORT_SESSION_EXPIRED` con re-handshake automático).
+   - **Por qué maneja grandes volúmenes sin lentitud:** la asimetría (`X25519`) corre una sola vez en la negociación inicial; todo payload grande (letras completas, benchmarks de 192 KB, respuestas semanales) corre en `AES-256-CTR` simétrico en tiempo lineal $O(N)$ con expansión nula de *padding*.
+
+### 9.2 Studio de Idiomas Multilingüe y Motor Dual de IA (`lib/language-studio.js`)
+- **Registro Extensible (`LANGUAGE_REGISTRY`):** soporta `en` (Inglés), `ko` (Coreano `한국어`) y `en_ko` (K-Pop mixto Inglés + Coreano), diseñado para añadir nuevos idiomas sin alterar el esquema MySQL.
+- **Arquitectura Dual `0 MB RAM` para `t3.micro`:**
+  - **Tier 1 (Cloud LLM vía HTTPS):** integra **Google Gemini API** (`gemini-2.5-flash` por defecto, `gemini-2.5-pro`, `gemini-2.0-flash` o ID personalizado), recibiendo opcionalmente `GEMINI_API_KEY` vía variable de entorno o guardada en `ConfiguracionUsuario.config_json` (y **enmascarada** con `sanitizeSettingsForClient()` antes de salir del servidor).
+  - **Tier 2 (Motor Lingüístico Local Determinista):** transliterador Unicode **Hangul → Revised Romanization** (`0xAC00–0xD7A3` con reglas de enlace silábico/liaison) y detector de líneas EN/KR + phrasal verbs/partículas que funciona sin internet ni clave externa, con respaldo automático si Gemini devuelve error o cuota llena.

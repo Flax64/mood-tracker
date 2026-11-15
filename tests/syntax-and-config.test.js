@@ -12,8 +12,16 @@ function readText(relPath) {
 }
 
 describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
-    it('valida sintaxis de server.js, public/theme-init.js, public/frontend.js y tests/ci-summary.js con node --check', () => {
-        for (const rel of ['server.js', 'public/theme-init.js', 'public/frontend.js', 'tests/ci-summary.js']) {
+    it('valida sintaxis de server.js, módulos lib/, scripts públicos y tests/ci-summary.js con node --check', () => {
+        for (const rel of [
+            'server.js',
+            'lib/transport-crypto.js',
+            'lib/language-studio.js',
+            'public/theme-init.js',
+            'public/transport-crypto.js',
+            'public/frontend.js',
+            'tests/ci-summary.js'
+        ]) {
             execFileSync(process.execPath, ['--check', path.join(ROOT, rel)], { stdio: 'pipe' });
         }
     });
@@ -229,10 +237,21 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="confirmActionModal"',
             'id="appToastContainer"',
             'id="moodTodayChecklist"',
-            'id="sleepTodaySummary"'
+            'id="sleepTodaySummary"',
+            'id="studyLanguageSelectorBar"',
+            'id="languageAiPanel"',
+            'id="btnAskLangAi"',
+            'id="btnMusicAiExplainLyrics"',
+            'id="transportSecurityCard"',
+            'id="btnTransportBenchmark"',
+            'id="setGeminiModel"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
+        assert.match(indexHtml, /<script[^>]+src=["']transport-crypto\.js["']/i);
+
+        const dockerfileText = readText('Dockerfile');
+        assert.ok(dockerfileText.includes('COPY lib ./lib'), 'Dockerfile debe copiar carpeta lib/');
 
         const styleCss = readText('public/style.css');
         for (const requiredClass of [
@@ -241,7 +260,9 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.yt-platform-bar',
             '.app-toast-container',
             '.english-row-2',
-            '.select-input'
+            '.select-input',
+            '.tunnel-pill',
+            '.lang-ai-panel'
         ]) {
             assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }

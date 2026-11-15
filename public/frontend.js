@@ -1,4 +1,172 @@
 // ==========================================
+// SIMULATED HTTPS HYBRID TRANSPORT LAYER (X25519 + AES-256-CTR + HMAC-SHA256)
+// ==========================================
+const rawBrowserFetch = typeof window !== 'undefined' && typeof window.fetch === 'function'
+    ? window.fetch.bind(window)
+    : null;
+
+const clientTransportTunnel = (
+    typeof window !== 'undefined'
+    && window.TransportCrypto
+    && window.CryptoJS
+    && window.CryptoJS.algo
+    && window.CryptoJS.algo.AES
+    && typeof window.TransportCrypto.createClientTunnel === 'function'
+)
+    ? window.TransportCrypto.createClientTunnel({ CryptoJS: window.CryptoJS })
+    : null;
+
+let lastCapturedWirePacket = null;
+
+function formatCompactBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function updateTransportStatusBadges() {
+    const authPill = document.getElementById('authTunnelPill');
+    const mobilePill = document.getElementById('mobileTunnelPill');
+    const sidebarBadge = document.getElementById('sidebarTunnelBadge');
+    const diagKid = document.getElementById('transportDiagKid');
+    const diagStats = document.getElementById('transportDiagStats');
+
+    if (!clientTransportTunnel) {
+        if (authPill) {
+            authPill.textContent = '⚠️ Wire: Plain HTTP fallback';
+            authPill.classList.add('is-pending');
+        }
+        if (sidebarBadge) sidebarBadge.textContent = '⚠️ Wire: Standard HTTP';
+        return;
+    }
+
+    const diag = clientTransportTunnel.getDiagnostics();
+    const totalBytes = (diag.metrics.totalBytesEncrypted || 0) + (diag.metrics.totalBytesDecrypted || 0);
+    const totalReqs = Math.max(diag.metrics.encryptedRequests || 0, diag.metrics.decryptedResponses || 0);
+
+    if (diag.ready && diag.kid) {
+        if (authPill) {
+            authPill.textContent = `🔐 Wire: AES-256-CTR (${diag.kid.slice(0, 8)}…)`;
+            authPill.classList.remove('is-pending');
+        }
+        if (mobilePill) {
+            mobilePill.textContent = '🔐 E2E';
+            mobilePill.classList.remove('is-pending');
+        }
+        if (sidebarBadge) {
+            sidebarBadge.textContent = `🔐 Wire: X25519+AES (${diag.kid.slice(0, 8)}…)`;
+        }
+        if (diagKid) diagKid.textContent = `${diag.kid} (${diag.metrics.lastHandshakeMs} ms X25519)`;
+        if (diagStats) {
+            diagStats.textContent = `${totalReqs} encrypted msgs · ${formatCompactBytes(totalBytes)} on wire`;
+        }
+    } else {
+        if (authPill) {
+            authPill.textContent = '🔐 Wire Tunnel: Establishing X25519...';
+            authPill.classList.add('is-pending');
+        }
+        if (diagKid) diagKid.textContent = 'Pending X25519 handshake...';
+    }
+}
+
+if (rawBrowserFetch && clientTransportTunnel) {
+    window.fetch = async function encryptedTransportFetch(input, init = {}) {
+        const urlStr = typeof input === 'string'
+            ? input
+            : (input && typeof input.url === 'string' ? input.url : '');
+
+        const isSameOriginApi = urlStr.startsWith('/api/') && !urlStr.startsWith('/api/transport/handshake');
+        if (!isSameOriginApi) {
+            return rawBrowserFetch(input, init);
+        }
+
+        const headers = new Headers(init.headers || {});
+        if (headers.has('X-Bypass-Transport-Encrypt')) {
+            headers.delete('X-Bypass-Transport-Encrypt');
+            return rawBrowserFetch(input, { ...init, headers });
+        }
+
+        try {
+            if (!clientTransportTunnel.isReady()) {
+                await clientTransportTunnel.establishSession(rawBrowserFetch);
+                updateTransportStatusBadges();
+            }
+        } catch (hsErr) {
+            // Do not crash app UI if transient network issue happens during handshake
+            return rawBrowserFetch(input, init);
+        }
+
+        const originalBody = typeof init.body === 'string' ? init.body : null;
+
+        const sendAttempt = async () => {
+            const attemptHeaders = new Headers(headers);
+            const diagNow = clientTransportTunnel.getDiagnostics();
+            if (diagNow.kid) {
+                attemptHeaders.set('X-Transport-Session', diagNow.kid);
+            }
+            attemptHeaders.set('X-Transport-Accept-Enc', '1');
+
+            const nextInit = { ...init, headers: attemptHeaders };
+            if (originalBody !== null) {
+                const env = clientTransportTunnel.encryptText(originalBody);
+                attemptHeaders.set('Content-Type', 'application/json');
+                nextInit.body = JSON.stringify(env);
+                lastCapturedWirePacket = {
+                    capturedAt: new Date().toISOString(),
+                    direction: 'Browser -> Server (Request)',
+                    endpoint: `${String(init.method || 'GET').toUpperCase()} ${urlStr}`,
+                    plaintextPreview: originalBody.slice(0, 120) + (originalBody.length > 120 ? '...' : ''),
+                    plaintextBytes: originalBody.length,
+                    wireEnvelope: {
+                        ...env,
+                        ct: env.ct.slice(0, 140) + (env.ct.length > 140 ? `... (+${env.ct.length - 140} base64 chars)` : '')
+                    }
+                };
+            }
+            return rawBrowserFetch(input, nextInit);
+        };
+
+        let res = await sendAttempt();
+        if (res.status === 428 || res.headers.get('X-Transport-Rehandshake') === '1') {
+            clientTransportTunnel.resetSession();
+            await clientTransportTunnel.establishSession(rawBrowserFetch, true);
+            res = await sendAttempt();
+        }
+
+        const encHeader = res.headers.get('X-Transport-Encrypted');
+        if (encHeader === clientTransportTunnel.TRANSPORT_PROTOCOL) {
+            const rawEnv = await res.json();
+            if (originalBody === null) {
+                lastCapturedWirePacket = {
+                    capturedAt: new Date().toISOString(),
+                    direction: 'Server -> Browser (Response)',
+                    endpoint: `${String(init.method || 'GET').toUpperCase()} ${urlStr}`,
+                    plaintextBytes: 'Encrypted response payload',
+                    wireEnvelope: {
+                        ...rawEnv,
+                        ct: rawEnv.ct.slice(0, 140) + (rawEnv.ct.length > 140 ? `... (+${rawEnv.ct.length - 140} base64 chars)` : '')
+                    }
+                };
+            }
+            const plainText = clientTransportTunnel.decryptEnvelope(rawEnv, 's2c');
+            const decodedHeaders = new Headers(res.headers);
+            const innerType = res.headers.get('X-Transport-Inner-Type') || 'application/json; charset=utf-8';
+            decodedHeaders.set('Content-Type', innerType);
+            updateTransportStatusBadges();
+            return new Response(plainText, {
+                status: res.status,
+                statusText: res.statusText,
+                headers: decodedHeaders
+            });
+        }
+
+        updateTransportStatusBadges();
+        return res;
+    };
+}
+
+// ==========================================
 // GENERAL DATE & MOOD STATE UTILITIES
 // ==========================================
 function formatLocalDate(date) {
@@ -1622,9 +1790,89 @@ if (englishForm) {
     const englishRecentBox = document.getElementById('englishRecentBox');
     const englishMusicStudio = document.getElementById('englishMusicStudio');
     const categoryInput = document.getElementById('englishCategoryInput');
+    const studyLanguageInput = document.getElementById('studyLanguageInput');
+    const studyLangPills = document.querySelectorAll('.study-lang-pill[data-study-lang]');
+    const studyLangHint = document.getElementById('studyLanguageHint');
+    const engWordInput = document.getElementById('engWord');
+    const engWordLabel = document.getElementById('engWordLabel');
+    const engRomanizationInput = document.getElementById('engRomanization');
     const tabButtons = document.querySelectorAll('.english-tab-btn[data-english-cat]');
     const statusBanner = document.getElementById('englishStatusBanner');
     const recentList = document.getElementById('englishRecentList');
+
+    const STUDY_LANGUAGE_UI = {
+        en: {
+            label: '🇺🇸 English',
+            hint: 'Focus on vocabulary, idioms, phrasal verbs, and Word spelling/grammar proofing.',
+            wordLabel: 'Word / Expression (English) *',
+            wordPlaceholder: 'e.g. Resilience / Serendipity'
+        },
+        ko: {
+            label: '🇰🇷 Korean (한국어)',
+            hint: 'Auto Hangul -> Revised Romanization, particles (은/는·이/가·을/를), and polite endings.',
+            wordLabel: 'Korean Word / Phrase (한국어 Hangul) *',
+            wordPlaceholder: 'e.g. 마음 / 사랑해 / 보고 싶어'
+        },
+        en_ko: {
+            label: '🎵 K-Pop (EN + 한국어)',
+            hint: 'Dual-script mode: English hooks + Korean Hangul with instant Romanization & AI meaning bridge.',
+            wordLabel: 'Word / Lyric Phrase (EN or 한국어) *',
+            wordPlaceholder: 'e.g. 마음 (maeum) / Golden Hour'
+        }
+    };
+
+    function applyStudyLanguageUi(langCode, { syncMusicSelect = true } = {}) {
+        const norm = ['en', 'ko', 'en_ko'].includes(langCode) ? langCode : 'en_ko';
+        if (studyLanguageInput) studyLanguageInput.value = norm;
+        studyLangPills.forEach(btn => {
+            const active = btn.getAttribute('data-study-lang') === norm;
+            btn.classList.toggle('active', active);
+        });
+        const meta = STUDY_LANGUAGE_UI[norm];
+        if (studyLangHint) studyLangHint.textContent = meta.hint;
+        if (engWordLabel) engWordLabel.textContent = meta.wordLabel;
+        if (engWordInput) engWordInput.placeholder = meta.wordPlaceholder;
+
+        if (syncMusicSelect) {
+            const musicLangSelect = document.getElementById('musicSongLanguage');
+            if (musicLangSelect && !document.getElementById('musicSongEditId')?.value) {
+                musicLangSelect.value = norm === 'ko'
+                    ? 'Korean'
+                    : (norm === 'en' ? 'English' : 'English + Korean (K-Pop)');
+            }
+        }
+    }
+
+    studyLangPills.forEach(btn => {
+        btn.addEventListener('click', () => {
+            applyStudyLanguageUi(btn.getAttribute('data-study-lang'));
+        });
+    });
+
+    if (engWordInput && engRomanizationInput) {
+        let romTimer = null;
+        engWordInput.addEventListener('input', () => {
+            const val = engWordInput.value.trim();
+            if (!/[\uAC00-\uD7A3]/.test(val)) return;
+            clearTimeout(romTimer);
+            romTimer = setTimeout(async () => {
+                try {
+                    const res = await fetch('/api/language/romanize', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: val })
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data && data.romanization && engWordInput.value.trim() === val) {
+                        engRomanizationInput.value = data.romanization;
+                    }
+                } catch (_) {
+                    // Best-effort auto-romanization
+                }
+            }, 220);
+        });
+    }
 
     const sectionConfig = {
         vocabulary: {
@@ -1694,11 +1942,15 @@ if (englishForm) {
 
     function buildEnglishEntryPayload(category) {
         const val = (id) => (document.getElementById(id)?.value || '').trim();
+        const activeLangCode = studyLanguageInput ? studyLanguageInput.value : 'en_ko';
+        const languageLabel = STUDY_LANGUAGE_UI[activeLangCode]?.label || 'English + Korean (K-Pop)';
 
         if (category === 'vocabulary') {
             return {
                 category: 'vocabulary',
+                language: languageLabel,
                 word: val('engWord'),
+                romanization: val('engRomanization'),
                 part_of_speech: val('engPos'),
                 spanish: val('engSpanish'),
                 example: val('engVocabExample'),
@@ -1709,6 +1961,7 @@ if (englishForm) {
         if (category === 'grammar') {
             return {
                 category: 'grammar',
+                language: languageLabel,
                 title: val('engGrammarTitle'),
                 notes: val('engGrammarNotes'),
                 example: val('engGrammarExample')
@@ -1717,6 +1970,7 @@ if (englishForm) {
 
         return {
             category: 'phrasal_verb',
+            language: languageLabel,
             verb: val('engPvVerb'),
             grammar_type: val('engPvType'),
             meaning_es: val('engPvMeaningEs'),
@@ -1736,7 +1990,8 @@ if (englishForm) {
 
         const titleSpan = document.createElement('span');
         if (entry.category === 'vocabulary') {
-            titleSpan.textContent = `${entry.word} — ${entry.spanish}`;
+            const romPart = entry.romanization ? ` [${entry.romanization}]` : '';
+            titleSpan.textContent = `${entry.word}${romPart} — ${entry.spanish}`;
         } else if (entry.category === 'grammar') {
             titleSpan.textContent = entry.title;
         } else {
@@ -1753,7 +2008,7 @@ if (englishForm) {
 
     function limpiarCamposEnglish(category) {
         const idsByCategory = {
-            vocabulary: ['engWord', 'engPos', 'engSpanish', 'engVocabExample', 'engVocabNotes'],
+            vocabulary: ['engWord', 'engRomanization', 'engPos', 'engSpanish', 'engVocabExample', 'engVocabNotes'],
             grammar: ['engGrammarTitle', 'engGrammarNotes', 'engGrammarExample'],
             phrasal_verb: ['engPvVerb', 'engPvType', 'engPvMeaningEs', 'engPvMeaningEn', 'engPvExample', 'engPvNotes']
         };
@@ -1839,7 +2094,254 @@ if (englishForm) {
         }, { loadingText: 'Sending...' });
     });
 
+    const languageAiPanel = document.getElementById('languageAiPanel');
+
+    const origCambiarCategoria = cambiarCategoriaEnglish;
+    cambiarCategoriaEnglish = function (cat) {
+        origCambiarCategoria(cat);
+        if (languageAiPanel) {
+            languageAiPanel.hidden = (cat === 'music');
+        }
+    };
+
     cambiarCategoriaEnglish('vocabulary');
+    applyStudyLanguageUi(studyLanguageInput ? studyLanguageInput.value : 'en_ko');
+}
+
+function renderAiAnalysisIntoBox(container, analysis) {
+    if (!container || !analysis) return;
+    container.replaceChildren();
+    container.hidden = false;
+
+    const summaryEl = document.createElement('div');
+    summaryEl.className = 'ai-summary-box';
+    const engineTag = analysis.engine === 'gemini'
+        ? `🤖 Gemini (${analysis.model || 'gemini-2.5-flash'})`
+        : '⚡ Instant Local Engine (Hangul + EN · 0 MB RAM)';
+    summaryEl.textContent = `${engineTag}: ${analysis.summary || 'Breakdown ready.'}`;
+    container.appendChild(summaryEl);
+
+    if (analysis.fallbackReason) {
+        const warnEl = document.createElement('p');
+        warnEl.className = 'muted-text';
+        warnEl.textContent = `Fallback notice: ${analysis.fallbackReason}`;
+        container.appendChild(warnEl);
+    }
+
+    if (Array.isArray(analysis.lines) && analysis.lines.length) {
+        analysis.lines.slice(0, 24).forEach(line => {
+            const card = document.createElement('div');
+            card.className = 'ai-line-card';
+
+            const orig = document.createElement('div');
+            orig.className = 'ai-line-original';
+            orig.textContent = line.original || '';
+            card.appendChild(orig);
+
+            if (line.romanization) {
+                const rom = document.createElement('div');
+                rom.className = 'ai-line-rom';
+                rom.textContent = `Romanization: ${line.romanization}`;
+                card.appendChild(rom);
+            }
+            if (line.meaning) {
+                const meaning = document.createElement('div');
+                meaning.textContent = `Meaning: ${line.meaning}`;
+                card.appendChild(meaning);
+            }
+            if (line.explanation) {
+                const exp = document.createElement('div');
+                exp.className = 'muted-text';
+                exp.textContent = line.explanation;
+                card.appendChild(exp);
+            }
+            container.appendChild(card);
+        });
+    }
+
+    if (Array.isArray(analysis.vocabulary) && analysis.vocabulary.length) {
+        const vocabTitle = document.createElement('strong');
+        vocabTitle.textContent = 'Key Vocabulary, Particles & Expressions:';
+        container.appendChild(vocabTitle);
+
+        const grid = document.createElement('div');
+        grid.className = 'ai-vocab-grid';
+        analysis.vocabulary.forEach(item => {
+            const chip = document.createElement('div');
+            chip.className = 'ai-vocab-chip';
+            const head = document.createElement('strong');
+            head.textContent = item.romanization ? `${item.term} (${item.romanization})` : item.term;
+            const body = document.createElement('div');
+            body.textContent = item.meaning || '';
+            chip.append(head, body);
+            if (item.example) {
+                const ex = document.createElement('small');
+                ex.className = 'muted-text';
+                ex.textContent = `Ex: ${item.example}`;
+                chip.appendChild(ex);
+            }
+            grid.appendChild(chip);
+        });
+        container.appendChild(grid);
+    }
+
+    if (Array.isArray(analysis.culturalAndGrammarNotes) && analysis.culturalAndGrammarNotes.length) {
+        const ul = document.createElement('ul');
+        ul.style.margin = '10px 0 0 18px';
+        analysis.culturalAndGrammarNotes.forEach(note => {
+            const li = document.createElement('li');
+            li.textContent = note;
+            ul.appendChild(li);
+        });
+        container.appendChild(ul);
+    }
+}
+
+function initLanguageAiStudio() {
+    let lastQuickAnalysis = null;
+    let lastMusicAnalysis = null;
+
+    const btnAskQuick = document.getElementById('btnAskLangAi');
+    const btnApplyQuick = document.getElementById('btnApplyAiToForm');
+    const quickBox = document.getElementById('langAiResultBox');
+    const quickModeBadge = document.getElementById('langAiModeBadge');
+
+    if (btnAskQuick) {
+        btnAskQuick.addEventListener('click', () => {
+            const questionEl = document.getElementById('langAiQuestion');
+            const fallbackWord = (document.getElementById('engWord')?.value || '').trim();
+            const query = (questionEl?.value || '').trim() || fallbackWord;
+            if (!query) {
+                showToast('err', 'Type a phrase, Korean lyric, or question for the AI tutor.');
+                return;
+            }
+            const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
+            const language = document.getElementById('studyLanguageInput')?.value || 'en_ko';
+
+            runWithButtonLock(btnAskQuick, async () => {
+                try {
+                    const res = await fetch('/api/language/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: query, question: query, language, mode })
+                    });
+                    if (!res.ok) throw new Error(await res.text() || 'AI analysis failed');
+                    const data = await res.json();
+                    lastQuickAnalysis = data;
+                    renderAiAnalysisIntoBox(quickBox, data);
+                    if (quickModeBadge) {
+                        quickModeBadge.textContent = data.engine === 'gemini'
+                            ? `🤖 ${data.model}`
+                            : '⚡ Local KR+EN';
+                    }
+                    if (btnApplyQuick && data.wordNoteDraft) {
+                        btnApplyQuick.hidden = false;
+                    }
+                } catch (err) {
+                    showToast('err', err.message || 'Could not analyze language query.');
+                }
+            }, { loadingText: 'Analyzing...' });
+        });
+    }
+
+    if (btnApplyQuick) {
+        btnApplyQuick.addEventListener('click', () => {
+            const draft = lastQuickAnalysis && lastQuickAnalysis.wordNoteDraft;
+            if (!draft) return;
+            const vocabBtn = document.querySelector('.english-tab-btn[data-english-cat="vocabulary"]');
+            if (vocabBtn) vocabBtn.click();
+            const setIf = (id, v) => {
+                const el = document.getElementById(id);
+                if (el && v) el.value = v;
+            };
+            const firstVocab = lastQuickAnalysis?.vocabulary?.[0];
+            setIf('engWord', firstVocab?.term || draft.word || '');
+            setIf('engRomanization', firstVocab?.romanization || '');
+            setIf('engSpanish', draft.meaning || '');
+            setIf('engVocabExample', draft.example || '');
+            setIf('engVocabNotes', draft.notes || '');
+            showToast('ok', 'Filled Glossary study form from AI breakdown!');
+        });
+    }
+
+    const btnMusicAi = document.getElementById('btnMusicAiExplainLyrics');
+    const musicAiBox = document.getElementById('musicAiBreakdownPanel');
+    const musicApplyRow = document.getElementById('musicAiApplyRow');
+    const btnMusicInsert = document.getElementById('btnMusicAiInsertToNotes');
+
+    if (btnMusicAi) {
+        btnMusicAi.addEventListener('click', () => {
+            const lyrics = (document.getElementById('musicStudyLyrics')?.value || '').trim();
+            if (!lyrics) {
+                showToast('err', 'Paste song lyrics (English, Korean, or K-Pop) first.');
+                return;
+            }
+            const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+            const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
+            const artistName = selected
+                ? (selected.artists || []).map(a => a.nombre).join(', ')
+                : (document.getElementById('musicMainArtist')?.value || '').trim();
+            const language = selected?.idioma || document.getElementById('musicSongLanguage')?.value || 'en_ko';
+            const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
+
+            runWithButtonLock(btnMusicAi, async () => {
+                try {
+                    const res = await fetch('/api/language/analyze', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            text: lyrics,
+                            question: 'Explain the lyrics meanings, Korean Hangul romanization, grammar particles, idioms, and K-Pop code-switching.',
+                            language,
+                            songTitle,
+                            artistName,
+                            mode
+                        })
+                    });
+                    if (!res.ok) throw new Error(await res.text() || 'Lyrics analysis failed');
+                    const data = await res.json();
+                    lastMusicAnalysis = data;
+                    renderAiAnalysisIntoBox(musicAiBox, data);
+                    if (musicApplyRow) musicApplyRow.hidden = false;
+                } catch (err) {
+                    showToast('err', err.message || 'Could not analyze song lyrics.');
+                }
+            }, { loadingText: 'Analyzing Lyrics...' });
+        });
+    }
+
+    if (btnMusicInsert) {
+        btnMusicInsert.addEventListener('click', () => {
+            if (!lastMusicAnalysis) return;
+            const vocabEl = document.getElementById('musicStudyVocab');
+            const pronEl = document.getElementById('musicStudyPronunciation');
+            const notesEl = document.getElementById('musicStudyExtraNotes');
+
+            const romLines = (lastMusicAnalysis.lines || [])
+                .filter(l => l.romanization)
+                .map(l => `${l.original} -> ${l.romanization}`)
+                .join('\n');
+            if (pronEl && romLines) {
+                pronEl.value = [pronEl.value.trim(), romLines].filter(Boolean).join('\n');
+            }
+
+            const vocabLines = (lastMusicAnalysis.vocabulary || [])
+                .map(v => `• ${v.term}${v.romanization ? ` (${v.romanization})` : ''}: ${v.meaning}`)
+                .join('\n');
+            if (vocabEl && vocabLines) {
+                vocabEl.value = [vocabEl.value.trim(), vocabLines].filter(Boolean).join('\n');
+            }
+
+            const summaryNotes = [
+                lastMusicAnalysis.summary,
+                ...(lastMusicAnalysis.culturalAndGrammarNotes || [])
+            ].filter(Boolean).join('\n');
+            if (notesEl && summaryNotes) {
+                notesEl.value = [notesEl.value.trim(), summaryNotes].filter(Boolean).join('\n\n');
+            }
+            showToast('ok', 'Added Romanization, Vocabulary & AI Notes below—ready to encrypt & save to Word!');
+        });
+    }
 }
 
 // ==========================================
@@ -2140,6 +2642,7 @@ function renderMusicCatalog() {
     const search = (document.getElementById('musicFilterSearch')?.value || '').trim().toLowerCase();
     const artistFilter = document.getElementById('musicFilterArtist')?.value || '';
     const releaseFilter = document.getElementById('musicFilterReleaseType')?.value || '';
+    const langFilter = document.getElementById('musicFilterLanguage')?.value || '';
     const statusFilter = document.getElementById('musicFilterStatus')?.value || '';
 
     const filteredSongs = musicState.songs.filter(song => {
@@ -2148,6 +2651,7 @@ function renderMusicCatalog() {
             if (!hasArtist) return false;
         }
         if (releaseFilter && (song.album_tipo || 'single') !== releaseFilter) return false;
+        if (langFilter && (song.idioma || 'English') !== langFilter) return false;
         if (statusFilter && song.estado_estudio !== statusFilter) return false;
         if (search) {
             const haystack = [
@@ -2327,6 +2831,13 @@ function renderMusicCatalog() {
                     });
                 });
                 badgeRow.appendChild(statusBtn);
+
+                if (song.idioma) {
+                    const langBadge = document.createElement('span');
+                    langBadge.className = 'music-word-badge';
+                    langBadge.textContent = song.idioma;
+                    badgeRow.appendChild(langBadge);
+                }
 
                 if (song.word_sincronizado) {
                     const wordBadge = document.createElement('span');
@@ -2545,7 +3056,7 @@ if (englishMusicStudioRoot) {
         });
     }
 
-    ['musicFilterSearch', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterStatus'].forEach(fid => {
+    ['musicFilterSearch', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterLanguage', 'musicFilterStatus'].forEach(fid => {
         const el = document.getElementById(fid);
         if (el) {
             el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', renderMusicCatalog);
@@ -2637,6 +3148,7 @@ if (englishMusicStudioRoot) {
             const entry = selected
                 ? {
                     category: 'music',
+                    language: selected.idioma || 'English',
                     song_title: selected.titulo,
                     artists_display: formatSongArtistsSummary(selected),
                     album_title: selected.album_titulo || '',
@@ -2651,6 +3163,7 @@ if (englishMusicStudioRoot) {
                 }
                 : {
                     category: 'music',
+                    language: val('musicSongLanguage') || 'English',
                     song_title: fallbackTitle,
                     artists_display: val('musicCollaborators')
                         ? `${fallbackArtist} (${val('musicCollaborators')})`
@@ -4525,14 +5038,57 @@ function populateSettingsForm(settings = {}) {
     setVal('setTimezone', settings.timezone || 'America/Monterrey');
     setCheck('setShowWeekend', settings.agendaShowWeekend !== false);
 
+    // Multilingual & Gemini AI preferences
+    const prefLang = ['en', 'ko', 'en_ko'].includes(settings.preferredStudyLanguage)
+        ? settings.preferredStudyLanguage
+        : 'en_ko';
+    setVal('setPreferredStudyLang', prefLang);
+    const activeModel = String(settings.geminiModel || 'gemini-2.5-flash');
+    const presetModels = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+    const modelSel = document.getElementById('setGeminiModel');
+    const customGroup = document.getElementById('setGeminiCustomModelGroup');
+    const customInput = document.getElementById('setGeminiCustomModel');
+    if (modelSel) {
+        if (presetModels.includes(activeModel)) {
+            modelSel.value = activeModel;
+            if (customGroup) customGroup.hidden = true;
+        } else {
+            modelSel.value = '__custom__';
+            if (customGroup) customGroup.hidden = false;
+            if (customInput) customInput.value = activeModel;
+        }
+    }
+    const apiKeyEl = document.getElementById('setGeminiApiKey');
+    if (apiKeyEl) {
+        apiKeyEl.value = '';
+        apiKeyEl.dataset.pendingClear = '0';
+    }
+    const keyStatusEl = document.getElementById('settingsGeminiKeyStatus');
+    if (keyStatusEl) {
+        keyStatusEl.textContent = settings.geminiApiKeyConfigured
+            ? `Active key: ${settings.geminiApiKeyHint || 'Configured'}`
+            : 'No Gemini key saved yet (Instant built-in 0-RAM Korean Romanization & EN/KR analyzer active).';
+    }
+
     updateE2eeKeyStatusUI();
+    updateTransportStatusBadges();
 }
 
 function collectSettingsFormPayload() {
     const selectedDays = Array.from(document.querySelectorAll('#setEnglishDaysGroup input[type="checkbox"]:checked'))
         .map(cb => Number(cb.value));
 
-    return {
+    const modelSelVal = document.getElementById('setGeminiModel')?.value || 'gemini-2.5-flash';
+    const customModelVal = String(document.getElementById('setGeminiCustomModel')?.value || '').trim();
+    const resolvedGeminiModel = modelSelVal === '__custom__'
+        ? (customModelVal || 'gemini-2.5-flash')
+        : modelSelVal;
+
+    const apiKeyInput = document.getElementById('setGeminiApiKey');
+    const typedGeminiKey = String(apiKeyInput?.value || '').trim();
+    const pendingClearGeminiKey = apiKeyInput?.dataset?.pendingClear === '1';
+
+    const payload = {
         phoneNotificationsEnabled: Boolean(document.getElementById('setPhoneEnabled')?.checked),
         ntfyTopic: String(document.getElementById('setNtfyTopic')?.value || '').trim(),
         ntfyServerUrl: String(document.getElementById('setNtfyServerUrl')?.value || 'https://ntfy.sh').trim(),
@@ -4560,12 +5116,23 @@ function collectSettingsFormPayload() {
         englishReminderDays: selectedDays,
         englishReminderTopic: String(document.getElementById('setEnglishTopic')?.value || '').trim(),
 
+        preferredStudyLanguage: document.getElementById('setPreferredStudyLang')?.value || 'en_ko',
+        geminiModel: resolvedGeminiModel,
+
         defaultAgendaCategory: document.getElementById('setDefaultCat')?.value || 'all',
         defaultAgendaLayout: document.getElementById('setDefaultLayout')?.value || 'auto',
         youtubePlatformMode: document.getElementById('setYoutubePlatformMode')?.value || 'auto',
         timezone: String(document.getElementById('setTimezone')?.value || 'America/Monterrey').trim(),
         agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked)
     };
+
+    if (pendingClearGeminiKey) {
+        payload.clearGeminiApiKey = true;
+    } else if (typedGeminiKey) {
+        payload.geminiApiKey = typedGeminiKey;
+    }
+
+    return payload;
 }
 
 function cargarSettingsVista() {
@@ -4779,6 +5346,137 @@ function initSettingsHandlers() {
             updateE2eeKeyStatusUI();
             setSettingsBanner('ok', 'Local E2EE key cleared from this browser.');
             showToast('info', 'Local E2EE key removed from this browser.');
+        });
+    }
+
+    const geminiModelSelect = document.getElementById('setGeminiModel');
+    const geminiCustomGroup = document.getElementById('setGeminiCustomModelGroup');
+    if (geminiModelSelect && geminiCustomGroup) {
+        geminiModelSelect.addEventListener('change', () => {
+            geminiCustomGroup.hidden = geminiModelSelect.value !== '__custom__';
+        });
+    }
+
+    const btnClearGemini = document.getElementById('btnClearGeminiKey');
+    if (btnClearGemini) {
+        btnClearGemini.addEventListener('click', () => {
+            const keyInput = document.getElementById('setGeminiApiKey');
+            const keyStatus = document.getElementById('settingsGeminiKeyStatus');
+            if (keyInput) {
+                keyInput.value = '';
+                keyInput.dataset.pendingClear = '1';
+            }
+            if (keyStatus) {
+                keyStatus.textContent = 'Key marked for removal—click "Save All Settings" to confirm.';
+            }
+        });
+    }
+
+    const btnRotateTransport = document.getElementById('btnTransportRotateKey');
+    if (btnRotateTransport) {
+        btnRotateTransport.addEventListener('click', () => {
+            if (!clientTransportTunnel || !rawBrowserFetch) {
+                showToast('err', 'Encrypted transport tunnel is unavailable.');
+                return;
+            }
+            runWithButtonLock(btnRotateTransport, async () => {
+                clientTransportTunnel.resetSession();
+                await clientTransportTunnel.establishSession(rawBrowserFetch, true);
+                updateTransportStatusBadges();
+                const diag = clientTransportTunnel.getDiagnostics();
+                showToast('ok', `Rotated ephemeral X25519 keys -> new session ${diag.kid.slice(0, 8)}…`);
+            }, { loadingText: 'Rotating X25519...' });
+        });
+    }
+
+    const btnInspectWire = document.getElementById('btnTransportInspectPacket');
+    const transportResultBox = document.getElementById('transportBenchmarkResult');
+    if (btnInspectWire && transportResultBox) {
+        btnInspectWire.addEventListener('click', () => {
+            transportResultBox.hidden = false;
+            transportResultBox.replaceChildren();
+            const heading = document.createElement('strong');
+            heading.textContent = '🔍 Live Wire Packet Capture (What HTTP / tcpdump / Wireshark sees on port 3000):';
+            transportResultBox.appendChild(heading);
+
+            if (!lastCapturedWirePacket) {
+                const p = document.createElement('p');
+                p.className = 'muted-text';
+                p.textContent = 'No encrypted packet captured yet—click "Benchmark Large Payloads" or save any form.';
+                transportResultBox.appendChild(p);
+                return;
+            }
+
+            const meta = document.createElement('p');
+            meta.className = 'muted-text';
+            meta.textContent = `${lastCapturedWirePacket.direction} · ${lastCapturedWirePacket.endpoint} · ${lastCapturedWirePacket.capturedAt}`;
+            const pre = document.createElement('pre');
+            pre.className = 'transport-wire-preview';
+            pre.textContent = JSON.stringify(lastCapturedWirePacket.wireEnvelope, null, 2);
+            transportResultBox.append(meta, pre);
+        });
+    }
+
+    const btnBenchTransport = document.getElementById('btnTransportBenchmark');
+    if (btnBenchTransport && transportResultBox) {
+        btnBenchTransport.addEventListener('click', () => {
+            if (!clientTransportTunnel) {
+                showToast('err', 'Transport crypto tunnel is inactive.');
+                return;
+            }
+            runWithButtonLock(btnBenchTransport, async () => {
+                try {
+                    const sizesKb = [1, 64, 192];
+                    const results = [];
+                    for (const kb of sizesKb) {
+                        const targetBytes = kb * 1024;
+                        const samplePayload = 'K-POP/EN-TRANSPORT-BENCHMARK-'.repeat(Math.ceil(targetBytes / 29)).slice(0, targetBytes);
+                        const tStart = performance.now();
+                        const res = await fetch('/api/transport/benchmark', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ samplePayload, echo: false })
+                        });
+                        if (!res.ok) throw new Error(await res.text() || 'Benchmark failed');
+                        const data = await res.json();
+                        const rttMs = Number((performance.now() - tStart).toFixed(2));
+                        const diag = clientTransportTunnel.getDiagnostics();
+                        results.push({
+                            kb,
+                            payloadBytes: data.payloadBytes,
+                            rttMs,
+                            clientEncryptMs: diag.metrics.lastEncryptMs,
+                            serverDecryptMs: data.serverDecryptMs,
+                            sha256Prefix: data.sha256Prefix,
+                            encryptedIn: data.encryptedIn
+                        });
+                    }
+                    const diagNow = clientTransportTunnel.getDiagnostics();
+                    updateTransportStatusBadges();
+
+                    transportResultBox.hidden = false;
+                    transportResultBox.replaceChildren();
+                    const title = document.createElement('strong');
+                    title.textContent = `⚡ Hybrid Throughput Benchmark (X25519 Handshake: ${diagNow.metrics.lastHandshakeMs} ms -> Bulk AES-256-CTR + HMAC-SHA256):`;
+                    transportResultBox.appendChild(title);
+
+                    const explain = document.createElement('p');
+                    explain.className = 'muted-text';
+                    explain.textContent = 'Asymmetric ECDH (X25519) runs ONLY once at session start; bulk large payloads use symmetric AES-256-CTR + HMAC-SHA256 in constant memory with O(N) speed.';
+                    transportResultBox.appendChild(explain);
+
+                    results.forEach(r => {
+                        const line = document.createElement('div');
+                        const throughputMBs = r.clientEncryptMs > 0
+                            ? ((r.payloadBytes / (1024 * 1024)) / (r.clientEncryptMs / 1000)).toFixed(2)
+                            : '∞';
+                        line.textContent = `• ${r.kb} KB (${r.payloadBytes.toLocaleString()} B): Verified Encrypted=${r.encryptedIn} | Client AES-CTR=${r.clientEncryptMs} ms (~${throughputMBs} MB/s) | Server OpenSSL Decrypt=${r.serverDecryptMs ?? '--'} ms | Total RTT=${r.rttMs} ms | SHA256=${r.sha256Prefix}…`;
+                        transportResultBox.appendChild(line);
+                    });
+                } catch (err) {
+                    showToast('err', err.message || 'Benchmark error.');
+                }
+            }, { loadingText: 'Benchmarking...' });
         });
     }
 
@@ -5874,8 +6572,17 @@ function initApp() {
     initPasswordToggles();
     initAuthHandlers();
     initSettingsHandlers();
+    initLanguageAiStudio();
     initWordStyleProofing();
     initAcademicPlannerHandlers();
+
+    if (clientTransportTunnel && rawBrowserFetch) {
+        clientTransportTunnel.establishSession(rawBrowserFetch)
+            .then(() => updateTransportStatusBadges())
+            .catch(() => updateTransportStatusBadges());
+    } else {
+        updateTransportStatusBadges();
+    }
 
     const params = new URLSearchParams(window.location.search);
     if (params.get('resetToken') && params.get('email')) {
