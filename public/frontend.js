@@ -7320,12 +7320,12 @@ function populateSettingsForm(settings = {}) {
         : 'en_ko';
     setVal('setPreferredStudyLang', prefLang);
     const activeModel = String(settings.geminiModel || 'gemini-2.5-flash');
-    const presetModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-flash-latest'];
     const modelSel = document.getElementById('setGeminiModel');
     const customGroup = document.getElementById('setGeminiCustomModelGroup');
     const customInput = document.getElementById('setGeminiCustomModel');
     if (modelSel) {
-        if (presetModels.includes(activeModel)) {
+        const hasPreset = Array.from(modelSel.options).some(opt => opt.value === activeModel && opt.value !== '__custom__');
+        if (hasPreset) {
             modelSel.value = activeModel;
             if (customGroup) customGroup.hidden = true;
         } else {
