@@ -2342,7 +2342,7 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
         throw new Error(urlCheck.error);
     }
 
-    const endpoint = `${urlCheck.url}/${encodeURIComponent(settings.ntfyTopic)}`;
+    const endpoint = `${urlCheck.url}/`;
     const tagMap = {
         mood: 'brain',
         sleep: 'crescent_moon',
@@ -2352,19 +2352,21 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
         test: 'white_check_mark'
     };
 
-    const headers = {
-        Title: String(reminder.title || 'Personal Daily Hub').slice(0, 140),
-        Priority: String(settings.ntfyPriority || 4),
-        Tags: tagMap[reminder.type] || 'bell',
-        'Content-Type': 'text/plain; charset=utf-8'
+    const jsonPayload = {
+        topic: settings.ntfyTopic,
+        title: String(reminder.title || 'Personal Daily Hub').slice(0, 140),
+        message: String(reminder.message || '').slice(0, 500),
+        priority: Number(settings.ntfyPriority || 4),
+        tags: [tagMap[reminder.type] || 'bell']
     };
 
     if (baseUrl) {
+        const targetUrl = `${baseUrl}/#${reminder.targetView || 'inicio'}`;
         const actions = [
             {
                 action: 'view',
                 label: 'Open App',
-                url: `${baseUrl}/#${reminder.targetView || 'inicio'}`
+                url: targetUrl
             }
         ];
 
@@ -2419,13 +2421,16 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
             }
         }
 
-        headers.Actions = JSON.stringify(actions);
+        jsonPayload.click = targetUrl;
+        jsonPayload.actions = actions;
     }
 
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers,
-        body: String(reminder.message || '').slice(0, 500),
+        headers: {
+            'Content-Type': 'application/json; charset=utf-8'
+        },
+        body: JSON.stringify(jsonPayload),
         signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined
     });
 
@@ -2612,7 +2617,7 @@ app.post('/api/settings/test-notification', apiWriteLimiter.middleware, requireA
             reminder: {
                 key: `test:${Date.now()}`,
                 type: 'test',
-                title: 'Personal Daily Hub — Phone Connected',
+                title: 'Personal Daily Hub - Phone Connected',
                 message: 'Test alert delivered! Reminders for Mood, Sleep, Agenda, Word Notes, and English Study will appear here.',
                 targetView: 'settings',
                 canSnooze: false
