@@ -27,10 +27,10 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 2. **🧠 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo desde el servidor y recordatorios automáticos a mitad de cada horario (`09:00`, `13:00`, `17:00`, `22:00`; **`Madrugada 03:00` es opcional** y viene desactivado por defecto).
 3. **🌙 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, calidad (`Good`, `Regular`, `Bad`) y recordatorio matutino configurable (por defecto `08:30`) con opción de posponer (*Snooze 15m / 30m / 1h*).
 4. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
-5. **📖 English Notebook (`Glossary`, `Grammar`, `Phrasal Verbs` + `🎵 Learn with Music`):** Registro de vocabulario, notas de gramática y *phrasal verbs* cifrados E2EE hacia un documento Word local sin contraseña (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y recordatorio de estudio **100% configurable** por día y hora (desactivado por defecto). Además, incluye el modo **Learn with Music** para:
-   - Buscar canciones directamente en tu cuenta de **YouTube Music** y vincular pistas mediante URL normalizada (o búsqueda in-app opcional con `YOUTUBE_API_KEY`).
-   - Organizar el catálogo en MySQL **únicamente con metadatos** agrupados por **Artista**, **Colaboraciones** (ej. *ROSÉ & Bruno Mars*) y **Álbum / Mini Álbum / EP / Single / OST** (ej. *BABYMONSTER*, *BLACKPINK*).
-   - Cifrar las explicaciones largas de letras, significados, vocabulario y pronunciación con **E2EE** hacia la sección **`4. Songs & Music Study`** de tu Word local (sin publicar ni almacenar letras en la base de datos para proteger privacidad y derechos de autor).
+5. **📖 Language Learning Studio (`English` · `한국어 Korean` · `🎵 K-Pop EN+KR` + `Gemini AI`):** Cuaderno multilingüe (extensible a futuros idiomas) con vocabulario, gramática, *phrasal verbs/expressions*, transliteración automática **Hangul → Revised Romanization** y asistente de IA optimizado para AWS `t3.micro` (**Google Gemini API** a 0 MB RAM locales + **motor lingüístico local instantáneo sin conexión** para analizar letras mixtas inglés+coreano de K-Pop). Todo se sincroniza cifrado E2EE hacia tu Word local (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y módulo **Learn with Music**:
+   - Busca canciones directamente en YouTube (PC) o YouTube Music (celular) mediante URL normalizada de pista individual (sin alterar tus playlists).
+   - Organiza tu catálogo en MySQL **únicamente con metadatos** agrupados por **Artista**, **Colaboraciones**, **Álbum / Mini Álbum / EP / Single / OST** y filtro por **Idioma** (`English`, `Korean`, `English + Korean (K-Pop)`).
+   - Explica letras y vocabulario con Gemini/IA y cifra las notas completas con **E2EE** hacia la sección **`4. Songs & Music Study`** de tu Word local.
 6. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
    - **Tipos de actividad:** **Evento** (`evento`: clases, citas, reuniones) y **Tarea** (`tarea`).
    - **Dos categorías principales:** **🎓 Universidad** (`universidad`) y **👤 Personal** (`personal`), con filtros rápidos por categoría y tipo, y divisores visuales por categoría dentro de cada bloque del día (**Morning**, **At School / Classes**, **Afternoon**, **Night**).
@@ -41,6 +41,7 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
    - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos, recordatorios, configuración y gestión de cuentas psiquiátricas con activación/desactivación (`#view-medico`).
    - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado a **Resumen Semanal** de ánimo y sueño (`#view-resumen`); bloqueado por RBAC (`403`) en agenda, notas, configuración y recordatorios.
    - **Sesión persistente:** Permanece activa mediante cookie `HttpOnly; SameSite=Lax` y tabla `SesionesAuth` hasta cerrar sesión (**Sign Out**) o hasta el **domingo `00:00`**.
+   - **Transporte de Red Cifrado sobre HTTP ("HTTPS Simulado"):** Túnel híbrido **`X25519 (Curve25519 ECDH) + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)`** (`public/transport-crypto.js` ↔ `lib/transport-crypto.js`) que cifra en el navegador las peticiones y respuestas `/api/*` incluso en orígenes HTTP (`http://IP:3000`) con *Forward Secrecy*, detección de manipulación y alto rendimiento para payloads grandes.
    - **Seguridad Checklist U2:** Contraseñas con `bcryptjs` (12 rondas), tokens SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`), *rate limiting* multicapa en API/Auth/acciones de recordatorio, protección SSRF en URLs de notificación, idempotencia (`X-Idempotency-Key` + locks en botones), MFA opcional y recuperación por correo (`nodemailer`).
 10. **🎛️ Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y cambio de tema desde barra lateral, móvil y *Settings*.
 
@@ -76,8 +77,12 @@ mood-tracker/
 │   ├── index.html                  # Shell principal, tray de recordatorios, Agenda Jira y vista Settings
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
 │   ├── theme-init.js               # Inicialización temprana de tema antes del primer pintado (CSP)
+│   ├── transport-crypto.js         # Cliente X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 en navegador HTTP
 │   ├── style.css                   # Estilos responsivos, spinners, filtros Jira y vista Settings
-│   └── frontend.js                 # Navegación, E2EE, agenda categórica/Jira, recordatorios y settings
+│   └── frontend.js                 # Navegación, túnel cifrado, E2EE, AI Studio, agenda/horario y settings
+├── lib/                            # Módulos backend desacoplados (0 dependencias extra)
+│   ├── transport-crypto.js         # Gestor OpenSSL X25519 + AES-256-CTR-HMAC en Node.js
+│   └── language-studio.js          # Registro multilingüe, Romanización Hangul y cliente Gemini API
 ├── scripts/
 │   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
 │   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor EC2
@@ -196,12 +201,20 @@ EOF
   * Body: `{ "fecha": "2026-11-13", "horas": 7.5, "calidad": "Good" }`
 * `GET /api/get-sleep?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, horas, calidad }` en el rango.
 
-### Journal Notes & English Learning Notebook (PC Word Sync + Learn with Music)
+### Journal Notes, Language Learning Studio & AI (PC Word Sync + Learn with Music)
 * `POST /api/send-to-pc` y `GET /api/pull-text`: Cola E2EE para el diario privado protegido con contraseña.
-* `POST /api/send-english` y `GET /api/pull-english`: Cola E2EE para el cuaderno Word local de inglés (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs` y `4. Songs & Music Study`).
+* `POST /api/send-english` y `GET /api/pull-english`: Cola E2EE para el cuaderno Word local multilingüe (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs` y `4. Songs & Music Study`).
+* `GET /api/language/registry`: Lista los idiomas configurados (`en`, `ko`, `en_ko` K-Pop), modelos Gemini recomendados y estado de clave.
+* `POST /api/language/romanize`: Translitera texto Hangul (`한국어`) a Romanización Revisada instantáneamente (`0 MB RAM`).
+* `POST /api/language/analyze`: Analiza letras o frases vía **Google Gemini API** (configurable por modelo) o **motor local EN/KR**, devolviendo traducción, explicación línea por línea, romanización y borrador listo para Word.
 * `GET /api/english/music/catalog`: Lista artistas, colaboraciones, álbumes / mini álbumes y metadatos de canciones del propietario (`admin`).
-* `GET /api/english/music/search?q=...` y `POST /api/english/music/resolve`: Genera enlace directo de búsqueda en **YouTube Music**, valida/normaliza URLs (`youtu.be`, `youtube.com`, `music.youtube.com`) sin riesgo SSRF y obtiene título/artista vía oEmbed oficial.
-* `POST /api/english/music/songs`, `PUT /api/english/music/songs/:id`, `PATCH /api/english/music/songs/:id/status` y `DELETE /api/english/music/songs/:id`: Gestión de canciones por artista/colaboración y tipo de lanzamiento (bloquea textos largos >255 caracteres para mantener letras fuera de MySQL).
+* `GET /api/english/music/search?q=...` y `POST /api/english/music/resolve`: Genera enlace directo de búsqueda en **YouTube / YouTube Music**, valida/normaliza URLs (`youtu.be`, `youtube.com`, `music.youtube.com`) sin riesgo SSRF y obtiene título/artista vía oEmbed oficial.
+* `POST /api/english/music/songs`, `PUT /api/english/music/songs/:id`, `PATCH /api/english/music/songs/:id/status` y `DELETE /api/english/music/songs/:id`: Gestión de canciones por artista/colaboración, idioma y tipo de lanzamiento (bloquea textos largos >255 caracteres para mantener letras fuera de MySQL).
+
+### Transporte Híbrido Cifrado ("HTTPS Simulado" sobre HTTP)
+* `POST /api/transport/handshake`: Intercambio efímero **X25519 (Curve25519 ECDH) + HKDF-SHA256** que establece `encKey` y `macKey` simétricas en RAM (TTL 12h).
+* `GET /api/transport/status`: Estado del túnel, conteo de mensajes cifrados y rechazo HMAC/replay.
+* `POST /api/transport/benchmark`: Prueba en vivo de rendimiento y verificación SHA-256 sobre payloads grandes (`1 KB` – `192+ KB`) cifrados con **AES-256-CTR + HMAC-SHA256**.
 
 ### Agenda Personal Semanal (Eventos, Tareas y Estados Jira)
 * `GET /api/get-agenda?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Lista actividades con `tipo` (`evento`/`tarea`), `categoria` (`universidad`/`personal`), `estado` (`todo`/`in_progress`/`done`), `completada` y `recordatorio_min`.

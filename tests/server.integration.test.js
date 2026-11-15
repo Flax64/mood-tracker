@@ -1790,6 +1790,197 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(syncVacBody.inserted, 0, 'Durante periodo de vacaciones no debe programar clases');
     });
 
+    it('soporta túnel de transporte cifrado X25519 + AES-256-CTR + HMAC-SHA256 para grandes volúmenes, rechaza manipulación/replay y expone Studio Multilingüe EN/KR/K-Pop', async () => {
+        const clientTC = require('../public/transport-crypto');
+        const tunnel = clientTC.createClientTunnel();
+        const kp = clientTC.generateX25519KeyPair();
+
+        // 1. Handshake asimétrico X25519 efímero con el servidor HTTP
+        const hsRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/transport/handshake',
+            body: { clientPub: Buffer.from(kp.publicKey).toString('base64') }
+        });
+        assert.strictEqual(hsRes.status, 200);
+        const hsJson = JSON.parse(hsRes.body);
+        assert.strictEqual(hsJson.protocol, 'x25519-aes256ctr-hmac-v1');
+        tunnel.deriveSessionFromHandshake(kp.privateKey, hsJson);
+
+        // 2. Payload grande (192 KB) viajando cifrado en petición Y respuesta (sin texto plano en red)
+        const bigText = 'K-POP-ENCRYPTED-STREAM-'.repeat(8550); // ~196 KB
+        assert.ok(bigText.length >= 190000);
+        const envBig = tunnel.encryptText(JSON.stringify({ samplePayload: bigText, echo: false }));
+        assert.ok(!envBig.ct.includes('K-POP-ENCRYPTED-STREAM'), 'El texto plano no debe viajar visible en ciphertext');
+
+        const benchRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/transport/benchmark',
+            headers: {
+                Cookie: adminCookie,
+                'X-Transport-Session': hsJson.kid,
+                'X-Transport-Accept-Enc': '1'
+            },
+            body: envBig
+        });
+        assert.strictEqual(benchRes.status, 200);
+        assert.strictEqual(benchRes.headers['x-transport-encrypted'], 'x25519-aes256ctr-hmac-v1');
+        const encBenchEnv = JSON.parse(benchRes.body);
+        assert.strictEqual(encBenchEnv.__enc, 'x25519-aes256ctr-hmac-v1');
+        const decBench = JSON.parse(tunnel.decryptEnvelope(encBenchEnv, 's2c'));
+        assert.strictEqual(decBench.encryptedIn, true);
+        assert.ok(decBench.payloadBytes >= 190000);
+
+        // 3. Defensa Encrypt-then-MAC contra manipulación del paquete (MITM bit-flip) y Replay
+        const tamperedEnv = { ...envBig, ct: `${envBig.ct.slice(0, -4)}AAAA` };
+        const tamperedRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/transport/benchmark',
+            headers: { Cookie: adminCookie, 'X-Transport-Session': hsJson.kid },
+            body: tamperedEnv
+        });
+        assert.strictEqual(tamperedRes.status, 400);
+        assert.strictEqual(JSON.parse(tamperedRes.body).code, 'TRANSPORT_MAC_INVALID');
+
+        const replayRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/transport/benchmark',
+            headers: { Cookie: adminCookie, 'X-Transport-Session': hsJson.kid },
+            body: envBig
+        });
+        assert.strictEqual(replayRes.status, 409);
+        assert.strictEqual(JSON.parse(replayRes.body).code, 'TRANSPORT_REPLAY');
+
+        // 4. Registro multilingüe, Romanización Hangul algorítmica y Analizador K-Pop EN+KR cifrado en tránsito
+        const regRes = await request({
+            port,
+            reqPath: '/api/language/registry',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(regRes.status, 200);
+        const regJson = JSON.parse(regRes.body);
+        assert.ok(regJson.languages.some((l) => l.id === 'ko'));
+        assert.ok(regJson.languages.some((l) => l.id === 'en_ko'));
+
+        const romRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/romanize',
+            headers: { Cookie: adminCookie },
+            body: { text: '사랑해 마음에 없어' }
+        });
+        assert.strictEqual(romRes.status, 200);
+        assert.strictEqual(JSON.parse(romRes.body).romanization, 'saranghae maeume eopseo');
+
+        const analyzeEnv = tunnel.encryptText(JSON.stringify({
+            text: "I wanna hold on\n영원히 너의 마음에",
+            language: 'en_ko',
+            songTitle: 'Golden Hour',
+            mode: 'offline'
+        }));
+        const analyzeRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/analyze',
+            headers: {
+                Cookie: adminCookie,
+                'X-Transport-Session': hsJson.kid,
+                'X-Transport-Accept-Enc': '1'
+            },
+            body: analyzeEnv
+        });
+        assert.strictEqual(analyzeRes.status, 200);
+        const analyzeJson = JSON.parse(tunnel.decryptEnvelope(JSON.parse(analyzeRes.body), 's2c'));
+        assert.strictEqual(analyzeJson.engine, 'local-linguistic');
+        assert.strictEqual(analyzeJson.language, 'en_ko');
+        assert.ok(analyzeJson.lines.some((l) => l.romanization.includes('yeongwonhi')));
+        assert.ok(analyzeJson.vocabulary.some((v) => v.term === 'hold on' || v.term === '영원히'));
+        assert.ok(analyzeJson.languageMemory && Array.isArray(analyzeJson.languageMemory.terms));
+        assert.ok(analyzeJson.languageMemory.terms.length >= 1, 'Debe guardar vocabulario aprendido en languageMemory');
+
+        // 4b. Consistencia de memoria de IA: al volver a estudiar una palabra ya vista, la recuerda de languageMemory
+        const addMemRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/memory',
+            headers: { Cookie: adminCookie },
+            body: {
+                terms: [{
+                    term: '별빛',
+                    romanization: 'byeolbit',
+                    meaning: 'Starlight / Luz de las estrellas (saved by student)',
+                    category: 'vocabulary',
+                    language: 'ko'
+                }]
+            }
+        });
+        assert.strictEqual(addMemRes.status, 200);
+
+        const secondAnalyzeRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/analyze',
+            headers: { Cookie: adminCookie },
+            body: {
+                text: '밤하늘의 별빛 아래에서 hold on',
+                language: 'en_ko',
+                mode: 'offline'
+            }
+        });
+        assert.strictEqual(secondAnalyzeRes.status, 200);
+        const secondAnalyzeJson = JSON.parse(secondAnalyzeRes.body);
+        assert.ok(
+            Array.isArray(secondAnalyzeJson.recognizedFromMemory) &&
+            secondAnalyzeJson.recognizedFromMemory.some((m) => m.term === '별빛' && m.meaning.includes('Starlight')),
+            'La IA debe recordar términos aprendidos previamente y mantener su definición consistente'
+        );
+        assert.ok(
+            secondAnalyzeJson.vocabulary.some((v) => v.term === '별빛' && v.learnedPreviously === true),
+            'El vocabulario devuelto debe marcar learnedPreviously=true para palabras ya estudiadas'
+        );
+
+        // 4c. Recordatorios activos incluyen targetDate y targetMoment para autoseleccionar fecha y bloque al tocar la notificación
+        const remCheckRes = await request({
+            port,
+            method: 'GET',
+            reqPath: '/api/reminders/active',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(remCheckRes.status, 200);
+        const remCheckJson = JSON.parse(remCheckRes.body);
+        if (Array.isArray(remCheckJson.active)) {
+            for (const rem of remCheckJson.active) {
+                if (rem.type === 'mood') {
+                    assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(rem.targetDate), 'Mood reminder debe incluir targetDate YYYY-MM-DD');
+                    assert.ok(rem.targetMoment, 'Mood reminder debe incluir targetMoment');
+                }
+            }
+        }
+
+        // 5. Gemini API Key se guarda en ConfiguracionUsuario pero nunca se devuelve en texto plano en GET/PUT settings
+        const saveAiSettingsRes = await request({
+            port,
+            method: 'PUT',
+            reqPath: '/api/settings',
+            headers: { Cookie: adminCookie },
+            body: {
+                preferredStudyLanguage: 'ko',
+                geminiModel: 'gemini-2.5-pro',
+                geminiApiKey: 'AIzaSyFakeIntegrationKey987654'
+            }
+        });
+        assert.strictEqual(saveAiSettingsRes.status, 200);
+        const savedSetJson = JSON.parse(saveAiSettingsRes.body).settings;
+        assert.strictEqual(savedSetJson.preferredStudyLanguage, 'ko');
+        assert.strictEqual(savedSetJson.geminiModel, 'gemini-2.5-pro');
+        assert.strictEqual(savedSetJson.geminiApiKeyConfigured, true);
+        assert.strictEqual(savedSetJson.geminiApiKey, undefined, 'La API key cruda nunca debe exponerse al cliente');
+        assert.ok(savedSetJson.geminiApiKeyHint.startsWith('AIza'));
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;

@@ -276,11 +276,13 @@ describe('Bóveda local (.env / .env.enc)', () => {
             'parsed_pv = sincronizador.parsear_entrada_ingles(decrypted)',
             '',
             'vocab = sincronizador.parsear_entrada_ingles(json.dumps({"category": "vocabulary", "word": "Resilience", "part_of_speech": "Noun", "spanish": "Resiliencia", "example": "Build resilience."}))',
+            'vocab_kpop = sincronizador.parsear_entrada_ingles(json.dumps({"category": "vocabulary", "language": "English + Korean (K-Pop)", "word": "마음", "romanization": "maeum", "part_of_speech": "Noun", "spanish": "Corazón / feelings", "example": "너의 마음"}))',
             'grammar = sincronizador.parsear_entrada_ingles(json.dumps({"category": "grammar", "title": "Make vs Do", "notes": "Line one\\nLine two", "example": "Make progress\\nDo homework"}))',
             'music = sincronizador.parsear_entrada_ingles(json.dumps({"category": "music", "song_title": "APT.", "artists_display": "ROSÉ (feat. Bruno Mars)", "album_title": "APT.", "album_type": "Collab Single", "release_year": "2024", "yt_music_url": "https://music.youtube.com/watch?v=ekr2nIex040", "focus_summary": "Colloquial expressions", "lyrics_study": "Verse breakdown line 1\\nChorus idiom note"}))',
             'dt = datetime(2026, 11, 14, 15, 30)',
             'specs = {',
             '  "vocab": sincronizador.formatear_entrada_ingles(vocab, dt),',
+            '  "vocab_kpop": sincronizador.formatear_entrada_ingles(vocab_kpop, dt),',
             '  "grammar": sincronizador.formatear_entrada_ingles(grammar, dt),',
             '  "pv": sincronizador.formatear_entrada_ingles(parsed_pv, dt),',
             '  "music": sincronizador.formatear_entrada_ingles(music, dt),',
@@ -324,6 +326,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
         assert.equal(out.no_internal_newlines, true);
         assert.equal(out.specs.vocab.section_title, '1. Glossary & New Words');
         assert.equal(out.specs.vocab.heading, 'Resilience (Noun) — Resiliencia');
+        assert.equal(out.specs.vocab_kpop.heading, '마음 [maeum] (Noun) — Corazón / feelings');
+        assert.ok(out.specs.vocab_kpop.lines.some((l) => l.label === 'Romanization: ' && l.text === 'maeum'));
         assert.equal(out.specs.grammar.section_title, '2. Grammar & Usage Notes');
         assert.equal(out.specs.grammar.heading, 'Make vs Do');
         assert.equal(out.specs.pv.section_title, '3. Phrasal Verbs');

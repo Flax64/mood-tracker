@@ -6,6 +6,24 @@ const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
+const {
+    TRANSPORT_PROTOCOL,
+    createTransportManager
+} = require('./lib/transport-crypto');
+const {
+    RECOMMENDED_GEMINI_MODELS,
+    getLanguageRegistry,
+    normalizeStudyLanguage,
+    validateGeminiModelId,
+    hangulToRomanization,
+    detectScriptKind,
+    sanitizeLanguageMemory,
+    mergeLanguageMemory,
+    analyzeTextOffline,
+    analyzeWithGemini
+} = require('./lib/language-studio');
+
+const transportManager = createTransportManager();
 
 const app = express();
 app.disable('x-powered-by');
@@ -34,8 +52,13 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '64kb' }));
+app.use(cors({
+    origin: true,
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'X-Idempotency-Key', 'X-Transport-Session', 'X-Transport-Accept-Enc'],
+    exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
+}));
+app.use(express.json({ limit: '512kb' }));
 app.use((err, req, res, next) => {
     if (err && err.type === 'entity.parse.failed') {
         return res.status(400).send('Invalid JSON payload.');
@@ -46,6 +69,98 @@ app.use((err, req, res, next) => {
     return next(err);
 });
 app.use('/api', (req, res, next) => {
+    if (req.path === '/transport/handshake') {
+        return next();
+    }
+
+    const headerKid = typeof req.headers['x-transport-session'] === 'string'
+        ? req.headers['x-transport-session'].trim()
+        : '';
+    const wantsEncryptedRes = req.headers['x-transport-accept-enc'] === '1';
+
+    if (req.body && typeof req.body === 'object' && !Array.isArray(req.body) && req.body.__enc) {
+        try {
+            const t0 = performance.now();
+            const dec = transportManager.decryptEnvelope(req.body, 'c2s');
+            req.transportDecryptMs = Number((performance.now() - t0).toFixed(3));
+            req.transportSession = dec.session;
+            req.transportSeq = dec.seq;
+            req.transportEncryptedIn = true;
+
+            if (dec.plaintext === '') {
+                req.body = {};
+            } else {
+                const parsed = JSON.parse(dec.plaintext);
+                req.body = parsed;
+            }
+        } catch (err) {
+            if (err && err.code === 'TRANSPORT_SESSION_EXPIRED') {
+                res.setHeader('X-Transport-Rehandshake', '1');
+            }
+            return res.status(err.status || 400).json({
+                error: err.message || 'Encrypted transport decryption failed.',
+                code: err.code || 'TRANSPORT_ERROR'
+            });
+        }
+    } else if (headerKid) {
+        try {
+            req.transportSession = transportManager.getActiveSession(headerKid, { touch: true });
+        } catch (err) {
+            res.setHeader('X-Transport-Rehandshake', '1');
+            return res.status(428).json({
+                error: err.message || 'Transport session expired.',
+                code: 'TRANSPORT_SESSION_EXPIRED'
+            });
+        }
+    }
+
+    if (req.transportSession && wantsEncryptedRes && !res.locals._transportWrapped) {
+        res.locals._transportWrapped = true;
+        const rawJson = res.json.bind(res);
+        const rawSend = res.send.bind(res);
+        let encryptingOut = false;
+
+        const sendEncrypted = (plaintextStr, innerType) => {
+            if (encryptingOut) return rawSend(plaintextStr);
+            encryptingOut = true;
+            try {
+                const tEnc0 = performance.now();
+                const envelope = transportManager.encryptPayload(
+                    req.transportSession.kid,
+                    plaintextStr,
+                    's2c',
+                    req.transportSeq || 0
+                );
+                res.setHeader('X-Transport-Encrypted', TRANSPORT_PROTOCOL);
+                res.setHeader('X-Transport-Inner-Type', innerType);
+                res.setHeader('X-Transport-Server-Ms', String(Number((performance.now() - tEnc0).toFixed(3))));
+                return rawJson(envelope);
+            } finally {
+                encryptingOut = false;
+            }
+        };
+
+        res.json = (body) => {
+            if (encryptingOut) return rawJson(body);
+            return sendEncrypted(JSON.stringify(body === undefined ? null : body), 'application/json; charset=utf-8');
+        };
+
+        res.send = (body) => {
+            if (encryptingOut) return rawSend(body);
+            if (body === undefined || body === null) {
+                return sendEncrypted('', 'text/plain; charset=utf-8');
+            }
+            if (Buffer.isBuffer(body)) {
+                return rawSend(body);
+            }
+            if (typeof body === 'object') {
+                return sendEncrypted(JSON.stringify(body), 'application/json; charset=utf-8');
+            }
+            const currentType = String(res.getHeader('Content-Type') || 'text/plain; charset=utf-8');
+            return sendEncrypted(String(body), currentType);
+        };
+    }
+
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
         if (req.body === undefined) {
             req.body = {};
@@ -592,6 +707,12 @@ const reminderActionLimiter = createRateLimiter({
     maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_REMINDER_ACTION_MAX, 30),
     windowMs: 15 * 60 * 1000,
     message: 'Too many reminder actions. Please wait a moment.'
+});
+
+const transportHandshakeLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_HANDSHAKE_MAX, 120),
+    windowMs: 60 * 1000,
+    message: 'Too many transport handshake attempts. Please wait a moment.'
 });
 
 // Middleware global anti-DoS sobre /api/*
@@ -2656,7 +2777,32 @@ function getDefaultUserSettings() {
         englishReminderTime: '19:00',
         englishReminderDays: [1, 2, 3, 4, 5],
         englishReminderTopic: 'Practice vocabulary, grammar notes, and phrasal verbs',
+        preferredStudyLanguage: 'en_ko',
+        geminiModel: 'gemini-2.5-flash',
+        geminiApiKey: '',
+        languageMemory: sanitizeLanguageMemory(),
         academicPlanner: getDefaultAcademicPlanner()
+    };
+}
+
+function maskGeminiApiKey(key) {
+    const clean = String(key || '').trim();
+    if (!clean) return '';
+    if (clean.length <= 8) return '••••••••';
+    return `${clean.slice(0, 4)}••••${clean.slice(-4)}`;
+}
+
+function sanitizeSettingsForClient(settings = {}) {
+    const { geminiApiKey, ...rest } = settings;
+    const hasUserKey = Boolean(String(geminiApiKey || '').trim());
+    const hasEnvKey = Boolean(String(process.env.GEMINI_API_KEY || '').trim());
+    return {
+        ...rest,
+        geminiApiKeyConfigured: hasUserKey || hasEnvKey,
+        geminiKeySource: hasUserKey ? 'user' : (hasEnvKey ? 'server_env' : 'none'),
+        geminiApiKeyHint: hasUserKey
+            ? maskGeminiApiKey(geminiApiKey)
+            : (hasEnvKey ? 'Server GEMINI_API_KEY active' : '')
     };
 }
 
@@ -2840,6 +2986,30 @@ function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()
         next.englishReminderTopic = topicText || getDefaultUserSettings().englishReminderTopic;
     }
 
+    if (input.preferredStudyLanguage !== undefined) {
+        next.preferredStudyLanguage = normalizeStudyLanguage(input.preferredStudyLanguage);
+    }
+
+    if (input.geminiModel !== undefined) {
+        next.geminiModel = validateGeminiModelId(input.geminiModel);
+    }
+
+    if (input.clearGeminiApiKey === true) {
+        next.geminiApiKey = '';
+    } else if (input.geminiApiKey !== undefined) {
+        const rawKey = String(input.geminiApiKey || '').trim();
+        if (rawKey.length > 180) {
+            return { error: 'Gemini API key exceeds maximum allowed length (180 characters).' };
+        }
+        next.geminiApiKey = rawKey;
+    }
+
+    if (input.languageMemory !== undefined) {
+        next.languageMemory = sanitizeLanguageMemory(input.languageMemory);
+    } else {
+        next.languageMemory = sanitizeLanguageMemory(base.languageMemory);
+    }
+
     if (input.academicPlanner !== undefined) {
         next.academicPlanner = sanitizeAcademicPlanner(input.academicPlanner, base.academicPlanner);
     } else {
@@ -2972,6 +3142,9 @@ function computeCandidateReminders({
                 title: `Mood Check-in (${activeWin.label})`,
                 message: `Mid-${activeWin.label.toLowerCase()} check-in: log how you feel right now in Daily Hub.`,
                 targetView: 'mood',
+                targetDate: dateStr,
+                targetMoment: activeWin.key,
+                pendingMoments: [activeWin.key],
                 canSnooze: true,
                 canComplete: false
             });
@@ -2985,6 +3158,7 @@ function computeCandidateReminders({
             );
             if (missedWindows.length > 0) {
                 const missedLabels = missedWindows.map(w => w.label).join(', ');
+                const firstMissed = missedWindows[0];
                 const latestMissed = missedWindows[missedWindows.length - 1];
                 candidates.push({
                     key: `mood-pending:${dateStr}:${latestMissed.key}`,
@@ -2993,6 +3167,9 @@ function computeCandidateReminders({
                     title: `Pending Mood Check-in (${missedLabels})`,
                     message: `You still have unlogged mood block(s) for today (${missedLabels}). Tap to record your mood in Daily Hub.`,
                     targetView: 'mood',
+                    targetDate: dateStr,
+                    targetMoment: firstMissed.key,
+                    pendingMoments: missedWindows.map(w => w.key),
                     canSnooze: true,
                     canComplete: false
                 });
@@ -3011,6 +3188,7 @@ function computeCandidateReminders({
                 title: 'Morning Sleep Log',
                 message: 'Remember to log last night’s bedtime, wake-up time, and rest quality. You can snooze if needed.',
                 targetView: 'sueno',
+                targetDate: dateStr,
                 canSnooze: true,
                 canComplete: false
             });
@@ -3051,6 +3229,9 @@ function computeCandidateReminders({
                     title: `[${catLabel} ${typeLabel}] ${item.hora}${statusBadge}`,
                     message: `${item.actividad}${itemLead > 0 && minutesOfDay < itemMin ? ` (starts at ${item.hora})` : (isOverdueToday ? ' — Pending completion' : '')}`,
                     targetView: 'agenda',
+                    targetDate: item.fecha || dateStr,
+                    targetTime: item.hora || '',
+                    targetBlock: item.bloque || '',
                     canSnooze: true,
                     canComplete: true
                 });
@@ -3077,6 +3258,9 @@ function computeCandidateReminders({
                     title: `[Pending ${catLabel} Task] ${task.fecha === dateStr ? task.hora : task.fecha}`,
                     message: `${task.actividad} (${estado === 'in_progress' ? 'In Progress' : 'To Do'} — tap Mark Done when finished)`,
                     targetView: 'agenda',
+                    targetDate: task.fecha || dateStr,
+                    targetTime: task.hora || '',
+                    targetBlock: task.bloque || '',
                     canSnooze: true,
                     canComplete: true
                 });
@@ -3145,6 +3329,8 @@ function computeCandidateReminders({
                         title: `[Clase ITS ${course.startTime}] ${course.name} · Aula ${roomMeta.room}`,
                         message: `${roomMeta.campusName} (${roomMeta.plano} · ${roomMeta.building}). ${routeSummary}. Aviso ${leadMin} min antes.`,
                         targetView: 'horario',
+                        targetTab: 'semesters',
+                        targetDate: dateStr,
                         mapsUrl: commute.mapsUrl,
                         canSnooze: true,
                         canComplete: false
@@ -3186,6 +3372,8 @@ function computeCandidateReminders({
                 title: `[Residencias ${planner.residencias.startTime}] ${placeLabel}`,
                 message: `${planner.residencias.projectName ? `${planner.residencias.projectName}. ` : ''}${transitText}`,
                 targetView: 'horario',
+                targetTab: 'residencias',
+                targetDate: dateStr,
                 mapsUrl: planner.residencias.modality === 'remoto' ? '' : commute.mapsUrl,
                 canSnooze: true,
                 canComplete: false
@@ -3223,6 +3411,8 @@ function computeCandidateReminders({
                 title: `[Trabajo ${shiftTypeLabel} ${planner.work.startTime}] ${companyLabel}`,
                 message: `${planner.work.roleTitle ? `${planner.work.roleTitle} — ` : ''}${transitText}`,
                 targetView: 'horario',
+                targetTab: 'work',
+                targetDate: dateStr,
                 mapsUrl: planner.work.modality === 'remoto' ? '' : commute.mapsUrl,
                 canSnooze: true,
                 canComplete: false
@@ -3329,7 +3519,19 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
     };
 
     if (baseUrl) {
-        const targetUrl = `${baseUrl}/#${reminder.targetView || 'inicio'}`;
+        const params = new URLSearchParams();
+        if (reminder.targetDate) params.set('rDate', String(reminder.targetDate));
+        if (reminder.targetMoment) params.set('rMoment', String(reminder.targetMoment));
+        if (reminder.targetTime) params.set('rTime', String(reminder.targetTime));
+        if (reminder.targetBlock) params.set('rBlock', String(reminder.targetBlock));
+        if (reminder.targetTab) params.set('rTab', String(reminder.targetTab));
+        if (reminder.refId) params.set('rRef', String(reminder.refId));
+        if (Array.from(params.keys()).length > 0 && reminder.targetView) {
+            params.set('rView', String(reminder.targetView));
+        }
+        const qs = params.toString();
+        const targetUrl = `${baseUrl}/${qs ? `?${qs}` : ''}#${reminder.targetView || 'inicio'}`;
+        jsonPayload.click = targetUrl;
         const actions = [
             {
                 action: 'view',
@@ -3570,7 +3772,7 @@ if (process.env.DISABLE_REMINDER_SCHEDULER !== 'true') {
 app.get('/api/settings', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
     try {
         const settings = await loadUserSettings(req.user.id);
-        res.json({ settings });
+        res.json({ settings: sanitizeSettingsForClient(settings) });
     } catch (err) {
         console.error(err);
         res.status(500).send('Error loading settings.');
@@ -3585,7 +3787,10 @@ app.put('/api/settings', apiWriteLimiter.middleware, requireAdmin, requireNonEmp
             return res.status(400).send(result.error);
         }
         await saveUserSettings(req.user.id, result.settings);
-        res.json({ message: 'Settings saved successfully.', settings: result.settings });
+        res.json({
+            message: 'Settings saved successfully.',
+            settings: sanitizeSettingsForClient(result.settings)
+        });
     } catch (err) {
         console.error(err);
         res.status(500).send('Error saving settings.');
@@ -4741,6 +4946,204 @@ app.delete('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAd
     } catch (err) {
         console.error(err);
         res.status(500).send('Error deleting song.');
+    }
+});
+
+// =========================================================================
+// SIMULATED HTTPS HYBRID TRANSPORT LAYER (X25519 + AES-256-CTR + HMAC-SHA256)
+// =========================================================================
+app.post('/api/transport/handshake', transportHandshakeLimiter.middleware, requireNonEmptyBody, (req, res) => {
+    try {
+        const result = transportManager.createHandshakeResponse(req.body.clientPub);
+        res.json(result);
+    } catch (err) {
+        res.status(err.status || 400).json({
+            error: err.message || 'Transport handshake failed.',
+            code: err.code || 'TRANSPORT_HANDSHAKE_ERROR'
+        });
+    }
+});
+
+app.get('/api/transport/status', apiReadLimiter.middleware, (req, res) => {
+    const kid = typeof req.headers['x-transport-session'] === 'string'
+        ? req.headers['x-transport-session'].trim()
+        : null;
+    res.json(transportManager.getStatusSnapshot(kid));
+});
+
+app.post('/api/transport/benchmark', apiWriteLimiter.middleware, requireAuth, requireNonEmptyBody, (req, res) => {
+    const startedNs = process.hrtime.bigint();
+    const rawPayload = typeof req.body.samplePayload === 'string'
+        ? req.body.samplePayload
+        : JSON.stringify(req.body.samplePayload || {});
+    const byteLength = Buffer.byteLength(rawPayload, 'utf8');
+    const sha256 = crypto.createHash('sha256').update(rawPayload, 'utf8').digest('hex').slice(0, 16);
+    const serverProcessMs = Number(Number(process.hrtime.bigint() - startedNs) / 1e6).toFixed(3);
+
+    res.json({
+        ok: true,
+        encryptedIn: Boolean(req.transportEncryptedIn),
+        serverDecryptMs: req.transportDecryptMs ?? null,
+        serverProcessMs: Number(serverProcessMs),
+        payloadBytes: byteLength,
+        sha256Prefix: sha256,
+        echoSample: req.body.echo ? rawPayload : undefined,
+        protocol: TRANSPORT_PROTOCOL
+    });
+});
+
+// =========================================================================
+// MULTI-LANGUAGE STUDY & AI LYRICS ENGINE (English, Korean, K-Pop EN+KR)
+// =========================================================================
+app.get('/api/language/registry', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        const mem = sanitizeLanguageMemory(settings.languageMemory);
+        res.json({
+            languages: getLanguageRegistry(),
+            geminiModels: RECOMMENDED_GEMINI_MODELS,
+            preferredStudyLanguage: settings.preferredStudyLanguage || 'en_ko',
+            activeGeminiModel: settings.geminiModel || 'gemini-2.5-flash',
+            geminiKeyConfigured: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY),
+            languageMemory: mem
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error loading language registry.');
+    }
+});
+
+app.get('/api/language/memory', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        res.json({
+            languageMemory: sanitizeLanguageMemory(settings.languageMemory)
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error loading AI language learning memory.');
+    }
+});
+
+app.post('/api/language/memory', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        if (req.body.clear === true) {
+            settings.languageMemory = sanitizeLanguageMemory();
+        } else {
+            settings.languageMemory = mergeLanguageMemory(settings.languageMemory, {
+                terms: Array.isArray(req.body.terms) ? req.body.terms : (req.body.term || req.body.word ? [req.body] : []),
+                grammarNotes: Array.isArray(req.body.grammarNotes) ? req.body.grammarNotes : [],
+                songTitle: req.body.songTitle || '',
+                artistName: req.body.artistName || '',
+                language: req.body.language || settings.preferredStudyLanguage || 'en_ko',
+                customContext: req.body.customContext
+            });
+        }
+        await saveUserSettings(req.user.id, settings);
+        res.json({
+            message: 'AI Learning Memory updated.',
+            languageMemory: settings.languageMemory
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error updating AI language learning memory.');
+    }
+});
+
+app.post('/api/language/romanize', apiReadLimiter.middleware, requireAdmin, requireNonEmptyBody, (req, res) => {
+    const text = String(req.body.text || '').trim().slice(0, 5000);
+    if (!text) {
+        return res.status(400).send('Provide Korean text or mixed lyrics to romanize.');
+    }
+    return res.json({
+        text,
+        script: detectScriptKind(text),
+        romanization: hangulToRomanization(text)
+    });
+});
+
+app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    try {
+        const text = String(req.body.text || '').trim();
+        const question = String(req.body.question || '').trim();
+        if (!text && !question) {
+            return res.status(400).send('Paste lyrics, a phrase, or a language question to analyze.');
+        }
+        if (text.length > 10000 || question.length > 1000) {
+            return res.status(400).send('Lyrics text cannot exceed 10,000 characters.');
+        }
+
+        const settings = await loadUserSettings(req.user.id);
+        const currentMemory = sanitizeLanguageMemory(settings.languageMemory);
+        const mode = ['auto', 'gemini', 'offline'].includes(String(req.body.mode || 'auto').toLowerCase())
+            ? String(req.body.mode || 'auto').toLowerCase()
+            : 'auto';
+        const language = normalizeStudyLanguage(req.body.language || settings.preferredStudyLanguage || 'en_ko');
+        const model = validateGeminiModelId(req.body.model || settings.geminiModel || 'gemini-2.5-flash');
+        const inlineKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
+        const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
+        const songTitle = String(req.body.songTitle || '').trim().slice(0, 180);
+        const artistName = String(req.body.artistName || '').trim().slice(0, 140);
+
+        let result;
+        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+            result = analyzeTextOffline({
+                text,
+                question,
+                language,
+                songTitle,
+                artistName,
+                learningMemory: currentMemory
+            });
+        } else {
+            result = await analyzeWithGemini({
+                apiKey: effectiveKey,
+                model,
+                text,
+                question,
+                language,
+                songTitle,
+                artistName,
+                learningMemory: currentMemory
+            });
+        }
+
+        // Persist newly learned terms, grammar notes, and studied songs into user's AI memory bank
+        if (req.body.remember !== false) {
+            const termsToRemember = [
+                ...(Array.isArray(result.vocabulary) ? result.vocabulary.slice(0, 8) : []),
+                ...(result.wordNoteDraft && result.wordNoteDraft.word
+                    ? [{
+                        term: result.wordNoteDraft.word,
+                        meaning: result.wordNoteDraft.meaning,
+                        category: 'vocabulary',
+                        language: result.language || language
+                    }]
+                    : [])
+            ];
+            settings.languageMemory = mergeLanguageMemory(currentMemory, {
+                terms: termsToRemember,
+                grammarNotes: Array.isArray(result.culturalAndGrammarNotes)
+                    ? result.culturalAndGrammarNotes.filter((n) => !String(n).startsWith('🧠 Memory Recall:')).slice(0, 3)
+                    : [],
+                songTitle,
+                artistName,
+                language: result.language || language
+            });
+            await saveUserSettings(req.user.id, settings);
+        }
+
+        res.json({
+            ...result,
+            languageMemory: settings.languageMemory,
+            memoryTotalTerms: settings.languageMemory.terms.length,
+            availableModels: RECOMMENDED_GEMINI_MODELS,
+            geminiKeyConfigured: Boolean(effectiveKey)
+        });
+    } catch (err) {
+        console.error('[LANGUAGE_ANALYZE_ERROR]', err);
+        res.status(500).send('Error running language & lyrics analysis.');
     }
 });
 

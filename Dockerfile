@@ -11,6 +11,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Copiar únicamente el código necesario de la app (excluido el resto vía .dockerignore)
 COPY server.js ./
 COPY public ./public
+COPY lib ./lib
 
 EXPOSE 3000
 
