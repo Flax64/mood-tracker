@@ -2973,6 +2973,48 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             assert.strictEqual(diagJson.suggestedModel, 'gemini-2.5-flash');
             assert.ok(Array.isArray(diagJson.availableModels) && diagJson.availableModels.includes('gemini-2.5-flash'));
 
+            // 4b. Multi-hop fallback: omite modelos -tts y recupera en el 3er candidato vivo (gemini-flash-latest)
+            global.fetch = async (url) => {
+                const target = String(url);
+                if (target.endsWith('/v1beta/models')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            models: [
+                                { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+                                { name: 'models/gemini-2.5-flash-preview-tts', supportedGenerationMethods: ['generateContent'] },
+                                { name: 'models/gemini-2.5-pro-preview-tts', supportedGenerationMethods: ['generateContent'] },
+                                { name: 'models/gemini-flash-latest', supportedGenerationMethods: ['generateContent'] }
+                            ]
+                        })
+                    };
+                }
+                if (target.includes('/models/gemini-flash-latest:generateContent')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            candidates: [{ content: { parts: [{ text: 'OK' }] } }]
+                        })
+                    };
+                }
+                const errBody = JSON.stringify({ error: { message: 'Model unavailable for generateContent' } });
+                return { ok: false, status: 404, text: async () => errBody, json: async () => JSON.parse(errBody) };
+            };
+            const multiHopDiag = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/test-gemini',
+                headers: { Cookie: adminCookie },
+                body: { model: 'gemini-2.5-flash-lite' }
+            });
+            assert.strictEqual(multiHopDiag.status, 200);
+            const multiHopJson = JSON.parse(multiHopDiag.body);
+            assert.strictEqual(multiHopJson.ok, true);
+            assert.strictEqual(multiHopJson.suggestedModel, 'gemini-flash-latest');
+            assert.strictEqual(multiHopJson.availableModels.some(m => m.includes('-tts')), false);
+
             // 5. Si Gemini falla completamente con 404 en palabra desconocida, cae a local SIN envenenar languageMemory
             global.fetch = async (url) => {
                 const target = String(url);

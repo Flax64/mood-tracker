@@ -7633,6 +7633,19 @@ function initSettingsHandlers() {
         });
     }
 
+    const geminiKeyInput = document.getElementById('setGeminiApiKey');
+    if (geminiKeyInput) {
+        geminiKeyInput.addEventListener('input', () => {
+            const keyStatus = document.getElementById('settingsGeminiKeyStatus');
+            if (geminiKeyInput.value.trim()) {
+                delete geminiKeyInput.dataset.pendingClear;
+                if (keyStatus) {
+                    keyStatus.textContent = 'New Gemini key entered — click "🧪 Test AI Connection" or "Save All Settings" to save it.';
+                }
+            }
+        });
+    }
+
     const btnClearGemini = document.getElementById('btnClearGeminiKey');
     if (btnClearGemini) {
         btnClearGemini.addEventListener('click', () => {
@@ -7657,12 +7670,16 @@ function initSettingsHandlers() {
     if (btnTestGemini) {
         btnTestGemini.addEventListener('click', () => {
             const keyInput = document.getElementById('setGeminiApiKey');
+            const keyStatus = document.getElementById('settingsGeminiKeyStatus');
             const modelSel = document.getElementById('setGeminiModel');
             const customModelInput = document.getElementById('setGeminiCustomModel');
             const customGroup = document.getElementById('setGeminiCustomModelGroup');
             const resultBox = document.getElementById('settingsGeminiTestResult');
 
             const rawKey = String(keyInput?.value || '').trim();
+            if (rawKey && keyInput) {
+                delete keyInput.dataset.pendingClear;
+            }
             const selVal = modelSel?.value || 'gemini-2.5-flash';
             const requestedModel = selVal === '__custom__'
                 ? (String(customModelInput?.value || '').trim() || 'gemini-2.5-flash')
@@ -7682,7 +7699,7 @@ function initSettingsHandlers() {
                         apiKey: rawKey || undefined,
                         model: requestedModel
                     })
-                }, { timeoutMs: 22000 });
+                }, { timeoutMs: 30000 });
 
                 if (!resp.ok || !resp.data) {
                     if (resultBox) {
@@ -7695,6 +7712,11 @@ function initSettingsHandlers() {
                 }
 
                 const diag = resp.data;
+                const availList = Array.isArray(diag.availableModels) ? diag.availableModels : [];
+                const availPreview = availList.length
+                    ? ` Available text models: ${availList.slice(0, 8).join(', ')}.`
+                    : '';
+
                 if (diag.ok) {
                     const activeModel = diag.suggestedModel || diag.model || requestedModel;
                     const modelChanged = activeModel && activeModel !== requestedModel;
@@ -7710,13 +7732,10 @@ function initSettingsHandlers() {
                         }
                     }
 
-                    if (rawKey && keyInput) {
-                        delete keyInput.dataset.pendingClear;
+                    if (rawKey && keyStatus) {
+                        keyStatus.textContent = 'Key verified live — click "Save All Settings" below to store it encrypted.';
                     }
 
-                    const availPreview = Array.isArray(diag.availableModels) && diag.availableModels.length
-                        ? ` Available models: ${diag.availableModels.slice(0, 5).join(', ')}.`
-                        : '';
                     const saveReminder = rawKey
                         ? ' Click "Save All Settings" below to persist this key.'
                         : (modelChanged ? ' Click "Save All Settings" to save this recommended model.' : '');
@@ -7728,9 +7747,6 @@ function initSettingsHandlers() {
                     }
                     showToast('ok', `Gemini OK (${activeModel})`);
                 } else {
-                    const availPreview = Array.isArray(diag.availableModels) && diag.availableModels.length
-                        ? ` Detected models: ${diag.availableModels.slice(0, 5).join(', ')}.`
-                        : '';
                     if (resultBox) {
                         resultBox.hidden = false;
                         resultBox.className = 'inline-status-banner err';
