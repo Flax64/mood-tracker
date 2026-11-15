@@ -337,4 +337,92 @@ describe('Bóveda local (.env / .env.enc)', () => {
         assert.equal(out.url_host, 'http://1.2.3.4:3000/api/pull-english');
         assert.equal(out.url_direct, 'http://5.6.7.8:3000/api/pull-english');
     });
+
+    test('resiliencia de red, UTF-8 con pythonw, padding PKCS#7 y cola cifrada pendiente en sincronizador.py', () => {
+        if (!fs.existsSync(PY_SYNC)) {
+            return;
+        }
+
+        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
+        if (pyCheck.error || pyCheck.status !== 0) {
+            return;
+        }
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'py-sync-resilience-'));
+        try {
+            const pyCode = [
+                'import json, os, sys, requests',
+                'from Crypto.Cipher import AES',
+                'sys.dont_write_bytecode = True',
+                'sync_dir, work_dir = sys.argv[1], sys.argv[2]',
+                'sys.path.insert(0, sync_dir)',
+                'import sincronizador',
+                '',
+                'sincronizador.LOG_PATH = os.path.join(work_dir, "historial.log")',
+                'sincronizador.LAST_HOST_CACHE_PATH = os.path.join(work_dir, ".last_ec2_host.json")',
+                'sincronizador.PENDING_QUEUE_PATH = os.path.join(work_dir, ".pending_e2ee_queue.json")',
+                '',
+                '# 1. Logging UTF-8 seguro aunque sys.stdout sea None (pythonw.exe)',
+                'orig_stdout = sys.stdout',
+                'sys.stdout = None',
+                'sincronizador.inicializar_logging()',
+                'import logging',
+                'logging.info("Prueba UTF-8 sin consola: conexión, falló, español")',
+                'for h in logging.getLogger().handlers:',
+                '    h.flush()',
+                'sys.stdout = orig_stdout',
+                'log_text = open(sincronizador.LOG_PATH, "r", encoding="utf-8").read()',
+                'assert "conexión, falló, español" in log_text',
+                '',
+                '# 2. Padding PKCS#7 inválido o payload con 0x00 al final no regresa cadena vacía sino fallback seguro',
+                'sincronizador.LLAVE_SECRETA = b"12345678901234567890123456789012"',
+                'zero_tail_plain = b"123456789012345\\x00"',
+                'iv = b"0123456789abcdef"',
+                'bad_cipher = AES.new(sincronizador.LLAVE_SECRETA, AES.MODE_CBC, iv).encrypt(zero_tail_plain)',
+                'import base64',
+                'bad_wire = iv.hex() + ":" + base64.b64encode(bad_cipher).decode("utf-8")',
+                'assert sincronizador.desencriptar_texto(bad_wire) == bad_wire',
+                '',
+                '# 3. Offline DNS en GitHub sin caché previo lanza ConnectionError (capturable), nunca RuntimeError',
+                'os.environ["GITHUB_TOKEN"] = "ghp_dummy"',
+                'os.environ["GITHUB_REPO"] = "Flax64/personal-daily-hub"',
+                'os.environ.pop("URL_AWS", None)',
+                'os.environ.pop("AWS_HOST", None)',
+                'sincronizador._github_cache.update({"host": None, "port": None, "fetched_at": 0.0, "last_error": None, "disk_loaded": False})',
+                'def fake_offline(*args, **kwargs):',
+                '    raise requests.exceptions.ConnectionError("DNS offline simulated")',
+                'sincronizador._leer_variable_github = fake_offline',
+                'offline_raised_conn = False',
+                'try:',
+                '    sincronizador.obtener_url_aws("/api/pull-text")',
+                'except requests.exceptions.ConnectionError:',
+                '    offline_raised_conn = True',
+                'assert offline_raised_conn',
+                '',
+                '# 4. Si existe host previo en caché de disco, sobrevive a corte de DNS en GitHub',
+                'sincronizador._guardar_host_cache_disco("3.149.248.153", "3000")',
+                'sincronizador._github_cache.update({"host": None, "port": None, "fetched_at": 0.0, "last_error": None, "disk_loaded": False})',
+                'cached_url = sincronizador.obtener_url_aws("/api/pull-english")',
+                'assert cached_url == "http://3.149.248.153:3000/api/pull-english"',
+                '',
+                '# 5. Cola pendiente cifrada en disco guarda y limpia correctamente sin exponer texto plano',
+                'sincronizador._guardar_cola_pendiente_cifrada(["iv1:cipherA"], ["iv2:cipherB"])',
+                'loaded = sincronizador._cargar_cola_pendiente_cifrada()',
+                'assert loaded == {"journal": ["iv1:cipherA"], "english": ["iv2:cipherB"]}',
+                'sincronizador._guardar_cola_pendiente_cifrada([], [])',
+                'assert not os.path.exists(sincronizador.PENDING_QUEUE_PATH)',
+                'print(json.dumps({"ok": True}))'
+            ].join('\n');
+
+            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir], {
+                cwd: ROOT_DIR,
+                encoding: 'utf8'
+            });
+            assert.equal(res.status, 0, res.stderr || res.stdout);
+            const out = JSON.parse(res.stdout.trim());
+            assert.equal(out.ok, true);
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
 });
