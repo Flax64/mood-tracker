@@ -2840,6 +2840,214 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.match(autoKoJson.translatedText, /heart|corazón/i);
     });
 
+    it('auto-recupera Gemini HTTP 404 vía /v1beta/models, evita memory poisoning, autocorrige Hangul en en_es y prueba POST /api/language/test-gemini', async () => {
+        const langStudio = require('../lib/language-studio');
+
+        // 1. Limpieza unitaria de memoria envenenada heredada
+        assert.strictEqual(
+            langStudio.isPoisonedMemoryMeaning('Activa Google Gemini API en Settings (0 MB RAM) para traducciones ilimitadas'),
+            true
+        );
+        assert.strictEqual(
+            langStudio.isPoisonedMemoryMeaning('Sin traducción exacta en diccionario local (Gemini HTTP 404)'),
+            true
+        );
+        const cleanedMem = langStudio.sanitizeLanguageMemory({
+            terms: [
+                { term: '한국어', meaning: 'Activa Google Gemini API en Settings (0 MB RAM)', language: 'ko' },
+                { term: '마음', meaning: 'heart / mind (corazón, mente)', language: 'ko' }
+            ],
+            grammarNotes: [
+                'Sin traducción exacta en diccionario local (Gemini HTTP 404)',
+                'Use -는/-은 for topic marking'
+            ]
+        });
+        assert.strictEqual(cleanedMem.terms.length, 1);
+        assert.strictEqual(cleanedMem.terms[0].term, '마음');
+        assert.deepStrictEqual(cleanedMem.grammarNotes, ['Use -는/-은 for topic marking']);
+
+        // 2. Configurar modelo obsoleto (gemini-2.0-flash) para verificar auto-cambio transparente en runtime
+        const prepSet = await request({
+            port,
+            method: 'PUT',
+            reqPath: '/api/settings',
+            headers: { Cookie: adminCookie },
+            body: {
+                geminiModel: 'gemini-2.0-flash',
+                geminiApiKey: 'AIzaSyFakeIntegrationKey987654'
+            }
+        });
+        assert.strictEqual(prepSet.status, 200);
+
+        const origFetch = global.fetch;
+        try {
+            // 3. Simular 404 en modelo viejo + descubrimiento de gemini-2.5-flash en /v1beta/models
+            global.fetch = async (url, opts = {}) => {
+                const target = String(url);
+                assert.strictEqual(target.includes('key='), false, 'La API key no debe enviarse en query string');
+                assert.strictEqual(opts?.headers?.['x-goog-api-key'], 'AIzaSyFakeIntegrationKey987654');
+                if (target.endsWith('/v1beta/models')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            models: [
+                                { name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] },
+                                { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }
+                            ]
+                        })
+                    };
+                }
+                if (target.includes('/models/gemini-2.0-flash:generateContent')) {
+                    const errBody = JSON.stringify({ error: { message: 'models/gemini-2.0-flash is not found' } });
+                    return {
+                        ok: false,
+                        status: 404,
+                        text: async () => errBody,
+                        json: async () => JSON.parse(errBody)
+                    };
+                }
+                if (target.includes('/models/gemini-2.5-flash:generateContent')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            candidates: [{
+                                content: {
+                                    parts: [{
+                                        text: JSON.stringify({
+                                            detectedSourceLanguage: 'Korean',
+                                            translatedText: 'Korean language',
+                                            spanishMeaning: 'Idioma coreano',
+                                            englishBridge: 'Korean language',
+                                            romanization: 'han-gu-geo',
+                                            partOfSpeech: 'noun',
+                                            literalMeaning: 'Han country language',
+                                            explanationEs: 'Nombre del idioma coreano.',
+                                            alternatives: ['한국말'],
+                                            examples: [{ source: '한국어를 배워요.', translation: 'Aprendo coreano.' }]
+                                        })
+                                    }]
+                                }
+                            }]
+                        })
+                    };
+                }
+                throw new Error(`Unexpected fetch URL in test: ${target}`);
+            };
+
+            const recoveredRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/translate',
+                headers: { Cookie: adminCookie },
+                body: { text: '한국어', direction: 'en_es', mode: 'gemini' }
+            });
+            assert.strictEqual(recoveredRes.status, 200);
+            const recoveredJson = JSON.parse(recoveredRes.body);
+            assert.strictEqual(recoveredJson.engine, 'gemini');
+            assert.strictEqual(recoveredJson.model, 'gemini-2.5-flash');
+            assert.match(recoveredJson.autoSwitchedNote || '', /gemini-2\.5-flash/);
+            assert.strictEqual(recoveredJson.spanishMeaning, 'Idioma coreano');
+
+            // 4. Endpoint de diagnóstico POST /api/language/test-gemini (RBAC + OK)
+            const psychDenied = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/test-gemini',
+                headers: { Cookie: medicoCookie },
+                body: {}
+            });
+            assert.strictEqual(psychDenied.status, 403);
+
+            const diagOk = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/test-gemini',
+                headers: { Cookie: adminCookie },
+                body: { model: 'gemini-2.0-flash' }
+            });
+            assert.strictEqual(diagOk.status, 200);
+            const diagJson = JSON.parse(diagOk.body);
+            assert.strictEqual(diagJson.ok, true);
+            assert.strictEqual(diagJson.suggestedModel, 'gemini-2.5-flash');
+            assert.ok(Array.isArray(diagJson.availableModels) && diagJson.availableModels.includes('gemini-2.5-flash'));
+
+            // 5. Si Gemini falla completamente con 404 en palabra desconocida, cae a local SIN envenenar languageMemory
+            global.fetch = async (url) => {
+                const target = String(url);
+                if (target.endsWith('/v1beta/models')) {
+                    return { ok: true, status: 200, json: async () => ({ models: [] }) };
+                }
+                return {
+                    ok: false,
+                    status: 404,
+                    text: async () => JSON.stringify({ error: { message: 'Model unavailable' } }),
+                    json: async () => ({ error: { message: 'Model unavailable' } })
+                };
+            };
+
+            const failKoRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/translate',
+                headers: { Cookie: adminCookie },
+                body: { text: '컴퓨터', direction: 'ko_es', mode: 'gemini' }
+            });
+            assert.strictEqual(failKoRes.status, 200);
+            const failKoJson = JSON.parse(failKoRes.body);
+            assert.strictEqual(failKoJson.engine, 'local-linguistic');
+            assert.strictEqual(failKoJson.rememberable, false);
+
+            const failEnRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/translate',
+                headers: { Cookie: adminCookie },
+                body: { text: 'ephemeral', direction: 'en_es', mode: 'gemini' }
+            });
+            assert.strictEqual(failEnRes.status, 200);
+            const failEnJson = JSON.parse(failEnRes.body);
+            assert.strictEqual(failEnJson.engine, 'local-linguistic');
+            assert.strictEqual(failEnJson.rememberable, false);
+
+            const settingsAfter = await request({
+                port,
+                reqPath: '/api/settings',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(settingsAfter.status, 200);
+            const savedMem = JSON.parse(settingsAfter.body).languageMemory || { terms: [] };
+            assert.strictEqual(
+                savedMem.terms.some(t => t.term === '컴퓨터' || t.term === 'ephemeral' || langStudio.isPoisonedMemoryMeaning(t.meaning)),
+                false,
+                'Nunca debe guardar errores de Gemini o instrucciones de Settings en languageMemory'
+            );
+
+            // 6. Escribir Hangul ('한국어') con selector en en_es en modo offline autocorrige dirección a ko_es
+            const hangulAutoDirRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/language/translate',
+                headers: { Cookie: adminCookie },
+                body: { text: '한국어', direction: 'en_es', mode: 'offline' }
+            });
+            assert.strictEqual(hangulAutoDirRes.status, 200);
+            const hangulAutoDirJson = JSON.parse(hangulAutoDirRes.body);
+            assert.strictEqual(hangulAutoDirJson.direction, 'ko_es');
+            assert.match(hangulAutoDirJson.translatedText, /Coreano/i);
+        } finally {
+            global.fetch = origFetch;
+            await request({
+                port,
+                method: 'PUT',
+                reqPath: '/api/settings',
+                headers: { Cookie: adminCookie },
+                body: { geminiModel: 'gemini-2.5-flash' }
+            });
+        }
+    });
+
     it('resuelve metadatos completos (álbum, año, artista y embeddable) desde POST /api/english/music/resolve', async () => {
         // Creamos mini álbum único para probar emparejamiento con catálogo incluso sin bloque "Provided to YouTube"
         const albRes = await request({

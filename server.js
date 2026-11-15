@@ -17,13 +17,15 @@ const {
     validateGeminiModelId,
     hangulToRomanization,
     detectScriptKind,
+    isPoisonedMemoryMeaning,
     sanitizeLanguageMemory,
     mergeLanguageMemory,
     normalizeTranslationDirection,
     analyzeTextOffline,
     analyzeWithGemini,
     translateOffline,
-    translateWithGemini
+    translateWithGemini,
+    testGeminiConnection
 } = require('./lib/language-studio');
 const {
     extractYouTubeWatchPageMetadata,
@@ -6230,7 +6232,7 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
         }
 
         // Persist newly learned terms, grammar notes, and studied songs into user's AI memory bank
-        if (req.body.remember !== false) {
+        if (req.body.remember !== false && result.rememberable !== false) {
             const matchedFirst = Array.isArray(result.matchedRepertoireSongs) && result.matchedRepertoireSongs[0];
             const termsToRemember = [
                 ...(Array.isArray(result.vocabulary) ? result.vocabulary.slice(0, 8) : []),
@@ -6242,7 +6244,8 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                         language: result.language || language
                     }]
                     : [])
-            ];
+            ].filter((t) => t && t.meaning && !isPoisonedMemoryMeaning(t.meaning));
+
             settings.languageMemory = mergeLanguageMemory(currentMemory, {
                 terms: termsToRemember,
                 grammarNotes: Array.isArray(result.culturalAndGrammarNotes)
@@ -6265,6 +6268,26 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
     } catch (err) {
         console.error('[LANGUAGE_ANALYZE_ERROR]', err);
         res.status(500).send('Error running language & lyrics analysis.');
+    }
+});
+
+app.post('/api/language/test-gemini', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        const body = req.body && typeof req.body === 'object' ? req.body : {};
+        const typedKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+        const effectiveKey = typedKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
+        const model = validateGeminiModelId(body.model || settings.geminiModel || 'gemini-2.5-flash');
+        const diag = await testGeminiConnection({ apiKey: effectiveKey, model });
+        res.json({
+            ...diag,
+            keySource: typedKey
+                ? 'typed-input'
+                : (settings.geminiApiKey ? 'saved-settings' : (process.env.GEMINI_API_KEY ? 'server-env' : 'none'))
+        });
+    } catch (err) {
+        console.error('[LANGUAGE_TEST_GEMINI_ERROR]', err);
+        res.status(500).send('Error testing Gemini connection.');
     }
 });
 
@@ -6308,15 +6331,21 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
             });
         }
 
-        if (req.body.remember !== false && text.length <= 160 && result.translatedText) {
-            const langCode = direction === 'ko_en' || direction === 'ko_es' || /hangul/i.test(String(result.detectedScript || ''))
+        const candidateMemoryMeaning = result.spanishMeaning || result.translatedText;
+        const canRemember = req.body.remember !== false
+            && result.rememberable === true
+            && text.length <= 160
+            && Boolean(result.translatedText)
+            && !isPoisonedMemoryMeaning(candidateMemoryMeaning);
+
+        if (canRemember) {
+            const langCode = result.direction === 'ko_en' || result.direction === 'ko_es' || /hangul|korean/i.test(String(result.detectedScript || ''))
                 ? 'ko'
                 : 'en';
-            const memoryMeaning = result.spanishMeaning || result.translatedText;
             settings.languageMemory = mergeLanguageMemory(currentMemory, {
                 terms: [{
                     term: text.slice(0, 120),
-                    meaning: String(memoryMeaning).slice(0, 240),
+                    meaning: String(candidateMemoryMeaning).slice(0, 240),
                     romanization: result.romanization || '',
                     category: 'vocabulary',
                     language: langCode
@@ -6326,6 +6355,9 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
                 artistName: '',
                 language: langCode
             });
+            await saveUserSettings(req.user.id, settings);
+        } else if (JSON.stringify(currentMemory) !== JSON.stringify(settings.languageMemory)) {
+            settings.languageMemory = currentMemory;
             await saveUserSettings(req.user.id, settings);
         }
 

@@ -154,10 +154,12 @@ El servidor AWS `t3.micro` tiene **1 GB de RAM**, por lo que correr un LLM pesad
      3. En **Default Study Language**, elige tu perfil (ej. `🎵 English + Korean (K-Pop)`).
      4. En **Gemini Model Preset**, selecciona el modelo:
         - `gemini-2.5-flash` *(Recomendado · Rápido, económico y óptimo para letras EN/KR)*.
+        - `gemini-2.5-flash-lite` *(Ultra rápido · Mayor cuota gratuita diaria)*.
         - `gemini-2.5-pro` *(Mayor profundidad en gramática poética y matices complejos)*.
-        - `gemini-2.0-flash` *(Respaldo ligero)*.
+        - `gemini-flash-latest` *(Alias siempre actualizado de Flash)*.
         - `Custom Model ID` *(Para escribir cualquier modelo nuevo de Gemini en el campo de texto inferior)*.
-     5. Pega tu API Key en **`Google Gemini API Key`** y haz clic en **`Save All Settings`**. La clave viaja cifrada por el túnel X25519 al servidor y el servidor **nunca** la devuelve expuesta en texto plano al navegador.
+     5. Pega tu API Key en **`Google Gemini API Key`** y presiona **`🧪 Test AI Connection`**: la app valida la clave en vivo y, si un modelo devuelve `HTTP 404` por retiro en tu cuenta, auto-selecciona un modelo compatible vigente.
+     6. Haz clic en **`Save All Settings`** al final de la página. La clave viaja cifrada por el túnel X25519 al servidor y el servidor **nunca** la devuelve expuesta en texto plano al navegador.
    - **Opción B (Global en servidor EC2 / GitHub Secrets)**:
      - Añade el secreto `GEMINI_API_KEY` en GitHub Secrets o en el archivo `.env` de EC2. El backend lo usará como respaldo si no guardaste una clave personal en Settings.
 3. **Si no pones API key o estás sin internet en Gemini**:

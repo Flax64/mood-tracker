@@ -183,7 +183,7 @@
         return Boolean(win);
     }
 
-    function renderTranslationCard(resultBox, data, { onSendToStudyForm, onToast } = {}) {
+    function renderTranslationCard(resultBox, data, { onSendToStudyForm, onOpenAiSettings, onToast } = {}) {
         if (!resultBox || !data) return;
         resultBox.replaceChildren();
         resultBox.hidden = false;
@@ -267,17 +267,51 @@
         }
 
         if (Array.isArray(data.examples) && data.examples.length) {
-            const ex = document.createElement('small');
-            ex.className = 'muted-text';
-            ex.textContent = `Ejemplo: ${data.examples[0]}`;
-            resultBox.appendChild(ex);
+            const firstEx = data.examples[0];
+            const exText = typeof firstEx === 'string'
+                ? firstEx
+                : [firstEx?.source, firstEx?.translation].filter(Boolean).join(' → ');
+            if (exText) {
+                const ex = document.createElement('small');
+                ex.className = 'muted-text';
+                ex.textContent = `Ejemplo: ${exText}`;
+                resultBox.appendChild(ex);
+            }
+        }
+
+        if (data.autoSwitchedNote) {
+            const note = document.createElement('small');
+            note.className = 'muted-text';
+            note.textContent = `ℹ️ ${data.autoSwitchedNote}`;
+            resultBox.appendChild(note);
         }
 
         if (data.fallbackReason) {
+            const warnRow = document.createElement('div');
+            warnRow.className = 'lang-translator-fallback-hint';
             const warn = document.createElement('small');
             warn.className = 'muted-text';
-            warn.textContent = data.fallbackReason;
-            resultBox.appendChild(warn);
+            warn.textContent = `⚠️ ${data.fallbackReason}`;
+            warnRow.appendChild(warn);
+
+            if (/Gemini|GEMINI_API_KEY|404|401|403/i.test(String(data.fallbackReason))) {
+                const cfgBtn = document.createElement('button');
+                cfgBtn.type = 'button';
+                cfgBtn.className = 'btn-secondary btn-small';
+                cfgBtn.textContent = '⚙️ Configurar / Probar IA en Settings';
+                cfgBtn.addEventListener('click', () => {
+                    if (typeof onOpenAiSettings === 'function') {
+                        onOpenAiSettings();
+                    } else if (window.opener && !window.opener.closed && window.opener.location) {
+                        window.opener.postMessage({ type: 'pdh_open_ai_settings' }, window.location.origin);
+                        window.opener.focus();
+                    } else {
+                        window.open('/#settings', '_blank', 'noopener noreferrer');
+                    }
+                });
+                warnRow.appendChild(cfgBtn);
+            }
+            resultBox.appendChild(warnRow);
         }
 
         const footer = document.createElement('div');
@@ -337,6 +371,7 @@
             createLoadingFn = defaultLoadingNode,
             onMemoryUpdate,
             onSendToStudyForm,
+            onOpenAiSettings,
             onToast,
             onUnauthorized
         } = config || {};
@@ -422,6 +457,7 @@
                 }
                 renderTranslationCard(resultBox, data, {
                     onSendToStudyForm: onSendToStudyForm ? () => onSendToStudyForm(lastTranslation) : null,
+                    onOpenAiSettings,
                     onToast: notify
                 });
             }, { loadingText: 'Translating...' });

@@ -124,6 +124,10 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         assert.match(css, /\.jira-status-select\s*\{[\s\S]*?min-width:\s*0/);
         assert.match(css, /\.agenda-cat-pill,\s*\.agenda-type-pill\s*\{[\s\S]*?white-space:\s*nowrap/);
         assert.match(css, /\.agenda-cell\s*\{[\s\S]*?min-width:\s*0/);
+        assert.match(css, /\.music-catalog-container\s*\{[\s\S]*?overflow-y:\s*auto/);
+        assert.match(css, /\.music-artist-group\s*\{[\s\S]*?flex-shrink:\s*0/);
+        assert.match(css, /\.music-song-row\s*\{[\s\S]*?flex-shrink:\s*0/);
+        assert.match(css, /\.rep-item\s*\{[\s\S]*?flex-shrink:\s*0/);
 
         const frontendJs = readText('public/frontend.js');
         assert.match(frontendJs, /agenda-item-top/);
@@ -313,6 +317,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnMusicCleanTimestamps"',
             'id="btnMusicToggleYtdlpHint"',
             'id="musicYtdlpHelperBox"',
+            'id="btnTestGeminiConnection"',
+            'id="settingsGeminiTestResult"',
             'id="btnFloatingTranslatorFab"',
             'id="floatingTranslatorModal"',
             'id="btnFloatPopoutTranslator"',

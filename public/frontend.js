@@ -3551,13 +3551,31 @@ function applyTranslationToVocabularyForm(translation, { switchToEnglish = true 
             if (typeof syncStudyDraftForId === 'function') syncStudyDraftForId(id);
         }
     };
+    const firstEx = translation.examples && translation.examples[0];
+    const firstExText = typeof firstEx === 'string'
+        ? firstEx
+        : [firstEx?.source, firstEx?.translation].filter(Boolean).join(' -> ');
+
     setIf('engWord', draft.word || translation.sourceText || '');
     setIf('engRomanization', draft.romanization || translation.romanization || '');
     setIf('engSpanish', draft.meaning || translation.spanishMeaning || translation.translatedText || '');
-    setIf('engVocabExample', draft.example || (translation.examples && translation.examples[0]) || '');
+    setIf('engVocabExample', draft.example || firstExText || '');
     setIf('engVocabNotes', draft.notes || translation.explanationEs || '');
     document.getElementById('englishPracticeForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     showToast('ok', 'Copied translation into Glossary Study Form!');
+}
+
+function openAiSettingsSection() {
+    if (typeof showView === 'function') {
+        showView('settings', true);
+    }
+    const aiCard = document.getElementById('setGeminiApiKey')?.closest('.settings-card');
+    if (aiCard && typeof aiCard.scrollIntoView === 'function') {
+        aiCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setTimeout(() => {
+        document.getElementById('setGeminiApiKey')?.focus();
+    }, 250);
 }
 
 function initBilingualTranslatorPanel() {
@@ -3581,6 +3599,7 @@ function initBilingualTranslatorPanel() {
         createLoadingFn: createLoadingBanner,
         onMemoryUpdate: updateAiMemoryBadgeUI,
         onSendToStudyForm: data => applyTranslationToVocabularyForm(data, { switchToEnglish: false }),
+        onOpenAiSettings: openAiSettingsSection,
         onToast: showToast
     });
 }
@@ -3652,6 +3671,10 @@ function initGlobalFloatingTranslator() {
             closeFloatingTranslator();
             applyTranslationToVocabularyForm(data, { switchToEnglish: true });
         },
+        onOpenAiSettings: () => {
+            closeFloatingTranslator();
+            openAiSettingsSection();
+        },
         onToast: showToast
     });
 
@@ -3707,6 +3730,11 @@ function initGlobalFloatingTranslator() {
             try { localStorage.removeItem('pdh_pending_translator_vocab'); } catch (_) {}
             if (currentUser && currentUser.rol === 'admin') {
                 applyTranslationToVocabularyForm(msg.translation, { switchToEnglish: true });
+            }
+        } else if (msg && msg.type === 'pdh_open_ai_settings') {
+            if (currentUser && currentUser.rol === 'admin') {
+                closeFloatingTranslator();
+                openAiSettingsSection();
             }
         }
     });
@@ -7292,7 +7320,7 @@ function populateSettingsForm(settings = {}) {
         : 'en_ko';
     setVal('setPreferredStudyLang', prefLang);
     const activeModel = String(settings.geminiModel || 'gemini-2.5-flash');
-    const presetModels = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+    const presetModels = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro', 'gemini-flash-latest'];
     const modelSel = document.getElementById('setGeminiModel');
     const customGroup = document.getElementById('setGeminiCustomModelGroup');
     const customInput = document.getElementById('setGeminiCustomModel');
@@ -7610,6 +7638,7 @@ function initSettingsHandlers() {
         btnClearGemini.addEventListener('click', () => {
             const keyInput = document.getElementById('setGeminiApiKey');
             const keyStatus = document.getElementById('settingsGeminiKeyStatus');
+            const testResultBox = document.getElementById('settingsGeminiTestResult');
             if (keyInput) {
                 keyInput.value = '';
                 keyInput.dataset.pendingClear = '1';
@@ -7617,6 +7646,99 @@ function initSettingsHandlers() {
             if (keyStatus) {
                 keyStatus.textContent = 'Key marked for removal—click "Save All Settings" to confirm.';
             }
+            if (testResultBox) {
+                testResultBox.hidden = true;
+                testResultBox.textContent = '';
+            }
+        });
+    }
+
+    const btnTestGemini = document.getElementById('btnTestGeminiConnection');
+    if (btnTestGemini) {
+        btnTestGemini.addEventListener('click', () => {
+            const keyInput = document.getElementById('setGeminiApiKey');
+            const modelSel = document.getElementById('setGeminiModel');
+            const customModelInput = document.getElementById('setGeminiCustomModel');
+            const customGroup = document.getElementById('setGeminiCustomModelGroup');
+            const resultBox = document.getElementById('settingsGeminiTestResult');
+
+            const rawKey = String(keyInput?.value || '').trim();
+            const selVal = modelSel?.value || 'gemini-2.5-flash';
+            const requestedModel = selVal === '__custom__'
+                ? (String(customModelInput?.value || '').trim() || 'gemini-2.5-flash')
+                : selVal;
+
+            runWithButtonLock(btnTestGemini, async () => {
+                if (resultBox) {
+                    resultBox.hidden = false;
+                    resultBox.className = 'inline-status-banner info';
+                    resultBox.textContent = 'Testing Google Gemini API connection & verifying live models...';
+                }
+
+                const resp = await resilientFetchJson('/api/language/test-gemini', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        apiKey: rawKey || undefined,
+                        model: requestedModel
+                    })
+                }, { timeoutMs: 22000 });
+
+                if (!resp.ok || !resp.data) {
+                    if (resultBox) {
+                        resultBox.hidden = false;
+                        resultBox.className = 'inline-status-banner err';
+                        resultBox.textContent = resp.errorMessage || 'Could not reach Gemini test endpoint.';
+                    }
+                    showToast('err', resp.errorMessage || 'Gemini test failed.');
+                    return;
+                }
+
+                const diag = resp.data;
+                if (diag.ok) {
+                    const activeModel = diag.suggestedModel || diag.model || requestedModel;
+                    const modelChanged = activeModel && activeModel !== requestedModel;
+                    if (modelChanged && modelSel) {
+                        const presetMatch = Array.from(modelSel.options).some(opt => opt.value === activeModel);
+                        if (presetMatch) {
+                            modelSel.value = activeModel;
+                            if (customGroup) customGroup.hidden = true;
+                        } else {
+                            modelSel.value = '__custom__';
+                            if (customModelInput) customModelInput.value = activeModel;
+                            if (customGroup) customGroup.hidden = false;
+                        }
+                    }
+
+                    if (rawKey && keyInput) {
+                        delete keyInput.dataset.pendingClear;
+                    }
+
+                    const availPreview = Array.isArray(diag.availableModels) && diag.availableModels.length
+                        ? ` Available models: ${diag.availableModels.slice(0, 5).join(', ')}.`
+                        : '';
+                    const saveReminder = rawKey
+                        ? ' Click "Save All Settings" below to persist this key.'
+                        : (modelChanged ? ' Click "Save All Settings" to save this recommended model.' : '');
+
+                    if (resultBox) {
+                        resultBox.hidden = false;
+                        resultBox.className = 'inline-status-banner ok';
+                        resultBox.textContent = `✅ ${diag.message || `Gemini connected (${activeModel}).`}${availPreview}${saveReminder}`;
+                    }
+                    showToast('ok', `Gemini OK (${activeModel})`);
+                } else {
+                    const availPreview = Array.isArray(diag.availableModels) && diag.availableModels.length
+                        ? ` Detected models: ${diag.availableModels.slice(0, 5).join(', ')}.`
+                        : '';
+                    if (resultBox) {
+                        resultBox.hidden = false;
+                        resultBox.className = 'inline-status-banner err';
+                        resultBox.textContent = `❌ ${diag.message || 'Gemini test failed.'}${availPreview}`;
+                    }
+                    showToast('err', diag.message || 'Gemini test failed.');
+                }
+            }, { loadingText: 'Testing Gemini...' });
         });
     }
 

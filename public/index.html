@@ -2384,6 +2384,11 @@
                             <p class="muted-text">
                                 Optimized for AWS <code>t3.micro</code> (1 GB RAM): instead of heavy local LLMs that exhaust server memory, AI song &amp; phrase analysis uses <strong>Google Gemini API</strong> (0 MB idle RAM) plus a built-in zero-RAM <strong>Hangul Romanization &amp; EN/KR analyzer</strong> when offline.
                             </p>
+                            <ol class="form-hint settings-ai-steps">
+                                <li>Crea una clave gratuita en <strong>Google AI Studio</strong> (<code>https://aistudio.google.com/apikey</code> → <em>Create API key</em>).</li>
+                                <li>Pégala abajo y presiona <strong>🧪 Test AI Connection</strong> para verificar que responda (y auto-corregir si algún modelo devuelve 404).</li>
+                                <li>Presiona <strong>Save All Settings</strong> al final de la página para guardarla cifrada (<code>X25519</code>).</li>
+                            </ol>
                             <div class="form-row-2">
                                 <div class="form-group">
                                     <label for="setPreferredStudyLang">Default Study Language:</label>
@@ -2397,8 +2402,9 @@
                                     <label for="setGeminiModel">Gemini Model Preset:</label>
                                     <select id="setGeminiModel">
                                         <option value="gemini-2.5-flash">gemini-2.5-flash (Recommended · Fast &amp; Optimal)</option>
+                                        <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (Ultra Fast · High Free Quota)</option>
                                         <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Grammar &amp; Lyrics Poetry)</option>
-                                        <option value="gemini-2.0-flash">gemini-2.0-flash (Lightweight Fallback)</option>
+                                        <option value="gemini-flash-latest">gemini-flash-latest (Always Latest Flash)</option>
                                         <option value="__custom__">Custom Model ID (enter below)</option>
                                     </select>
                                 </div>
@@ -2414,10 +2420,12 @@
                                     <label for="setGeminiApiKey">Google Gemini API Key (optional · sent encrypted over X25519 tunnel):</label>
                                     <div class="settings-inline-actions">
                                         <input type="password" id="setGeminiApiKey" maxlength="180" autocomplete="off"
-                                            placeholder="Leave blank to keep existing key or use Instant Local Engine">
+                                            placeholder="Leave blank to keep existing key or paste AIzaSy...">
+                                        <button type="button" class="agenda-chip-btn" id="btnTestGeminiConnection">🧪 Test AI Connection</button>
                                         <button type="button" class="agenda-chip-btn" id="btnClearGeminiKey">Clear Key</button>
                                     </div>
                                     <small class="form-hint" id="settingsGeminiKeyStatus">Checking Gemini key status...</small>
+                                    <div id="settingsGeminiTestResult" class="inline-status-banner" hidden aria-live="polite"></div>
                                 </div>
                             </div>
                         </section>

@@ -3834,12 +3834,42 @@ select,
     display: flex;
     flex-direction: column;
     gap: 0.9rem;
-    max-height: 620px;
+    max-height: min(68vh, 640px);
     overflow-y: auto;
-    padding-right: 0.25rem;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(59, 130, 246, 0.55) rgba(148, 163, 184, 0.14);
+    padding-right: 0.45rem;
+    padding-bottom: 0.25rem;
+}
+
+.music-catalog-container::-webkit-scrollbar,
+.rep-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.music-catalog-container::-webkit-scrollbar-track,
+.rep-list::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.12);
+    border-radius: 999px;
+}
+
+.music-catalog-container::-webkit-scrollbar-thumb,
+.rep-list::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.55);
+    border-radius: 999px;
+}
+
+.music-catalog-container::-webkit-scrollbar-thumb:hover,
+.rep-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.8);
 }
 
 .music-artist-group {
+    flex-shrink: 0;
     border: 1px solid var(--border-color, #e2e8f0);
     border-radius: 12px;
     overflow: hidden;
@@ -3905,6 +3935,7 @@ select,
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    flex-shrink: 0;
     gap: 0.55rem;
     padding: 0.7rem 0.8rem;
     border-radius: 10px;
@@ -5504,6 +5535,10 @@ select,
     max-height: 185px;
     overflow-y: auto;
     overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(59, 130, 246, 0.55) rgba(148, 163, 184, 0.14);
     padding-right: 4px;
     min-width: 0;
     max-width: 100%;
@@ -5513,6 +5548,7 @@ select,
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-shrink: 0;
     gap: 6px;
     width: 100%;
     max-width: 100%;
@@ -6261,6 +6297,28 @@ body {
     justify-content: space-between;
 }
 
+.lang-translator-fallback-hint {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.settings-ai-steps {
+    margin: 4px 0 10px;
+    padding-left: 20px;
+    line-height: 1.5;
+}
+
+.settings-ai-steps li + li {
+    margin-top: 3px;
+}
+
 /* Music Album Creation, Direct Add-Song Actions & Edit Highlight */
 .music-head-actions {
     display: flex;
@@ -6614,6 +6672,16 @@ body {
     }
 
     .floating-translator-input-row button {
+        width: 100%;
+    }
+
+    .lang-translator-fallback-hint {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .settings-inline-actions input,
+    .settings-inline-actions button {
         width: 100%;
     }
 }
