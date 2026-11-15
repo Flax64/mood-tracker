@@ -251,7 +251,7 @@ En la carpeta `.ssh/` del proyecto (ignorada por `.gitignore`) tienes:
    ```bash
    ~/projects/mood-tracker/scripts/backup.sh
    ```
-2. Confirma en GitHub (**Settings → Secrets and variables → Actions**) que tienes tus 9 Secrets y 11 Variables configurados, y que `APP_BASE_URL` **no** apunta a la IP antigua.
+2. Confirma en GitHub (**Settings → Secrets and variables → Actions**) que tienes tus Secrets y Variables configurados, y que **`APP_BASE_URL` está vacío o eliminado** (para que `.github/workflows/deploy.yml` calcule automáticamente `http://${EC2_HOST}:${PORT}` usando tu nueva IP sin apuntar nunca a la instancia vieja).
 
 ### 6.3 Paso 2 — Lanzar la nueva instancia en AWS
 1. **AMI:** Ubuntu Server 22.04 / 24.04 LTS (`EC2_USER=ubuntu`) o Amazon Linux 2023 (`EC2_USER=ec2-user`).
@@ -295,8 +295,9 @@ ssh -i ".\.ssh\github_deploy_key" ubuntu@NUEVA_IP "whoami && echo SSH_DEPLOY_OK"
 1. En GitHub → **Settings → Secrets and variables → Actions → Variables**:
    * Actualiza **`EC2_HOST`** con `NUEVA_IP`.
    * Si cambiaste de sistema (ej. de Ubuntu a Amazon Linux), actualiza también **`EC2_USER`**.
+   * Asegúrate de que `RCLONE_CONF_B64` siga vigente en Secrets para restaurar tu base de datos desde Google Drive si la nueva instancia arranca vacía.
 2. Ve a **Actions → Deploy to AWS EC2 → Run workflow** (rama `main`).
-3. El workflow activará **1 GB de Swap como primer paso (`# 0`)**, instalará paquetes (`git`, `curl`, `rclone`, `cron`, `openssl`, `docker`), clonará el repo, levantará Docker leyendo secretos solo desde RAM (`/dev/shm`), restaurará tu base de datos desde Drive, ajustará hora y cron `30 3 * * *`, y no dejará `.env` en disco.
+3. El workflow activará **1 GB de Swap como primer paso (`# 0`)**, instalará dependencias (`git`, `curl`, `rclone`, `cron`, `openssl`, `docker` + `docker-compose-plugin` / Compose v2), clonará el repo, construirá `APP_BASE_URL` automáticamente con `NUEVA_IP`, levantará Docker leyendo secretos solo desde RAM (`/dev/shm`), restaurará todas tus tablas (`Mood`, `Sleep`, `Crisis`, `Agenda`, `MusicaCanciones`, etc.) con `scripts/restore.sh --if-empty`, ajustará hora y cron `30 3 * * *`, y destruirá el env en RAM sin dejar `.env` en disco.
 
 ### 6.6 Paso 5 — Verificación final y rotación opcional de llave
 * Abre `http://NUEVA_IP:3000` e inicia sesión para validar que ánimo, sueño, agenda y cuentas están restaurados.

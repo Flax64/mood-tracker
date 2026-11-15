@@ -104,6 +104,11 @@ jobs:
             if ! docker info >/dev/null 2>&1; then
               DOCKER_CMD="sudo docker"
             fi
+            if ! $DOCKER_CMD compose version >/dev/null 2>&1; then
+              if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update -y && sudo apt-get install -y docker-compose-plugin || true
+              fi
+            fi
 
             # 2. Clonar o actualizar el repositorio de forma limpia
             mkdir -p "$HOME/projects"

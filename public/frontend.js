@@ -32,12 +32,25 @@ function updateTransportStatusBadges() {
     const diagKid = document.getElementById('transportDiagKid');
     const diagStats = document.getElementById('transportDiagStats');
 
+    const setSidebarBadge = (iconText, labelText) => {
+        if (!sidebarBadge) return;
+        const iconSpan = sidebarBadge.querySelector('.tunnel-icon');
+        const labelSpan = sidebarBadge.querySelector('.tunnel-label');
+        if (iconSpan && labelSpan) {
+            iconSpan.textContent = iconText;
+            labelSpan.textContent = labelText;
+        } else {
+            sidebarBadge.textContent = `${iconText} ${labelText}`;
+        }
+        sidebarBadge.title = `${iconText} ${labelText}`;
+    };
+
     if (!clientTransportTunnel) {
         if (authPill) {
             authPill.textContent = '⚠️ Wire: Plain HTTP fallback';
             authPill.classList.add('is-pending');
         }
-        if (sidebarBadge) sidebarBadge.textContent = '⚠️ Wire: Standard HTTP';
+        setSidebarBadge('⚠️', 'Wire: Standard HTTP');
         return;
     }
 
@@ -54,9 +67,7 @@ function updateTransportStatusBadges() {
             mobilePill.textContent = '🔐 E2E';
             mobilePill.classList.remove('is-pending');
         }
-        if (sidebarBadge) {
-            sidebarBadge.textContent = `🔐 Wire: X25519+AES (${diag.kid.slice(0, 8)}…)`;
-        }
+        setSidebarBadge('🔐', `Wire: X25519+AES (${diag.kid.slice(0, 8)}…)`);
         if (diagKid) diagKid.textContent = `${diag.kid} (${diag.metrics.lastHandshakeMs} ms X25519)`;
         if (diagStats) {
             diagStats.textContent = `${totalReqs} encrypted msgs · ${formatCompactBytes(totalBytes)} on wire`;
@@ -66,6 +77,7 @@ function updateTransportStatusBadges() {
             authPill.textContent = '🔐 Wire Tunnel: Establishing X25519...';
             authPill.classList.add('is-pending');
         }
+        setSidebarBadge('🔐', 'Wire: Connecting...');
         if (diagKid) diagKid.textContent = 'Pending X25519 handshake...';
     }
 }
@@ -2839,6 +2851,7 @@ function cargarCancionEnFormularioEdicion(song) {
     };
 
     const mainArtistObj = (song.artists || []).find(a => a.rol === 'main') || (song.artists || [])[0];
+    const artistRecord = (musicState.artists || []).find(a => Number(a.id) === Number(mainArtistObj?.id));
     const collabs = (song.artists || [])
         .filter(a => !mainArtistObj || a.id !== mainArtistObj.id)
         .map(a => (a.rol === 'feat' ? `feat. ${a.nombre}` : a.nombre))
@@ -2850,6 +2863,7 @@ function cargarCancionEnFormularioEdicion(song) {
     setVal('musicSongTrackNumber', song.numero_pista || '');
     setVal('musicSongLanguage', song.idioma || 'English');
     setVal('musicMainArtist', mainArtistObj ? mainArtistObj.nombre : '');
+    setVal('musicMainArtistType', artistRecord?.tipo_artista || 'group');
     setVal('musicCollaborators', collabs);
     setVal('musicAlbumTitle', song.album_titulo || '');
     setVal('musicAlbumType', song.album_tipo || 'album');
@@ -2864,6 +2878,11 @@ function cargarCancionEnFormularioEdicion(song) {
     if (cancelBtn) cancelBtn.hidden = false;
     if (saveBtn) saveBtn.textContent = 'Update Song Metadata';
     mostrarBannerMusica('musicSongFormBanner', '', '');
+
+    const form = document.getElementById('musicSongForm');
+    if (form && typeof form.scrollIntoView === 'function') {
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 }
 
 function cancelarEdicionCancionMusica() {
@@ -2880,6 +2899,147 @@ function cancelarEdicionCancionMusica() {
     if (titleEl) titleEl.textContent = 'Register or Link Song';
     if (cancelBtn) cancelBtn.hidden = true;
     if (saveBtn) saveBtn.textContent = 'Save Song Metadata';
+}
+
+function openMusicEntityEditModal(kind, entity) {
+    const modal = document.getElementById('musicEntityEditModal');
+    const form = document.getElementById('musicEntityEditForm');
+    if (!modal || !form || !entity) return;
+
+    const isArtist = kind === 'artist';
+    const titleEl = document.getElementById('musicEntityEditTitle');
+    const kindEl = document.getElementById('musicEntityKind');
+    const idEl = document.getElementById('musicEntityId');
+    const nameLabel = document.getElementById('musicEntityNameLabel');
+    const nameInput = document.getElementById('musicEntityName');
+    const typeLabel = document.getElementById('musicEntityTypeLabel');
+    const typeSelect = document.getElementById('musicEntityType');
+    const yearGroup = document.getElementById('musicEntityYearGroup');
+    const yearInput = document.getElementById('musicEntityYear');
+    const notesGroup = document.getElementById('musicEntityNotesGroup');
+    const notesInput = document.getElementById('musicEntityNotes');
+
+    if (titleEl) titleEl.textContent = isArtist ? `Edit Artist: ${entity.nombre || ''}` : `Edit Album: ${entity.titulo || ''}`;
+    if (kindEl) kindEl.value = isArtist ? 'artist' : 'album';
+    if (idEl) idEl.value = String(entity.id || '');
+    if (nameLabel) nameLabel.textContent = isArtist ? 'Artist / Group Name *' : 'Album / Release Title *';
+    if (nameInput) {
+        nameInput.value = isArtist ? (entity.nombre || '') : (entity.titulo || '');
+        nameInput.placeholder = isArtist ? 'e.g. BABYMONSTER' : 'e.g. DRIP';
+    }
+    if (typeLabel) typeLabel.textContent = isArtist ? 'Artist Format' : 'Release Type';
+
+    if (typeSelect) {
+        const opts = isArtist
+            ? [
+                ['group', 'Group'],
+                ['solo', 'Solo Artist'],
+                ['duo', 'Duo'],
+                ['collab_project', 'Collab Unit']
+            ]
+            : [
+                ['album', 'Album'],
+                ['mini_album', 'Mini Album'],
+                ['ep', 'EP'],
+                ['single', 'Single'],
+                ['collab_single', 'Collab Single'],
+                ['ost', 'OST / Soundtrack']
+            ];
+        typeSelect.replaceChildren();
+        opts.forEach(([val, text]) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = text;
+            typeSelect.appendChild(opt);
+        });
+        const currentType = isArtist ? (entity.tipo_artista || 'group') : (entity.tipo_lanzamiento || 'album');
+        typeSelect.value = currentType;
+    }
+
+    if (yearGroup) yearGroup.hidden = isArtist;
+    if (yearInput) yearInput.value = !isArtist && entity.anio ? String(entity.anio) : '';
+    if (notesGroup) notesGroup.hidden = !isArtist;
+    if (notesInput) notesInput.value = isArtist ? (entity.notas_cortas || '') : '';
+
+    mostrarBannerMusica('musicEntityEditBanner', '', '');
+    modal.hidden = false;
+    if (nameInput && typeof nameInput.focus === 'function') {
+        nameInput.focus();
+    }
+}
+
+function initMusicEntityEditModal() {
+    const modal = document.getElementById('musicEntityEditModal');
+    const form = document.getElementById('musicEntityEditForm');
+    const btnClose = document.getElementById('btnCloseMusicEntityModal');
+    const btnCancel = document.getElementById('btnCancelMusicEntityModal');
+    if (!modal || !form || form.dataset.wired === 'true') return;
+    form.dataset.wired = 'true';
+
+    const closeModal = () => {
+        modal.hidden = true;
+        mostrarBannerMusica('musicEntityEditBanner', '', '');
+    };
+
+    if (btnClose) btnClose.addEventListener('click', closeModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btnSaveMusicEntityModal');
+        const kind = document.getElementById('musicEntityKind')?.value === 'album' ? 'album' : 'artist';
+        const entityId = Number(document.getElementById('musicEntityId')?.value || 0);
+        const rawName = (document.getElementById('musicEntityName')?.value || '').trim();
+        const typeVal = document.getElementById('musicEntityType')?.value || '';
+        const yearRaw = (document.getElementById('musicEntityYear')?.value || '').trim();
+        const notesRaw = (document.getElementById('musicEntityNotes')?.value || '').trim();
+
+        if (!entityId || !rawName) {
+            mostrarBannerMusica('musicEntityEditBanner', 'err', 'Name/title is required.');
+            return;
+        }
+
+        const isArtist = kind === 'artist';
+        const targetUrl = isArtist
+            ? `/api/english/music/artists/${entityId}`
+            : `/api/english/music/albums/${entityId}`;
+        const payload = isArtist
+            ? {
+                nombre: rawName,
+                tipoArtista: typeVal || 'group',
+                notasCortas: notesRaw
+            }
+            : {
+                titulo: rawName,
+                tipoLanzamiento: typeVal || 'album',
+                anio: yearRaw ? Number(yearRaw) : null
+            };
+
+        mostrarBannerMusica('musicEntityEditBanner', '', '');
+        runWithButtonLock(btnSave, async () => {
+            try {
+                const resData = await submitMutationRequest({
+                    url: targetUrl,
+                    method: 'PATCH',
+                    scopeKey: `english-music-entity:${kind}:${entityId}`,
+                    signature: JSON.stringify(payload),
+                    buildBody: () => payload,
+                    parseJson: true
+                });
+                closeModal();
+                showToast('ok', resData?.message || (isArtist ? 'Artist updated.' : 'Album updated.'));
+                await cargarCatalogoMusical();
+            } catch (err) {
+                mostrarBannerMusica('musicEntityEditBanner', 'err', err.message || 'Could not update metadata.');
+            }
+        }, { loadingText: 'Saving...' });
+    });
 }
 
 function renderMusicCatalog() {
@@ -2942,6 +3102,7 @@ function renderMusicCatalog() {
             const albumKey = song.album_id ? `alb_${song.album_id}` : `single_none`;
             if (!bucket.albums.has(albumKey)) {
                 bucket.albums.set(albumKey, {
+                    albumId: song.album_id || null,
                     titulo: song.album_titulo || 'Standalone Singles & Tracks',
                     tipo: song.album_titulo ? (song.album_tipo || 'album') : 'single',
                     anio: song.album_anio || null,
@@ -2964,11 +3125,35 @@ function renderMusicCatalog() {
         const nameEl = document.createElement('span');
         nameEl.className = 'music-artist-name';
         nameEl.textContent = `🎤 ${artistGroup.nombre}`;
+
+        const artistRecord = (musicState.artists || []).find(a => Number(a.id) === Number(artistGroup.id));
+        const headActions = document.createElement('div');
+        headActions.className = 'music-artist-head-actions';
+
         const countEl = document.createElement('span');
         countEl.className = 'muted-text';
         const totalInArtist = Array.from(artistGroup.albums.values()).reduce((sum, al) => sum + al.songs.length, 0);
         countEl.textContent = `${totalInArtist} song(s)`;
-        header.append(nameEl, countEl);
+        headActions.appendChild(countEl);
+
+        if (artistGroup.id > 0) {
+            const editArtistBtn = document.createElement('button');
+            editArtistBtn.type = 'button';
+            editArtistBtn.className = 'btn-mini-edit';
+            editArtistBtn.textContent = '✏️ Edit Artist';
+            editArtistBtn.title = 'Rename artist, change format or notes';
+            editArtistBtn.addEventListener('click', () => {
+                openMusicEntityEditModal('artist', {
+                    id: artistGroup.id,
+                    nombre: artistGroup.nombre,
+                    tipo_artista: artistRecord?.tipo_artista || 'group',
+                    notas_cortas: artistRecord?.notas_cortas || ''
+                });
+            });
+            headActions.appendChild(editArtistBtn);
+        }
+
+        header.append(nameEl, headActions);
         groupCard.appendChild(header);
 
         const sortedAlbums = Array.from(artistGroup.albums.values()).sort((a, b) => {
@@ -2990,11 +3175,32 @@ function renderMusicCatalog() {
             albumTitleEl.className = 'music-album-title';
             albumTitleEl.textContent = album.anio ? `${album.titulo} (${album.anio})` : album.titulo;
 
+            const albumMetaWrap = document.createElement('div');
+            albumMetaWrap.className = 'music-artist-head-actions';
+
             const typeBadge = document.createElement('span');
             typeBadge.className = 'music-release-badge';
             typeBadge.textContent = RELEASE_TYPE_LABELS[album.tipo] || album.tipo;
+            albumMetaWrap.appendChild(typeBadge);
 
-            albumHeader.append(albumTitleEl, typeBadge);
+            if (album.albumId) {
+                const editAlbumBtn = document.createElement('button');
+                editAlbumBtn.type = 'button';
+                editAlbumBtn.className = 'btn-mini-edit';
+                editAlbumBtn.textContent = '✏️ Edit Album';
+                editAlbumBtn.title = 'Edit album title, release type or year';
+                editAlbumBtn.addEventListener('click', () => {
+                    openMusicEntityEditModal('album', {
+                        id: album.albumId,
+                        titulo: album.titulo,
+                        tipo_lanzamiento: album.tipo || 'album',
+                        anio: album.anio || ''
+                    });
+                });
+                albumMetaWrap.appendChild(editAlbumBtn);
+            }
+
+            albumHeader.append(albumTitleEl, albumMetaWrap);
             albumBlock.appendChild(albumHeader);
 
             const songList = document.createElement('div');
@@ -6204,31 +6410,49 @@ function initWordStyleProofing() {
 // ITS SALTILLO ACADEMIC PLANNER, CROQUIS, VACATIONS, RESIDENCIAS, WORK & GPS
 // ==========================================
 let academicPlannerState = null;
+let academicPlannerDirectory = null;
+let academicPlannerMindboxPreset = null;
+let academicPlannerCommutePreview = null;
 
 function setPlannerBanner(type, message) {
     setInlineBanner('plannerStatusBanner', type, message);
 }
 
 function renderItsCroquisDirectory(directory) {
-    const grid = document.getElementById('itsCroquisCampusGrid');
+    const grid = document.getElementById('itsCroquisDirectoryCards');
     if (!grid || !directory) return;
-    grid.innerHTML = '';
+    grid.replaceChildren();
     Object.values(directory).forEach(camp => {
         const card = document.createElement('div');
         card.className = 'its-croquis-card';
-        const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${camp.lat},${camp.lng}`;
-        const buildingsHtml = (camp.buildings || [])
-            .map(b => `<span class="its-room-pill" title="${b.notes || ''}"><strong>${b.code}</strong> · ${b.name} (${(b.prefixes || []).join('/')})</span>`)
-            .join('');
-        card.innerHTML = `
-            <h4>🏫 ${camp.name} (${camp.code || ''})</h4>
-            <p class="form-hint" style="margin:0;">📍 ${camp.address || ''}</p>
-            <p class="form-hint" style="margin:0;">🅿️ ${(camp.parking || []).join(' · ')}</p>
-            <div class="its-croquis-buildings">${buildingsHtml}</div>
-            <div style="margin-top:6px;">
-                <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-sm" style="display:inline-flex;text-decoration:none;">🗺️ View on Google Maps</a>
-            </div>
-        `;
+
+        const meta = document.createElement('div');
+        meta.className = 'planner-course-meta';
+        const title = document.createElement('h4');
+        title.textContent = `🏫 ${camp.name || 'Campus ITS'} (${camp.plano || ''})`;
+        const addr = document.createElement('p');
+        addr.className = 'form-hint';
+        addr.style.margin = '0';
+        addr.textContent = `📍 ${camp.address || ''}`;
+        const buildings = document.createElement('p');
+        buildings.className = 'form-hint';
+        buildings.style.margin = '2px 0 0';
+        buildings.textContent = Array.isArray(camp.buildings)
+            ? camp.buildings.map(b => `${b.code} · ${b.name}`).join(' | ')
+            : String(camp.buildings || '');
+        meta.append(title, addr, buildings);
+
+        const actions = document.createElement('div');
+        const mapLink = document.createElement('a');
+        mapLink.href = `https://www.google.com/maps/search/?api=1&query=${camp.lat},${camp.lng}`;
+        mapLink.target = '_blank';
+        mapLink.rel = 'noopener noreferrer';
+        mapLink.className = 'btn-secondary btn-small';
+        mapLink.style.textDecoration = 'none';
+        mapLink.textContent = '🗺️ Open Maps';
+        actions.appendChild(mapLink);
+
+        card.append(meta, actions);
         grid.appendChild(card);
     });
 }
@@ -6238,234 +6462,703 @@ function getActiveSemesterObj() {
     return academicPlannerState.semesters.find(s => s.id === academicPlannerState.activeSemesterId) || academicPlannerState.semesters[0] || null;
 }
 
+function resetPlannerCourseForm() {
+    const form = document.getElementById('plannerCourseForm');
+    if (form) form.reset();
+    const editIdEl = document.getElementById('plannerCourseEditId');
+    if (editIdEl) editIdEl.value = '';
+    const titleEl = document.getElementById('plannerCourseFormTitle');
+    if (titleEl) titleEl.textContent = 'Add / Edit ITS Class';
+    const saveBtn = document.getElementById('btnSaveCourse');
+    if (saveBtn) saveBtn.textContent = 'Save Class to Semester';
+    const cancelBtn = document.getElementById('btnCancelCourseEdit');
+    if (cancelBtn) cancelBtn.hidden = true;
+    const badge = document.getElementById('courseRoomCroquisBadge');
+    if (badge) badge.textContent = 'Type a room (R02, R11, N21, A10, S15) to detect ITS Campus & Croquis building.';
+    document.querySelectorAll('#courseDaysGroup input[type="checkbox"]').forEach(cb => {
+        cb.checked = [1, 2, 3, 4].includes(Number(cb.value));
+    });
+}
+
+function loadCourseIntoEditForm(course) {
+    if (!course) return;
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+    setVal('plannerCourseEditId', course.id || '');
+    setVal('courseCode', course.code || '');
+    setVal('courseGroup', course.group || '');
+    setVal('courseName', course.name || '');
+    setVal('courseTeacher', course.teacher || '');
+    setVal('courseRoom', course.room || '');
+    setVal('courseCampus', course.campusId || 'boillot');
+    setVal('courseStartTime', course.startTime || '09:00');
+    setVal('courseEndTime', course.endTime || '10:00');
+    const daySet = new Set(Array.isArray(course.days) ? course.days.map(Number) : [1, 2, 3, 4]);
+    document.querySelectorAll('#courseDaysGroup input[type="checkbox"]').forEach(cb => {
+        cb.checked = daySet.has(Number(cb.value));
+    });
+    const titleEl = document.getElementById('plannerCourseFormTitle');
+    if (titleEl) titleEl.textContent = `Edit Class: ${course.name || ''}`;
+    const saveBtn = document.getElementById('btnSaveCourse');
+    if (saveBtn) saveBtn.textContent = 'Update Class';
+    const cancelBtn = document.getElementById('btnCancelCourseEdit');
+    if (cancelBtn) cancelBtn.hidden = false;
+    document.getElementById('plannerCourseForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function renderPlannerSemesterUI() {
     const semSelect = document.getElementById('plannerSemesterSelect');
-    const semName = document.getElementById('plannerSemesterName');
-    const semStart = document.getElementById('plannerSemesterStart');
-    const semEnd = document.getElementById('plannerSemesterEnd');
-    const coursesList = document.getElementById('plannerCoursesList');
+    const semName = document.getElementById('plannerSemName');
+    const semCode = document.getElementById('plannerSemCode');
+    const semStart = document.getElementById('plannerSemStart');
+    const semEnd = document.getElementById('plannerSemEnd');
+    const coursesList = document.getElementById('plannerCoursesContainer');
+    const countBadge = document.getElementById('plannerCoursesCountBadge');
     if (!academicPlannerState || !semSelect) return;
 
-    semSelect.innerHTML = '';
+    semSelect.replaceChildren();
     (academicPlannerState.semesters || []).forEach(sem => {
         const opt = document.createElement('option');
         opt.value = sem.id;
-        opt.textContent = `${sem.nombre} (${(sem.courses || []).length} courses)`;
+        const labelName = sem.name || sem.nombre || 'Semester';
+        opt.textContent = `${labelName} (${(sem.courses || []).length} classes)`;
         semSelect.appendChild(opt);
     });
     const activeSem = getActiveSemesterObj();
     if (!activeSem) return;
 
     semSelect.value = activeSem.id;
-    if (semName) semName.value = activeSem.nombre || '';
-    if (semStart) semStart.value = activeSem.fechaInicio || '';
-    if (semEnd) semEnd.value = activeSem.fechaFin || '';
+    if (semName) semName.value = activeSem.name || activeSem.nombre || '';
+    if (semCode) semCode.value = activeSem.termCode || '';
+    if (semStart) semStart.value = activeSem.startDate || activeSem.fechaInicio || '';
+    if (semEnd) semEnd.value = activeSem.endDate || activeSem.fechaFin || '';
 
+    const courses = Array.isArray(activeSem.courses) ? activeSem.courses : [];
+    if (countBadge) countBadge.textContent = `${courses.length} class(es)`;
     if (!coursesList) return;
-    coursesList.innerHTML = '';
-    const dayLabels = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' };
 
-    if (!Array.isArray(activeSem.courses) || activeSem.courses.length === 0) {
+    coursesList.replaceChildren();
+    const dayLabels = { 0: 'Sun', 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat' };
+
+    if (courses.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'agenda-empty';
-        empty.textContent = 'No classes in this semester yet. Add a class below or click "Load 9th Sem MindBox Preset".';
+        empty.textContent = 'No classes in this semester yet. Add one on the left or click "Load MindBox 9th Sem Preset".';
         coursesList.appendChild(empty);
         return;
     }
 
-    activeSem.courses.forEach((course, idx) => {
+    courses.forEach((course, idx) => {
         const card = document.createElement('div');
         card.className = 'planner-course-card';
-        const sessionsHtml = (course.sessions || [])
-            .map(s => `<span class="planner-session-pill">📅 ${(s.days || []).map(d => dayLabels[d] || d).join('/')} · ⏰ ${s.startTime}–${s.endTime} · 🚪 Aula <strong>${s.room || 'TBD'}</strong></span>`)
-            .join('');
-        card.innerHTML = `
-            <div class="planner-course-meta">
-                <h4><span class="badge-pill">${course.clave || 'ITS'}</span> ${course.nombre} <small class="text-muted">(Grp ${course.grupo || 'A'})</small></h4>
-                <p>👩‍🏫 ${course.docente || 'Docente ITS'} · 🏛️ ${course.buildingName || course.campusKey || 'Campus TecNM Saltillo'}</p>
-                <div class="planner-session-pills">${sessionsHtml}</div>
-            </div>
-            <div style="display:flex;gap:6px;align-items:center;">
-                <button type="button" class="btn-secondary btn-sm btn-danger-outline" data-delete-course-idx="${idx}">Remove</button>
-            </div>
-        `;
-        coursesList.appendChild(card);
-    });
 
-    coursesList.querySelectorAll('[data-delete-course-idx]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = Number(btn.getAttribute('data-delete-course-idx'));
+        const meta = document.createElement('div');
+        meta.className = 'planner-course-meta';
+
+        const h4 = document.createElement('h4');
+        const codeText = course.code || course.clave || 'ITS';
+        const courseNameText = course.name || course.nombre || 'Course';
+        const groupText = course.group || course.grupo || '';
+        const roomText = course.room || course.aulaDefault || 'TBD';
+        const codeSpan = document.createElement('span');
+        codeSpan.className = 'planner-room-pill';
+        codeSpan.textContent = `${codeText} · ${roomText}`;
+        h4.appendChild(codeSpan);
+        h4.appendChild(document.createTextNode(` ${courseNameText}${groupText ? ` (Grp ${groupText})` : ''}`));
+
+        const sub = document.createElement('p');
+        sub.style.margin = '2px 0';
+        const teacherText = course.teacher || course.docente || 'Docente ITS';
+        const campusObj = academicPlannerDirectory && academicPlannerDirectory[course.campusId || course.campusKey];
+        const campusLabel = campusObj ? `${campusObj.name} (${campusObj.plano})` : (course.campusId || 'Tec de Saltillo');
+        sub.textContent = `👩‍🏫 ${teacherText} · 🏛️ ${campusLabel}`;
+
+        const daysText = (Array.isArray(course.days) ? course.days : [1, 2, 3, 4]).map(d => dayLabels[Number(d)] || d).join('/');
+        const timeP = document.createElement('p');
+        timeP.className = 'muted-text';
+        timeP.style.margin = '0';
+        timeP.textContent = `📅 ${daysText} · ⏰ ${course.startTime || '09:00'} – ${course.endTime || '10:00'}`;
+
+        meta.append(h4, sub, timeP);
+
+        const actions = document.createElement('div');
+        actions.style.display = 'flex';
+        actions.style.gap = '6px';
+        actions.style.flexWrap = 'wrap';
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'btn-secondary btn-small';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => loadCourseIntoEditForm(course));
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn-secondary btn-small btn-danger-outline';
+        delBtn.textContent = 'Remove';
+        delBtn.addEventListener('click', () => {
             const sem = getActiveSemesterObj();
             if (!sem || !Array.isArray(sem.courses)) return;
             sem.courses.splice(idx, 1);
             renderPlannerSemesterUI();
         });
+
+        actions.append(editBtn, delBtn);
+        card.append(meta, actions);
+        coursesList.appendChild(card);
     });
 }
 
 function renderPlannerVacationsUI() {
     const listEl = document.getElementById('plannerVacationsList');
-    if (!listEl || !academicPlannerState) return;
-    listEl.innerHTML = '';
+    const vacBanner = document.getElementById('plannerVacationActiveBanner');
+    if (!academicPlannerState) return;
     const vacations = academicPlannerState.vacations || [];
+
+    if (vacBanner) {
+        const todayStr = formatLocalDate(new Date());
+        const activeVac = vacations.find(v => (v.startDate || v.fechaInicio) <= todayStr && todayStr <= (v.endDate || v.fechaFin));
+        if (activeVac) {
+            vacBanner.textContent = `🏖️ Vacation / Break Active Today: ${activeVac.name || activeVac.nombre} (${activeVac.startDate || activeVac.fechaInicio} → ${activeVac.endDate || activeVac.fechaFin}) — Class alerts paused.`;
+            vacBanner.hidden = false;
+        } else {
+            vacBanner.hidden = true;
+        }
+    }
+
+    if (!listEl) return;
+    listEl.replaceChildren();
     if (vacations.length === 0) {
-        listEl.innerHTML = '<div class="agenda-empty">No vacation periods registered.</div>';
+        const empty = document.createElement('div');
+        empty.className = 'agenda-empty';
+        empty.textContent = 'No vacation periods registered.';
+        listEl.appendChild(empty);
         return;
     }
+
     vacations.forEach((vac, idx) => {
         const item = document.createElement('div');
         item.className = 'planner-course-card';
-        item.innerHTML = `
-            <div class="planner-course-meta">
-                <h4>🏖️ ${vac.nombre}</h4>
-                <p>📅 ${vac.fechaInicio} → ${vac.fechaFin}</p>
-            </div>
-            <button type="button" class="btn-secondary btn-sm btn-danger-outline" data-delete-vac-idx="${idx}">Remove</button>
-        `;
-        listEl.appendChild(item);
-    });
-    listEl.querySelectorAll('[data-delete-vac-idx]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const idx = Number(btn.getAttribute('data-delete-vac-idx'));
+
+        const meta = document.createElement('div');
+        meta.className = 'planner-course-meta';
+        const h4 = document.createElement('h4');
+        h4.textContent = `🏖️ ${vac.name || vac.nombre || 'Break'}`;
+        const p = document.createElement('p');
+        p.style.margin = '0';
+        p.textContent = `📅 ${vac.startDate || vac.fechaInicio} → ${vac.endDate || vac.fechaFin}`;
+        meta.append(h4, p);
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn-secondary btn-small btn-danger-outline';
+        delBtn.textContent = 'Remove';
+        delBtn.addEventListener('click', () => {
             academicPlannerState.vacations.splice(idx, 1);
             renderPlannerVacationsUI();
         });
+
+        item.append(meta, delBtn);
+        listEl.appendChild(item);
     });
+}
+
+function updateResHoursProgressDisplay() {
+    const totalH = Math.max(1, Number(document.getElementById('resTotalHours')?.value) || 500);
+    const doneH = Math.max(0, Number(document.getElementById('resLoggedHours')?.value) || 0);
+    const pct = Math.min(100, Math.round((doneH / totalH) * 100));
+    const barEl = document.getElementById('resHoursProgressBar');
+    if (barEl) {
+        barEl.textContent = `Progress: ${formatHoursMinutes(doneH, { compact: true })} / ${totalH} hrs (${pct}%)`;
+    }
 }
 
 function renderPlannerResidenciasAndWorkUI() {
     if (!academicPlannerState) return;
-    const res = academicPlannerState.residencias || {};
     const setCheck = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
-    const setVal = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = String(v); };
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v !== undefined && v !== null ? String(v) : ''; };
 
-    setCheck('resActiva', res.activa);
-    setVal('resEmpresa', res.empresa || '');
-    setVal('resProyecto', res.proyecto || '');
-    setVal('resAsesorInterno', res.asesorInterno || '');
-    setVal('resAsesorExterno', res.asesorExterno || '');
-    setVal('resHorasTotales', res.horasTotales ?? 500);
-    setVal('resHorasAcumuladas', res.horasAcumuladas ?? 0);
-    setVal('resHoraInicio', res.horaInicio || '08:00');
-    setVal('resHoraFin', res.horaFin || '13:00');
-    setVal('resModalidad', res.modalidad || 'presencial');
-    setVal('resUbicacionUrl', res.ubicacion?.mapsUrl || (res.ubicacion?.lat ? `${res.ubicacion.lat}, ${res.ubicacion.lng}` : ''));
+    const res = academicPlannerState.residencias || {};
+    setCheck('resEnabled', res.enabled);
+    setVal('resProjectName', res.projectName || '');
+    setVal('resCompanyName', res.companyName || '');
+    setVal('resAdvisorName', res.advisorName || '');
+    setVal('resModality', res.modality || 'presencial');
+    setVal('resLoggedHours', res.loggedHours ?? 0);
+    setVal('resTotalHours', res.totalHoursGoal ?? 500);
+    setVal('resStartTime', res.startTime || '08:00');
+    setVal('resEndTime', res.endTime || '13:00');
+    setVal('resLocationAddress', res.location?.address || '');
+    setVal('resLocationMapsUrl', res.location?.mapsUrl || '');
+    setVal('resLocationLat', res.location?.lat ?? '');
+    setVal('resLocationLng', res.location?.lng ?? '');
 
-    const resDays = new Set(Array.isArray(res.dias) ? res.dias.map(Number) : [1, 2, 3, 4, 5]);
-    document.querySelectorAll('#resDiasGroup input[type="checkbox"]').forEach(cb => {
+    const resDays = new Set(Array.isArray(res.days) ? res.days.map(Number) : [1, 2, 3, 4, 5]);
+    document.querySelectorAll('#resDaysGroup input[type="checkbox"]').forEach(cb => {
         cb.checked = resDays.has(Number(cb.value));
     });
+    updateResHoursProgressDisplay();
 
-    const totalH = Math.max(1, Number(res.horasTotales) || 500);
-    const doneH = Math.max(0, Number(res.horasAcumuladas) || 0);
-    const pct = Math.min(100, Math.round((doneH / totalH) * 100));
-    const fillEl = document.getElementById('resProgressBarFill');
-    const lblEl = document.getElementById('resProgressLabel');
-    if (fillEl) fillEl.style.width = `${pct}%`;
-    if (lblEl) lblEl.textContent = `${formatHoursMinutes(doneH, { compact: true })} / ${totalH}h (${pct}%)`;
+    const wk = academicPlannerState.work || {};
+    setCheck('workEnabled', wk.enabled);
+    setVal('workScheduleType', wk.scheduleType || 'medio_tiempo');
+    setVal('workModality', wk.modality || 'presencial');
+    setVal('workCompanyName', wk.companyName || '');
+    setVal('workRoleTitle', wk.roleTitle || '');
+    setVal('workStartTime', wk.startTime || '08:00');
+    setVal('workEndTime', wk.endTime || '16:00');
+    setVal('workLocationAddress', wk.location?.address || '');
+    setVal('workLocationMapsUrl', wk.location?.mapsUrl || '');
+    setVal('workLocationLat', wk.location?.lat ?? '');
+    setVal('workLocationLng', wk.location?.lng ?? '');
 
-    const tr = academicPlannerState.trabajo || {};
-    setCheck('workActivo', tr.activo);
-    setVal('workModalidad', tr.modalidadJornada || 'medio_tiempo');
-    setVal('workEmpresa', tr.empresa || '');
-    setVal('workPuesto', tr.puesto || '');
-    setVal('workRegimen', tr.regimenUbicacion || 'presencial');
-    setVal('workHoraInicio', tr.horaInicio || '14:00');
-    setVal('workHoraFin', tr.horaFin || '18:00');
-    setVal('workUbicacionUrl', tr.ubicacion?.mapsUrl || (tr.ubicacion?.lat ? `${tr.ubicacion.lat}, ${tr.ubicacion.lng}` : ''));
-
-    const workDays = new Set(Array.isArray(tr.dias) ? tr.dias.map(Number) : [1, 2, 3, 4, 5]);
-    document.querySelectorAll('#workDiasGroup input[type="checkbox"]').forEach(cb => {
+    const workDays = new Set(Array.isArray(wk.days) ? wk.days.map(Number) : [1, 2, 3, 4, 5]);
+    document.querySelectorAll('#workDaysGroup input[type="checkbox"]').forEach(cb => {
         cb.checked = workDays.has(Number(cb.value));
     });
 
-    const locs = academicPlannerState.locations || {};
-    setVal('locCasaInput', locs.casa?.mapsUrl || (locs.casa?.lat ? `${locs.casa.lat}, ${locs.casa.lng}` : ''));
-    setVal('locUniCampusDefault', locs.universidad?.campusKey || 'principal');
-    setVal('locUniInput', locs.universidad?.mapsUrl || (locs.universidad?.lat ? `${locs.universidad.lat}, ${locs.universidad.lng}` : '25.443706, -100.993845'));
+    setCheck('plannerClassRemindersEnabled', academicPlannerState.classRemindersEnabled !== false);
+    setVal('plannerFarLeadMin', academicPlannerState.farLeadMinutesMin ?? 30);
+    setVal('plannerNearLeadMin', academicPlannerState.nearLeadMinutes ?? 10);
+    setVal('plannerParkingBufferMin', academicPlannerState.parkingBufferMinutes ?? 8);
+    setVal('plannerNearRadiusKm', academicPlannerState.nearRadiusKm ?? 0.85);
 
-    const notif = academicPlannerState.notifications || {};
-    setCheck('notifClassEnabled', notif.classRemindersEnabled !== false);
-    setCheck('notifUseTraffic', notif.useTrafficEstimate !== false);
-    setCheck('notifResEnabled', notif.residenciasRemindersEnabled !== false);
-    setCheck('notifWorkEnabled', notif.workRemindersEnabled !== false);
-    setVal('notifMinLeadFar', notif.minLeadMinutesFar ?? 30);
-    setVal('notifLeadNear', notif.leadMinutesNear ?? 10);
-    setVal('notifParkingBuffer', notif.parkingBufferMinutes ?? 8);
-    setVal('notifNearRadius', notif.nearRadiusKm ?? 0.85);
+    const locs = academicPlannerState.locations || {};
+    setVal('homeLocationAddress', locs.home?.address || '');
+    setVal('homeLocationMapsUrl', locs.home?.mapsUrl || '');
+    setVal('homeLocationLat', locs.home?.lat ?? '');
+    setVal('homeLocationLng', locs.home?.lng ?? '');
+    setVal('uniLocationLat', locs.university?.lat ?? 25.443706);
+    setVal('uniLocationLng', locs.university?.lng ?? -100.993845);
 }
 
 function collectPlannerStateFromDOM() {
     if (!academicPlannerState) return null;
+    const val = id => String(document.getElementById(id)?.value ?? '').trim();
+    const numOrNull = id => {
+        const s = val(id);
+        if (!s) return null;
+        const n = Number(s);
+        return Number.isFinite(n) ? n : null;
+    };
+
     const activeSem = getActiveSemesterObj();
     if (activeSem) {
-        activeSem.nombre = String(document.getElementById('plannerSemesterName')?.value || activeSem.nombre || '9no Semestre').trim();
-        activeSem.fechaInicio = document.getElementById('plannerSemesterStart')?.value || activeSem.fechaInicio;
-        activeSem.fechaFin = document.getElementById('plannerSemesterEnd')?.value || activeSem.fechaFin;
+        activeSem.name = val('plannerSemName') || activeSem.name || '9no Semestre';
+        activeSem.termCode = val('plannerSemCode') || activeSem.termCode || '';
+        activeSem.startDate = val('plannerSemStart') || activeSem.startDate;
+        activeSem.endDate = val('plannerSemEnd') || activeSem.endDate;
     }
 
-    const resDays = Array.from(document.querySelectorAll('#resDiasGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
+    const resDays = Array.from(document.querySelectorAll('#resDaysGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
     academicPlannerState.residencias = {
-        activa: Boolean(document.getElementById('resActiva')?.checked),
-        empresa: String(document.getElementById('resEmpresa')?.value || '').trim(),
-        proyecto: String(document.getElementById('resProyecto')?.value || '').trim(),
-        asesorInterno: String(document.getElementById('resAsesorInterno')?.value || '').trim(),
-        asesorExterno: String(document.getElementById('resAsesorExterno')?.value || '').trim(),
-        horasTotales: Number(document.getElementById('resHorasTotales')?.value || 500),
-        horasAcumuladas: Number(document.getElementById('resHorasAcumuladas')?.value || 0),
-        fechaInicio: academicPlannerState.residencias?.fechaInicio || '2026-08-17',
-        fechaFin: academicPlannerState.residencias?.fechaFin || '2026-12-18',
-        dias: resDays,
-        horaInicio: String(document.getElementById('resHoraInicio')?.value || '08:00').slice(0, 5),
-        horaFin: String(document.getElementById('resHoraFin')?.value || '13:00').slice(0, 5),
-        modalidad: document.getElementById('resModalidad')?.value || 'presencial',
-        ubicacion: {
-            label: String(document.getElementById('resEmpresa')?.value || 'Empresa Residencias').trim(),
-            mapsUrl: String(document.getElementById('resUbicacionUrl')?.value || '').trim()
+        ...academicPlannerState.residencias,
+        enabled: Boolean(document.getElementById('resEnabled')?.checked),
+        projectName: val('resProjectName'),
+        companyName: val('resCompanyName'),
+        advisorName: val('resAdvisorName'),
+        modality: val('resModality') || 'presencial',
+        loggedHours: Number(document.getElementById('resLoggedHours')?.value || 0),
+        totalHoursGoal: Number(document.getElementById('resTotalHours')?.value || 500),
+        days: resDays.length ? resDays : [1, 2, 3, 4, 5],
+        startTime: (val('resStartTime') || '08:00').slice(0, 5),
+        endTime: (val('resEndTime') || '13:00').slice(0, 5),
+        location: {
+            label: val('resCompanyName') || 'Empresa de Residencias',
+            address: val('resLocationAddress'),
+            mapsUrl: val('resLocationMapsUrl'),
+            lat: numOrNull('resLocationLat'),
+            lng: numOrNull('resLocationLng')
         }
     };
 
-    const workDays = Array.from(document.querySelectorAll('#workDiasGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
-    academicPlannerState.trabajo = {
-        activo: Boolean(document.getElementById('workActivo')?.checked),
-        modalidadJornada: document.getElementById('workModalidad')?.value || 'medio_tiempo',
-        empresa: String(document.getElementById('workEmpresa')?.value || '').trim(),
-        puesto: String(document.getElementById('workPuesto')?.value || '').trim(),
-        regimenUbicacion: document.getElementById('workRegimen')?.value || 'presencial',
-        dias: workDays,
-        horaInicio: String(document.getElementById('workHoraInicio')?.value || '14:00').slice(0, 5),
-        horaFin: String(document.getElementById('workHoraFin')?.value || '18:00').slice(0, 5),
-        ubicacion: {
-            label: String(document.getElementById('workEmpresa')?.value || 'Lugar de Trabajo').trim(),
-            mapsUrl: String(document.getElementById('workUbicacionUrl')?.value || '').trim()
+    const workDays = Array.from(document.querySelectorAll('#workDaysGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
+    academicPlannerState.work = {
+        ...academicPlannerState.work,
+        enabled: Boolean(document.getElementById('workEnabled')?.checked),
+        scheduleType: val('workScheduleType') || 'medio_tiempo',
+        modality: val('workModality') || 'presencial',
+        companyName: val('workCompanyName'),
+        roleTitle: val('workRoleTitle'),
+        days: workDays.length ? workDays : [1, 2, 3, 4, 5],
+        startTime: (val('workStartTime') || '08:00').slice(0, 5),
+        endTime: (val('workEndTime') || '16:00').slice(0, 5),
+        location: {
+            label: val('workCompanyName') || 'Lugar de Trabajo',
+            address: val('workLocationAddress'),
+            mapsUrl: val('workLocationMapsUrl'),
+            lat: numOrNull('workLocationLat'),
+            lng: numOrNull('workLocationLng')
         }
     };
+
+    academicPlannerState.classRemindersEnabled = Boolean(document.getElementById('plannerClassRemindersEnabled')?.checked);
+    academicPlannerState.farLeadMinutesMin = Number(document.getElementById('plannerFarLeadMin')?.value || 30);
+    academicPlannerState.nearLeadMinutes = Number(document.getElementById('plannerNearLeadMin')?.value || 10);
+    academicPlannerState.parkingBufferMinutes = Number(document.getElementById('plannerParkingBufferMin')?.value || 8);
+    academicPlannerState.nearRadiusKm = Number(document.getElementById('plannerNearRadiusKm')?.value || 0.85);
 
     academicPlannerState.locations = {
         ...academicPlannerState.locations,
-        casa: {
-            label: 'Casa',
-            mapsUrl: String(document.getElementById('locCasaInput')?.value || '').trim()
+        home: {
+            label: 'Mi Casa',
+            address: val('homeLocationAddress'),
+            mapsUrl: val('homeLocationMapsUrl'),
+            lat: numOrNull('homeLocationLat'),
+            lng: numOrNull('homeLocationLng')
         },
-        universidad: {
-            label: 'Instituto Tecnológico de Saltillo (ITS)',
-            campusKey: document.getElementById('locUniCampusDefault')?.value || 'principal',
-            mapsUrl: String(document.getElementById('locUniInput')?.value || '25.443706, -100.993845').trim()
+        university: {
+            label: 'Instituto Tecnológico de Saltillo (Blvd. V. Carranza #2400)',
+            address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo',
+            mapsUrl: (numOrNull('uniLocationLat') !== null && numOrNull('uniLocationLng') !== null)
+                ? `https://www.google.com/maps?q=${numOrNull('uniLocationLat')},${numOrNull('uniLocationLng')}`
+                : 'https://www.google.com/maps?q=25.443706,-100.993845',
+            lat: numOrNull('uniLocationLat') ?? 25.443706,
+            lng: numOrNull('uniLocationLng') ?? -100.993845
         }
     };
 
-    academicPlannerState.notifications = {
-        classRemindersEnabled: Boolean(document.getElementById('notifClassEnabled')?.checked),
-        residenciasRemindersEnabled: Boolean(document.getElementById('notifResEnabled')?.checked),
-        workRemindersEnabled: Boolean(document.getElementById('notifWorkEnabled')?.checked),
-        minLeadMinutesFar: Number(document.getElementById('notifMinLeadFar')?.value || 30),
-        leadMinutesNear: Number(document.getElementById('notifLeadNear')?.value || 10),
-        nearRadiusKm: Number(document.getElementById('notifNearRadius')?.value || 0.85),
-        useTrafficEstimate: Boolean(document.getElementById('notifUseTraffic')?.checked),
-        parkingBufferMinutes: Number(document.getElementById('notifParkingBuffer')?.value || 8)
-    };
-
     return academicPlannerState;
+}
+
+function renderLiveCommuteCards(previewOrList = []) {
+    const originTextEl = document.getElementById('liveCommuteOriginText');
+    const container = document.getElementById('liveCommuteCardsContainer');
+    const preview = Array.isArray(previewOrList)
+        ? { commutes: previewOrList }
+        : (previewOrList || academicPlannerCommutePreview || {});
+
+    if (previewOrList && !Array.isArray(previewOrList)) {
+        academicPlannerCommutePreview = previewOrList;
+    }
+
+    if (originTextEl) {
+        if (preview.originCoords && Number.isFinite(preview.originCoords.lat)) {
+            originTextEl.textContent = `Origin (${preview.originSource || 'GPS'}): ${preview.originCoords.lat.toFixed(5)}, ${preview.originCoords.lng.toFixed(5)}`;
+        } else {
+            originTextEl.textContent = 'Origin: Not set yet. Click "Update My GPS", save your Home location, or pick a Saltillo preset.';
+        }
+    }
+
+    if (!container) return;
+    container.replaceChildren();
+
+    const rows = Array.isArray(preview.commutes) ? [...preview.commutes] : [];
+    if (preview.residenciasCommute) {
+        const rc = preview.residenciasCommute;
+        rows.push({
+            target: `🏢 Residencias (${academicPlannerState?.residencias?.companyName || 'Company'})`,
+            isNearCampus: rc.isNear,
+            distanceKm: rc.distanceKm,
+            driveMinutesWithTraffic: rc.driveMinutes,
+            trafficLabel: rc.trafficLabel,
+            recommendedLeadMinutes: rc.recommendedLeadMinutes,
+            mapsDirectionsUrl: rc.mapsUrl
+        });
+    }
+    if (preview.workCommute) {
+        const wc = preview.workCommute;
+        rows.push({
+            target: `💼 Work (${academicPlannerState?.work?.companyName || 'Workplace'})`,
+            isNearCampus: wc.isNear,
+            distanceKm: wc.distanceKm,
+            driveMinutesWithTraffic: wc.driveMinutes,
+            trafficLabel: wc.trafficLabel,
+            recommendedLeadMinutes: wc.recommendedLeadMinutes,
+            mapsDirectionsUrl: wc.mapsUrl
+        });
+    }
+
+    if (!rows.length) {
+        const p = document.createElement('p');
+        p.className = 'muted-text';
+        p.textContent = 'Set your current location or Home coordinates above to estimate driving time & traffic.';
+        container.appendChild(p);
+        return;
+    }
+
+    rows.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'its-croquis-card';
+
+        const meta = document.createElement('div');
+        meta.className = 'planner-course-meta';
+        const h4 = document.createElement('h4');
+        h4.textContent = `🎯 ${c.target}`;
+
+        const badge = document.createElement('span');
+        badge.className = `proofing-issue-chip ${c.isNearCampus ? 'is-grammar' : 'is-spelling'}`;
+        badge.textContent = c.isNearCampus
+            ? `📍 On / Near (${c.distanceKm} km) → Notify ${c.recommendedLeadMinutes} min before`
+            : `🚗 Driving (${c.distanceKm} km · ${c.trafficLabel}) → ~${c.driveMinutesWithTraffic} min drive · Notify ${c.recommendedLeadMinutes} min before`;
+
+        meta.append(h4, badge);
+
+        const actions = document.createElement('div');
+        if (c.mapsDirectionsUrl) {
+            const link = document.createElement('a');
+            link.href = c.mapsDirectionsUrl;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'btn-secondary btn-small';
+            link.style.textDecoration = 'none';
+            link.textContent = '🗺️ Open Route';
+            actions.appendChild(link);
+        }
+
+        card.append(meta, actions);
+        container.appendChild(card);
+    });
+}
+
+function applyCapturedLocationToTarget(target, coords, label, source = 'gps') {
+    if (!coords) return;
+    const lat = Number(coords.lat);
+    const lng = Number(coords.lng);
+    const mapUrl = `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
+
+    if (target === 'home') {
+        setVal('homeLocationLat', lat.toFixed(6));
+        setVal('homeLocationLng', lng.toFixed(6));
+        setVal('homeLocationMapsUrl', mapUrl);
+    } else if (target === 'residencias') {
+        setVal('resLocationLat', lat.toFixed(6));
+        setVal('resLocationLng', lng.toFixed(6));
+        setVal('resLocationMapsUrl', mapUrl);
+    } else if (target === 'work') {
+        setVal('workLocationLat', lat.toFixed(6));
+        setVal('workLocationLng', lng.toFixed(6));
+        setVal('workLocationMapsUrl', mapUrl);
+    }
+
+    return submitMutationRequest({
+        url: '/api/planner/location',
+        method: 'POST',
+        scopeKey: `planner-loc:${target}`,
+        signature: `${target}:${lat}:${lng}:${Date.now()}`,
+        buildBody: () => ({ target, lat, lng, mapsUrl: mapUrl, label: label || 'Current Location', source }),
+        parseJson: true
+    }).then(data => {
+        if (data?.planner) academicPlannerState = data.planner;
+        if (data?.commutePreview) renderLiveCommuteCards(data.commutePreview);
+        else if (data?.commutes) renderLiveCommuteCards({ originCoords: { lat, lng }, originSource: label || 'Current Location', commutes: data.commutes });
+        return data;
+    });
+}
+
+function openQuickLocationModal(target = 'current', { showHttpNotice = false, errorMsg = '' } = {}) {
+    const modal = document.getElementById('quickLocationModal');
+    const targetInput = document.getElementById('quickLocationTarget');
+    const titleEl = document.getElementById('quickLocationModalTitle');
+    const noticeEl = document.getElementById('quickLocationHttpNotice');
+    const originCodeEl = document.getElementById('quickLocationOriginCode');
+    const presetsEl = document.getElementById('quickLocationPresets');
+    const inputEl = document.getElementById('quickLocationInput');
+    if (!modal || !presetsEl) return;
+
+    const targetLabels = {
+        current: '📍 Update My Current Location',
+        home: '🏠 Set Home Coordinates',
+        residencias: '🏢 Set Residencias Company Location',
+        work: '💼 Set Workplace Location'
+    };
+    if (titleEl) titleEl.textContent = targetLabels[target] || targetLabels.current;
+    if (targetInput) targetInput.value = target;
+    if (noticeEl) noticeEl.hidden = !showHttpNotice;
+    if (originCodeEl) originCodeEl.textContent = window.location.origin;
+
+    const bannerEl = document.getElementById('quickLocationBanner');
+    if (bannerEl) {
+        if (errorMsg) {
+            bannerEl.className = 'inline-status-banner is-info';
+            bannerEl.textContent = errorMsg;
+            bannerEl.hidden = false;
+        } else {
+            bannerEl.hidden = true;
+        }
+    }
+
+    const presets = [];
+    const locs = academicPlannerState?.locations || {};
+    if (locs.home && Number.isFinite(Number(locs.home.lat)) && Number.isFinite(Number(locs.home.lng))) {
+        presets.push({ label: '🏠 Saved Home', lat: Number(locs.home.lat), lng: Number(locs.home.lng) });
+    }
+    presets.push(
+        { label: '💻 ITS Boillot · Sistemas R/S (CTO-004)', lat: 25.443950, lng: -100.989650 },
+        { label: '🎓 ITS Principal (CTO-002)', lat: 25.443706, lng: -100.993845 },
+        { label: '⚙️ ITS Miravalle · N/Labs (CTO-003)', lat: 25.445350, lng: -100.991200 }
+    );
+    const resLoc = academicPlannerState?.residencias?.location;
+    if (resLoc && Number.isFinite(Number(resLoc.lat)) && Number.isFinite(Number(resLoc.lng))) {
+        presets.push({ label: '🏢 Saved Residencias', lat: Number(resLoc.lat), lng: Number(resLoc.lng) });
+    }
+    const workLoc = academicPlannerState?.work?.location;
+    if (workLoc && Number.isFinite(Number(workLoc.lat)) && Number.isFinite(Number(workLoc.lng))) {
+        presets.push({ label: '💼 Saved Work', lat: Number(workLoc.lat), lng: Number(workLoc.lng) });
+    }
+
+    presetsEl.replaceChildren();
+    presets.forEach(p => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'quick-loc-chip';
+        btn.textContent = p.label;
+        btn.addEventListener('click', () => {
+            runWithButtonLock(btn, async () => {
+                try {
+                    await applyCapturedLocationToTarget(target, { lat: p.lat, lng: p.lng }, p.label, 'preset');
+                    modal.hidden = true;
+                    showToast('ok', `Location updated: ${p.label} — commute recalculated!`);
+                } catch (err) {
+                    if (bannerEl) {
+                        bannerEl.className = 'inline-status-banner is-error';
+                        bannerEl.textContent = err.message || 'Could not apply location.';
+                        bannerEl.hidden = false;
+                    }
+                }
+            }, { loadingText: 'Saving...' });
+        });
+        presetsEl.appendChild(btn);
+    });
+
+    if (inputEl) {
+        inputEl.value = '';
+        modal.hidden = false;
+        inputEl.focus();
+    } else {
+        modal.hidden = false;
+    }
+}
+
+function triggerSmartGpsCapture(target = 'current') {
+    const isHttpBlockedOrigin = window.isSecureContext === false &&
+        !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+
+    if (!navigator.geolocation || isHttpBlockedOrigin) {
+        openQuickLocationModal(target, { showHttpNotice: isHttpBlockedOrigin });
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+            try {
+                const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                await applyCapturedLocationToTarget(target, coords, 'Phone/Browser GPS', 'gps');
+                const modal = document.getElementById('quickLocationModal');
+                if (modal) modal.hidden = true;
+                showToast('ok', 'Live GPS captured & commute routes recalculated!');
+            } catch (err) {
+                showToast('err', err.message || 'Could not update location.');
+            }
+        },
+        (err) => {
+            const msg = String(err?.message || '');
+            const blockedByOrigin = /secure origin/i.test(msg);
+            const friendly = blockedByOrigin
+                ? 'Browser blocked native GPS because this address uses plain HTTP.'
+                : `Browser GPS unavailable (${msg || 'permission denied'}). Choose a quick preset or paste a Google Maps link below.`;
+            openQuickLocationModal(target, {
+                showHttpNotice: blockedByOrigin,
+                errorMsg: friendly
+            });
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+
+function initQuickLocationModal() {
+    const modal = document.getElementById('quickLocationModal');
+    const form = document.getElementById('quickLocationForm');
+    const btnClose = document.getElementById('btnCloseQuickLocModal');
+    const btnCancel = document.getElementById('btnCancelQuickLocModal');
+    const btnRetryGps = document.getElementById('btnRetryBrowserGps');
+    if (!modal || !form || form.dataset.wired === 'true') return;
+    form.dataset.wired = 'true';
+
+    const closeModal = () => { modal.hidden = true; };
+    if (btnClose) btnClose.addEventListener('click', closeModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+
+    if (btnRetryGps) {
+        btnRetryGps.addEventListener('click', () => {
+            const target = document.getElementById('quickLocationTarget')?.value || 'current';
+            if (!navigator.geolocation) {
+                showToast('err', 'Geolocation API not supported in this browser.');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                async (pos) => {
+                    try {
+                        await applyCapturedLocationToTarget(target, { lat: pos.coords.latitude, lng: pos.coords.longitude }, 'Phone/Browser GPS', 'gps');
+                        closeModal();
+                        showToast('ok', 'Browser GPS worked & routes recalculated!');
+                    } catch (err) {
+                        showToast('err', err.message);
+                    }
+                },
+                (err) => {
+                    const bannerEl = document.getElementById('quickLocationBanner');
+                    if (bannerEl) {
+                        bannerEl.className = 'inline-status-banner is-error';
+                        bannerEl.textContent = /secure origin/i.test(err?.message || '')
+                            ? `Still blocked on ${window.location.origin}. Use 1-Tap Presets or paste a Google Maps link above, or enable the insecure-origin flag.`
+                            : (err?.message || 'Could not read GPS.');
+                        bannerEl.hidden = false;
+                    }
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        });
+    }
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const target = document.getElementById('quickLocationTarget')?.value || 'current';
+        const raw = String(document.getElementById('quickLocationInput')?.value || '').trim();
+        const btnApply = document.getElementById('btnApplyQuickLocModal');
+        const bannerEl = document.getElementById('quickLocationBanner');
+
+        if (!raw) {
+            if (bannerEl) {
+                bannerEl.className = 'inline-status-banner is-error';
+                bannerEl.textContent = 'Paste coordinates (e.g. 25.4437, -100.9938) or a Google Maps link first.';
+                bannerEl.hidden = false;
+            }
+            return;
+        }
+
+        runWithButtonLock(btnApply, async () => {
+            try {
+                const resData = await submitMutationRequest({
+                    url: '/api/planner/location',
+                    method: 'POST',
+                    scopeKey: `planner-quick-loc:${target}`,
+                    signature: `${target}:${raw}:${Date.now()}`,
+                    buildBody: () => ({ target, mapsUrl: raw, label: 'Google Maps / Manual', source: 'manual' }),
+                    parseJson: true
+                });
+                if (resData?.planner) {
+                    academicPlannerState = resData.planner;
+                    renderPlannerResidenciasAndWorkUI();
+                }
+                if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
+                closeModal();
+                showToast('ok', 'Location applied & traffic routes recalculated!');
+            } catch (err) {
+                if (bannerEl) {
+                    bannerEl.className = 'inline-status-banner is-error';
+                    bannerEl.textContent = err.message || 'Could not extract coordinates from that link.';
+                    bannerEl.hidden = false;
+                }
+            }
+        }, { loadingText: 'Applying...' });
+    });
 }
 
 function cargarPlannerVista() {
@@ -6474,10 +7167,13 @@ function cargarPlannerVista() {
         .then(res => (res.ok ? res.json() : Promise.reject(new Error('Could not load ITS Planner'))))
         .then(data => {
             academicPlannerState = data.planner || {};
-            renderItsCroquisDirectory(data.campusDirectory);
+            academicPlannerDirectory = data.campusDirectory || null;
+            academicPlannerMindboxPreset = data.mindboxPreset || null;
+            renderItsCroquisDirectory(academicPlannerDirectory);
             renderPlannerSemesterUI();
             renderPlannerVacationsUI();
             renderPlannerResidenciasAndWorkUI();
+            renderLiveCommuteCards(data.commutePreview);
         })
         .catch(err => {
             setPlannerBanner('err', 'Error loading ITS planner: ' + err.message);
@@ -6488,17 +7184,26 @@ function initAcademicPlannerHandlers() {
     const viewEl = document.getElementById('view-horario');
     if (!viewEl) return;
 
+    const panelIds = {
+        classes: 'plannerPanelClasses',
+        vacations: 'plannerPanelVacations',
+        residencias: 'plannerPanelResidencias',
+        work: 'plannerPanelWork',
+        locations: 'plannerPanelLocations'
+    };
+
     // Tab switching
-    document.querySelectorAll('#plannerSubTabs [data-planner-tab]').forEach(btn => {
+    document.querySelectorAll('#plannerTabsBar [data-planner-tab]').forEach(btn => {
         btn.addEventListener('click', () => {
             const tab = btn.getAttribute('data-planner-tab');
-            document.querySelectorAll('#plannerSubTabs [data-planner-tab]').forEach(b => {
+            document.querySelectorAll('#plannerTabsBar [data-planner-tab]').forEach(b => {
                 const active = b === btn;
-                b.classList.toggle('is-active', active);
+                b.classList.toggle('active', active);
                 b.setAttribute('aria-selected', active ? 'true' : 'false');
             });
-            document.querySelectorAll('.planner-tab-panel').forEach(panel => {
-                panel.hidden = panel.id !== `plannerTab-${tab}`;
+            Object.entries(panelIds).forEach(([k, pId]) => {
+                const panel = document.getElementById(pId);
+                if (panel) panel.hidden = k !== tab;
             });
         });
     });
@@ -6508,6 +7213,7 @@ function initAcademicPlannerHandlers() {
         semSelect.addEventListener('change', () => {
             if (!academicPlannerState) return;
             academicPlannerState.activeSemesterId = semSelect.value;
+            resetPlannerCourseForm();
             renderPlannerSemesterUI();
         });
     }
@@ -6520,73 +7226,56 @@ function initAcademicPlannerHandlers() {
             academicPlannerState.semesters = academicPlannerState.semesters || [];
             academicPlannerState.semesters.push({
                 id: newId,
-                nombre: `Nuevo Semestre ITS (${academicPlannerState.semesters.length + 1})`,
-                institucion: 'Instituto Tecnológico de Saltillo (TecNM)',
-                fechaInicio: '2027-01-18',
-                fechaFin: '2027-06-04',
-                activo: true,
+                name: `Nuevo Semestre ITS (${academicPlannerState.semesters.length + 1})`,
+                termCode: '2027-1',
+                startDate: '2027-01-18',
+                endDate: '2027-06-04',
+                active: true,
                 courses: []
             });
             academicPlannerState.activeSemesterId = newId;
+            resetPlannerCourseForm();
             renderPlannerSemesterUI();
-            setPlannerBanner('info', 'Created new semester. Customize its name/dates and click "Save All Planner Changes".');
+            setPlannerBanner('info', 'Created new semester. Customize its dates and click "Save All..." at the bottom.');
         });
     }
 
     const btnLoadPreset = document.getElementById('btnLoadMindboxPreset');
     if (btnLoadPreset) {
         btnLoadPreset.addEventListener('click', () => {
+            const applyPreset = (presetCourses) => {
+                const activeSem = getActiveSemesterObj();
+                if (!activeSem || !Array.isArray(presetCourses)) return;
+                activeSem.courses = presetCourses.map(c => ({ ...c }));
+                resetPlannerCourseForm();
+                renderPlannerSemesterUI();
+                setPlannerBanner('ok', 'Loaded your 5 MindBox 9th-semester ITS courses! Click "Save All..." at the bottom to persist.');
+            };
+            if (Array.isArray(academicPlannerMindboxPreset) && academicPlannerMindboxPreset.length) {
+                applyPreset(academicPlannerMindboxPreset);
+                return;
+            }
             fetch('/api/planner', { cache: 'no-store' })
                 .then(r => r.json())
-                .then(() => {
-                    const activeSem = getActiveSemesterObj();
-                    if (!activeSem) return;
-                    activeSem.courses = [
-                        {
-                            id: 'ACA0910', clave: 'ACA0910', nombre: 'TALLER DE INVESTIGACIÓN II',
-                            docente: 'Sorkee Quiroz Roxana Karina', grupo: 'B', aulaDefault: 'R02', campusKey: 'boillot',
-                            sessions: [{ days: [1, 2, 3, 4], startTime: '09:00', endTime: '10:00', room: 'R02' }]
-                        },
-                        {
-                            id: 'SCG1009', clave: 'SCG1009', nombre: 'GESTIÓN DE PROYECTOS DE SOFTWARE',
-                            docente: 'Fernández Chávez Eduardo', grupo: 'B', aulaDefault: 'S12', campusKey: 'principal',
-                            sessions: [
-                                { days: [1, 2, 3, 4], startTime: '13:00', endTime: '14:00', room: 'S12' },
-                                { days: [5], startTime: '12:00', endTime: '14:00', room: 'S12' }
-                            ]
-                        },
-                        {
-                            id: 'DED2504', clave: 'DED2504', nombre: 'Integración y Despliegue Continuos',
-                            docente: 'Manrique Peña Paola Denis', grupo: 'A', aulaDefault: 'LC2', campusKey: 'principal',
-                            sessions: [{ days: [1, 2, 3, 4, 5], startTime: '14:00', endTime: '15:00', room: 'LC2' }]
-                        },
-                        {
-                            id: 'SCC1019', clave: 'SCC1019', nombre: 'PROGRAMACIÓN LÓGICA Y FUNCIONAL',
-                            docente: 'Espinoza Arzola Jesús Alberto', grupo: 'A', aulaDefault: 'S14', campusKey: 'principal',
-                            sessions: [{ days: [1, 2, 3, 4], startTime: '15:00', endTime: '16:00', room: 'S14' }]
-                        },
-                        {
-                            id: 'DED2505', clave: 'DED2505', nombre: 'Desarrollo Seguro',
-                            docente: 'Cabrera Fraga Pricila', grupo: 'A', aulaDefault: 'S15', campusKey: 'principal',
-                            sessions: [{ days: [1, 2, 3, 4, 5], startTime: '16:00', endTime: '17:00', room: 'S15' }]
-                        }
-                    ];
-                    renderPlannerSemesterUI();
-                    setPlannerBanner('ok', 'Loaded your 5 MindBox 9th-semester ITS courses! Click "Save All Planner Changes" to persist.');
-                });
+                .then(data => {
+                    academicPlannerMindboxPreset = data.mindboxPreset || [];
+                    applyPreset(academicPlannerMindboxPreset);
+                })
+                .catch(() => {});
         });
     }
 
     // Live classroom croquis detector
-    const courseAulaInput = document.getElementById('courseAula');
-    const roomBadge = document.getElementById('courseRoomDetectBadge');
-    if (courseAulaInput && roomBadge) {
+    const courseRoomInput = document.getElementById('courseRoom');
+    const roomBadge = document.getElementById('courseRoomCroquisBadge');
+    const courseCampusSelect = document.getElementById('courseCampus');
+    if (courseRoomInput && roomBadge) {
         let roomTimer = null;
-        courseAulaInput.addEventListener('input', () => {
+        courseRoomInput.addEventListener('input', () => {
             clearTimeout(roomTimer);
-            const roomVal = courseAulaInput.value.trim();
+            const roomVal = courseRoomInput.value.trim();
             if (!roomVal) {
-                roomBadge.textContent = 'Enter a classroom code (e.g. R02, R11, N21, S14) to detect ITS Campus & Building.';
+                roomBadge.textContent = 'Type a room (R02, R11, N21, A10, S15) to detect ITS Campus & Croquis building.';
                 return;
             }
             roomTimer = setTimeout(() => {
@@ -6601,158 +7290,106 @@ function initAcademicPlannerHandlers() {
                     if (data && data.resolved) {
                         const r = data.resolved;
                         roomBadge.textContent = `📍 Aula ${r.room} → ${r.buildingName} · ${r.campusName} (${r.croquisCode})`;
+                        if (courseCampusSelect && r.campusId) {
+                            courseCampusSelect.value = r.campusId;
+                        }
                     }
                 }).catch(() => {});
             }, 180);
         });
     }
 
-    const btnAddCourse = document.getElementById('btnAddCourseToSemester');
-    if (btnAddCourse) {
-        btnAddCourse.addEventListener('click', () => {
+    document.getElementById('btnCancelCourseEdit')?.addEventListener('click', resetPlannerCourseForm);
+
+    const courseForm = document.getElementById('plannerCourseForm');
+    if (courseForm) {
+        courseForm.addEventListener('submit', (e) => {
+            e.preventDefault();
             const activeSem = getActiveSemesterObj();
             if (!activeSem) return;
-            const clave = String(document.getElementById('courseClave')?.value || '').trim().toUpperCase();
-            const nombre = String(document.getElementById('courseNombre')?.value || '').trim();
-            const docente = String(document.getElementById('courseDocente')?.value || '').trim();
-            const grupo = String(document.getElementById('courseGrupo')?.value || 'A').trim().toUpperCase();
-            const aula = String(document.getElementById('courseAula')?.value || 'R02').trim().toUpperCase();
-            const start = String(document.getElementById('courseHoraInicio')?.value || '09:00').slice(0, 5);
-            const end = String(document.getElementById('courseHoraFin')?.value || '10:00').slice(0, 5);
+
+            const editId = String(document.getElementById('plannerCourseEditId')?.value || '').trim();
+            const code = String(document.getElementById('courseCode')?.value || '').trim().toUpperCase();
+            const group = String(document.getElementById('courseGroup')?.value || '').trim().toUpperCase();
+            const name = String(document.getElementById('courseName')?.value || '').trim();
+            const teacher = String(document.getElementById('courseTeacher')?.value || '').trim();
+            const room = String(document.getElementById('courseRoom')?.value || '').trim().toUpperCase();
+            const campusId = document.getElementById('courseCampus')?.value || 'boillot';
+            const startTime = String(document.getElementById('courseStartTime')?.value || '09:00').slice(0, 5);
+            const endTime = String(document.getElementById('courseEndTime')?.value || '10:00').slice(0, 5);
             const days = Array.from(document.querySelectorAll('#courseDaysGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
 
-            if (!nombre || days.length === 0) {
-                showToast('err', 'Please enter a subject name and select at least one day.');
+            if (!name || !room || days.length === 0) {
+                showToast('err', 'Enter subject name, ITS classroom, and at least one class day.');
                 return;
             }
 
             activeSem.courses = activeSem.courses || [];
-            activeSem.courses.push({
-                id: clave || `COURSE_${Date.now()}`,
-                clave: clave || 'ITS',
-                nombre,
-                docente,
-                grupo,
-                aulaDefault: aula,
-                sessions: [{ days, startTime: start, endTime: end, room: aula }]
-            });
-            document.getElementById('courseClave').value = '';
-            document.getElementById('courseNombre').value = '';
-            document.getElementById('courseDocente').value = '';
+            const nextCourse = {
+                id: editId || `course-${Date.now()}`,
+                code,
+                name,
+                teacher,
+                group,
+                room,
+                campusId,
+                days,
+                startTime,
+                endTime
+            };
+
+            const existingIdx = editId ? activeSem.courses.findIndex(c => c.id === editId) : -1;
+            if (existingIdx >= 0) {
+                activeSem.courses[existingIdx] = nextCourse;
+                showToast('ok', `Updated "${name}" (${room}). Remember to click "Save All" below.`);
+            } else {
+                activeSem.courses.push(nextCourse);
+                showToast('ok', `Added "${name}" (${room}) to semester.`);
+            }
+            resetPlannerCourseForm();
             renderPlannerSemesterUI();
-            showToast('ok', `Added "${nombre}" (${aula}) to semester.`);
         });
     }
 
-    const btnAddVac = document.getElementById('btnAddVacation');
-    if (btnAddVac) {
-        btnAddVac.addEventListener('click', () => {
+    const vacForm = document.getElementById('plannerVacationForm');
+    if (vacForm) {
+        vacForm.addEventListener('submit', (e) => {
+            e.preventDefault();
             if (!academicPlannerState) return;
-            const nombre = String(document.getElementById('vacNombre')?.value || '').trim();
-            const fechaInicio = document.getElementById('vacInicio')?.value || '';
-            const fechaFin = document.getElementById('vacFin')?.value || '';
-            if (!nombre || !fechaInicio || !fechaFin) {
+            const name = String(document.getElementById('vacName')?.value || '').trim();
+            const startDate = document.getElementById('vacStartDate')?.value || '';
+            const endDate = document.getElementById('vacEndDate')?.value || '';
+            if (!name || !startDate || !endDate) {
                 showToast('err', 'Enter vacation name, start date, and end date.');
                 return;
             }
             academicPlannerState.vacations = academicPlannerState.vacations || [];
             academicPlannerState.vacations.push({
                 id: `vac-${Date.now()}`,
-                nombre,
-                fechaInicio,
-                fechaFin
+                name,
+                startDate,
+                endDate
             });
-            document.getElementById('vacNombre').value = '';
+            vacForm.reset();
             renderPlannerVacationsUI();
-            showToast('ok', `Added vacation period: ${nombre}`);
+            showToast('ok', `Added vacation break: ${name}`);
         });
     }
 
-    // GPS Helper
-    const captureGpsInto = (inputId, labelText) => {
-        if (!navigator.geolocation) {
-            showToast('err', 'Geolocation is not supported by this browser.');
-            return;
-        }
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                const lat = pos.coords.latitude.toFixed(6);
-                const lng = pos.coords.longitude.toFixed(6);
-                const coordStr = `${lat}, ${lng}`;
-                if (inputId) {
-                    const inputEl = document.getElementById(inputId);
-                    if (inputEl) inputEl.value = coordStr;
-                }
-                showToast('ok', `${labelText} GPS coordinates captured: ${coordStr}`);
-            },
-            (err) => {
-                showToast('err', `Could not read GPS (${err.message}). You can paste a Google Maps link or lat,lng directly.`);
-            },
-            { enableHighAccuracy: true, timeout: 10000 }
-        );
-    };
+    document.getElementById('resLoggedHours')?.addEventListener('input', updateResHoursProgressDisplay);
+    document.getElementById('resTotalHours')?.addEventListener('input', updateResHoursProgressDisplay);
 
-    document.getElementById('btnUseCurrentGpsForCasa')?.addEventListener('click', () => captureGpsInto('locCasaInput', 'Home'));
-    document.getElementById('btnResUseGps')?.addEventListener('click', () => captureGpsInto('resUbicacionUrl', 'Residencias'));
-    document.getElementById('btnWorkUseGps')?.addEventListener('click', () => captureGpsInto('workUbicacionUrl', 'Work'));
+    // Unified Smart GPS Capture (Header button + Home / Residencias / Work / Refresh buttons)
+    document.getElementById('btnUpdateLiveGps')?.addEventListener('click', () => {
+        triggerSmartGpsCapture('current');
+    });
 
-    const btnUpdateLiveGps = document.getElementById('btnUpdateLiveGps');
-    if (btnUpdateLiveGps) {
-        btnUpdateLiveGps.addEventListener('click', () => {
-            if (!navigator.geolocation) {
-                showToast('err', 'Geolocation is not supported on this browser. Use the manual test field below.');
-                return;
-            }
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    const lat = pos.coords.latitude;
-                    const lng = pos.coords.longitude;
-                    const manualEl = document.getElementById('locCurrentManualInput');
-                    if (manualEl) manualEl.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                    submitMutationRequest({
-                        url: '/api/planner/location',
-                        method: 'POST',
-                        scopeKey: 'planner-gps-live',
-                        signature: `${lat},${lng}`,
-                        buildBody: () => ({ lat, lng, label: 'Phone/Browser GPS' }),
-                        parseJson: true
-                    }).then(data => {
-                        renderLiveCommuteCards(data.commutes || []);
-                        showToast('ok', 'Live GPS updated & traffic routes recalculated!');
-                    }).catch(err => showToast('err', err.message));
-                },
-                (err) => showToast('err', 'GPS permission error: ' + err.message),
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
+    document.querySelectorAll('#view-horario [data-use-gps-target]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.getAttribute('data-use-gps-target') || 'current';
+            triggerSmartGpsCapture(target);
         });
-    }
-
-    const btnTestManualCommute = document.getElementById('btnTestManualCommute');
-    if (btnTestManualCommute) {
-        btnTestManualCommute.addEventListener('click', () => {
-            const raw = String(document.getElementById('locCurrentManualInput')?.value || '').trim();
-            if (!raw) {
-                showToast('err', 'Enter coordinates (e.g. 25.421, -100.995) or a Google Maps link first.');
-                return;
-            }
-            runWithButtonLock(btnTestManualCommute, async () => {
-                try {
-                    const data = await submitMutationRequest({
-                        url: '/api/planner/location',
-                        method: 'POST',
-                        scopeKey: 'planner-gps-manual',
-                        signature: raw + Date.now(),
-                        buildBody: () => ({ mapsUrl: raw, label: 'Simulated Location' }),
-                        parseJson: true
-                    });
-                    renderLiveCommuteCards(data.commutes || []);
-                    showToast('ok', 'Calculated driving time & notification lead time!');
-                } catch (err) {
-                    showToast('err', err.message);
-                }
-            }, { loadingText: 'Calculating...' });
-        });
-    }
+    });
 
     const btnSaveAll = document.getElementById('btnSaveAllPlanner');
     if (btnSaveAll) {
@@ -6769,12 +7406,13 @@ function initAcademicPlannerHandlers() {
                         buildBody: () => payload,
                         parseJson: true
                     });
-                    if (resData && resData.planner) {
+                    if (resData?.planner) {
                         academicPlannerState = resData.planner;
                         renderPlannerSemesterUI();
                         renderPlannerVacationsUI();
                         renderPlannerResidenciasAndWorkUI();
                     }
+                    if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
                     setPlannerBanner('ok', resData.message || 'ITS Schedule, Vacations, Residencias, Work & Locations saved!');
                     showToast('ok', 'Planner saved!');
                     cargarRecordatoriosActivos();
@@ -6786,7 +7424,7 @@ function initAcademicPlannerHandlers() {
         });
     }
 
-    const btnSyncWeek = document.getElementById('btnSyncPlannerToAgenda');
+    const btnSyncWeek = document.getElementById('btnSyncScheduleToAgenda');
     if (btnSyncWeek) {
         btnSyncWeek.addEventListener('click', () => {
             const payload = collectPlannerStateFromDOM();
@@ -6819,32 +7457,6 @@ function initAcademicPlannerHandlers() {
             }, { loadingText: 'Syncing...' });
         });
     }
-}
-
-function renderLiveCommuteCards(commutes = []) {
-    const box = document.getElementById('liveCommuteResultBox');
-    if (!box) return;
-    box.innerHTML = '';
-    if (!commutes.length) {
-        box.hidden = true;
-        return;
-    }
-    box.hidden = false;
-    commutes.forEach(c => {
-        const card = document.createElement('div');
-        card.className = 'its-croquis-card';
-        const statusBadge = c.isNearCampus
-            ? `<span class="proofing-status-badge is-ok">📍 On / Near Campus (${c.distanceKm} km) → Notify ${c.recommendedLeadMinutes} min before</span>`
-            : `<span class="proofing-status-badge has-issues">🚗 Far / Driving (${c.distanceKm} km · ${c.trafficLabel}) → Est. ${c.driveMinutesWithTraffic} min drive · Notify ${c.recommendedLeadMinutes} min before</span>`;
-        card.innerHTML = `
-            <h4>🎯 ${c.target}</h4>
-            <div>${statusBadge}</div>
-            <div style="margin-top:6px;">
-                <a href="${c.mapsDirectionsUrl}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-sm" style="display:inline-flex;text-decoration:none;">🗺️ Open Google Maps Driving Route</a>
-            </div>
-        `;
-        box.appendChild(card);
-    });
 }
 
 // ==========================================
@@ -7029,7 +7641,12 @@ function renderMusicRepertoireNavigator() {
             renderMusicRepertoireNavigator();
             if (!musicState.editingSongId) {
                 const artInput = document.getElementById('musicMainArtist');
+                const artTypeInput = document.getElementById('musicMainArtistType');
                 if (artInput) artInput.value = art.nombre;
+                const matchedArtist = (musicState.artists || []).find(a => Number(a.id) === Number(art.id));
+                if (artTypeInput && matchedArtist?.tipo_artista) {
+                    artTypeInput.value = matchedArtist.tipo_artista;
+                }
             }
         });
         artistListEl.appendChild(btn);
@@ -7265,10 +7882,6 @@ function initKeyboardShortcuts() {
     bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
     // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
     bindEnterToButton('crisisMotivo', 'btnSaveCrisis', { ctrlOrCmd: true });
-    // Manual GPS commute location -> Enter applies location & recalculates route
-    bindEnterToButton('locCurrentManualInput', 'btnApplyManualLocation');
-    // Vacation name -> Enter adds vacation period
-    bindEnterToButton('vacNombre', 'btnAddVacation');
 
     // Catalog search filter -> Enter selects first visible matching song in catalog
     const filterSearchEl = document.getElementById('musicFilterSearch');
@@ -7300,7 +7913,9 @@ function initApp() {
     initLanguageAiStudio();
     initWordStyleProofing();
     initAcademicPlannerHandlers();
+    initQuickLocationModal();
     initCrisisHandlers();
+    initMusicEntityEditModal();
     initKeyboardShortcuts();
 
     if (clientTransportTunnel && rawBrowserFetch) {

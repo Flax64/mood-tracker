@@ -188,9 +188,14 @@ En la tarjeta **`Register or Link Song`** (pestaña **`🎵 Music & Songs`**):
 ### 7.5 Navegador Interactivo con Cursor (Artistas → Álbumes → Canciones)
 
 Justo arriba de las tarjetas del catálogo verás el **Explorador de Repertorio en 3 columnas**:
-1. **Columna 1 (`🎤 Artists`)**: mueve el cursor encima de cualquier artista para previsualizar sus lanzamientos al instante, o haz **clic** para fijarlo y autocompletar el campo `Main Artist` si vas a agregar otra canción suya.
+1. **Columna 1 (`🎤 Artists`)**: mueve el cursor encima de cualquier artista para previsualizar sus lanzamientos al instante, o haz **clic** para fijarlo y autocompletar el campo `Main Artist` (y su formato) si vas a agregar otra canción suya.
 2. **Columna 2 (`💿 Albums / Releases`)**: mueve el cursor o haz **clic** sobre cualquier álbum, mini álbum o `Standalone Singles` para filtrar sus canciones (al hacer clic también pre-llena Álbum, Tipo y Año en el formulario si no estás editando).
 3. **Columna 3 (`🎵 Songs`)**: haz **clic** en la canción deseada (o haz **clic directamente en cualquier tarjeta** de la lista inferior) para seleccionarla en **`Song Study Notes -> Encrypted Word (PC)`** y activar su contexto en el **Tutor IA**.
+
+**Cómo editar canciones, artistas o álbumes ya creados:**
+- **Editar Canción:** haz clic en el botón **`Edit`** de la tarjeta de la canción; cargará su título, artista principal, **`Artist Format`**, colaboradores, álbum, idioma y enfoque en el formulario superior para guardar los cambios.
+- **Editar Artista:** haz clic en **`✏️ Edit Artist`** junto al nombre del artista para corregir su nombre (capitalización/ortografía), cambiar su formato (`Group`, `Solo Artist`, `Duo`, `Collab Unit`) o agregar notas cortas en todas sus canciones al instante.
+- **Editar Álbum / Lanzamiento:** haz clic en **`✏️ Edit Album`** junto al nombre del lanzamiento para modificar título, tipo (`Album`, `Mini Album`, `EP`, `Single`, `OST`, `Collab Single`) o año.
 
 En el panel de estudio inferior (**`Song Study Notes -> Encrypted Word (PC)`**):
 - Pega un fragmento de letra en **`Lyrics Breakdown, Meanings & Explanations`**.
@@ -218,19 +223,20 @@ Accede desde **`🗓️ Weekly Agenda`**. Qué poner en cada campo:
 
 Accede desde **`🎓 ITS, Residencias & Work`**. Permite planificar tu carrera en el **Instituto Tecnológico de Saltillo (ITS)** y vida laboral sin perder ninguna clase ni turno:
 
-1. **Semestres y Periodo de Vacaciones (Tab `Academic Semesters & Vacations`)**:
-   - Define tu semestre activo (fecha de inicio y fin) y registra rangos de **vacaciones / días inhábiles** (`vacNombre` + presiona `Enter`). Durante vacaciones o días marcados, no te enviará falsas alertas de primera clase.
-2. **Horario de Clases por Salón (Tab `Class Schedule`)**:
-   - Selecciona días de la semana, hora de inicio/fin en formato normal (`HH:MM`), **Clave de materia** (ej. `DED2504`), **Nombre** (ej. `Integración y Despliegue Continuos`), **Docente** y **Salón ITS** (`R02`, `R11`, `N21`, Lab, etc. con referencia visual integrada al croquis del campus).
-3. **Residencias Profesionales (Tab `Residencias Profesionales`)**:
-   - Registra tu empresa, asesor interno/externo, horario de estadía y fechas clave del proyecto de residencias.
-4. **Horario Laboral (Tab `Work Schedule`)**:
-   - Registra si trabajas tiempo completo (`Full-Time`) o medio tiempo (`Part-Time`), turno, empresa y días laborales para integrar notificaciones de salida.
-5. **Ubicaciones y Alerta de Tráfico Real en Carro (`Campus / Destinations Location & GPS`)**:
-   - Guarda la ubicación exacta del **ITS** (y tu casa o empresa/residencias) en coordenadas o dirección.
-   - Usa GPS del navegador o escribe tu ubicación manual actual (ej. calle/zona en Saltillo y presiona **`Enter`**) para calcular el **tiempo real en automóvil (`OSRM`)** tomando en cuenta distancia y rutas:
-     - Si estás **lejos** (en casa u otra zona de la ciudad) → te notifica al menos **30 minutos antes + tiempo estimado de traslado** antes de tu primera clase/turno.
-     - Si estás **cerca o ya dentro del ITS** → te notifica **10 minutos antes** para trasladarte entre salones (ej. edificio R a edificio N).
+1. **Semestres y Periodo de Vacaciones (Tabs `🎓 ITS Semester & Croquis` y `🏖️ Vacations & Breaks`)**:
+   - Define tu semestre activo (fecha de inicio y fin) y registra rangos de **vacaciones / días inhábiles** (`Period Name` + fechas). Durante vacaciones o días marcados, no te enviará falsas alertas de primera clase.
+2. **Horario de Clases por Salón (`Add / Edit ITS Class`)**:
+   - Selecciona días de la semana, hora de inicio/fin en formato normal (`HH:MM`), **Clave de materia** (ej. `ACA0910`), **Nombre**, **Docente** y **Salón ITS** (`R02`, `R11`, `N21`, Lab, etc. con detección automática de edificio/campus según el croquis oficial). También puedes cargar al instante tus materias base con **⚡ Load MindBox 9th Sem Preset** y editar cualquier clase con **`Edit`**.
+3. **Residencias Profesionales (Tab `🏢 Residencias Profesionales`)**:
+   - Registra tu empresa, proyecto, asesor interno/externo, horario, avance de las 500 horas y ubicación para alertas de traslado.
+4. **Horario Laboral (Tab `💼 Work (Full / Part-Time)`)**:
+   - Registra si trabajas tiempo completo (`Tiempo Completo`) o medio tiempo (`Medio Tiempo`), horario, modalidad y ubicación para integrar notificaciones de salida.
+5. **Ubicaciones, GPS Inteligente y Tráfico en Carro (Tab `📍 Maps, GPS & Traffic Alerts` / botón `📍 Update My GPS`)**:
+   - Guarda la ubicación exacta del **ITS**, tu **Casa**, **Residencias** y **Trabajo**.
+   - Al tocar **`📍 Update My GPS`** (o **`Refresh GPS`**), si entras por HTTPS/`localhost` captura tu GPS directo; si entras por `http://TU_IP:3000` (donde Chrome/Edge bloquean el GPS nativo por seguridad de origen), se abre el **Asistente de Ubicación Rápida** donde puedes elegir con 1 clic **`🏠 Saved Home`**, **`💻 ITS Boillot`**, **`🎓 ITS Principal`**, **`⚙️ ITS Miravalle`**, pegar un enlace compartido de Google Maps (incluidos links cortos `maps.app.goo.gl/...`) o habilitar el flag `edge://flags/#unsafely-treat-insecure-origin-as-secure` / `chrome://flags/#unsafely-treat-insecure-origin-as-secure` si prefieres desbloquear el GPS nativo en HTTP.
+   - Con base en tu posición actual:
+     - Si estás **lejos** (en casa u otra zona de Saltillo) → te notifica al menos **30 minutos antes + tiempo estimado de traslado en carro** antes de tu primera clase o turno.
+     - Si estás **cerca o ya dentro del ITS** → te notifica **10 minutos antes** para trasladarte entre salones.
 
 ---
 
@@ -282,5 +288,5 @@ Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes 
 | **Pregunta al Tutor IA (`langAiQuestion`)** | `Enter` | Envía la pregunta a Gemini / Local Engine (`Shift + Enter` agrega salto de línea). |
 | **Caja de Letra de Canción (`musicStudyLyrics`)** | `Ctrl + Enter` | Ejecuta **`✨ Explain Lyrics & Romanize (AI)`** al instante. |
 | **Motivo en Bitácora de Crisis (`crisisMotivo`)** | `Ctrl + Enter` | Guarda directamente el registro de crisis con su fecha, hora y motivo en español. |
-| **Ubicación Manual GPS (`locCurrentManualInput`)** | `Enter` | Aplica la dirección y recalcula el tiempo de traslado en carro. |
-| **Nombre de Vacaciones ITS (`vacNombre`)** | `Enter` | Añade el periodo de vacaciones al calendario académico. |
+| **Modal de Ubicación / Link de Maps (`quickLocationInput`)** | `Enter` | Aplica el enlace de Google Maps o coordenadas y recalcula las rutas al instante. |
+| **Formulario de Vacaciones (`vacName`)** | `Enter` | Envía el formulario para añadir el periodo vacacional cuando ya elegiste fechas. |

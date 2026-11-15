@@ -106,7 +106,7 @@ El sistema se divide en cinco capas desacopladas:
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
-  - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
+  - `Permissions-Policy: geolocation=(self), microphone=(), camera=()`
   - `Cross-Origin-Opener-Policy: same-origin` y `Cross-Origin-Resource-Policy: same-origin`
   - `X-Permitted-Cross-Domain-Policies: none` y `X-DNS-Prefetch-Control: off`
   - `Content-Security-Policy` restringida a `'self'` (`cdnjs.cloudflare.com` en `script-src`, `i.ytimg.com` en `img-src` para miniaturas y `youtube-nocookie.com` / `youtube.com` en `frame-src` para el mini reproductor opcional de estudio), incluyendo `form-action 'self'` y `frame-ancestors 'none'`.

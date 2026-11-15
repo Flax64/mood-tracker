@@ -570,6 +570,21 @@ body {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+    width: 5px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.35);
+    border-radius: 999px;
 }
 
 .nav-group {
@@ -744,8 +759,18 @@ body {
     }
 
     .app-shell.sidebar-collapsed .logout-text,
-    .app-shell.sidebar-collapsed .theme-label {
+    .app-shell.sidebar-collapsed .theme-label,
+    .app-shell.sidebar-collapsed .sidebar-tunnel-row .tunnel-label {
         display: none;
+    }
+
+    .app-shell.sidebar-collapsed .sidebar-tunnel-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 4px;
+        margin: 4px 0 6px;
+        font-size: 1rem;
     }
 
     .app-shell.sidebar-collapsed .btn-theme-sidebar,
@@ -5316,5 +5341,251 @@ select,
     background: #3b82f6;
     border-color: #3b82f6;
     color: #ffffff;
+}
+
+/* =========================================
+   MUSIC ENTITY EDIT CONTROLS & UNIVERSAL OVERFLOW SAFETY
+========================================= */
+html,
+body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.main-content,
+.view-shell,
+.card,
+.settings-card,
+.music-panel-card,
+.music-yt-finder-card,
+.side-insight-card,
+.view-main-card,
+.transport-stat-box,
+.transport-benchmark-box,
+.lang-ai-panel,
+.ai-summary-box {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.transport-stat-box strong,
+.transport-benchmark-box,
+.ai-summary-box,
+.music-privacy-callout,
+.sidebar-user-role,
+.sidebar-user-name,
+.sidebar-tunnel-row {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.sidebar-tunnel-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.music-artist-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.btn-mini-edit {
+    border: 1px solid rgba(37, 99, 235, 0.35);
+    background: rgba(37, 99, 235, 0.1);
+    color: #1d4ed8;
+    border-radius: 7px;
+    padding: 3px 8px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-mini-edit:hover {
+    background: rgba(37, 99, 235, 0.2);
+    border-color: #2563eb;
+}
+
+:root[data-theme="dark"] .btn-mini-edit {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(96, 165, 250, 0.45);
+    color: #93c5fd;
+}
+
+/* OPPO A79 (360px - 430px CSS width) & small smartphone polish */
+@media (max-width: 640px) {
+    .mobile-topbar {
+        padding: 0 10px;
+        gap: 6px;
+    }
+
+    .mobile-topbar-title {
+        font-size: 0.94rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+    }
+
+    .moment-pill {
+        max-width: 92px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .view-header-card {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 16px;
+        gap: 12px;
+    }
+
+    .view-header-actions {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .view-header-actions > button {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+
+    .music-song-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .music-song-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .music-yt-finder-bar,
+    .music-inline-input,
+    .yt-platform-bar,
+    .planner-course-card {
+        flex-wrap: wrap;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .music-yt-finder-bar button,
+    .music-inline-input button {
+        width: 100%;
+    }
+
+    .music-filter-bar {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .music-filter-bar > input[type="search"] {
+        grid-column: 1 / -1;
+    }
+
+    .music-panel-card,
+    .music-yt-finder-card {
+        padding: 14px 12px;
+    }
+
+    .english-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+    }
+
+    .english-tabs .english-tab-btn:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
+
+    .english-tab-btn {
+        font-size: 0.82rem;
+        padding: 9px 10px;
+    }
+
+    .modal-card {
+        padding: 18px 14px;
+        max-height: 92dvh;
+        overflow-y: auto;
+    }
+}
+
+/* Quick Location / HTTP GPS Fallback Modal */
+.quick-loc-hint-box {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--text-main);
+    margin-bottom: 12px;
+}
+
+.quick-loc-section-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.quick-loc-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.quick-loc-chip {
+    border: 1px solid var(--border-color);
+    background: var(--bg-soft, #f8fafc);
+    color: var(--text-main);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.quick-loc-chip:hover {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.12);
+    transform: translateY(-1px);
+}
+
+.quick-loc-details {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.quick-loc-details summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.quick-loc-origin-code {
+    user-select: all;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.2);
+}
+
+:root[data-theme="dark"] .quick-loc-hint-box {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(96, 165, 250, 0.35);
+}
+
+:root[data-theme="dark"] .quick-loc-chip {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
 }
 

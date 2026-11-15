@@ -95,7 +95,7 @@ fi
 # 3. Verificar si la base de datos ya contiene datos (en modo --if-empty)
 if [ "$MODE" = "--if-empty" ]; then
     TOTAL_ROWS="$(mysql_exec -N -s "$DB_NAME" -e \
-        "SELECT (SELECT COUNT(*) FROM RegistrosMood) + (SELECT COUNT(*) FROM RegistrosSleep) + (SELECT COUNT(*) FROM RegistrosAgenda);" </dev/null)"
+        "SELECT (SELECT COUNT(*) FROM RegistrosMood) + (SELECT COUNT(*) FROM RegistrosSleep) + (SELECT COUNT(*) FROM RegistrosCrisis) + (SELECT COUNT(*) FROM RegistrosAgenda) + (SELECT COUNT(*) FROM MusicaCanciones);" </dev/null)"
 
     if [ "${TOTAL_ROWS:-0}" -gt 0 ]; then
         echo "La base de datos '$DB_NAME' ya tiene $TOTAL_ROWS registros. Se omite la restauración automática."
