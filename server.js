@@ -32,6 +32,8 @@ const {
     analyzeWithGemini,
     translateOffline,
     translateWithGemini,
+    translateLyricsToSpanishOffline,
+    translateLyricsToSpanishWithGemini,
     testGeminiConnection
 } = require('./lib/language-studio');
 const {
@@ -2086,6 +2088,26 @@ const MAX_COLA_TEXTOS = 100;
 
 function createEncryptedPcQueue({ maxSize = MAX_COLA_TEXTOS, okMessage, emptyMessage, fullMessage }) {
     let queue = [];
+    const waiters = new Set();
+
+    function notifyWaiters() {
+        if (waiters.size === 0 || queue.length === 0) return;
+        const snapshot = Array.from(waiters);
+        waiters.clear();
+        let delivered = false;
+        // Prefer the most recent waiter so stale/closing sockets don't swallow items
+        for (let idx = snapshot.length - 1; idx >= 0; idx -= 1) {
+            const waiter = snapshot[idx];
+            if (!delivered && waiter.canRespond()) {
+                const items = queue;
+                queue = [];
+                delivered = true;
+                waiter.resolve(items);
+            } else {
+                waiter.resolve([]);
+            }
+        }
+    }
 
     return {
         enqueue(req, res) {
@@ -2103,12 +2125,51 @@ function createEncryptedPcQueue({ maxSize = MAX_COLA_TEXTOS, okMessage, emptyMes
                 return res.status(429).send(fullMessage);
             }
             queue.push(texto);
+            notifyWaiters();
             return res.send(okMessage);
         },
         pull(req, res) {
-            const items = queue;
-            queue = [];
-            return res.json(items);
+            if (queue.length > 0) {
+                const items = queue;
+                queue = [];
+                return res.json(items);
+            }
+
+            const rawWaitMs = Number.parseInt(String(req.query?.waitMs || '0'), 10);
+            const waitMs = Number.isFinite(rawWaitMs) ? Math.max(0, Math.min(25000, rawWaitMs)) : 0;
+            if (waitMs <= 0) {
+                return res.json([]);
+            }
+
+            let settled = false;
+            const waiter = {
+                timer: null,
+                canRespond() {
+                    return !settled && !res.headersSent && !res.writableEnded;
+                },
+                resolve(items) {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(waiter.timer);
+                    waiters.delete(waiter);
+                    if (!res.headersSent && !res.writableEnded) {
+                        res.json(Array.isArray(items) ? items : []);
+                    }
+                },
+            };
+
+            waiter.timer = setTimeout(() => {
+                waiter.resolve([]);
+            }, waitMs);
+            if (typeof waiter.timer.unref === 'function') waiter.timer.unref();
+
+            waiters.add(waiter);
+            req.on('close', () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(waiter.timer);
+                waiters.delete(waiter);
+            });
         },
         size() {
             return queue.length;
@@ -7034,6 +7095,66 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
     } catch (err) {
         console.error('[LANGUAGE_TRANSLATE_ERROR]', err);
         res.status(500).send('Error running translator.');
+    }
+});
+
+app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    try {
+        const lyrics = String(req.body.lyrics || req.body.text || '').trim();
+        if (!lyrics) {
+            return res.status(400).send('Provide song lyrics to translate to Spanish.');
+        }
+        if (lyrics.length > 12000) {
+            return res.status(400).send('Lyrics cannot exceed 12,000 characters.');
+        }
+
+        const modeRaw = String(req.body.mode || 'auto').toLowerCase();
+        const mode = ['auto', 'gemini', 'offline'].includes(modeRaw) ? modeRaw : 'auto';
+        const songTitle = String(req.body.songTitle || req.body.titulo || '').trim().slice(0, 160);
+        const artistName = String(req.body.artistName || req.body.artista || '').trim().slice(0, 160);
+        const language = String(req.body.language || req.body.idioma || '').trim().slice(0, 60);
+
+        const settings = await loadUserSettings(req.user.id);
+        const currentMemory = sanitizeLanguageMemory(settings.languageMemory);
+        const model = validateGeminiModelId(req.body.model || settings.geminiModel || 'gemini-2.5-flash');
+        const inlineKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
+        const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
+        const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
+
+        let result;
+        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+            result = translateLyricsToSpanishOffline({
+                lyrics,
+                songTitle,
+                artistName,
+                learningMemory: currentMemory,
+                uiLang
+            });
+        } else {
+            result = await translateLyricsToSpanishWithGemini({
+                apiKey: effectiveKey,
+                model,
+                lyrics,
+                songTitle,
+                artistName,
+                language,
+                learningMemory: currentMemory,
+                uiLang
+            });
+        }
+
+        if (!result || result.ok === false) {
+            return res.status(400).send(result?.error || 'Could not translate lyrics.');
+        }
+
+        res.json({
+            ...result,
+            availableModels: RECOMMENDED_GEMINI_MODELS,
+            geminiKeyConfigured: Boolean(effectiveKey)
+        });
+    } catch (err) {
+        console.error('[MUSIC_LYRICS_TRANSLATE_ERROR]', err);
+        res.status(500).send('Error translating song lyrics.');
     }
 });
 

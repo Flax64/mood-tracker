@@ -495,6 +495,8 @@
         ['⬇ Pasar a Breakdown / IA', '⬇ Pasar a Breakdown / IA'],
         ['🌐 Translate', '🌐 Traducir'],
         ['🌐 Traducir', '🌐 Traducir'],
+        ['🇪🇸 Translate Full Lyrics (ES + Save)', '🇪🇸 Traducir letra a ES (IA + Guardar)'],
+        ['Translating lyrics to Spanish...', 'Traduciendo letra a español...'],
         ['Lyrics are never stored in MySQL or EC2 disk: they live organized by album/track inside Word on your PC and travel E2EE encrypted in RAM.', 'Las letras nunca se guardan en MySQL ni disco de EC2: viven organizadas por álbum/pista en tu Word PC y viajan cifradas E2EE por RAM.'],
         ['Las letras nunca se guardan en MySQL ni disco de EC2: viven organizadas por álbum/pista en tu Word PC y viajan cifradas E2EE por RAM.', 'Las letras nunca se guardan en MySQL ni disco de EC2: viven organizadas por álbum/pista en tu Word PC y viajan cifradas E2EE por RAM.'],
         ['Lyrics Breakdown, Meanings & Explanations (E2EE -> PC Word only)', 'Desglose de Letra, Significados y Explicaciones (E2EE -> Solo Word PC)'],

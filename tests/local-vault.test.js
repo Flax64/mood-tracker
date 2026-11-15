@@ -769,4 +769,66 @@ describe('Bóveda local (.env / .env.enc)', () => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
     });
+
+    test('deduplicación multi-idioma y colas cifradas independientes en sincronizador.py / yt_lyrics_helper.py', () => {
+        if (!fs.existsSync(PY_SYNC)) {
+            return;
+        }
+        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
+        if (pyCheck.error || pyCheck.status !== 0) {
+            return;
+        }
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-py-dedup-'));
+        try {
+            const pyCode = [
+                'import json, os, sys',
+                'sys.dont_write_bytecode = True',
+                'sync_dir, tmp_dir = sys.argv[1:3]',
+                'sys.path.insert(0, sync_dir)',
+                'import yt_lyrics_helper as ylh',
+                'import sincronizador as sc',
+                '',
+                '# 1. Normalización de idiomas y eliminación de en-kn / ko-orig redundantes manteniendo ko, en, es',
+                'assert ylh.normalize_sub_langs_request("en,en-orig,en-US,en-kn,ko,ko-orig,es,es-419") == "en,ko,es"',
+                'tracks_in = [',
+                '    {"lang": "ko-orig", "lyrics": "눈을 감아봐\\n이제 시작이야", "is_manual": False},',
+                '    {"lang": "ko", "lyrics": "눈을 감아봐\\n이제 시작이야", "is_manual": True},',
+                '    {"lang": "en-kn", "lyrics": "Close your eyes now\\nHere we go again", "is_manual": False},',
+                '    {"lang": "en", "lyrics": "Close your eyes now\\nHere we go again", "is_manual": True},',
+                '    {"lang": "es", "lyrics": "Cierra tus ojos ahora\\nAquí vamos otra vez", "is_manual": False},',
+                ']',
+                'formatted, summary = sc._formatear_pistas_ytdlp(tracks_in)',
+                'assert "[KO]" in formatted and "[EN]" in formatted and "[ES]" in formatted, formatted',
+                'assert "[KO-ORIG]" not in formatted and "[EN-KN]" not in formatted, formatted',
+                'assert summary == "ko, en, es", summary',
+                '',
+                '# 2. Canales separados en .pending_e2ee_queue.json no se pisan entre sí',
+                'orig_q = sc.PENDING_QUEUE_PATH',
+                'sc.PENDING_QUEUE_PATH = os.path.join(tmp_dir, ".pending_e2ee_queue.json")',
+                'try:',
+                '    sc._actualizar_canal_cola_pendiente("journal", ["j1"])',
+                '    sc._actualizar_canal_cola_pendiente("english", ["e1", "e2"])',
+                '    sc._actualizar_canal_cola_pendiente("journal", [])',
+                '    loaded = sc._cargar_cola_pendiente_cifrada()',
+                '    assert loaded == {"journal": [], "english": ["e1", "e2"]}, loaded',
+                '    sc._actualizar_canal_cola_pendiente("english", [])',
+                '    assert not os.path.exists(sc.PENDING_QUEUE_PATH)',
+                'finally:',
+                '    sc.PENDING_QUEUE_PATH = orig_q',
+                'print(json.dumps({"ok": True, "summary": summary}))'
+            ].join('\n');
+
+            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir], {
+                cwd: ROOT_DIR,
+                encoding: 'utf8'
+            });
+            assert.equal(res.status, 0, res.stderr || res.stdout);
+            const parsed = JSON.parse(res.stdout.trim());
+            assert.equal(parsed.ok, true);
+            assert.equal(parsed.summary, 'ko, en, es');
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
 });

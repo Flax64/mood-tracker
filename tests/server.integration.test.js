@@ -3618,6 +3618,119 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         }
     });
 
+    it('soporta entrega instantánea vía long-poll (?waitMs=...) en /api/pull-english y traduce letras completas a español con RBAC', async () => {
+        // 1. Long-poll /api/pull-english?waitMs=2500 despierta al instante cuando /api/send-english recibe un payload
+        const t0 = Date.now();
+        const pollPromise = request({
+            port,
+            reqPath: '/api/pull-english?waitMs=2500'
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 75));
+        const cipherEntry = 'E2EE::{"category":"music","song_title":"SHEESH","lyrics_study":"Test"}';
+        const sendRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/send-english',
+            headers: { Cookie: adminCookie },
+            body: { texto: cipherEntry }
+        });
+        assert.strictEqual(sendRes.status, 200);
+
+        const pollRes = await pollPromise;
+        const elapsedMs = Date.now() - t0;
+        assert.strictEqual(pollRes.status, 200);
+        const pulledItems = JSON.parse(pollRes.body);
+        assert.deepStrictEqual(pulledItems, [cipherEntry]);
+        assert.ok(elapsedMs < 1800, `Se esperaba entrega casi instantánea por long-poll (<1800ms), tardó ${elapsedMs}ms`);
+
+        // Con queue vacía y waitMs=0 sigue devolviendo [] de inmediato
+        const immediateEmpty = await request({ port, reqPath: '/api/pull-english' });
+        assert.strictEqual(immediateEmpty.status, 200);
+        assert.deepStrictEqual(JSON.parse(immediateEmpty.body), []);
+
+        // 2. RBAC & traducción completa de letra a español vía Gemini mockeado + modo offline
+        const unauthTr = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/translate-lyrics',
+            body: { lyrics: 'We go up like a rocket' }
+        });
+        assert.strictEqual(unauthTr.status, 401);
+
+        const medicoTr = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/translate-lyrics',
+            headers: { Cookie: medicoCookie },
+            body: { lyrics: 'We go up like a rocket' }
+        });
+        assert.strictEqual(medicoTr.status, 403);
+
+        const origFetch = global.fetch;
+        try {
+            global.fetch = async (url) => {
+                if (String(url).includes('generativelanguage.googleapis.com')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            candidates: [{
+                                content: {
+                                    parts: [{
+                                        text: JSON.stringify({
+                                            spanishLyrics: '[Coro]\nSubimos como un cohete\nMíranos brillar en la noche',
+                                            detectedLanguages: ['English']
+                                        })
+                                    }]
+                                }
+                            }]
+                        })
+                    };
+                }
+                return origFetch(url);
+            };
+
+            const aiRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/translate-lyrics',
+                headers: { Cookie: adminCookie },
+                body: {
+                    lyrics: '[Chorus]\nWe go up like a rocket\nWatch us glow in the night',
+                    songTitle: 'FOREVER',
+                    artistName: 'BABYMONSTER',
+                    language: 'English + Korean',
+                    apiKey: 'AIzaSyFakeTestKeyForUnitMock123456'
+                }
+            });
+            assert.strictEqual(aiRes.status, 200);
+            const aiBody = JSON.parse(aiRes.body);
+            assert.strictEqual(aiBody.ok, true);
+            assert.strictEqual(aiBody.usedGemini, true);
+            assert.match(aiBody.spanishLyrics, /Subimos como un cohete/);
+            assert.match(aiBody.formattedSection, /=== \[ES — Traducción IA\] ===/);
+
+            const offlineRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/translate-lyrics',
+                headers: { Cookie: adminCookie },
+                body: {
+                    lyrics: '영원할 것처럼\nWe rise together',
+                    mode: 'offline'
+                }
+            });
+            assert.strictEqual(offlineRes.status, 200);
+            const offBody = JSON.parse(offlineRes.body);
+            assert.strictEqual(offBody.ok, true);
+            assert.strictEqual(offBody.usedGemini, false);
+            assert.ok(offBody.spanishLyrics.length > 10);
+        } finally {
+            global.fetch = origFetch;
+        }
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;

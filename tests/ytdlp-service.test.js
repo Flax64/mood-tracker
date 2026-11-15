@@ -262,4 +262,55 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.equal(blocked.ok, false);
         assert.equal(blocked.reason, 'no_direct_stream');
     });
+
+    it('elimina pistas redundantes (en vs en-kn, ko vs ko-orig) y combina múltiples idiomas reales (KO, EN, ES)', async () => {
+        const mockExecMulti = async (_bin, args) => {
+            const outIdx = args.indexOf('--output');
+            const outTemplate = args[outIdx + 1];
+            // Simular variantes redundantes + idioma distinto real
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.ko.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n눈을 감고 느껴봐\n숨이 멎을 것만 같아\n',
+                'utf8'
+            );
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.ko-orig.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n눈을 감고 느껴봐\n숨이 멎을 것만 같아\n',
+                'utf8'
+            );
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.en.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nClose your eyes and feel the rush\nWatch them stare when we pull up\n',
+                'utf8'
+            );
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.en-kn.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nClose your eyes and feel the rush\nWatch them stare when we pull up\n',
+                'utf8'
+            );
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.es.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nCierra los ojos y siente la vibra\nMira cómo miran al llegar\n',
+                'utf8'
+            );
+            return { stdout: '', stderr: '' };
+        };
+
+        const extracted = await extractSongLyrics({
+            videoId: '2wA_b6YHjqQ',
+            idioma: 'Korean + English',
+            ytdlpPath: '/usr/local/bin/yt-dlp',
+            execFileImpl: mockExecMulti
+        });
+        assert.equal(extracted.ok, true);
+        assert.equal(extracted.tracks.length, 3);
+        assert.deepEqual(
+            extracted.tracks.map((t) => t.language),
+            ['ko', 'en', 'es']
+        );
+        assert.match(extracted.lyrics, /\[KO\]\n눈을 감고 느껴봐/);
+        assert.match(extracted.lyrics, /\[EN\]\nClose your eyes and feel the rush/);
+        assert.match(extracted.lyrics, /\[ES\]\nCierra los ojos y siente la vibra/);
+        assert.doesNotMatch(extracted.lyrics, /\[KO-ORIG\]|\[EN-KN\]/i);
+    });
 });
