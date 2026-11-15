@@ -260,6 +260,10 @@
                             <span class="nav-icon" aria-hidden="true">🧠</span>
                             <span class="nav-label">Mood Tracker</span>
                         </button>
+                        <button type="button" class="nav-item" data-view="crisis" title="Crisis Log">
+                            <span class="nav-icon" aria-hidden="true">⚠️</span>
+                            <span class="nav-label">Crisis Log</span>
+                        </button>
                         <button type="button" class="nav-item" data-view="sueno" title="Sleep Tracker">
                             <span class="nav-icon" aria-hidden="true">🌙</span>
                             <span class="nav-label">Sleep Tracker</span>
@@ -397,6 +401,14 @@
                             <div>
                                 <strong>Mood Tracker</strong>
                                 <p>Log how you feel at each time of day (including late night).</p>
+                            </div>
+                        </button>
+
+                        <button type="button" class="shortcut-card" data-go-view="crisis">
+                            <span class="shortcut-emoji">⚠️</span>
+                            <div>
+                                <strong>Crisis Log</strong>
+                                <p>Record stress, anger, or panic episodes with time &amp; Spanish reason for your psychiatrist.</p>
                             </div>
                         </button>
 
@@ -578,6 +590,97 @@
                             <p class="side-insight-hint">Tap any block below to select that time of day in the form.</p>
                             <div id="moodTodayChecklist" class="today-checklist">
                                 <p class="muted-text">Loading today's mood entries...</p>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==========================================
+                 VIEW 2B: CRISIS LOG (PATIENT LOGS · CLINICIAN READ-ONLY)
+            ========================================== -->
+            <section class="app-view" id="view-crisis" data-title="Crisis Log">
+                <div class="view-shell">
+                    <div class="view-header-card">
+                        <div class="view-header-main">
+                            <span class="view-header-icon" aria-hidden="true">⚠️</span>
+                            <div>
+                                <h2>Crisis &amp; Episode Log (Bitácora Clínica)</h2>
+                                <p class="view-header-subtitle">Registra fecha, hora exacta y motivo en español si tuviste una crisis de estrés, ira, rabia o ansiedad. Tu psiquiatra o psicóloga podrá consultarlo en modo solo lectura en el Resumen Semanal.</p>
+                            </div>
+                        </div>
+                        <div class="view-header-actions">
+                            <button type="button" class="btn-secondary-pill" data-go-view="resumen">📈 Weekly Clinician View</button>
+                        </div>
+                    </div>
+
+                    <div class="view-grid-2">
+                        <div class="card view-main-card">
+                            <form id="crisisForm">
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <label for="crisisFecha">Date (Fecha):</label>
+                                        <input type="date" id="crisisFecha" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="crisisHora">Time (Hora exacta):</label>
+                                        <div class="music-inline-input">
+                                            <input type="time" id="crisisHora" required>
+                                            <button type="button" class="btn-secondary btn-small" id="btnCrisisUseNow">⏱️ Now</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Crisis Type (Tipo de episodio):</label>
+                                    <input type="hidden" id="crisisTipo" value="Estrés">
+                                    <div class="crisis-type-pills" id="crisisTipoPills" role="group" aria-label="Tipo de crisis">
+                                        <button type="button" class="crisis-pill active" data-crisis-type="Estrés">😣 Estrés</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Ira / Rabia">😠 Ira / Rabia</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Ansiedad">😰 Ansiedad</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Pánico">🫨 Pánico</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Llanto / Sobrecarga">😢 Llanto / Sobrecarga</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Bloqueo / Saturación">🧱 Bloqueo / Saturación</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Insomnio / Agitación">🌘 Insomnio / Agitación</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Otro">📝 Otro</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>Intensity Level (Nivel de intensidad 1–5):</label>
+                                    <input type="hidden" id="crisisIntensidad" value="3">
+                                    <div class="crisis-intensity-pills" id="crisisIntensityPills" role="group" aria-label="Intensidad de crisis">
+                                        <button type="button" class="crisis-int-pill" data-crisis-intensity="1">1 · Leve</button>
+                                        <button type="button" class="crisis-int-pill" data-crisis-intensity="2">2 · Moderada</button>
+                                        <button type="button" class="crisis-int-pill active" data-crisis-intensity="3">3 · Fuerte</button>
+                                        <button type="button" class="crisis-int-pill" data-crisis-intensity="4">4 · Muy Fuerte</button>
+                                        <button type="button" class="crisis-int-pill" data-crisis-intensity="5">5 · Severa</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="crisisMotivo">Reason / Context in Spanish (Motivo y detonante):</label>
+                                    <textarea id="crisisMotivo" class="english-textarea" rows="4" maxlength="1000" required
+                                        placeholder="Describe en español qué detonó la crisis, cómo se sintió y si algo ayudó a calmarla (Ctrl + Enter para guardar)..."></textarea>
+                                    <small class="muted-text">Tip: Press <code>Ctrl + Enter</code> inside this box to save right away.</small>
+                                </div>
+
+                                <div id="crisisStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
+
+                                <div class="form-action-stack">
+                                    <button type="submit" class="btn-submit" id="btnSaveCrisis">Save Crisis Entry</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <aside class="card side-insight-card">
+                            <div class="side-insight-head">
+                                <h3>Recent Crisis Log</h3>
+                                <span class="muted-text" id="crisisRecentCount">--</span>
+                            </div>
+                            <p class="side-insight-hint">Entries appear automatically in Weekly Summary for your psychiatrist/psychologist in read-only mode.</p>
+                            <div id="crisisHistoryList" class="crisis-summary-list">
+                                <p class="muted-text">Loading recent crisis logs...</p>
                             </div>
                         </aside>
                     </div>
@@ -907,15 +1010,16 @@
                                 <p class="muted-text" id="langAiEngineHint">Uses Google Gemini (0 MB server RAM) or built-in instant Korean Romanization &amp; EN/KR analyzer when offline, with persistent learning memory.</p>
                             </div>
                             <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                                <span class="lang-ai-badge" id="langAiRepertoireBadge" title="AI automatically reads your registered Artists, Albums, and Songs">🎵 Repertoire: 0 songs</span>
                                 <span class="lang-ai-badge" id="langAiMemoryBadge" title="Persistent vocabulary &amp; grammar memory stored in your account">🧠 Memory: 0 learned</span>
                                 <span class="lang-ai-badge" id="langAiModeBadge">Auto Engine</span>
                             </div>
                         </div>
                         <div class="lang-ai-controls">
                             <div class="form-group">
-                                <label for="langAiQuestion">Ask about a phrase, lyric meaning, grammar particle, or K-Pop expression:</label>
+                                <label for="langAiQuestion">Ask about a phrase, lyric meaning, grammar particle, or K-Pop expression (or ask about any song in your repertoire):</label>
                                 <textarea id="langAiQuestion" class="english-textarea" rows="2" maxlength="3000"
-                                    placeholder="e.g. Explain '너의 마음에 닿기를' + Romanization, OR Why does 'break down' mean two things here?"></textarea>
+                                    placeholder="e.g. Explain 'DRIP by BABYMONSTER', '너의 마음에 닿기를' + Romanization, OR Why does 'break down' mean two things here? (Enter to ask · Shift+Enter for new line)"></textarea>
                             </div>
                             <div class="lang-ai-actions-row">
                                 <select id="langAiEngineSelect" class="select-input" aria-label="AI Engine mode">
@@ -1124,6 +1228,21 @@
                                         <option value="in_progress">In Progress</option>
                                         <option value="mastered">Mastered</option>
                                     </select>
+                                </div>
+
+                                <div id="musicRepertoireNavigator" class="music-repertoire-nav" aria-label="Interactive Artist, Album and Song Selector">
+                                    <div class="rep-col">
+                                        <div class="rep-col-head">🎤 Artists</div>
+                                        <div id="repArtistList" class="rep-list" role="listbox" aria-label="Artists"></div>
+                                    </div>
+                                    <div class="rep-col">
+                                        <div class="rep-col-head">💿 Albums / Releases</div>
+                                        <div id="repAlbumList" class="rep-list" role="listbox" aria-label="Albums"></div>
+                                    </div>
+                                    <div class="rep-col">
+                                        <div class="rep-col-head">🎵 Songs (Click to Study / Ask AI)</div>
+                                        <div id="repSongList" class="rep-list" role="listbox" aria-label="Songs"></div>
+                                    </div>
                                 </div>
 
                                 <div id="musicCatalogContainer" class="music-catalog-container">
@@ -1729,7 +1848,7 @@
             <section class="app-view" id="view-resumen" data-title="Weekly Summary">
                 <div class="tracker-container view-shell">
                     <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
-                        🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker &amp; Sleep Hours.
+                        🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker, Sleep Hours &amp; Crisis Log.
                     </div>
 
                     <div class="view-header-card">
@@ -1851,6 +1970,16 @@
                             <h3>🌙 Sleep Summary</h3>
                             <div class="sleep-grid" id="sleepGrid"></div>
                         </div>
+
+                        <div class="crisis-summary-container card" id="resumenCrisisSection">
+                            <div class="side-insight-head">
+                                <h3>⚠️ Crisis &amp; Episode Log (Visible to Patient &amp; Psychiatrist Read-Only)</h3>
+                                <span class="muted-text" id="resumenCrisisCount"></span>
+                            </div>
+                            <div id="resumenCrisisList" class="crisis-summary-list">
+                                <p class="muted-text">Loading crisis records for this week...</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -1865,7 +1994,7 @@
                             <span class="view-header-icon" aria-hidden="true">🩺</span>
                             <div>
                                 <h2>Psychiatrist Access</h2>
-                                <p class="view-header-subtitle">Create or manage a <strong>read-only</strong> clinician account. Doctors can view Weekly Mood &amp; Sleep Summary only — never notes, agenda, or editing.</p>
+                                <p class="view-header-subtitle">Create or manage a <strong>read-only</strong> clinician account. Doctors can view Weekly Mood, Sleep &amp; Crisis Summary only — never personal journal notes, agenda, or editing.</p>
                             </div>
                         </div>
                     </div>

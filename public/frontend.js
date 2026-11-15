@@ -771,7 +771,7 @@ function updateYouTubePlatformUI() {
 // ==========================================
 // MAIN NAVIGATION & FIXED SIDEBAR
 // ==========================================
-const VALID_VIEWS = new Set(['inicio', 'mood', 'sueno', 'journal', 'english', 'agenda', 'horario', 'resumen', 'medico', 'settings']);
+const VALID_VIEWS = new Set(['inicio', 'mood', 'crisis', 'sueno', 'journal', 'english', 'agenda', 'horario', 'resumen', 'medico', 'settings']);
 let currentUser = null;
 let sundayWatcherInterval = null;
 let reminderPollInterval = null;
@@ -855,6 +855,11 @@ function showView(viewName, updateHash = true, options = {}) {
             if (momentoSelect) momentoSelect.value = getMomentoInfo(new Date().getHours()).moodKey;
         }
         if (typeof cargarMoodsHoy === 'function') cargarMoodsHoy();
+    } else if (targetView === 'crisis') {
+        if (!options.preserveTarget && typeof prefillCrisisCurrentTimestamp === 'function') {
+            prefillCrisisCurrentTimestamp();
+        }
+        if (typeof cargarCrisisRecientes === 'function') cargarCrisisRecientes();
     } else if (targetView === 'sueno') {
         if (typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
     } else if (targetView === 'journal') {
@@ -862,6 +867,10 @@ function showView(viewName, updateHash = true, options = {}) {
     } else if (targetView === 'english') {
         updateE2eeKeyStatusUI();
         updateYouTubePlatformUI();
+        if (typeof musicCatalogLoadRequested !== 'undefined' && !musicCatalogLoadRequested && typeof cargarCatalogoMusical === 'function') {
+            musicCatalogLoadRequested = true;
+            cargarCatalogoMusical();
+        }
     } else if (targetView === 'resumen') {
         const selectSemana = document.getElementById('semanaSeleccionada');
         if (selectSemana) selectSemana.dispatchEvent(new Event('change'));
@@ -1443,7 +1452,7 @@ if (selectSemana) {
             resumenBanner.replaceChildren(createLoadingBanner('Loading weekly data...', 'sm'));
             resumenBanner.hidden = false;
         }
-        let pendingRequests = 2;
+        let pendingRequests = 3;
         const markOneSettled = () => {
             if (!resumenTracker.isCurrent(reqToken.seq)) return;
             pendingRequests -= 1;
@@ -1564,6 +1573,29 @@ if (selectSemana) {
                 if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq)) {
                     console.error('Error loading sleep logs:', error);
                     sleepGrid.innerHTML = '<p class="muted-text">Could not load sleep logs.</p>';
+                }
+            })
+            .finally(markOneSettled);
+
+        const crisisResumenList = document.getElementById('resumenCrisisList');
+        const crisisResumenCount = document.getElementById('resumenCrisisCount');
+        if (crisisResumenList) {
+            crisisResumenList.replaceChildren(createLoadingBanner('Loading crisis logs...', 'sm'));
+        }
+        fetch(`/api/get-crisis?begin=${begin}&end=${end}`, fetchOpts)
+            .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load crisis logs')))
+            .then(registros => {
+                if (!resumenTracker.isCurrent(reqToken.seq)) return;
+                if (crisisResumenCount) {
+                    const len = Array.isArray(registros) ? registros.length : 0;
+                    crisisResumenCount.textContent = len === 0 ? 'No crises recorded this week' : `${len} episode${len === 1 ? '' : 's'}`;
+                }
+                renderCrisisCards(crisisResumenList, registros, { allowDelete: false });
+            })
+            .catch(error => {
+                if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq) && crisisResumenList) {
+                    console.error('Error loading crisis logs:', error);
+                    crisisResumenList.innerHTML = '<p class="muted-text">Could not load crisis logs for this week.</p>';
                 }
             })
             .finally(markOneSettled);
@@ -2249,6 +2281,21 @@ function renderAiAnalysisIntoBox(container, analysis) {
         updateAiMemoryBadgeUI(analysis.languageMemory);
     }
 
+    const repBadge = document.getElementById('langAiRepertoireBadge');
+    if (repBadge && typeof analysis.repertoireCount === 'number') {
+        repBadge.textContent = `🎵 Repertoire: ${analysis.repertoireCount} song${analysis.repertoireCount === 1 ? '' : 's'}`;
+    }
+
+    if (Array.isArray(analysis.matchedRepertoireSongs) && analysis.matchedRepertoireSongs.length) {
+        const repBox = document.createElement('div');
+        repBox.className = 'ai-summary-box';
+        const titles = analysis.matchedRepertoireSongs.map(s =>
+            `"${s.titulo}"${s.artistas?.length ? ` (${s.artistas.join(', ')})` : ''}${s.album ? ` · ${s.album}` : ''}`
+        );
+        repBox.textContent = `🎵 Matched from Your Music Catalog: ${titles.join(' | ')}`;
+        container.appendChild(repBox);
+    }
+
     const summaryEl = document.createElement('div');
     summaryEl.className = 'ai-summary-box';
     const engineTag = analysis.engine === 'gemini'
@@ -2405,13 +2452,18 @@ function initLanguageAiStudio() {
             }
             const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
             const language = document.getElementById('studyLanguageInput')?.value || 'en_ko';
+            const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+            const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
+            const artistName = selected
+                ? (selected.artists || []).map(a => a.nombre).join(', ')
+                : (document.getElementById('musicMainArtist')?.value || '').trim();
 
             runWithButtonLock(btnAskQuick, async () => {
                 try {
                     const res = await fetch('/api/language/analyze', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: query, question: query, language, mode })
+                        body: JSON.stringify({ text: query, question: query, language, mode, songTitle, artistName })
                     });
                     if (!res.ok) throw new Error(await res.text() || 'AI analysis failed');
                     const data = await res.json();
@@ -2566,7 +2618,9 @@ const musicState = {
     songs: [],
     selectedSongId: null,
     editingSongId: null,
-    embedOpen: false
+    embedOpen: false,
+    navArtistId: null,
+    navAlbumKey: null
 };
 
 async function cargarCatalogoMusical() {
@@ -2591,6 +2645,11 @@ async function cargarCatalogoMusical() {
 
         poblarSelectoresMusica();
         renderMusicStats(data.stats);
+        const repBadge = document.getElementById('langAiRepertoireBadge');
+        if (repBadge) {
+            repBadge.textContent = `🎵 Repertoire: ${musicState.songs.length} song${musicState.songs.length === 1 ? '' : 's'}`;
+        }
+        renderMusicRepertoireNavigator();
         renderMusicCatalog();
         actualizarBarraCancionEstudio();
     } catch (err) {
@@ -2951,9 +3010,18 @@ function renderMusicCatalog() {
             album.songs.forEach(({ song, artistRole }) => {
                 const row = document.createElement('div');
                 row.className = 'music-song-row';
+                row.setAttribute('data-song-id', String(song.id));
+                row.title = 'Click song to select it for Study & AI Analysis';
                 if (Number(musicState.selectedSongId) === Number(song.id)) {
                     row.classList.add('selected');
                 }
+                row.addEventListener('click', (ev) => {
+                    if (ev.target && ev.target.closest('button, a')) return;
+                    seleccionarCancionParaEstudio(song);
+                    if (typeof renderMusicRepertoireNavigator === 'function') {
+                        renderMusicRepertoireNavigator();
+                    }
+                });
 
                 const main = document.createElement('div');
                 main.className = 'music-song-main';
@@ -6780,6 +6848,447 @@ function renderLiveCommuteCards(commutes = []) {
 }
 
 // ==========================================
+// INTERACTIVE REPERTOIRE BROWSER (ARTIST -> ALBUM -> SONG)
+// ==========================================
+function buildMusicRepertoireBuckets() {
+    const artistMap = new Map();
+    (musicState.songs || []).forEach(song => {
+        const artists = Array.isArray(song.artists) && song.artists.length
+            ? song.artists
+            : [{ id: 0, nombre: 'Unknown Artist', rol: 'main' }];
+        artists.forEach(art => {
+            if (!artistMap.has(art.id)) {
+                artistMap.set(art.id, {
+                    id: art.id,
+                    nombre: art.nombre,
+                    albums: new Map()
+                });
+            }
+            const bucket = artistMap.get(art.id);
+            const albumKey = song.album_id ? `alb_${song.album_id}` : 'single_none';
+            if (!bucket.albums.has(albumKey)) {
+                bucket.albums.set(albumKey, {
+                    key: albumKey,
+                    titulo: song.album_titulo || 'Standalone Singles & Tracks',
+                    tipo: song.album_titulo ? (song.album_tipo || 'album') : 'single',
+                    anio: song.album_anio || null,
+                    songs: []
+                });
+            }
+            bucket.albums.get(albumKey).songs.push(song);
+        });
+    });
+    return Array.from(artistMap.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+}
+
+function renderMusicRepertoireNavigator() {
+    const artistListEl = document.getElementById('repArtistList');
+    const albumListEl = document.getElementById('repAlbumList');
+    const songListEl = document.getElementById('repSongList');
+    const navWrap = document.getElementById('musicRepertoireNavigator');
+    if (!artistListEl || !albumListEl || !songListEl || !navWrap) return;
+
+    const artists = buildMusicRepertoireBuckets();
+    if (!artists.length) {
+        navWrap.hidden = true;
+        return;
+    }
+    navWrap.hidden = false;
+
+    if (!artists.some(a => String(a.id) === String(musicState.navArtistId))) {
+        musicState.navArtistId = artists[0].id;
+    }
+
+    const renderSongsColumn = (artistObj, albumObj) => {
+        songListEl.replaceChildren();
+        const songs = albumObj
+            ? albumObj.songs
+            : Array.from(artistObj.albums.values()).flatMap(al => al.songs);
+        const uniqueSongs = [];
+        const seenIds = new Set();
+        songs.forEach(s => {
+            if (!seenIds.has(s.id)) {
+                seenIds.add(s.id);
+                uniqueSongs.push(s);
+            }
+        });
+        uniqueSongs.sort((a, b) => (a.numero_pista || 999) - (b.numero_pista || 999) || a.titulo.localeCompare(b.titulo));
+
+        uniqueSongs.forEach(song => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'rep-item';
+            if (Number(musicState.selectedSongId) === Number(song.id)) {
+                btn.classList.add('active');
+            }
+            const label = document.createElement('span');
+            label.textContent = `${song.numero_pista ? `${song.numero_pista}. ` : ''}${song.titulo}`;
+            const tag = document.createElement('span');
+            tag.className = 'rep-item-count';
+            tag.textContent = song.idioma === 'Korean' ? 'KR' : (song.idioma === 'English + Korean (K-Pop)' ? 'EN+KR' : 'EN');
+            btn.append(label, tag);
+            btn.title = 'Click to select song for Word Notes & AI Tutor';
+            btn.addEventListener('click', () => {
+                seleccionarCancionParaEstudio(song);
+                renderMusicRepertoireNavigator();
+                showToast('info', `Selected "${song.titulo}" for Study & AI Tutor.`);
+            });
+            songListEl.appendChild(btn);
+        });
+    };
+
+    const renderAlbumsColumn = (artistObj) => {
+        albumListEl.replaceChildren();
+        const albums = Array.from(artistObj.albums.values()).sort((a, b) => {
+            if (a.key === 'single_none') return 1;
+            if (b.key === 'single_none') return -1;
+            return (b.anio || 0) - (a.anio || 0) || a.titulo.localeCompare(b.titulo);
+        });
+
+        const allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = `rep-item${musicState.navAlbumKey === null ? ' active' : ''}`;
+        const allSpan = document.createElement('span');
+        allSpan.textContent = 'All Releases';
+        const allCount = document.createElement('span');
+        allCount.className = 'rep-item-count';
+        allCount.textContent = String(albums.reduce((n, al) => n + al.songs.length, 0));
+        allBtn.append(allSpan, allCount);
+        allBtn.addEventListener('click', () => {
+            musicState.navAlbumKey = null;
+            renderAlbumsColumn(artistObj);
+            renderSongsColumn(artistObj, null);
+        });
+        albumListEl.appendChild(allBtn);
+
+        let activeAlbum = null;
+        albums.forEach(al => {
+            const isActive = musicState.navAlbumKey === al.key;
+            if (isActive) activeAlbum = al;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `rep-item${isActive ? ' active' : ''}`;
+            const label = document.createElement('span');
+            label.textContent = al.anio ? `${al.titulo} (${al.anio})` : al.titulo;
+            const cnt = document.createElement('span');
+            cnt.className = 'rep-item-count';
+            cnt.textContent = String(al.songs.length);
+            btn.append(label, cnt);
+
+            const focusAlbum = () => {
+                musicState.navAlbumKey = al.key;
+                renderAlbumsColumn(artistObj);
+                renderSongsColumn(artistObj, al);
+            };
+            btn.addEventListener('click', () => {
+                focusAlbum();
+                if (!musicState.editingSongId && al.key !== 'single_none') {
+                    const albInput = document.getElementById('musicAlbumTitle');
+                    const albType = document.getElementById('musicAlbumType');
+                    const albYear = document.getElementById('musicAlbumYear');
+                    if (albInput) albInput.value = al.titulo;
+                    if (albType && al.tipo) albType.value = al.tipo;
+                    if (albYear && al.anio) albYear.value = String(al.anio);
+                }
+            });
+            btn.addEventListener('mouseenter', () => {
+                renderSongsColumn(artistObj, al);
+            });
+            albumListEl.appendChild(btn);
+        });
+
+        renderSongsColumn(artistObj, activeAlbum);
+    };
+
+    artistListEl.replaceChildren();
+    let activeArtist = artists[0];
+    artists.forEach(art => {
+        const isActive = String(art.id) === String(musicState.navArtistId);
+        if (isActive) activeArtist = art;
+        const totalSongs = Array.from(art.albums.values()).reduce((sum, al) => sum + al.songs.length, 0);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `rep-item${isActive ? ' active' : ''}`;
+        const label = document.createElement('span');
+        label.textContent = art.nombre;
+        const cnt = document.createElement('span');
+        cnt.className = 'rep-item-count';
+        cnt.textContent = String(totalSongs);
+        btn.append(label, cnt);
+
+        btn.addEventListener('mouseenter', () => {
+            if (String(musicState.navArtistId) !== String(art.id)) {
+                musicState.navArtistId = art.id;
+                musicState.navAlbumKey = null;
+                renderMusicRepertoireNavigator();
+            }
+        });
+        btn.addEventListener('click', () => {
+            musicState.navArtistId = art.id;
+            musicState.navAlbumKey = null;
+            renderMusicRepertoireNavigator();
+            if (!musicState.editingSongId) {
+                const artInput = document.getElementById('musicMainArtist');
+                if (artInput) artInput.value = art.nombre;
+            }
+        });
+        artistListEl.appendChild(btn);
+    });
+
+    renderAlbumsColumn(activeArtist);
+}
+
+// ==========================================
+// CRISIS LOG (BITÁCORA CLÍNICA PARA PSIQUIATRA)
+// ==========================================
+function prefillCrisisCurrentTimestamp() {
+    const now = new Date();
+    const fechaEl = document.getElementById('crisisFecha');
+    const horaEl = document.getElementById('crisisHora');
+    if (fechaEl) fechaEl.value = formatLocalDate(now);
+    if (horaEl) {
+        horaEl.value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+}
+
+function formatCrisisDateLabel(rawFecha) {
+    if (!rawFecha) return '--';
+    const iso = String(rawFecha).slice(0, 10);
+    const parts = iso.split('-');
+    if (parts.length !== 3) return iso;
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return Number.isNaN(d.getTime())
+        ? iso
+        : d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function renderCrisisCards(container, rows, { allowDelete = false } = {}) {
+    if (!container) return;
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+        const p = document.createElement('p');
+        p.className = 'muted-text';
+        p.textContent = allowDelete
+            ? 'No crisis episodes recorded yet. If you have an episode, log date, time, and trigger in Spanish here.'
+            : 'No crisis episodes recorded during this week.';
+        container.replaceChildren(p);
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    list.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'crisis-entry-card';
+
+        const head = document.createElement('div');
+        head.className = 'crisis-entry-head';
+
+        const badges = document.createElement('div');
+        badges.className = 'crisis-entry-badges';
+
+        const dateStrong = document.createElement('strong');
+        dateStrong.textContent = `📅 ${formatCrisisDateLabel(item.fecha)} · 🕒 ${String(item.hora || '--:--').slice(0, 5)}`;
+
+        const typeBadge = document.createElement('span');
+        typeBadge.className = 'crisis-type-badge';
+        typeBadge.textContent = item.tipo_crisis || 'Crisis';
+
+        const intBadge = document.createElement('span');
+        intBadge.className = 'crisis-intensity-badge';
+        const intVal = Number(item.intensidad || 3);
+        intBadge.textContent = `Intensidad ${intVal}/5`;
+
+        badges.append(dateStrong, typeBadge, intBadge);
+        head.appendChild(badges);
+
+        if (allowDelete && item.id) {
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn-secondary btn-small';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+                const ok = await openConfirmDialog({
+                    title: 'Delete Crisis Entry?',
+                    message: 'Remove this crisis episode from your clinical log?',
+                    confirmText: 'Delete',
+                    danger: true
+                });
+                if (!ok) return;
+                runWithButtonLock(delBtn, async () => {
+                    const res = await fetch(`/api/delete-crisis/${item.id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showToast('ok', 'Crisis record removed.');
+                        cargarCrisisRecientes();
+                    } else {
+                        showToast('err', 'Could not remove crisis record.');
+                    }
+                }, { loadingText: '...' });
+            });
+            head.appendChild(delBtn);
+        }
+
+        const motivoP = document.createElement('p');
+        motivoP.className = 'crisis-entry-motivo';
+        motivoP.textContent = item.motivo || '';
+
+        card.append(head, motivoP);
+        fragment.appendChild(card);
+    });
+
+    container.replaceChildren(fragment);
+}
+
+function cargarCrisisRecientes() {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    const container = document.getElementById('crisisHistoryList');
+    const countEl = document.getElementById('crisisRecentCount');
+    if (!container) return;
+
+    fetch('/api/get-crisis', { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : []))
+        .then(rows => {
+            const list = Array.isArray(rows) ? rows : [];
+            if (countEl) countEl.textContent = `${list.length} record${list.length === 1 ? '' : 's'}`;
+            renderCrisisCards(container, list, { allowDelete: true });
+        })
+        .catch(() => renderCrisisCards(container, [], { allowDelete: true }));
+}
+
+function initCrisisHandlers() {
+    const form = document.getElementById('crisisForm');
+    if (!form) return;
+
+    prefillCrisisCurrentTimestamp();
+
+    const btnNow = document.getElementById('btnCrisisUseNow');
+    if (btnNow) {
+        btnNow.addEventListener('click', () => {
+            prefillCrisisCurrentTimestamp();
+            showToast('info', 'Updated to current date & time.');
+        });
+    }
+
+    const tipoHidden = document.getElementById('crisisTipo');
+    document.querySelectorAll('#crisisTipoPills [data-crisis-type]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const val = btn.getAttribute('data-crisis-type') || 'Estrés';
+            if (tipoHidden) tipoHidden.value = val;
+            document.querySelectorAll('#crisisTipoPills [data-crisis-type]').forEach(b =>
+                b.classList.toggle('active', b === btn)
+            );
+        });
+    });
+
+    const intHidden = document.getElementById('crisisIntensidad');
+    document.querySelectorAll('#crisisIntensityPills [data-crisis-intensity]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const val = btn.getAttribute('data-crisis-intensity') || '3';
+            if (intHidden) intHidden.value = val;
+            document.querySelectorAll('#crisisIntensityPills [data-crisis-intensity]').forEach(b =>
+                b.classList.toggle('active', b === btn)
+            );
+        });
+    });
+
+    form.addEventListener('submit', e => {
+        e.preventDefault();
+        const btnSave = document.getElementById('btnSaveCrisis');
+        const fecha = (document.getElementById('crisisFecha')?.value || '').trim();
+        const hora = (document.getElementById('crisisHora')?.value || '').trim();
+        const tipoCrisis = (document.getElementById('crisisTipo')?.value || 'Estrés').trim();
+        const intensidad = Number(document.getElementById('crisisIntensidad')?.value || 3);
+        const motivo = (document.getElementById('crisisMotivo')?.value || '').trim();
+
+        if (!fecha || !hora || !motivo) {
+            setInlineBanner('crisisStatusBanner', 'err', 'Completa la fecha, hora y el motivo en español.');
+            return;
+        }
+        setInlineBanner('crisisStatusBanner', '', '');
+
+        runWithButtonLock(btnSave, async () => {
+            try {
+                const res = await fetch('/api/insert-crisis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fecha, hora, tipoCrisis, intensidad, motivo })
+                });
+                if (!res.ok) throw new Error(await res.text() || 'Error saving crisis log.');
+                document.getElementById('crisisMotivo').value = '';
+                prefillCrisisCurrentTimestamp();
+                setInlineBanner('crisisStatusBanner', 'ok', 'Crisis guardada correctamente (visible para tu psiquiatra/psicóloga en Resumen Semanal).');
+                showToast('ok', 'Crisis episode saved.');
+                cargarCrisisRecientes();
+            } catch (err) {
+                setInlineBanner('crisisStatusBanner', 'err', err.message || 'Could not save crisis record.');
+            }
+        }, { loadingText: 'Saving...' });
+    });
+}
+
+// ==========================================
+// OPTIMAL KEYBOARD SHORTCUTS (ENTER / CTRL+ENTER)
+// ==========================================
+function initKeyboardShortcuts() {
+    const bindEnterToButton = (inputId, buttonId, { ctrlOrCmd = false, multilinePlainEnter = false } = {}) => {
+        const input = document.getElementById(inputId);
+        const btn = document.getElementById(buttonId);
+        if (!input || !btn) return;
+        input.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            if (e.isComposing) return;
+            if (ctrlOrCmd) {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    btn.click();
+                }
+                return;
+            }
+            if (multilinePlainEnter) {
+                if (!e.shiftKey) {
+                    e.preventDefault();
+                    btn.click();
+                }
+                return;
+            }
+            e.preventDefault();
+            btn.click();
+        });
+    };
+
+    // Music search -> Enter immediately searches YT
+    bindEnterToButton('musicYtSearchQuery', 'btnMusicSearchYt');
+    // YouTube URL field -> Enter auto-fills title & artist
+    bindEnterToButton('musicSongYtUrl', 'btnMusicResolveYt');
+    // AI Question box -> Enter asks AI (Shift+Enter adds newline)
+    bindEnterToButton('langAiQuestion', 'btnAskLangAi', { multilinePlainEnter: true });
+    // Lyrics study textarea -> Ctrl+Enter runs AI Lyrics Breakdown
+    bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
+    // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
+    bindEnterToButton('crisisMotivo', 'btnSaveCrisis', { ctrlOrCmd: true });
+    // Manual GPS commute location -> Enter applies location & recalculates route
+    bindEnterToButton('locCurrentManualInput', 'btnApplyManualLocation');
+    // Vacation name -> Enter adds vacation period
+    bindEnterToButton('vacNombre', 'btnAddVacation');
+
+    // Catalog search filter -> Enter selects first visible matching song in catalog
+    const filterSearchEl = document.getElementById('musicFilterSearch');
+    if (filterSearchEl) {
+        filterSearchEl.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const firstRow = document.querySelector('#musicCatalogContainer .music-song-row[data-song-id]');
+            const songId = firstRow ? Number(firstRow.getAttribute('data-song-id')) : 0;
+            const match = (musicState.songs || []).find(s => Number(s.id) === songId);
+            if (match) {
+                seleccionarCancionParaEstudio(match);
+                renderMusicRepertoireNavigator();
+                showToast('info', `Selected "${match.titulo}" from catalog.`);
+            }
+        });
+    }
+}
+
+// ==========================================
 // APP INITIALIZATION
 // ==========================================
 function initApp() {
@@ -6791,6 +7300,8 @@ function initApp() {
     initLanguageAiStudio();
     initWordStyleProofing();
     initAcademicPlannerHandlers();
+    initCrisisHandlers();
+    initKeyboardShortcuts();
 
     if (clientTransportTunnel && rawBrowserFetch) {
         clientTransportTunnel.establishSession(rawBrowserFetch)

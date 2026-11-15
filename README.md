@@ -24,13 +24,14 @@ Aplicación web full-stack responsiva (adaptada para PC y dispositivos móviles 
 La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja interactiva de recordatorios activos (`#reminderTray`)** y una **barra lateral fija en el lado izquierdo**, desplegable tanto en PC (plegable a barra compacta) como en celular (menú tipo *drawer*), organizando cada módulo en su vista:
 
 1. **🧭 Inicio (Interfaz Principal):** Resumen rápido del día actual (estados de ánimo registrados hoy, horas de sueño y desglose de actividades **University / Personal** y su avance **To Do / In Progress / Done**), bandeja de recordatorios activos con botones para posponer (*Snooze*) o completar al instante, y accesos directos a todos los módulos (incluyendo **Settings**).
-2. **🧠 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo desde el servidor y recordatorios automáticos a mitad de cada horario (`09:00`, `13:00`, `17:00`, `22:00`; **`Madrugada 03:00` es opcional** y viene desactivado por defecto).
-3. **🌙 Control de Sueño:** Cálculo automático de horas dormidas entre hora de dormir y despertar, calidad (`Good`, `Regular`, `Bad`) y recordatorio matutino configurable (por defecto `08:30`) con opción de posponer (*Snooze 15m / 30m / 1h*).
-4. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
-5. **📖 Language Learning Studio (`English` · `한국어 Korean` · `🎵 K-Pop EN+KR` + `Gemini AI`):** Cuaderno multilingüe (extensible a futuros idiomas) con vocabulario, gramática, *phrasal verbs/expressions*, transliteración automática **Hangul → Revised Romanization** y asistente de IA optimizado para AWS `t3.micro` (**Google Gemini API** a 0 MB RAM locales + **motor lingüístico local instantáneo sin conexión** para analizar letras mixtas inglés+coreano de K-Pop). Todo se sincroniza cifrado E2EE hacia tu Word local (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y módulo **Learn with Music**:
-   - Busca canciones directamente en YouTube (PC) o YouTube Music (celular) mediante URL normalizada de pista individual (sin alterar tus playlists).
-   - Organiza tu catálogo en MySQL **únicamente con metadatos** agrupados por **Artista**, **Colaboraciones**, **Álbum / Mini Álbum / EP / Single / OST** y filtro por **Idioma** (`English`, `Korean`, `English + Korean (K-Pop)`).
-   - Explica letras y vocabulario con Gemini/IA y cifra las notas completas con **E2EE** hacia la sección **`4. Songs & Music Study`** de tu Word local.
+2. **🧠 Estado de Ánimo (`Mood Tracker`):** Registro diario por momento del día (**`Madrugada` `00:00–05:59`**, **`Morning` `06:00–11:59`**, **`Noon` `12:00–13:59`**, **`Afternoon` `14:00–19:59`**, **`Night` `20:00–23:59`**) con 16 estados y colores, validando la ventana de tiempo desde el servidor y recordatorios automáticos a mitad de cada horario (`09:00`, `13:00`, `17:00`, `22:00`; **`Madrugada 03:00` es opcional** y viene desactivado por defecto). Al tocar una notificación pendiente, el sistema autoselecciona la fecha y bloque exactos a registrar.
+3. **⚠️ Bitácora Clínica de Crisis (`Crisis Log`):** Registro rápido de episodios agudos (estrés, ira/rabia, ansiedad, pánico, sobrecarga) con **fecha**, **hora exacta (`HH:MM`)**, **intensidad 1–5** y **motivo en español**, visible también en modo **solo lectura** para el psiquiatra/psicóloga dentro del Resumen Semanal (`Ctrl + Enter` guarda al instante).
+4. **🌙 Control de Sueño:** Cálculo automático de horas dormidas en **formato normal de horas y minutos (`7h 30m` / `7 hrs 30 min`)**, calidad (`Good`, `Fair`, `Bad`), soporte de sueño intermitente/siestas y recordatorio matutino configurable con opción de posponer (*Snooze 15m / 30m / 1h*).
+5. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
+6. **📖 Language Learning Studio (`English` · `한국어 Korean` · `🎵 K-Pop EN+KR` + `Gemini AI`):** Cuaderno multilingüe (extensible a futuros idiomas) con vocabulario, gramática, *phrasal verbs/expressions*, transliteración automática **Hangul → Revised Romanization**, **Memoria Persistente (`Memory Bank`)**, **conocimiento automático de tu repertorio musical registrado**, atajos `Enter` / `Ctrl+Enter` y asistente de IA optimizado para AWS `t3.micro` (**Google Gemini API** a 0 MB RAM locales + **motor lingüístico local instantáneo sin conexión** para analizar letras mixtas inglés+coreano de K-Pop). Todo se sincroniza cifrado E2EE hacia tu Word local (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y módulo **Learn with Music**:
+   - Busca canciones directamente en YouTube (PC) o YouTube Music (celular) (`Enter` busca de inmediato) mediante URL normalizada de pista individual (sin alterar tus playlists).
+   - Navega tu repertorio en un **selector interactivo de 3 columnas con el cursor (`Artistas → Álbumes → Canciones`)** y organiza tu catálogo en MySQL **únicamente con metadatos** agrupados por **Artista**, **Colaboraciones**, **Álbum / Mini Álbum / EP / Single / OST** y filtro por **Idioma** (`English`, `Korean`, `English + Korean (K-Pop)`).
+   - Explica letras y vocabulario con Gemini/IA (consciente de tus canciones registradas) y cifra las notas completas con **E2EE** hacia la sección **`4. Songs & Music Study`** de tu Word local.
 6. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
    - **Tipos de actividad:** **Evento** (`evento`: clases, citas, reuniones) y **Tarea** (`tarea`).
    - **Dos categorías principales:** **🎓 Universidad** (`universidad`) y **👤 Personal** (`personal`), con filtros rápidos por categoría y tipo, y divisores visuales por categoría dentro de cada bloque del día (**Morning**, **At School / Classes**, **Afternoon**, **Night**).
@@ -51,7 +52,7 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 
 * **Frontend:** HTML5, CSS3 responsivo (barra lateral fija colapsable, bandejas de recordatorios, filtros por categoría/tipo, selectores tipo Jira, **Tema Oscuro** y cuadrícula pastel semanal) y JavaScript (Vanilla + CryptoJS para cifrado AES).
 * **Backend:** Node.js 20, Express 5 (`server.js`), `mysql2` (Pool de conexiones), `bcryptjs`, `nodemailer`, `cors`, `dotenv`, `fetch` nativo para puente HTTPS de notificaciones móviles (`ntfy`).
-* **Base de Datos:** MySQL 8.0 (12 tablas: `RegistrosMood`, `RegistrosSleep`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`, `ConfiguracionUsuario`, `RecordatoriosEstado`, `MusicaArtistas`, `MusicaAlbumes`, `MusicaCanciones`, `MusicaCancionArtistas`).
+* **Base de Datos:** MySQL 8.0 (13 tablas: `RegistrosMood`, `RegistrosSleep`, `RegistrosCrisis`, `RegistrosAgenda`, `Usuarios`, `SesionesAuth`, `CodigosSeguridad`, `ConfiguracionUsuario`, `RecordatoriosEstado`, `MusicaArtistas`, `MusicaAlbumes`, `MusicaCanciones`, `MusicaCancionArtistas`).
 * **Sincronización PC (Journal & English):** Python (`sincronitation/sincronizador.py`) con `pycryptodome`, `pywin32` y `python-docx`.
 * **Calidad y DevOps:** Node Test Runner (`tests/*.test.js`), GitHub Actions (`.github/workflows/ci.yml` y `deploy.yml`), Docker / Docker Compose en AWS EC2, bóveda `.env.enc` (`scripts/env-vault.sh` / `scripts/local-vault.js`) y respaldo automático a Google Drive con `rclone` (`scripts/backup.sh`).
 
@@ -126,6 +127,7 @@ El archivo `init.sql` define **8 tablas principales** (y `server.js` crea/migra 
 
 * **`RegistrosMood`**: `id`, `fecha`, `momento_dia` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`), `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
 * **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `fecha_registro`.
+* **`RegistrosCrisis`**: `id`, `fecha`, `hora`, `tipo_crisis`, `intensidad` (`1..5`), `motivo` (texto en español), `fecha_registro`.
 * **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `completada`, `recordatorio_min`, `fecha_registro`.
 * **`Usuarios`**: `id`, `nombre`, `email`, `password_hash` (bcrypt), `rol` (`admin` o `psiquiatra`), `estado` (`activo`, `inactivo`, `suspendido`), `fecha_registro`.
 * **`SesionesAuth`**: `id`, `usuario_id`, `token_hash` (SHA-256), `expira_en` (próximo domingo `00:00`), `creado_en`.
@@ -196,10 +198,13 @@ EOF
   * Body: `{ "fecha": "2026-11-13", "momento_dia": "Morning", "estado_animo": "Happy", "color_hex": "#FDE047" }`
 * `GET /api/get-moods?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, momento_dia, color_hex }` en el rango.
 
-### Control de Sueño
+### Control de Sueño y Bitácora de Crisis
 * `POST /api/insert-sleep`: Inserta un registro de sueño.
   * Body: `{ "fecha": "2026-11-13", "horas": 7.5, "calidad": "Good" }`
 * `GET /api/get-sleep?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, horas, calidad }` en el rango.
+* `POST /api/insert-crisis`: Registra una crisis (`Estrés`, `Ira / Rabia`, `Ansiedad`, `Pánico`, etc.) con fecha, hora (`HH:MM`), intensidad `1..5` y motivo en español (solo `admin`).
+* `GET /api/get-crisis[?begin=YYYY-MM-DD&end=YYYY-MM-DD]`: Consulta episodios de crisis (permitido tanto a `admin` como a `psiquiatra` en modo solo lectura).
+* `DELETE /api/delete-crisis/:id`: Elimina un registro de crisis específico (solo `admin`).
 
 ### Journal Notes, Language Learning Studio & AI (PC Word Sync + Learn with Music)
 * `POST /api/send-to-pc` y `GET /api/pull-text`: Cola E2EE para el diario privado protegido con contraseña.

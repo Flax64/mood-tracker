@@ -50,6 +50,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
     const sessions = new Map();
     const moodInserts = [];
     const sleepInserts = [];
+    const crisisInserts = [];
     const agendaInserts = [];
     const userSettingsMap = new Map();
     const reminderStatesMap = new Map();
@@ -76,6 +77,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         process.env.SMTP_USER = 'smtp@example.com';
         process.env.SMTP_PASS = 'abcdefghijklmnop';
         process.env.DISABLE_REMINDER_SCHEDULER = 'true';
+        process.env.RATE_LIMIT_WRITE_MAX = '200';
 
         const mockDb = {
             query(sql, paramsOrCb, maybeCb) {
@@ -198,6 +200,35 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
 
                 if (normalized.includes('FROM RegistrosSleep')) {
                     return finish(null, sleepInserts);
+                }
+
+                if (normalized.startsWith('INSERT INTO RegistrosCrisis')) {
+                    const row = {
+                        id: crisisInserts.length + 1,
+                        fecha: params[0],
+                        hora: params[1],
+                        tipo_crisis: params[2],
+                        intensidad: Number(params[3]),
+                        motivo: params[4],
+                        fecha_registro: '2026-11-14 21:00:00'
+                    };
+                    crisisInserts.push(row);
+                    return finish(null, { insertId: row.id });
+                }
+
+                if (normalized.includes('FROM RegistrosCrisis')) {
+                    if (params.length === 2) {
+                        const [begin, end] = params;
+                        return finish(null, crisisInserts.filter((c) => c.fecha >= begin && c.fecha <= end));
+                    }
+                    return finish(null, [...crisisInserts].reverse());
+                }
+
+                if (normalized.startsWith('DELETE FROM RegistrosCrisis WHERE id = ?')) {
+                    const idx = crisisInserts.findIndex((c) => c.id === Number(params[0]));
+                    if (idx === -1) return finish(null, { affectedRows: 0 });
+                    crisisInserts.splice(idx, 1);
+                    return finish(null, { affectedRows: 1 });
                 }
 
                 if (normalized.startsWith('INSERT INTO RegistrosAgenda')) {
@@ -1979,6 +2010,114 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(savedSetJson.geminiApiKeyConfigured, true);
         assert.strictEqual(savedSetJson.geminiApiKey, undefined, 'La API key cruda nunca debe exponerse al cliente');
         assert.ok(savedSetJson.geminiApiKeyHint.startsWith('AIza'));
+    });
+
+    it('permite registrar crisis en español, las expone en modo solo lectura al psiquiatra y reconoce el repertorio musical en la IA', async () => {
+        // 1. Admin registra crisis con fecha, hora, tipo, intensidad y motivo en español
+        const createCrisisRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-crisis',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-14',
+                hora: '21:15',
+                tipoCrisis: 'Estrés',
+                intensidad: 4,
+                motivo: 'Sobrecarga por entregas de proyecto y falta de descanso.'
+            }
+        });
+        assert.strictEqual(createCrisisRes.status, 200);
+        const createdCrisis = JSON.parse(createCrisisRes.body);
+        assert.strictEqual(createdCrisis.ok, true);
+        assert.ok(createdCrisis.id > 0);
+
+        // 2. Tanto admin como psiquiatra (solo lectura) pueden consultar las crisis de la semana
+        const medicoCrisisRes = await request({
+            port,
+            method: 'GET',
+            reqPath: '/api/get-crisis?begin=2026-11-08&end=2026-11-14',
+            headers: { Cookie: medicoCookie }
+        });
+        assert.strictEqual(medicoCrisisRes.status, 200);
+        const medicoCrisisList = JSON.parse(medicoCrisisRes.body);
+        assert.ok(
+            Array.isArray(medicoCrisisList) &&
+            medicoCrisisList.some((c) => c.tipo_crisis === 'Estrés' && c.motivo.includes('Sobrecarga por entregas')),
+            'El psiquiatra debe poder leer las crisis registradas'
+        );
+
+        // 3. Psiquiatra no puede insertar ni borrar crisis (RBAC 403)
+        const medicoWriteCrisisRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-crisis',
+            headers: { Cookie: medicoCookie },
+            body: {
+                fecha: '2026-11-14',
+                hora: '21:30',
+                tipoCrisis: 'Ira / Rabia',
+                intensidad: 3,
+                motivo: 'Intento bloqueado por RBAC'
+            }
+        });
+        assert.strictEqual(medicoWriteCrisisRes.status, 403);
+
+        const medicoDelCrisisRes = await request({
+            port,
+            method: 'DELETE',
+            reqPath: `/api/delete-crisis/${createdCrisis.id}`,
+            headers: { Cookie: medicoCookie }
+        });
+        assert.strictEqual(medicoDelCrisisRes.status, 403);
+
+        // 4. IA de idiomas reconoce canciones ya registradas en el catálogo musical del usuario
+        const addSongRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'DRIP',
+                mainArtist: 'BABYMONSTER',
+                mainArtistType: 'group',
+                albumTitle: 'DRIP',
+                albumType: 'album',
+                albumYear: 2024,
+                idioma: 'English + Korean (K-Pop)',
+                enfoqueCorto: 'Chorus idioms & rapid transitions'
+            }
+        });
+        assert.ok([200, 201].includes(addSongRes.status));
+
+        const aiRepertoireRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/analyze',
+            headers: { Cookie: adminCookie },
+            body: {
+                text: 'BABYMONSTER DRIP\n너의 마음에 닿기를',
+                question: 'Explain this song from my repertoire',
+                language: 'en_ko',
+                mode: 'offline'
+            }
+        });
+        assert.strictEqual(aiRepertoireRes.status, 200);
+        const aiRepJson = JSON.parse(aiRepertoireRes.body);
+        assert.ok(
+            Array.isArray(aiRepJson.matchedRepertoireSongs) &&
+            aiRepJson.matchedRepertoireSongs.some((s) => s.titulo === 'DRIP'),
+            'La IA debe reconocer canciones registradas en el repertorio del usuario'
+        );
+
+        // 5. Admin puede eliminar un registro de crisis
+        const delCrisisRes = await request({
+            port,
+            method: 'DELETE',
+            reqPath: `/api/delete-crisis/${createdCrisis.id}`,
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(delCrisisRes.status, 200);
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {

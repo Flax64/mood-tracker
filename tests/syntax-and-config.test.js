@@ -161,11 +161,12 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
     });
 
-    it('define las 12 tablas requeridas (incluyendo música/inglés) en init.sql', () => {
+    it('define las 13 tablas requeridas (incluyendo música/inglés/crisis) en init.sql', () => {
         const sql = readText('init.sql');
         for (const table of [
             'RegistrosMood',
             'RegistrosSleep',
+            'RegistrosCrisis',
             'RegistrosAgenda',
             'Usuarios',
             'SesionesAuth',
@@ -244,7 +245,11 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnMusicAiExplainLyrics"',
             'id="transportSecurityCard"',
             'id="btnTransportBenchmark"',
-            'id="setGeminiModel"'
+            'id="setGeminiModel"',
+            'id="view-crisis"',
+            'id="crisisForm"',
+            'id="resumenCrisisList"',
+            'id="musicRepertoireNavigator"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }

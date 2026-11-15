@@ -1,249 +1,286 @@
 # 📘 Manual de Usuario — Personal Daily Hub
 
-> Guía práctica paso a paso para aprovechar todas las herramientas de bienestar, organización personal, estudio de inglés con música y privacidad de **Personal Daily Hub** desde PC o celular.
+> Guía completa, paso a paso y campo por campo para dominar todos los módulos del sistema: registro emocional y sueño, bitácora clínica de crisis para psiquiatra/psicóloga, diario E2EE hacia Microsoft Word, estudio de Inglés / 한국어 / K-Pop con IA Gemini y repertorio musical, horario universitario ITS con alertas por tráfico GPS, agenda estilo Jira, notificaciones en celular (`ntfy`) y túnel cifrado de red X25519.
+
+## 📑 Índice
+
+- [1. Inicio de Sesión, Roles y Acceso Clínico](#1-inicio-de-sesión-roles-y-acceso-clínico)
+- [2. Home y Recordatorios Inteligentes](#2-home-y-recordatorios-inteligentes)
+- [3. Mood Tracker (Estado de Ánimo)](#3-mood-tracker-estado-de-ánimo)
+- [4. Bitácora de Crisis (Registro Clínico en Español)](#4-bitácora-de-crisis-registro-clínico-en-español)
+- [5. Sleep Tracker (Horas y Calidad de Sueño)](#5-sleep-tracker-horas-y-calidad-de-sueño)
+- [6. Journal Notes y Llave E2EE Local](#6-journal-notes-y-llave-e2ee-local)
+- [7. Estudio de Idiomas (English · 한국어 · K-Pop), IA Gemini y Música](#7-estudio-de-idiomas-english--한국어--k-pop-ia-gemini-y-música)
+  - [7.1 Cómo configurar la IA de Google Gemini paso a paso](#71-cómo-configurar-la-ia-de-google-gemini-paso-a-paso)
+  - [7.2 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio](#72-tutor-ia-memoria-persistente-y-reconocimiento-de-repertorio)
+  - [7.3 Reproducción YouTube (PC) vs YouTube Music (Celular)](#73-reproducción-youtube-pc-vs-youtube-music-celular)
+  - [7.4 Qué poner en cada campo del Registro de Canciones](#74-qué-poner-en-cada-campo-del-registro-de-canciones)
+  - [7.5 Navegador Interactivo con Cursor (Artistas → Álbumes → Canciones)](#75-navegador-interactivo-con-cursor-artistas--álbumes--canciones)
+- [8. Agenda Semanal y Flujo de Trabajo Jira](#8-agenda-semanal-y-flujo-de-trabajo-jira)
+- [9. Horario ITS (Salones, Semestres, Vacaciones), Residencias, Trabajo y GPS](#9-horario-its-salones-semestres-vacaciones-residencias-trabajo-y-gps)
+- [10. Resumen Semanal y Gestión de Acceso a Psiquiatra](#10-resumen-semanal-y-gestión-de-acceso-a-psiquiatra)
+- [11. Configuración, Notificaciones en Celular (ntfy) y Cifrado de Transporte X25519](#11-configuración-notificaciones-en-celular-ntfy-y-cifrado-de-transporte-x25519)
+- [12. Atajos de Teclado Óptimos](#12-atajos-de-teclado-óptimos)
 
 ---
 
-## 📑 Índice de Contenidos
+## 1. Inicio de Sesión, Roles y Acceso Clínico
 
-1. [Primeros pasos y acceso seguro](#-1-primeros-pasos-y-acceso-seguro)
-2. [Inicio (`Home`)](#-2-inicio-home)
-3. [Registro de Estado de Ánimo (`Mood Tracker`)](#-3-registro-de-estado-de-ánimo-mood-tracker)
-4. [Control de Sueño (`Sleep Tracker`)](#-4-control-de-sueño-sleep-tracker)
-5. [Diario Privado E2EE (`Journal Notes`)](#-5-diario-privado-e2ee-journal-notes)
-6. [Estudio de Idiomas (Inglés, Coreano, K-Pop + IA Gemini) y Learn with Music](#-6-cuaderno-de-inglés-y-learn-with-music-english-notebook)
-   - [YouTube en PC vs YouTube Music en Celular (Protección de tus Playlists)](#youtube-en-pc-vs-youtube-music-en-celular-protección-de-tus-playlists)
-7. [Agenda Semanal (`Weekly Agenda`), Auto-Bloque y Corrector Tipo Word](#-7-agenda-semanal-weekly-agenda-auto-bloque-y-corrector-tipo-word)
-8. [Horario ITS, Croquis (`R02`/`R11`/`N21`), Vacaciones, Residencias, Trabajo y Tráfico](#-8-horario-its-por-semestre-croquis-r02r11n21-vacaciones-residencias-trabajo-y-tráfico-its-residencias--work)
-9. [Resumen Semanal (`Weekly Summary`) y Acceso Médico (`Psychiatrist Access`)](#-9-resumen-semanal-weekly-summary-y-acceso-médico-psychiatrist-access)
-10. [Configuración, IA Gemini, Notificaciones (`ntfy`) y Prueba de Encriptación de Red](#-10-configuración-ia-gemini-notificaciones-ntfy-y-prueba-de-encriptación-de-red)
-11. [Preguntas frecuentes (FAQ)](#-11-preguntas-frecuentes-faq)
+1. **Dueño (`Owner / Admin`)**:
+   - Ingresa con tu correo y contraseña configurados. Si activaste 2FA/MFA recibirás un código temporal de verificación en tu correo.
+   - Tienes acceso total a todos los módulos del menú lateral.
+   - Por seguridad, la sesión se renueva automáticamente cada semana (**domingos a las 00:00**).
+2. **Psiquiatra / Psicóloga (`Psychiatrist Mode - Read-Only`)**:
+   - Si creas una cuenta médica desde **`🩺 Psychiatrist Access`**, tu especialista inicia sesión con su propio correo y contraseña asignada.
+   - Al entrar, el sistema bloquea la barra de edición y la redirige directamente a **`📈 Weekly Summary`** en **modo solo lectura**:
+     - Puede ver tu **matriz semanal de Mood**, tu **resumen semanal de Sueño (hrs/min)** y tu **Bitácora de Crisis en español (`⚠️ Crisis & Episode Log`)**.
+     - **Nunca** puede ver tu Diario Privado, Notas de Idiomas, Agenda Personal ni configuración, ni modificar o borrar ningún dato (el servidor responde `403 Forbidden`).
 
 ---
 
-## 🔐 1. Primeros pasos y acceso seguro
+## 2. Home y Recordatorios Inteligentes
 
-### Iniciar sesión y verificación en dos pasos (MFA)
-1. Ingresa tu correo y contraseña en la pantalla **Personal Daily Hub** y haz clic en **Sign In**.
-2. Si la verificación en dos pasos está activa, recibirás un código de **6 dígitos** en tu correo electrónico. Introdúcelo en **Two-step email verification**.
-3. Puedes mostrar u ocultar cualquier contraseña usando el botón del ojo junto al campo.
-4. Todos los mensajes de éxito o error aparecen directamente dentro de la tarjeta o mediante avisos discretos en la esquina superior derecha, sin ventanas emergentes molestas.
-
-### Cierre automático semanal
-Por seguridad y orden semanal, todas las sesiones activas se cierran automáticamente **cada domingo a las 00:00**. Cuando ocurra, verás un aviso en pantalla para volver a iniciar sesión.
-
-### Tema Claro / Oscuro y Navegación
-- Puedes cambiar entre **Light Mode** y **Dark Mode** en cualquier momento desde el menú lateral o desde **Settings & Reminders → Switch Theme**.
-- En PC puedes contraer o expandir la barra lateral con el botón `◀` / `▶`. En celular se abre con el botón de menú en la barra superior.
+Al abrir **`🏠 Home`** verás:
+- El **saludo del bloque horario actual** (`Morning`, `Noon`, `Afternoon`, `Night`, `Madrugada`).
+- La bandeja **`Reminder Tray`** en la parte superior con alertas activas:
+  - Registros de Mood pendientes del día actual.
+  - Recordatorios de tareas o eventos de Agenda pendientes.
+  - Recordatorios diarios de estudio de idiomas o clases próximas según tu tiempo de traslado.
+- **Autoselección inteligente al abrir notificaciones**:
+  - Al tocar **`Log Mood`**, **`Open`** o abrir el enlace enviado al celular por `ntfy`, el sistema abre exactamente la vista correcta y **autoselecciona la fecha (`Date`) y el bloque horario (`Moment / Block`) exactos** que faltaban por registrar.
 
 ---
 
-## 🏠 2. Inicio (`Home`)
+## 3. Mood Tracker (Estado de Ánimo)
 
-La vista **Home** te muestra un panorama inmediato del día:
-- **Saludo y bloque horario actual** (`Late Night`, `Morning`, `Noon`, `Afternoon` o `Night`).
-- **Today's Summary**:
-  - **Mood Tracker**: estados de ánimo ya registrados hoy.
-  - **Sleep**: total acumulado de horas dormidas hoy.
-  - **Today's Agenda**: eventos y tareas pendientes o completadas del día.
-- **All Features**: accesos directos de un clic a cualquier módulo de la aplicación.
+Accede desde **`🧠 Mood Tracker`**. Qué poner en cada campo:
 
----
+| Campo | Qué ingresar / seleccionar |
+| --- | --- |
+| **Date** | Fecha del registro (se llena automáticamente con la fecha de hoy o la fecha de la notificación que tocaste). |
+| **Time Block (Momento)** | `Morning` (06:00–11:59), `Noon` (12:00–14:59), `Afternoon` (15:00–19:59), `Night` (20:00–23:59) o `Madrugada` (00:00–05:59, si está activada en Settings). |
+| **Emotion Color Grid** | Haz clic en el estado de ánimo que represente cómo te sientes en ese bloque. En el panel derecho (**Today's Check-ins**) puedes tocar cualquier bloque para cambiar rápidamente el selector. |
 
-## 🧠 3. Registro de Estado de Ánimo (`Mood Tracker`)
-
-Pensado para registrar cómo te sientes en hasta **5 momentos del día**:
-- `Late Night (00:00 - 05:59)`
-- `Morning (06:00 - 11:59)`
-- `Noon (12:00 - 13:59)`
-- `Afternoon (14:00 - 19:59)`
-- `Night (20:00 - 23:59)`
-
-### Cómo registrar o actualizar un estado
-1. Al abrir **Mood Tracker**, la fecha de hoy y el bloque horario actual se seleccionan automáticamente.
-2. Haz clic en una de las 16 emociones disponibles (p. ej. `Happy`, `Calm`, `Focused`, `Anxious`). Verás la selección confirmada arriba en la píldora de vista previa.
-3. Pulsa **Save Mood Entry**.
-
-### Panel lateral `Today's Check-ins`
-- A la derecha (o abajo en celular) verás los **5 bloques de hoy** y cuáles ya tienen registro o siguen pendientes (`Not logged`).
-- Puedes tocar cualquiera de los 5 bloques en esa lista para seleccionarlo inmediatamente en el formulario.
-- Mientras la ventana de edición del día actual siga abierta para ese bloque horario, puedes corregir o actualizar tu estado de ánimo sin problemas.
+> [!NOTE]
+> Puedes actualizar el Mood del bloque horario en curso mientras la ventana de tiempo actual siga abierta; los días pasados quedan protegidos como historial clínico inalterable.
 
 ---
 
-## 🌙 4. Control de Sueño (`Sleep Tracker`)
+## 4. Bitácora de Crisis (Registro Clínico en Español)
 
-Diseñado para registrar tu descanso justo al despertar, compatible con **sueño intermitente o siestas**.
+Accede desde **`⚠️ Crisis Log`** en el menú lateral o desde la tarjeta en **Home**. Está diseñada específicamente para registrar episodios agudos (estrés, ira, rabia, pánico, sobrecarga) con información clara en español para ti y tu psiquiatra/psicóloga:
 
-### Cómo registrar una sesión de sueño
-1. En **Fell asleep at**, indica la hora a la que te dormiste.
-2. En **Woke up at**, indica a qué hora despertaste (o toca **Use current time** para llenar automáticamente la hora actual del reloj).
-3. Verás la duración calculada al instante en el recuadro **Calculated sleep duration** (incluso si dormiste antes de medianoche y despertaste al día siguiente).
-4. Elige rápidamente cómo sentiste el descanso con las tarjetas visuales:
-   - `🟢 Restorative` (`Good`)
-   - `🟡 Fair / Light` (`Regular`)
-   - `🔴 Poor / Heavy` (`Bad`)
-5. Pulsa **Log Sleep Session**.
+| Campo | Qué ingresar |
+| --- | --- |
+| **Date (Fecha)** | Fecha en que ocurrió la crisis (se llena automáticamente con hoy). |
+| **Time (Hora exacta)** | Hora exacta en formato normal (`HH:MM`). Usa el botón **`⏱️ Now`** para capturar el minuto exacto actual en 1 clic. |
+| **Crisis Type (Tipo de episodio)** | Elige el botón correspondiente: `😣 Estrés`, `😠 Ira / Rabia`, `😰 Ansiedad`, `🫨 Pánico`, `😢 Llanto / Sobrecarga`, `🧱 Bloqueo / Saturación`, `🌘 Insomnio / Agitación` o `📝 Otro`. |
+| **Intensity Level (Intensidad 1–5)** | Escala del `1 · Leve` al `5 · Severa`. |
+| **Reason / Context in Spanish (Motivo)** | Escribe en español qué detonó la crisis, cómo te sentiste y si algo ayudó a calmarla (máx. 1000 caracteres). **Atajo rápido**: presiona `Ctrl + Enter` dentro del cuadro para guardar al instante. |
 
-### Sueño intermitente (`Today's Sleep Summary`)
-Si duermes por partes durante el mismo día (por ejemplo, 5 horas en la noche y una siesta de 1.5 horas en la tarde), cada registro nuevo **se suma al acumulado del día** sin sobrescribir los anteriores.
+- En el panel derecho (**Recent Crisis Log**) puedes consultar tus episodios recientes y eliminar un registro si lo capturaste por error.
+- Tu **psiquiatra o psicóloga** verá automáticamente todas las crisis de la semana seleccionada dentro de **`📈 Weekly Summary -> ⚠️ Crisis & Episode Log`** en **modo solo lectura**.
 
 ---
 
-## 🖋️ 5. Diario Privado E2EE (`Journal Notes`)
+## 5. Sleep Tracker (Horas y Calidad de Sueño)
 
-Tu diario personal está protegido con **cifrado de extremo a extremo (E2EE AES)** directamente en tu navegador.
+Accede desde **`🌙 Sleep Tracker`**. Todas las duraciones se muestran en formato normal de horas y minutos (ejemplo: `7 hrs 15 min` o `7h 15m`):
 
-### Configurar tu llave secreta de 32 caracteres (`🔐 E2EE Key`)
-1. En la esquina superior de **Journal Notes** (o **English Notebook**), toca el botón **🔑 Set 32-char Key** (cambia a **🔐 E2EE Key Ready** cuando ya está activa).
-2. Introduce tu clave secreta exacta de **32 caracteres** (debe coincidir con la llave configurada en tu PC para sincronizar Word). Un contador en tiempo real te muestra `32 / 32 characters`.
-3. La llave se guarda únicamente en el almacenamiento local de tu navegador actual y **nunca se envía ni se guarda en el servidor ni en MySQL**.
-
-### Borrador automático y envío a Word
-- Mientras escribes en inglés, el editor muestra el conteo de palabras/caracteres y guarda automáticamente tu texto como borrador local (`Draft saved locally`) para que no pierdas lo escrito si cambias de pantalla o recargas la página.
-- Si deseas limpiar el cuadro de texto manualmente, usa **Clear draft**.
-- Al pulsar **Encrypt E2EE & Send to Word (PC)**, el texto se cifra en tu dispositivo y queda en cola segura para que el sincronizador de tu PC lo añada a tu documento local de Word.
+| Campo | Qué ingresar |
+| --- | --- |
+| **Fell asleep at** | Hora exacta a la que te dormiste (por ejemplo `11:30 PM`). |
+| **Woke up at** | Hora en la que despertaste (si dormiste después de medianoche y despertaste al día siguiente, el cálculo cruza el día automáticamente). |
+| **Sleep Quality** | Selecciona la tarjeta visual: `🟢 Good`, `🟡 Fair` o `🔴 Bad`. |
+| **Sleep Date** | Fecha a la que pertenece ese descanso (recomendado: la fecha al despertar). Si dormiste de forma intermitente o tomaste siestas el mismo día, los intervalos se suman automáticamente. |
 
 ---
 
-## 📖 6. Cuaderno de Inglés y Learn with Music (`English Notebook`)
+## 6. Journal Notes y Llave E2EE Local
 
-Tiene 4 pestañas principales en la parte superior:
-1. **📖 Glossary / New Word**: palabra, categoría gramatical, significado en español, definición/sinónimos y oración de ejemplo.
-2. **✍️ Grammar & Usage Note**: regla gramatical, ejemplos correctos vs. errores frecuentes y notas personales.
-3. **🔗 Phrasal Verb**: verbo compuesto, significado en español, si es separable o no, y ejemplo en contexto.
-4. **🎵 Learn with Music**: estudio de inglés con canciones, organizado por artista, colaboraciones y álbum/mini álbum.
+Accede desde **`🖋️ Journal Notes`**. Todos tus textos personales se cifran en tu navegador con **AES-256** antes de salir hacia el servidor (`Encrypted Word Queue -> sincronizador.py`):
 
-Todos los apuntes escritos de estudio (`Glossary`, `Grammar`, `Phrasal Verb` y notas de canciones) se cifran con E2EE y van únicamente a tu carpeta local `english-notes/English_Learning_Notebook.docx` en tu PC (con índice automático).
+| Campo | Qué ingresar |
+| --- | --- |
+| **Date** | Fecha de la entrada de diario. |
+| **Journal Title** | Título corto de tu reflexión (opcional). |
+| **Your Thoughts** | Texto libre de tus pensamientos. Nunca se almacena en texto plano en MySQL: solo tú lo descifras en tu PC con tu llave de **32 caracteres**. |
 
----
-
-### YouTube en PC vs YouTube Music en Celular (Protección de tus Playlists)
-
-En la pestaña **🎵 Learn with Music** cuentas con la barra **Playback Platform** que adapta automáticamente qué servicio se abre según desde dónde entres:
-
-| Dispositivo | Modo `Auto (PC / Mobile)` | Enlaces que abre |
-| :--- | :--- | :--- |
-| **🖥️ PC / Laptop** | Usa **YouTube normal** (`www.youtube.com`) | Búsquedas en `youtube.com/results?...`, inicio en `youtube.com` y canciones en `youtube.com/watch?v=...` |
-| **📱 Celular / Tablet** | Usa **YouTube Music** (`music.youtube.com`) | Búsquedas en `music.youtube.com/search?...`, biblioteca en `music.youtube.com/library` y canciones en `music.youtube.com/watch?v=...` |
-
-> **🛡️ Garantía total: tus listas de reproducción del celular NO se modifican ni alteran**
-> - La aplicación **no usa OAuth ni credenciales de Google** en tu cuenta personal: nunca tiene permisos para agregar, borrar, reordenar o editar tus playlists ni tu biblioteca.
-> - Cuando pegas un enlace que incluye cola o playlist (`&list=...`) junto con un video (`watch?v=...`), el servidor y la interfaz extraen únicamente el ID limpio de la pista individual (`watch?v=...`), evitando alterar tu cola o tus listas al abrir la canción.
-> - Además de `Auto`, puedes cambiar manualmente entre `Auto (PC / Mobile)`, `📺 YouTube (PC)` o `🎵 YT Music (Mobile)` desde los botones rápidos en **Learn with Music** o en **Settings & Reminders → Learn with Music YouTube Platform**; esa preferencia se recuerda de forma independiente por dispositivo.
-
-### Flujo recomendado para estudiar una canción
-1. Usa el **Song Finder** para buscar una canción en YouTube (PC) o YouTube Music (Celular), o pega directamente su enlace/ID en **Register or Link Song** y pulsa **Auto-fill**.
-2. Completa artista principal, colaboradores opcionales (la canción aparecerá listada bajo cada artista colaborador) y álbum o mini álbum. Pulsa **Save Song**.
-3. En **My Music Catalog**, pulsa **YouTube** / **YT Music** para escuchar la pista o **Study -> Word** para abrir el panel inferior **Song Study Notes -> Encrypted Word (PC)** (también incluye botón **Mini Player** embebido opcional).
-4. Escribe tus desgloses de significado, vocabulario y pronunciación y pulsa **Encrypt E2EE & Save Study Notes to Word (PC)**.
+> [!IMPORTANT]
+> La primera vez que envíes una nota al diario o al cuaderno de idiomas, el sistema te pedirá tu llave E2EE de **32 caracteres exactos** (la misma que usa `sincronizador.py` en tu `.env`). Se guarda localmente en tu navegador hasta que decidas borrarla o actualizarla desde Settings.
 
 ---
 
-## 🗓️ 7. Agenda Semanal (`Weekly Agenda`), Auto-Bloque y Corrector Tipo Word
+## 7. Estudio de Idiomas (English · 한국어 · K-Pop), IA Gemini y Música
 
-Organizador semanal visual compatible con vista de **cuadrícula semanal** (PC) o **enfoque por día** (celular / botón **Day View**):
-- **Auto-selección de bloque al elegir la hora**: al seleccionar **Time** (`#agendaHora`), el campo **Time block (part of day)** selecciona automáticamente `☕ Morning` (`05:00–11:59`), `🎓 School / University` (`07:00–16:59` cuando la categoría es Universidad), `☀️ Afternoon` (`12:00–18:59`) o `🌙 Night` (`19:00–04:59`).
-- **Título/Etiqueta y Descripción separados**: cada actividad o nota de Journal separa el **Title / Label** de la **Description**, permitiendo ver tarjetas limpias y estructuradas.
-- **Corrector de Ortografía y Gramática en Inglés (Estilo Microsoft Word)**:
-  - Disponible en **Journal Notes**, **English Notebook** y **Weekly Agenda**.
-  - Detecta errores de **Ortografía (`🔴 Spelling`)** y **Gramática (`🟦 Grammar`)** en inglés en tiempo real, permitiendo corregir cada sugerencia con un toque o aplicar todas con **✨ Apply All Fixes**.
-- **Categorías y Tipos**:
-  - `🎓 University` y `👤 Personal`.
-  - `📅 Event` (clases/citas) y `✅ Task (Jira)` con flujo **`To Do` → `In Progress` → `Done`** y notificaciones automáticas si una tarea o registro de ánimo queda pendiente.
+Accede desde **`📖 English Notebook`**. Este módulo combina:
+- Cuaderno privado hacia Word (`Vocabulary`, `Grammar`, `Phrasal Verbs`, `Corrector ortográfico/gramatical estilo Word` y **`Music & Lyrics Study`**).
+- **Tutor IA bilingüe (English + 한국어 / K-Pop)** con **Google Gemini** e **Instant Local Engine (0 MB RAM)**.
+- **Catálogo Musical y Repertorio Completo** (Artistas → Colaboraciones → Álbumes/EPs → Canciones).
 
----
+### 7.1 Cómo configurar la IA de Google Gemini paso a paso
 
-## 🎓 8. Horario ITS por Semestre, Croquis (`R02`/`R11`/`N21`), Vacaciones, Residencias, Trabajo y Tráfico (`ITS, Residencias & Work`)
+El servidor AWS `t3.micro` tiene **1 GB de RAM**, por lo que correr un LLM pesado local dentro de EC2 saturaría la memoria. Por eso el sistema usa la arquitectura híbrida óptima (**0 MB de RAM en servidor**):
 
-Módulo diseñado específicamente para el **Instituto Tecnológico de Saltillo (TecNM - ITS)**:
-1. **Horario por Semestres y Croquis Oficial del ITS (`CTO-001` a `CTO-004`)**:
-   - Administra tus materias por semestre (incluye botón rápido **📥 Load 9th Sem MindBox Preset** con `ACA0910`, `SCG1009`, `DED2504`, `SCC1019` y `DED2505`).
-   - Al escribir el salón (`R02`, `R11`, `N21`, `S12`, `LC2`, `A14`, etc.), el sistema detecta automáticamente el edificio y campus según los planos oficiales del ITS (**Campus Principal** `CTO-002`, **Campus Miravalle** `CTO-003` o **Campus Boillot** `CTO-004`).
-   - El botón **🗓️ Sync Current Week to Agenda** vuelca tus clases, residencias y turnos de trabajo en la Agenda Semanal.
-2. **Periodos de Vacaciones (`Vacations`)**:
-   - Registra vacaciones de Semana Santa, verano o invierno. Durante esas fechas, el sistema pausa automáticamente las notificaciones de clases y evita agendarlas.
-3. **Residencias Profesionales (`Residencias 500h`)**:
-   - Lleva el control de tu proyecto, empresa, asesores (interno y externo), barra de progreso de **500 horas**, horario y ubicación de Google Maps.
-4. **Horario de Trabajo (`Work FT / PT`)**:
-   - Registra tu empleo de **Tiempo Completo (`Full-Time`)** o **Medio Tiempo (`Part-Time`)**, empresa, puesto, régimen (presencial, híbrido o remoto), días, horario y ubicación en Google Maps.
-5. **Ubicaciones GPS, Tráfico y Notificaciones Inteligentes en Carro**:
-   - Registra la ubicación de tu **Casa**, **Campus del ITS**, **Empresa de Residencias** y **Trabajo** (con el botón **📡 Use My Current GPS** o pegando un enlace/coordenadas de Google Maps).
-   - **Si es tu primera clase del día o estás en tu casa / lejos del Tec**: te envía la notificación con **mínimo 30 minutos de anticipación** (o más si el tiempo en carro + tráfico hora pico de Saltillo + estacionamiento requiere salir antes), incluyendo un botón directo **🗺️ Google Maps Route** en tu celular.
-   - **Si ya estás en el Tec o cerca del campus (`<= 0.85 km`)**: te notifica **10 minutos antes** indicando el aula y edificio del croquis al que debes caminar.
+1. **Obtén tu clave gratuita de Google Gemini (API Key)**:
+   - Entra a Google AI Studio en tu navegador: `https://aistudio.google.com/apikey`
+   - Inicia sesión con tu cuenta de Google y haz clic en **`Create API key`**.
+   - Copia la clave generada (normalmente empieza con `AIzaSy...`).
+2. **Elige dónde guardarla (tienes 2 opciones seguras)**:
+   - **Opción A (Recomendada — Directo desde la app)**:
+     1. Ve a **`⚙️ Settings & Reminders`**.
+     2. Busca la tarjeta **`🤖 Language AI & Multilingual Study (English · 한국어 · K-Pop)`**.
+     3. En **Default Study Language**, elige tu perfil (ej. `🎵 English + Korean (K-Pop)`).
+     4. En **Gemini Model Preset**, selecciona el modelo:
+        - `gemini-2.5-flash` *(Recomendado · Rápido, económico y óptimo para letras EN/KR)*.
+        - `gemini-2.5-pro` *(Mayor profundidad en gramática poética y matices complejos)*.
+        - `gemini-2.0-flash` *(Respaldo ligero)*.
+        - `Custom Model ID` *(Para escribir cualquier modelo nuevo de Gemini en el campo de texto inferior)*.
+     5. Pega tu API Key en **`Google Gemini API Key`** y haz clic en **`Save All Settings`**. La clave viaja cifrada por el túnel X25519 al servidor y el servidor **nunca** la devuelve expuesta en texto plano al navegador.
+   - **Opción B (Global en servidor EC2 / GitHub Secrets)**:
+     - Añade el secreto `GEMINI_API_KEY` en GitHub Secrets o en el archivo `.env` de EC2. El backend lo usará como respaldo si no guardaste una clave personal en Settings.
+3. **Si no pones API key o estás sin internet en Gemini**:
+   - El **Instant Local Engine** funciona al instante con **0 MB de RAM extra**, realiza romanización Hangul (`Revised Romanization`) línea por línea, detecta mezclas K-Pop (`English + 한국어`), phrasal verbs, partículas coreanas y consulta tu **Memory Bank** y **Repertorio**.
 
----
+### 7.2 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio
 
-## 📈 9. Resumen Semanal (`Weekly Summary`) y Acceso Médico (`Psychiatrist Access`)
+En el panel **`✨ AI Language Tutor & Lyrics Breakdown`** encontrarás:
+- **Badge `🎵 Repertoire: N songs`**: confirma cuántas canciones registradas de tu catálogo conoce automáticamente la IA. Si mencionas una canción o artista de tu repertorio (por ejemplo `"Explain DRIP by BABYMONSTER"` o seleccionas una canción del navegador visual), el Tutor IA enlaza el álbum, idioma, colaboradores y enfoque de estudio de tu catálogo y además actualiza tu historial.
+- **Badge `🧠 Memory: N learned`**: muestra cuántos términos, modismos, expresiones coreanas y reglas gramaticales recuerda la IA en tu cuenta.
+  - Todo lo que analizas con la IA o guardas en Word queda guardado en tu **`Memory Bank`** persistente.
+  - Cuando una palabra o expresión vuelve a aparecer en otra canción o frase, la IA **mantiene exactamente el mismo significado que ya aprendiste**, la marca con `🧠 [Learned]` y evita contradicciones entre sesiones.
+- **Selector de Motor (`Auto` / `Google Gemini API` / `Instant Local Engine`)**:
+  - **Auto**: usa Google Gemini si hay clave configurada; si falla la red/cuota o no hay clave, cambia automáticamente al Instant Local Engine.
+  - **Google Gemini API**: fuerza consulta a Gemini con tu memoria y repertorio incluidos.
+  - **Instant Local Engine**: romanización instantánea offline + léxico EN/KR sin consumir cuota de Gemini.
 
-### Resumen Semanal (`Weekly Summary`)
-- Elige cualquier semana en **Select a week**.
-- La tabla de estados de ánimo muestra los colores registrados por día y bloque horario. Si pasas el cursor (o inspeccionas la celda) verás el nombre exacto del estado de ánimo (por ejemplo, `Monday (Morning): Calm`).
-- Debajo verás **Sleep Summary** con las horas totales y calidad de descanso de cada día de la semana.
+### 7.3 Reproducción YouTube (PC) vs YouTube Music (Celular)
 
-### Gestión de Psiquiatras (`Psychiatrist Access` — solo dueño)
-- Crea o actualiza cuentas de acceso **de solo lectura** para tu médico o especialista.
-- Un usuario con rol **Psychiatrist (Read-Only)** únicamente puede consultar **Weekly Summary** (ánimo y sueño): tiene bloqueado el acceso a Diario, Inglés, Música, Agenda, Configuración y creación/edición de registros.
-- Puedes usar **Suspend / Activate** para pausar o reactivar el acceso temporalmente, o **Revoke access** para eliminarlo.
+En la pestaña **`🎵 Music & Songs`**:
+- **`Auto (PC / Mobile)` *(Modo por defecto)***:
+  - En tu **PC**, los botones abren enlaces de **YouTube normal** (`youtube.com/watch?v=...`).
+  - En tu **celular**, los botones abren **YouTube Music** (`music.youtube.com/watch?v=...`).
+- También puedes forzar **`📺 YouTube (PC)`** o **`🎵 YT Music (Mobile)`** en cualquier momento.
+- **Seguridad garantizada de tus playlists**: todos los enlaces son de solo lectura hacia pistas individuales (`watch?v=...`) sin OAuth ni permisos de escritura sobre tu cuenta de YouTube, así tu lista de reproducción personal nunca se modifica ni se altera.
 
----
+### 7.4 Qué poner en cada campo del Registro de Canciones
 
-## ⚙️ 10. Configuración, IA Gemini, Notificaciones (`ntfy`) y Prueba de Encriptación de Red
+En la tarjeta **`Register or Link Song`** (pestaña **`🎵 Music & Songs`**):
 
-### 📱 Recibir recordatorios en la barra de notificaciones de tu celular (`ntfy`)
-Así recibes avisos de agenda, sueño, ánimo, clases del Tec (con ruta en carro) o estudio de idiomas directamente en tu teléfono aunque cierres el navegador:
-1. Instala la app gratuita **ntfy** en tu celular (Android / iOS).
-2. En **Settings & Reminders → Phone Notification Bar (ntfy)** activa **Enable notifications on my phone's notification bar**.
-3. Presiona **Generate** para crear un tópico privado único (mínimo 8 caracteres), o escribe uno propio difícil de adivinar, y pulsa **Copy** para copiarlo en tu teléfono.
-4. En la app **ntfy** de tu celular, pulsa `+` y suscríbete exactamente a ese mismo tópico.
-5. En **Public server URL**, deja `http://3.149.248.153:3000` (o la URL pública de tu servidor EC2) para que funcionen los botones rápidos de la notificación.
-6. Guarda cambios con **Save All Settings** y pulsa **Send Test to Phone** para comprobar que llega al instante a la barra de tu teléfono.
+| Campo | Qué escribir o seleccionar | Ejemplo |
+| --- | --- | --- |
+| **YouTube Music / YouTube URL or 11-char ID (optional)** | Pega el enlace de YouTube o YouTube Music de la canción (o su ID de 11 letras) y presiona `Enter` o clic en **Auto-fill** para rellenar título y artista automáticamente. | `https://music.youtube.com/watch?v=ZpI...` |
+| **Song Title \*** *(Obligatorio)* | Nombre exacto de la canción sin adornos innecesarios para que la IA la reconozca mejor. | `DRIP` |
+| **Track #** *(Opcional)* | Número de orden de la pista dentro del álbum o EP (sirve para ordenar el repertorio). | `2` |
+| **Language** | Idioma principal de la letra: `🇺🇸 English`, `🇰🇷 Korean (한국어)`, `🎵 English + Korean (K-Pop)` o `🌐 Other`. | `🎵 English + Korean (K-Pop)` |
+| **Main Artist / Group \*** *(Obligatorio)* | Artista solista o grupo principal (sugiere autocompletado con artistas que ya registraste). | `BABYMONSTER` |
+| **Artist Format** | Formato del artista principal: `Group`, `Solo Artist`, `Duo` o `Collab Unit`. | `Group` |
+| **Collaborators / Featured Artists** *(Opcional)* | Artistas invitados o colaboraciones separados por coma. La canción aparecerá también bajo cada colaborador. | `Bruno Mars, feat. Cardi B` |
+| **Album / Mini Album Title** *(Opcional)* | Nombre del álbum, mini álbum, EP o banda sonora. Déjalo vacío si es un sencillo suelto. | `BORN PINK` |
+| **Release Type** | Tipo de lanzamiento: `Album`, `Mini Album`, `EP`, `Single`, `Collab Single` u `OST / Soundtrack`. | `Album` |
+| **Year** *(Opcional)* | Año de lanzamiento (4 dígitos). | `2024` |
+| **Study Status** | Estado actual de estudio: `To Study`, `In Progress` o `Mastered` (puedes avanzar el estado con un clic desde el catálogo). | `In Progress` |
+| **Short Study Focus** *(Opcional, máx. 255 caracteres)* | Enfoque o meta corta de aprendizaje (sin pegar letra completa aquí). | `Connected speech & rapid K-Pop switch in chorus` |
 
-### 🤖 Language AI & Multilingual Study (Inglés · Coreano 한국어 · K-Pop)
-1. En **Language Learning Studio** (`#view-english`), elige tu idioma activo en la barra superior:
-   - `🇺🇸 English`
-   - `🇰🇷 Korean (한국어)` (romaniza Hangul automáticamente mientras escribes)
-   - `🎵 K-Pop (EN + KR)` (analiza líneas en inglés y coreano combinadas)
-2. En **✨ AI Language Tutor & Lyrics Breakdown**, escribe una frase, partícula (`은/는`, `마음`, `사랑해`), o pega la letra de una canción en **Learn with Music** y presiona **✨ Explain Lyrics & Romanize (AI)**:
-   - Si configuraste tu **Gemini API Key** (en **Settings** o como secreto `GEMINI_API_KEY` en EC2/GitHub), utiliza **Google Gemini** (`gemini-2.5-flash` por defecto, `gemini-2.5-pro`, o modelo personalizado) para darte explicación cultural, traducción natural, romanización línea por línea y vocabulario clave sin consumir RAM de tu instancia `t3.micro`.
-   - Si no has configurado API key o estás sin acceso externo, activa al instante el **Motor Lingüístico Local (0 MB RAM)** con romanización oficial coreana y detector de modismos/phrasal verbs.
-3. Pulsa **↘ Fill Study Form** o **↘ Append Romanization & Vocabulary into Study Fields Below** y guarda cifrado E2EE en tu Word local.
+> [!TIP]
+> También puedes usar el buscador superior **Song Finder** (escribe artista y canción y presiona **`Enter`**): abre resultados sin tocar tus playlists y muestra tarjetas con el botón **Select Song** para llenar el enlace al instante.
 
-### 🔐 Cómo probar que tus datos viajan encriptados por Internet y medir velocidad en grandes volúmenes
-Aunque accedas por HTTP (`http://<IP-EC2>:3000`), el indicador **`🔐 Wire: AES-256-CTR (...)`** en el login, móvil y menú lateral confirma que toda comunicación API viaja dentro de un túnel híbrido **X25519 ECDH + AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)**. Puedes comprobarlo tú mismo de **3 formas**:
+### 7.5 Navegador Interactivo con Cursor (Artistas → Álbumes → Canciones)
 
-1. **Desde la app (Prueba de Velocidad y Paquete en Vivo):**
-   - Ve a **Settings → 🔐 Simulated HTTPS Network Encryption**.
-   - Haz clic en **🔍 Inspect Live Wire Packet** para ver el paquete JSON exacto cifrado (`{ "__enc": "x25519-aes256ctr-hmac-v1", "iv": "...", "ct": "...", "mac": "..." }`).
-   - Haz clic en **⚡ Benchmark Large Payloads (1 KB · 64 KB · 192 KB)** para medir en vivo la velocidad en **MB/s** y comprobar cómo la criptografía **asimétrica (`X25519`)** solo se ejecuta una vez en el handshake mientras el cifrado **simétrico de flujo (`AES-256-CTR`)** procesa cientos de kilobytes en pocos milisegundos.
-2. **Desde las herramientas de desarrollador del navegador (`F12`):**
-   - Abre la pestaña **Network / Red → Fetch/XHR**, inicia sesión o analiza una letra.
-   - Haz clic en la petición (p. ej. `/api/auth/login` o `/api/language/analyze`) y revisa **Payload** y **Response**: nunca verás tu contraseña, notas ni texto en claro, únicamente el sobre cifrado `ct` y la cabecera `X-Transport-Encrypted`.
-3. **Con captura real de paquetes en red (`tcpdump` / Wireshark):**
-   - Conéctate por SSH a EC2 y ejecuta `sudo tcpdump -A -i any port 3000 -s 0` mientras guardas un registro o analizas letras largas: en el tráfico TCP plano del puerto `3000` únicamente verás cadenas Base64 aleatorias de `ct` y etiquetas HMAC, nunca el contenido real.
+Justo arriba de las tarjetas del catálogo verás el **Explorador de Repertorio en 3 columnas**:
+1. **Columna 1 (`🎤 Artists`)**: mueve el cursor encima de cualquier artista para previsualizar sus lanzamientos al instante, o haz **clic** para fijarlo y autocompletar el campo `Main Artist` si vas a agregar otra canción suya.
+2. **Columna 2 (`💿 Albums / Releases`)**: mueve el cursor o haz **clic** sobre cualquier álbum, mini álbum o `Standalone Singles` para filtrar sus canciones (al hacer clic también pre-llena Álbum, Tipo y Año en el formulario si no estás editando).
+3. **Columna 3 (`🎵 Songs`)**: haz **clic** en la canción deseada (o haz **clic directamente en cualquier tarjeta** de la lista inferior) para seleccionarla en **`Song Study Notes -> Encrypted Word (PC)`** y activar su contexto en el **Tutor IA**.
 
-### Recordatorios configurables y valores por defecto
-- **Mood Check-in Reminder** (aviso por franja y pendientes), **Morning Sleep Log**, **Agenda Event & Task Reminders** (y tareas Jira pendientes), **ITS Smart Commute** (30+ min lejos / 10 min en campus), **End-of-Day Word Notes Check** y **Language Study Reminder**.
-- **Learn with Music YouTube Platform**: elige `Auto (YouTube on PC · YT Music on Mobile)` para mantener YouTube normal en PC y YouTube Music en celular sin modificar playlists.
-- Botones para actualizar (**Update 32-char Key**) o borrar (**Clear from Browser**) la llave E2EE de ese navegador.
-
----
-
-## ❓ 11. Preguntas frecuentes (FAQ)
-
-- **¿Por qué no se usó un modelo IA neuronal local (como Ollama/Llama) dentro de EC2?**  
-  Una instancia `t3.micro` tiene **1 GB de RAM**. Un modelo neuronal local requiere entre 2 GB y 6 GB de RAM y colapsaría el servidor (`OOM`). Usar **Google Gemini API** + nuestro **motor determinista local (Hangul Romanization + K-Pop/EN)** ofrece la máxima inteligencia y velocidad consumiendo prácticamente **0 MB de RAM**.
-- **¿Por qué usamos AES-256-CTR + HMAC-SHA256 después de X25519 en lugar de cifrar todo con clave pública asimétrica?**  
-  El cifrado asimétrico puro (RSA/ECC) es cientos de veces más lento y solo admite bloques pequeños. El diseño **híbrido** (igual que TLS 1.3) usa asimetría (`X25519`) solo una vez para acordar llaves temporales seguras y luego cifra grandes volúmenes (letras largas, catálogos, respuestas JSON completas) con **AES-256-CTR** simétrico en tiempo lineal $O(N)$ a decenas de MB/s.
-- **¿Por qué en mi PC `Learn with Music` abre YouTube normal y en mi celular abre YouTube Music?**  
-  Porque la configuración predeterminada es `Auto (PC / Mobile)`. Detecta si estás en una computadora (`youtube.com`) o en un dispositivo móvil (`music.youtube.com`).
-- **¿Se puede alterar mi playlist personal de YouTube Music al usar esta app?**  
-  No. La app no tiene credenciales ni tokens OAuth sobre tu cuenta y solo abre enlaces de canciones individuales (`watch?v=...`).
-- **¿Qué pasa si olvidé ingresar la llave E2EE antes de escribir en Journal o English Notebook?**  
-  Al intentar guardar, se abrirá el modal **🔐 Local E2EE Secret Key** dentro de la misma página sin hacerte perder lo que ya redactaste.
-- **¿Dónde se almacenan mis notas del diario y apuntes de idiomas?**  
-  Se cifran en tu navegador y únicamente pasan por una cola temporal cifrada hasta que tu script de PC las desencripta localmente y las agrega a tus archivos `.docx` de Word.
+En el panel de estudio inferior (**`Song Study Notes -> Encrypted Word (PC)`**):
+- Pega un fragmento de letra en **`Lyrics Breakdown, Meanings & Explanations`**.
+- Haz clic en **`✨ Explain Lyrics & Romanize (AI)`** (o presiona **`Ctrl + Enter`**) para obtener traducción, romanización y notas culturales/gramaticales con Gemini o Local Engine.
+- Haz clic en **`↘ Append Romanization & Vocabulary into Study Fields Below`** y luego en **`Save & Queue to Encrypted Word`** para enviarlo cifrado (E2EE) a tu archivo Word local.
 
 ---
 
-*Consulta la [Guía Técnica de Arquitectura](./GUIA_TECNICA_ARQUITECTURA.md) o la [Guía de Operación y Migración](./GUIA_OPERACION_Y_MIGRACION.md) para detalles técnicos y de despliegue en servidor.*
+## 8. Agenda Semanal y Flujo de Trabajo Jira
+
+Accede desde **`🗓️ Weekly Agenda`**. Qué poner en cada campo:
+
+| Campo | Qué ingresar / comportamiento |
+| --- | --- |
+| **Activity type** | `📌 Event (Class / Appointment)` para clases o citas con hora fija, o `☑️ Task / Deliverable (Jira Workflow)` para tareas y entregas con tablero Kanban. |
+| **Category** | `🎓 University` o `👤 Personal` (filtra arriba entre All, University o Personal). |
+| **Date** & **Time** | Al cambiar la hora en **`Time`**, el sistema **selecciona automáticamente el bloque del día (`Time block`)** (`Morning` 05:00–11:59, `School / University` 12:00–15:59, `Afternoon` 16:00–19:59, `Night` 20:00–04:59). |
+| **Workflow status (Jira)** | `To Do`, `In Progress` o `Done` (avanza estados desde las tarjetas semanales o usa el modo Kanban). |
+| **Title / Activity Tag** & **Description** | Separa el título corto de la descripción detallada. Ambos cuadros cuentan con validación en tiempo real de **ortografía y gramática en inglés estilo Microsoft Word** (subrayado de sugerencias y corrección con un clic). |
+| **Phone Reminder** | Elige cuántos minutos antes quieres recibir aviso en tu celular vía `ntfy`. |
+
+---
+
+## 9. Horario ITS (Salones, Semestres, Vacaciones), Residencias, Trabajo y GPS
+
+Accede desde **`🎓 ITS, Residencias & Work`**. Permite planificar tu carrera en el **Instituto Tecnológico de Saltillo (ITS)** y vida laboral sin perder ninguna clase ni turno:
+
+1. **Semestres y Periodo de Vacaciones (Tab `Academic Semesters & Vacations`)**:
+   - Define tu semestre activo (fecha de inicio y fin) y registra rangos de **vacaciones / días inhábiles** (`vacNombre` + presiona `Enter`). Durante vacaciones o días marcados, no te enviará falsas alertas de primera clase.
+2. **Horario de Clases por Salón (Tab `Class Schedule`)**:
+   - Selecciona días de la semana, hora de inicio/fin en formato normal (`HH:MM`), **Clave de materia** (ej. `DED2504`), **Nombre** (ej. `Integración y Despliegue Continuos`), **Docente** y **Salón ITS** (`R02`, `R11`, `N21`, Lab, etc. con referencia visual integrada al croquis del campus).
+3. **Residencias Profesionales (Tab `Residencias Profesionales`)**:
+   - Registra tu empresa, asesor interno/externo, horario de estadía y fechas clave del proyecto de residencias.
+4. **Horario Laboral (Tab `Work Schedule`)**:
+   - Registra si trabajas tiempo completo (`Full-Time`) o medio tiempo (`Part-Time`), turno, empresa y días laborales para integrar notificaciones de salida.
+5. **Ubicaciones y Alerta de Tráfico Real en Carro (`Campus / Destinations Location & GPS`)**:
+   - Guarda la ubicación exacta del **ITS** (y tu casa o empresa/residencias) en coordenadas o dirección.
+   - Usa GPS del navegador o escribe tu ubicación manual actual (ej. calle/zona en Saltillo y presiona **`Enter`**) para calcular el **tiempo real en automóvil (`OSRM`)** tomando en cuenta distancia y rutas:
+     - Si estás **lejos** (en casa u otra zona de la ciudad) → te notifica al menos **30 minutos antes + tiempo estimado de traslado** antes de tu primera clase/turno.
+     - Si estás **cerca o ya dentro del ITS** → te notifica **10 minutos antes** para trasladarte entre salones (ej. edificio R a edificio N).
+
+---
+
+## 10. Resumen Semanal y Gestión de Acceso a Psiquiatra
+
+- **`📈 Weekly Summary`**:
+  - Muestra la matriz de colores del **Mood** por día y los 5 bloques del día.
+  - Muestra tarjetas diarias de **Sueño** con duración total en horas y minutos (`7h 30m`) y desglose si hubo siestas o sueño fraccionado.
+  - Muestra la lista completa de **`⚠️ Crisis & Episode Log`** de esa semana con fecha, hora, tipo, intensidad (`1/5`–`5/5`) y motivo en español. **Tanto tú como tu psiquiatra/psicóloga** pueden revisarla aquí.
+- **`🩺 Psychiatrist Access`** *(Solo Admin)*:
+  - Llena `Doctor's name`, `Doctor's email address` y `Assigned password` (mín. 8 caracteres con letras y números) y guarda para generar el acceso de solo lectura.
+  - Desde la lista inferior puedes **Suspender / Reactivar** el acceso clínico al instante (cierra de inmediato todas sus sesiones activas en `SesionesAuth`).
+
+---
+
+## 11. Configuración, Notificaciones en Celular (ntfy) y Cifrado de Transporte X25519
+
+Accede desde **`⚙️ Settings & Reminders`**:
+
+### A) Configurar notificaciones móviles (`ntfy`) paso a paso:
+1. Instala la app gratuita **ntfy** en tu celular Android (`Google Play` / `F-Droid`) o iPhone (`App Store`).
+2. En Daily Hub -> **`⚙️ Settings & Reminders`**:
+   - Marca **`Enable notifications on my phone's notification bar`**.
+   - Haz clic en **`Generate`** para crear un **Private phone topic** único (ej. `hub_personal_...`) y tócalo para copiarlo (si estás en HTTP plano donde el navegador bloquea el portapapeles automático, el botón abrirá una cajita lista para copiar manualmente).
+   - Deja **Push server** en `https://ntfy.sh`.
+   - En **Public server URL (for Open / Snooze phone buttons)** escribe exactamente la dirección con la que entras desde tu celular, sin barra diagonal final: ejemplo `http://3.149.248.153:3000`.
+3. En la app **`ntfy`** de tu celular:
+   - Toca el botón **`+`** (`Subscribe to topic`).
+   - Pega exactamente tu **Topic name** (`hub_personal_...`) y toca **Subscribe** (sin cambiar `Use another server`, usando `ntfy.sh`).
+4. Vuelve a Daily Hub y haz clic en **`Save All Settings`** primero y luego en **`🔔 Send Test to Phone`**. Deberías recibir la alerta con botones interactivos (`Open`, `Snooze 15m`, etc.) en segundos.
+
+### B) Cifrado de Transporte de Red (`Simulated HTTPS: X25519 + AES-256-CTR + HMAC-SHA256`):
+Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes sensibles entre tu navegador y el servidor se encapsulan dentro de un túnel criptográfico equivalente a TLS:
+1. Al abrir la app se realiza un intercambio de llaves efímeras **ECDH X25519** + derivación **HKDF-SHA256** (secreto hacia adelante / *Forward Secrecy*).
+2. Cada petición `POST`/`PUT`/`PATCH`/`DELETE` y respuesta JSON se cifra simétricamente con **AES-256-CTR** e integridad **HMAC-SHA256 (Encrypt-then-MAC)**.
+3. En la tarjeta **`🔒 Simulated HTTPS Network Encryption`** dentro de Settings puedes hacer clic en:
+   - **`⚡ Benchmark Large Payloads (1 KB · 64 KB · 192 KB)`**: mide en vivo el cifrado en el cliente y el descifrado en OpenSSL del servidor. Aunque el payload crezca **192x** (`1 KB` → `192 KB`), el tiempo escala de forma lineal $O(N)$ en milisegundos porque X25519 corre **una sola vez al iniciar la sesión**, no en cada paquete.
+   - **`🔍 Inspect Live Wire Packet`**: muestra el JSON real cifrado que viaja por la red (`ciphertext`, `iv`, `mac` + verificador SHA-256), demostrando que ningún dato en claro es legible en Wireshark o en la red.
+
+---
+
+## 12. Atajos de Teclado Óptimos
+
+| Dónde estás | Tecla rápida | Qué hace |
+| --- | --- | --- |
+| **Music Song Finder (`musicYtSearchQuery`)** | `Enter` | Abre/ejecuta la búsqueda de la canción al instante sin soltar el teclado. |
+| **Campo URL de Canción (`musicSongYtUrl`)** | `Enter` | Dispara **Auto-fill** (rellena título y artista desde YouTube/YT Music antes de guardar). |
+| **Filtro de Catálogo (`musicFilterSearch`)** | `Enter` | Selecciona directamente la primera canción coincidente para estudiar. |
+| **Pregunta al Tutor IA (`langAiQuestion`)** | `Enter` | Envía la pregunta a Gemini / Local Engine (`Shift + Enter` agrega salto de línea). |
+| **Caja de Letra de Canción (`musicStudyLyrics`)** | `Ctrl + Enter` | Ejecuta **`✨ Explain Lyrics & Romanize (AI)`** al instante. |
+| **Motivo en Bitácora de Crisis (`crisisMotivo`)** | `Ctrl + Enter` | Guarda directamente el registro de crisis con su fecha, hora y motivo en español. |
+| **Ubicación Manual GPS (`locCurrentManualInput`)** | `Enter` | Aplica la dirección y recalcula el tiempo de traslado en carro. |
+| **Nombre de Vacaciones ITS (`vacNombre`)** | `Enter` | Añade el periodo de vacaciones al calendario académico. |
