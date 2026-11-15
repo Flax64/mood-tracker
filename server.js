@@ -25,6 +25,10 @@ const {
     translateOffline,
     translateWithGemini
 } = require('./lib/language-studio');
+const {
+    extractYouTubeWatchPageMetadata,
+    mergeResolvedTrackMetadata
+} = require('./lib/youtube-metadata');
 
 const transportManager = createTransportManager();
 
@@ -5409,36 +5413,43 @@ function validateAndExtractSongPayload(body) {
     };
 }
 
+async function fetchUserMusicAlbumsAndSongs(uid) {
+    const [albums, songs] = await Promise.all([
+        dbQueryAsync(
+            `SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre,
+                    al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en
+             FROM MusicaAlbumes al
+             LEFT JOIN MusicaArtistas ma ON ma.id = al.artista_principal_id
+             WHERE al.usuario_id = ?
+             ORDER BY COALESCE(al.anio, 0) DESC, al.titulo ASC`,
+            [uid]
+        ),
+        dbQueryAsync(
+            `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
+                    al.anio AS album_anio, c.titulo, c.numero_pista, c.idioma,
+                    c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
+                    c.enfoque_corto, c.word_sincronizado, c.ultimo_estudio_en,
+                    c.creado_en, c.actualizado_en
+             FROM MusicaCanciones c
+             LEFT JOIN MusicaAlbumes al ON al.id = c.album_id
+             WHERE c.usuario_id = ?
+             ORDER BY c.actualizado_en DESC, c.id DESC`,
+            [uid]
+        )
+    ]);
+    return { albums, songs };
+}
+
 app.get('/api/english/music/catalog', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
     try {
         const uid = req.user.id;
-        const [artists, albums, songs, songArtists] = await Promise.all([
+        const [artists, albumsAndSongs, songArtists] = await Promise.all([
             dbQueryAsync(
                 `SELECT id, nombre, tipo_artista, notas_cortas, creado_en
                  FROM MusicaArtistas WHERE usuario_id = ? ORDER BY nombre ASC`,
                 [uid]
             ),
-            dbQueryAsync(
-                `SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre,
-                        al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en
-                 FROM MusicaAlbumes al
-                 LEFT JOIN MusicaArtistas ma ON ma.id = al.artista_principal_id
-                 WHERE al.usuario_id = ?
-                 ORDER BY COALESCE(al.anio, 0) DESC, al.titulo ASC`,
-                [uid]
-            ),
-            dbQueryAsync(
-                `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
-                        al.anio AS album_anio, c.titulo, c.numero_pista, c.idioma,
-                        c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
-                        c.enfoque_corto, c.word_sincronizado, c.ultimo_estudio_en,
-                        c.creado_en, c.actualizado_en
-                 FROM MusicaCanciones c
-                 LEFT JOIN MusicaAlbumes al ON al.id = c.album_id
-                 WHERE c.usuario_id = ?
-                 ORDER BY c.actualizado_en DESC, c.id DESC`,
-                [uid]
-            ),
+            fetchUserMusicAlbumsAndSongs(uid),
             dbQueryAsync(
                 `SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre
                  FROM MusicaCancionArtistas mca
@@ -5449,6 +5460,7 @@ app.get('/api/english/music/catalog', apiReadLimiter.middleware, requireAdmin, a
                 [uid]
             )
         ]);
+        const { albums, songs } = albumsAndSongs;
 
         const artistsBySong = new Map();
         for (const link of songArtists) {
@@ -5579,41 +5591,86 @@ app.get('/api/english/music/search', apiReadLimiter.middleware, requireAdmin, as
     }
 });
 
+async function fetchExternalWithTimeout(url, { timeoutMs = 4500, headers = {}, asJson = false, maxBytes = 1200000 } = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const resp = await fetch(url, { signal: controller.signal, headers });
+        if (!resp || !resp.ok) return null;
+        if (asJson) return await resp.json();
+        const text = await resp.text();
+        return text.length > maxBytes ? text.slice(0, maxBytes) : text;
+    } catch (_err) {
+        return null;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
     const parsed = parseYouTubeMusicInput(req.body.url || '');
     if (!parsed.valid || (!parsed.ytMusicUrl && !parsed.videoId)) {
         return res.status(400).send(parsed.error || 'Provide a valid YouTube or YouTube Music URL.');
     }
 
-    let suggestedTitle = null;
-    let suggestedArtist = null;
+    const uid = req.user.id;
+    let oembed = null;
+    let apiVideo = null;
+    let watchMeta = null;
+    let catalogAlbums = [];
+    let catalogSongs = [];
+
+    const catalogPromise = fetchUserMusicAlbumsAndSongs(uid).catch(() => ({ albums: [], songs: [] }));
 
     if (parsed.videoId) {
-        try {
-            const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${parsed.videoId}`)}&format=json`;
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 4000);
-            const oRes = await fetch(oembedUrl, { signal: controller.signal });
-            clearTimeout(timer);
-            if (oRes.ok) {
-                const meta = await oRes.json();
-                suggestedTitle = meta && meta.title ? String(meta.title).slice(0, 180) : null;
-                suggestedArtist = meta && meta.author_name
-                    ? String(meta.author_name).replace(/\s*-\s*Topic$/i, '').slice(0, 140)
-                    : null;
-            }
-        } catch (_err) {
-            // Si oEmbed falla o no hay red, devolvemos igualmente el enlace normalizado
-        }
+        const videoIdEnc = encodeURIComponent(parsed.videoId);
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${parsed.videoId}`)}&format=json`;
+        const watchUrl = `https://www.youtube.com/watch?v=${videoIdEnc}&hl=en`;
+        const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+        const apiUrl = apiKey
+            ? `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${videoIdEnc}&key=${encodeURIComponent(apiKey)}`
+            : null;
+
+        const [oembedRes, apiRes, watchHtml, catRes] = await Promise.all([
+            fetchExternalWithTimeout(oembedUrl, { timeoutMs: 4000, asJson: true }),
+            apiUrl ? fetchExternalWithTimeout(apiUrl, { timeoutMs: 4000, asJson: true }) : Promise.resolve(null),
+            fetchExternalWithTimeout(watchUrl, {
+                timeoutMs: 4500,
+                asJson: false,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                    'Accept-Language': 'en-US,en;q=0.9'
+                }
+            }),
+            catalogPromise
+        ]);
+
+        oembed = oembedRes;
+        apiVideo = apiRes && Array.isArray(apiRes.items) && apiRes.items[0] ? apiRes.items[0] : null;
+        watchMeta = watchHtml ? extractYouTubeWatchPageMetadata(watchHtml) : null;
+        catalogAlbums = catRes.albums || [];
+        catalogSongs = catRes.songs || [];
+    } else {
+        const catRes = await catalogPromise;
+        catalogAlbums = catRes.albums || [];
+        catalogSongs = catRes.songs || [];
     }
+
+    const merged = mergeResolvedTrackMetadata({
+        videoId: parsed.videoId,
+        oembed,
+        apiVideo,
+        watchMeta,
+        catalogSongs,
+        catalogAlbums
+    });
 
     res.json({
         videoId: parsed.videoId,
         ytMusicUrl: parsed.ytMusicUrl,
         youtubeUrl: parsed.youtubeUrl,
         thumbnailUrl: parsed.thumbnailUrl,
-        suggestedTitle,
-        suggestedArtist
+        ...merged
     });
 });
 

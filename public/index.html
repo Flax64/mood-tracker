@@ -12,6 +12,7 @@
     <meta property="og:type" content="website">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" defer></script>
     <script src="transport-crypto.js" defer></script>
+    <script src="translator-widget.js" defer></script>
     <script src="frontend.js" defer></script>
 </head>
 
@@ -207,6 +208,8 @@
             </button>
             <div class="mobile-topbar-title" id="mobileViewTitle">Home</div>
             <div class="mobile-topbar-right">
+                <button type="button" class="icon-btn admin-only-nav" id="btnMobileTranslator"
+                    title="Open Quick Bilingual Translator (Alt+T)" aria-label="Open translator">🌐</button>
                 <button type="button" class="tunnel-pill tunnel-pill-compact" id="mobileTunnelPill"
                     title="View Encrypted HTTP Transport Diagnostics" data-go-view="settings">🔐 E2E</button>
                 <button type="button" class="icon-btn theme-icon-btn" id="btnThemeToggleMobile"
@@ -275,6 +278,11 @@
                         <button type="button" class="nav-item" data-view="english" title="English Notebook">
                             <span class="nav-icon" aria-hidden="true">📖</span>
                             <span class="nav-label">English Notebook</span>
+                        </button>
+                        <button type="button" class="nav-item admin-only-nav" id="btnSidebarOpenTranslator"
+                            title="Floating Translator Extension (Alt+T)">
+                            <span class="nav-icon" aria-hidden="true">🌐</span>
+                            <span class="nav-label">Quick Translator</span>
                         </button>
                     </div>
                 </div>
@@ -1057,7 +1065,11 @@
                                 <h3>🌐 Instant Bilingual Translator (Español · English · 한국어)</h3>
                                 <p class="muted-text" id="translatorHintText">Don't know a word or phrase? Translate English → Español or Coreano → English / Español right here without opening another app.</p>
                             </div>
-                            <span class="lang-ai-badge" id="translatorStatusBadge">Instant · Gemini + 0-RAM Dict</span>
+                            <div class="lang-translator-head-tools">
+                                <span class="lang-ai-badge" id="translatorStatusBadge">Instant · Gemini + 0-RAM Dict</span>
+                                <button type="button" class="btn-secondary btn-small" id="btnPopoutTranslator"
+                                    title="Open translator in an independent floating browser window (like an extension)">🪟 Open Floating Window</button>
+                            </div>
                         </div>
 
                         <div class="lang-translator-dirs" id="translatorDirPills" role="group" aria-label="Translation Direction">
@@ -1371,10 +1383,24 @@
                                 <div class="form-group">
                                     <div class="music-lyrics-label-row">
                                         <label for="musicStudyLyrics">Lyrics Breakdown, Meanings &amp; Explanations (E2EE -&gt; PC Word only)</label>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics">✨ Explain Lyrics &amp; Romanize (AI)</button>
+                                        <div class="music-lyrics-label-actions">
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicImportLyricsFile" title="Import .srt, .vtt, .lrc or .txt subtitles exported by yt-dlp">📥 Import .srt/.vtt/.lrc</button>
+                                            <input type="file" id="musicLyricsFileInput" accept=".srt,.vtt,.lrc,.txt" hidden>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCleanTimestamps" title="Remove .srt/.vtt/.lrc timestamps from pasted text">🧹 Clean Timestamps</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicToggleYtdlpHint" title="Show yt-dlp command for extracting YouTube subtitles on your PC">💻 yt-dlp (PC)</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics">✨ Explain Lyrics &amp; Romanize (AI)</button>
+                                        </div>
+                                    </div>
+                                    <div id="musicYtdlpHelperBox" class="music-ytdlp-helper" hidden>
+                                        <div class="music-ytdlp-head">
+                                            <strong>Extraer subtítulos / lyrics desde tu PC con <code>yt-dlp</code></strong>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCopyYtdlpCmd">📋 Copiar comando</button>
+                                        </div>
+                                        <p class="muted-text small-note">Ejecuta esto en PowerShell en tu PC (<code>yt-dlp</code> extrae subtítulos/CC de YouTube si el video los tiene; luego pega o importa el archivo <code>.srt/.vtt</code> con <strong>📥 Import .srt/.vtt/.lrc</strong>):</p>
+                                        <pre id="musicYtdlpCommandCode" class="music-ytdlp-cmd">python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip</pre>
                                     </div>
                                     <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
-                                        placeholder="Paste English, Korean (한국어), or mixed K-Pop lyrics here -> click 'Explain Lyrics & Romanize (AI)' or add your own translations (encrypted E2EE before leaving your browser)..."></textarea>
+                                        placeholder="Paste English, Korean (한국어), or mixed K-Pop lyrics here (or import .srt/.vtt/.lrc from yt-dlp) -> click 'Explain Lyrics & Romanize (AI)' (encrypted E2EE before leaving your browser)..."></textarea>
                                 </div>
                                 <div id="musicAiBreakdownPanel" class="lang-ai-result" hidden></div>
                                 <div class="music-ai-apply-row" id="musicAiApplyRow" hidden>
@@ -2794,6 +2820,66 @@
             </details>
         </div>
     </div>
+
+    <!-- Global Extension-Style Floating Translator Trigger & Drawer (Accessible on any tab / Alt+T) -->
+    <button type="button" class="translator-fab admin-only-nav" id="btnFloatingTranslatorFab" hidden
+        title="Open Quick Translator anywhere (Alt+T)" aria-label="Open Quick Translator">
+        <span aria-hidden="true">🌐</span>
+        <span class="translator-fab-label">Translator</span>
+    </button>
+
+    <aside class="floating-translator-drawer" id="floatingTranslatorModal" hidden aria-label="Quick Extension Translator">
+        <div class="floating-translator-header">
+            <div class="floating-translator-title">
+                <span aria-hidden="true">🌐</span>
+                <strong>Quick Translator</strong>
+                <span class="lang-ai-badge">Alt+T</span>
+            </div>
+            <div class="floating-translator-win-actions">
+                <button type="button" class="btn-secondary btn-small" id="btnFloatPopoutTranslator"
+                    title="Open in separate mini browser window alongside YouTube / PDFs">🪟 Window</button>
+                <button type="button" class="modal-close-btn" id="btnCloseFloatingTranslator" aria-label="Close translator">✕</button>
+            </div>
+        </div>
+
+        <div class="lang-translator-dirs" id="floatTranslatorDirPills" role="group" aria-label="Quick Translation Direction">
+            <button type="button" class="lang-dir-pill active" data-dir="en_es">EN → ES</button>
+            <button type="button" class="lang-dir-pill" data-dir="ko_en">KO → EN</button>
+            <button type="button" class="lang-dir-pill" data-dir="ko_es">KO → ES</button>
+            <button type="button" class="lang-dir-pill" data-dir="auto">Auto</button>
+            <button type="button" class="lang-dir-pill" data-dir="es_en">ES → EN</button>
+            <button type="button" class="lang-dir-pill" data-dir="es_ko">ES → KO</button>
+        </div>
+
+        <div class="translator-popup-toolbar">
+            <button type="button" class="btn-secondary btn-small" id="btnFloatTranslatorPaste">📋 Paste</button>
+            <button type="button" class="btn-secondary btn-small" id="btnFloatTranslatorClear">🧹 Clear</button>
+            <select id="floatTranslatorDirectionSelect" class="select-input select-compact" aria-label="Quick translation direction">
+                <option value="en_es" selected>English → Español</option>
+                <option value="ko_en">Coreano → English</option>
+                <option value="ko_es">Coreano → Español</option>
+                <option value="auto">Auto Detect (EN/KO)</option>
+                <option value="es_en">Español → English</option>
+                <option value="es_ko">Español → Coreano</option>
+            </select>
+            <select id="floatTranslatorEngineSelect" class="select-input select-compact" aria-label="Quick translator engine">
+                <option value="auto">Auto</option>
+                <option value="gemini">Gemini</option>
+                <option value="offline">Local</option>
+            </select>
+        </div>
+
+        <div class="floating-translator-input-row">
+            <textarea id="floatTranslatorInput" rows="2" maxlength="4000"
+                placeholder="Type or select text + Alt+T... Enter to translate (Shift+Enter newline)"></textarea>
+            <button type="button" class="btn-submit" id="btnRunFloatTranslator">Translate</button>
+        </div>
+
+        <input type="text" id="floatTranslatorContextInput" maxlength="400"
+            placeholder="Optional context (song or phrase)...">
+
+        <div id="floatTranslatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
+    </aside>
 
     <!-- Global Toast Feedback Stack -->
     <div id="appToastContainer" class="app-toast-container" aria-live="polite" aria-atomic="true"></div>

@@ -10,12 +10,13 @@
 - [4. Bitácora de Crisis (Registro Clínico en Español)](#4-bitácora-de-crisis-registro-clínico-en-español)
 - [5. Sleep & Desvelo Tracker (Horas, Madrugadas y Desvelos)](#5-sleep--desvelo-tracker-horas-madrugadas-y-desvelos)
 - [6. Journal Notes y Llave E2EE Local](#6-journal-notes-y-llave-e2ee-local)
-- [7. Estudio de Idiomas (English · 한국어 · K-Pop), IA Gemini y Música](#7-estudio-de-idiomas-english--한국어--k-pop-ia-gemini-y-música)
-  - [7.1 Cómo configurar la IA de Google Gemini paso a paso](#71-cómo-configurar-la-ia-de-google-gemini-paso-a-paso)
-  - [7.2 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio](#72-tutor-ia-memoria-persistente-y-reconocimiento-de-repertorio)
-  - [7.3 Reproducción YouTube (PC) vs YouTube Music (Celular)](#73-reproducción-youtube-pc-vs-youtube-music-celular)
-  - [7.4 Qué poner en cada campo del Registro de Canciones](#74-qué-poner-en-cada-campo-del-registro-de-canciones)
-  - [7.5 Navegador Interactivo con Cursor (Artistas → Álbumes → Canciones)](#75-navegador-interactivo-con-cursor-artistas--álbumes--canciones)
+- [7. Estudio de Idiomas (English · 한국어 · K-Pop), Traductor Global, IA Gemini y Música](#7-estudio-de-idiomas-english--한국어--k-pop-traductor-global-ia-gemini-y-música)
+  - [7.1 Traductor Bilingüe Global (Cualquier Pestaña, Alt+T y Ventana tipo Extensión)](#71-traductor-bilingüe-global-cualquier-pestaña-altt-y-ventana-tipo-extensión)
+  - [7.2 Cómo configurar la IA de Google Gemini paso a paso](#72-cómo-configurar-la-ia-de-google-gemini-paso-a-paso)
+  - [7.3 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio](#73-tutor-ia-memoria-persistente-y-reconocimiento-de-repertorio)
+  - [7.4 Reproducción YouTube (PC), Mini Player y Ventana Flotante vs YT Music](#74-reproducción-youtube-pc-mini-player-y-ventana-flotante-vs-yt-music)
+  - [7.5 Qué poner en cada campo del Registro de Canciones y Álbumes](#75-qué-poner-en-cada-campo-del-registro-de-canciones-y-álbumes)
+  - [7.6 Navegador Interactivo, CRUD de Álbumes y Letras con yt-dlp](#76-navegador-interactivo-crud-de-álbumes-y-letras-con-yt-dlp)
 - [8. Agenda Semanal y Flujo de Trabajo Jira](#8-agenda-semanal-y-flujo-de-trabajo-jira)
 - [9. Horario ITS (Salones, Semestres, Vacaciones), Residencias, Trabajo y GPS](#9-horario-its-salones-semestres-vacaciones-residencias-trabajo-y-gps)
 - [10. Resumen Semanal y Gestión de Acceso a Psiquiatra](#10-resumen-semanal-y-gestión-de-acceso-a-psiquiatra)
@@ -116,14 +117,29 @@ Accede desde **`🖋️ Journal Notes`**. Todos tus textos personales se cifran 
 
 ---
 
-## 7. Estudio de Idiomas (English · 한국어 · K-Pop), IA Gemini y Música
+## 7. Estudio de Idiomas (English · 한국어 · K-Pop), Traductor Global, IA Gemini y Música
 
-Accede desde **`📖 English Notebook`**. Este módulo combina:
-- Cuaderno privado hacia Word (`Vocabulary`, `Grammar`, `Phrasal Verbs`, `Corrector ortográfico/gramatical estilo Word` y **`Music & Lyrics Study`**).
+Accede desde **`📖 English Notebook`** (o desde el **Traductor Global `🌐`** / **`Alt + T`** en cualquier vista). Este módulo combina:
+- Cuaderno privado hacia Word (`Vocabulary`, `Grammar`, `Phrasal Verbs`, corrector ortográfico/gramatical estilo Word y **`Music & Lyrics Study`**).
+- **Traductor Bilingüe Global (EN ↔ ES · 한국어 ↔ EN/ES)** accesible desde cualquier pantalla, con barra lateral/superior, cajón flotante rápido (**`Alt + T`**) y **ventana independiente tipo extensión** (`/translator-popup.html`).
 - **Tutor IA bilingüe (English + 한국어 / K-Pop)** con **Google Gemini** e **Instant Local Engine (0 MB RAM)**.
-- **Catálogo Musical y Repertorio Completo** (Artistas → Colaboraciones → Álbumes/EPs → Canciones).
+- **Catálogo Musical y Repertorio Completo** (Artistas → Colaboraciones → Álbumes/Mini Álbumes/EPs → Canciones) con **CRUD completo**, reproductor integrado + ventana flotante e importador de subtítulos `yt-dlp`.
 
-### 7.1 Cómo configurar la IA de Google Gemini paso a paso
+### 7.1 Traductor Bilingüe Global (Cualquier Pestaña, Alt+T y Ventana tipo Extensión)
+
+Cuando estás leyendo un artículo, viendo un PDF, revisando tu Agenda o estudiando letras y aparece una palabra desconocida en inglés o coreano, tienes **3 formas instantáneas** de traducirla sin perder tu lugar ni abrir otra app:
+
+1. **Panel Integrado (en `📖 English Notebook` -> `Learn with Music`):**
+   - El panel **`🌐 Instant Bilingual Translator (Español · English · 한국어)`** ofrece direcciones rápidas (`EN → ES`, `KO → EN`, `KO → ES`, `Auto`, `ES → EN`, `ES → KO`), contexto opcional y botón **`✨ Pop Out Window`** para desprenderlo cuando quieras.
+2. **Botón Flotante `🌐 Translator` + Atajo Global `Alt + T` *(En toda la aplicación)*:**
+   - Disponible en **PC y Celular (OPPO A79)** mediante el botón flotante inferior derecho (**`🌐 Translator`**), el enlace **`🌐 Quick Translator`** de la barra lateral o el ícono **`🌐`** en la barra superior móvil *(solo visible para Admin)*.
+   - **Auto-captura inteligente:** si seleccionas/subrayas una palabra o frase en pantalla y presionas **`Alt + T`** (o tocas `🌐`), el traductor flotante se abre al instante con ese texto ya cargado. También incluye **`📋 Paste`** para pegar del portapapeles con 1 toque.
+3. **Ventana Independiente tipo Extensión (`/translator-popup.html`):**
+   - Haz clic en **`🪟 Window`** (en el traductor flotante) o **`✨ Pop Out Window`** para abrir una mini ventana independiente conectada a tu sesión y tu `Gemini API Key` (si Gemini falla o no hay internet, cae automáticamente al diccionario local `0 MB RAM`).
+   - **Fijar como extensión / app en Chrome o Edge (Windows / Android):** abre la ventana emergente → menú **`⋮` → Guardar y compartir → Crear acceso directo** marcando **Abrir como ventana** (en Android: **Agregar a pantalla principal**). Así queda fijado en tu barra de tareas o celular como una extensión independiente junto a YouTube, PDFs o Teams.
+   - **Guardar en tu cuaderno:** cualquier resultado muestra IPA/Romanización Hangul, ejemplo y el botón **`📥 Send to Study Form`** (incluso desde la ventana emergente), enviando la palabra y su traducción directo a tu formulario de Word.
+
+### 7.2 Cómo configurar la IA de Google Gemini paso a paso
 
 El servidor AWS `t3.micro` tiene **1 GB de RAM**, por lo que correr un LLM pesado local dentro de EC2 saturaría la memoria. Por eso el sistema usa la arquitectura híbrida óptima (**0 MB de RAM en servidor**):
 
@@ -147,41 +163,45 @@ El servidor AWS `t3.micro` tiene **1 GB de RAM**, por lo que correr un LLM pesad
 3. **Si no pones API key o estás sin internet en Gemini**:
    - El **Instant Local Engine** funciona al instante con **0 MB de RAM extra**, realiza romanización Hangul (`Revised Romanization`) línea por línea, detecta mezclas K-Pop (`English + 한국어`), phrasal verbs, partículas coreanas y consulta tu **Memory Bank** y **Repertorio**.
 
-### 7.2 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio
+### 7.3 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio
 
 En el panel **`✨ AI Language Tutor & Lyrics Breakdown`** encontrarás:
 - **Badge `🎵 Repertoire: N songs`**: confirma cuántas canciones registradas de tu catálogo conoce automáticamente la IA. Si mencionas una canción o artista de tu repertorio (por ejemplo `"Explain DRIP by BABYMONSTER"` o seleccionas una canción del navegador visual), el Tutor IA enlaza el álbum, idioma, colaboradores y enfoque de estudio de tu catálogo y además actualiza tu historial.
 - **Badge `🧠 Memory: N learned`**: muestra cuántos términos, modismos, expresiones coreanas y reglas gramaticales recuerda la IA en tu cuenta.
   - Todo lo que analizas con la IA o guardas en Word queda guardado en tu **`Memory Bank`** persistente.
   - Cuando una palabra o expresión vuelve a aparecer en otra canción o frase, la IA **mantiene exactamente el mismo significado que ya aprendiste**, la marca con `🧠 [Learned]` y evita contradicciones entre sesiones.
+- **Resiliencia ante red inestable:** si Gemini tarda >12 s o falla por red/cuota, la interfaz no se congela; reintenta de forma segura y ofrece el banner no bloqueante **`Switch to Instant Local Engine`** para continuar offline sin perder lo escrito.
 - **Selector de Motor (`Auto` / `Google Gemini API` / `Instant Local Engine`)**:
   - **Auto**: usa Google Gemini si hay clave configurada; si falla la red/cuota o no hay clave, cambia automáticamente al Instant Local Engine.
   - **Google Gemini API**: fuerza consulta a Gemini con tu memoria y repertorio incluidos.
   - **Instant Local Engine**: romanización instantánea offline + léxico EN/KR sin consumir cuota de Gemini.
 
-### 7.3 Reproducción YouTube (PC) vs YouTube Music (Celular)
+### 7.4 Reproducción YouTube (PC), Mini Player y Ventana Flotante vs YT Music
 
 En la pestaña **`🎵 Music & Songs`**:
 - **`Auto (PC / Mobile)` *(Modo por defecto)***:
-  - En tu **PC**, los botones abren enlaces de **YouTube normal** (`youtube.com/watch?v=...`).
+  - En tu **PC**, los enlaces externos abren **YouTube normal** (`youtube.com/watch?v=...`).
   - En tu **celular**, los botones abren **YouTube Music** (`music.youtube.com/watch?v=...`).
 - También puedes forzar **`📺 YouTube (PC)`** o **`🎵 YT Music (Mobile)`** en cualquier momento.
+- **Mini Player embebido y Videos con restricción VEVO/YouTube (`Este video no está disponible`):**
+  - El botón **`Mini Player`** abre el reproductor dentro de la misma página usando `https://www.youtube.com/embed/...` (y permite cambiar a `youtube-nocookie.com` si lo prefieres).
+  - Si un sello discográfico o canal bloquea la reproducción incrustada en webs externas, verás controles instantáneos en la barra superior del Mini Player: **`📺 Ventana flotante`** (abre el reproductor en una mini ventana emergente junto a tus notas) y **`↗ Abrir en YouTube`** (sin recargar ni alterar tus playlists).
 - **Seguridad garantizada de tus playlists**: todos los enlaces son de solo lectura hacia pistas individuales (`watch?v=...`) sin OAuth ni permisos de escritura sobre tu cuenta de YouTube, así tu lista de reproducción personal nunca se modifica ni se altera.
 
-### 7.4 Qué poner en cada campo del Registro de Canciones
+### 7.5 Qué poner en cada campo del Registro de Canciones y Álbumes
 
 En la tarjeta **`Register or Link Song`** (pestaña **`🎵 Music & Songs`**):
 
 | Campo | Qué escribir o seleccionar | Ejemplo |
 | --- | --- | --- |
-| **YouTube Music / YouTube URL or 11-char ID (optional)** | Pega el enlace de YouTube o YouTube Music de la canción (o su ID de 11 letras) y presiona `Enter` o clic en **Auto-fill** para rellenar título y artista automáticamente. | `https://music.youtube.com/watch?v=ZpI...` |
+| **YouTube Music / YouTube URL or 11-char ID (optional)** | Pega cualquier enlace de **YouTube** o **YouTube Music** (normal, `youtu.be`, `shorts`, o con `&list=...`) y presiona `Enter` o clic en **Auto-fill**. Detecta automáticamente título, artista principal, colaboradores, **álbum/mini álbum**, año y si permite Mini Player. | `https://music.youtube.com/watch?v=ZpI...` |
 | **Song Title \*** *(Obligatorio)* | Nombre exacto de la canción sin adornos innecesarios para que la IA la reconozca mejor. | `DRIP` |
 | **Track #** *(Opcional)* | Número de orden de la pista dentro del álbum o EP (sirve para ordenar el repertorio). | `2` |
 | **Language** | Idioma principal de la letra: `🇺🇸 English`, `🇰🇷 Korean (한국어)`, `🎵 English + Korean (K-Pop)` o `🌐 Other`. | `🎵 English + Korean (K-Pop)` |
 | **Main Artist / Group \*** *(Obligatorio)* | Artista solista o grupo principal (sugiere autocompletado con artistas que ya registraste). | `BABYMONSTER` |
 | **Artist Format** | Formato del artista principal: `Group`, `Solo Artist`, `Duo` o `Collab Unit`. | `Group` |
 | **Collaborators / Featured Artists** *(Opcional)* | Artistas invitados o colaboraciones separados por coma. La canción aparecerá también bajo cada colaborador. | `Bruno Mars, feat. Cardi B` |
-| **Album / Mini Album Title** *(Opcional)* | Nombre del álbum, mini álbum, EP o banda sonora. Déjalo vacío si es un sencillo suelto. | `BORN PINK` |
+| **Album / Mini Album Title** *(Opcional)* | Nombre del álbum, mini álbum, EP o banda sonora. Usa el botón **`+ New Album`** al lado para crear un álbum vacío primero o asignar uno existente. | `DRIP` |
 | **Release Type** | Tipo de lanzamiento: `Album`, `Mini Album`, `EP`, `Single`, `Collab Single` u `OST / Soundtrack`. | `Album` |
 | **Year** *(Opcional)* | Año de lanzamiento (4 dígitos). | `2024` |
 | **Study Status** | Estado actual de estudio: `To Study`, `In Progress` o `Mastered` (puedes avanzar el estado con un clic desde el catálogo). | `In Progress` |
@@ -190,22 +210,25 @@ En la tarjeta **`Register or Link Song`** (pestaña **`🎵 Music & Songs`**):
 > [!TIP]
 > También puedes usar el buscador superior **Song Finder** (escribe artista y canción y presiona **`Enter`**): abre resultados sin tocar tus playlists y muestra tarjetas con el botón **Select Song** para llenar el enlace al instante.
 
-### 7.5 Navegador Interactivo con Cursor (Artistas → Álbumes → Canciones)
+### 7.6 Navegador Interactivo, CRUD de Álbumes y Letras con yt-dlp
 
 Justo arriba de las tarjetas del catálogo verás el **Explorador de Repertorio en 3 columnas**:
 1. **Columna 1 (`🎤 Artists`)**: mueve el cursor encima de cualquier artista para previsualizar sus lanzamientos al instante, o haz **clic** para fijarlo y autocompletar el campo `Main Artist` (y su formato) si vas a agregar otra canción suya.
 2. **Columna 2 (`💿 Albums / Releases`)**: mueve el cursor o haz **clic** sobre cualquier álbum, mini álbum o `Standalone Singles` para filtrar sus canciones (al hacer clic también pre-llena Álbum, Tipo y Año en el formulario si no estás editando).
 3. **Columna 3 (`🎵 Songs`)**: haz **clic** en la canción deseada (o haz **clic directamente en cualquier tarjeta** de la lista inferior) para seleccionarla en **`Song Study Notes -> Encrypted Word (PC)`** y activar su contexto en el **Tutor IA**.
 
-**Cómo editar canciones, artistas o álbumes ya creados:**
-- **Editar Canción:** haz clic en el botón **`Edit`** de la tarjeta de la canción; cargará su título, artista principal, **`Artist Format`**, colaboradores, álbum, idioma y enfoque en el formulario superior para guardar los cambios.
-- **Editar Artista:** haz clic en **`✏️ Edit Artist`** junto al nombre del artista para corregir su nombre (capitalización/ortografía), cambiar su formato (`Group`, `Solo Artist`, `Duo`, `Collab Unit`) o agregar notas cortas en todas sus canciones al instante.
-- **Editar Álbum / Lanzamiento:** haz clic en **`✏️ Edit Album`** junto al nombre del lanzamiento para modificar título, tipo (`Album`, `Mini Album`, `EP`, `Single`, `OST`, `Collab Single`) o año.
+**Cómo crear y editar canciones, artistas o álbumes (CRUD completo):**
+- **Crear Álbum o Mini Álbum desde cero:** haz clic en **`💿 + New Album / Mini Album`** (o **`+ New Album`** junto al campo de álbum) para registrar título, artista principal, tipo (`Album`, `Mini Album`, `EP`, `Single`, `Collab Single`, `OST`), año y notas. Luego en cualquier álbum puedes tocar **`+ Add Song`** para agregar pistas directamente a ese lanzamiento.
+- **Editar Canción:** haz clic en el botón **`Edit`** de la tarjeta de la canción o **`✏️ Edit Song / Link`** en la barra de estudio para cambiar título, enlace de YouTube/YT Music, Track #, idioma, colaboradores o álbum.
+- **Editar Artista:** haz clic en **`✏️ Edit Artist`** junto al nombre del artista para corregir su nombre, cambiar su formato (`Group`, `Solo Artist`, `Duo`, `Collab Unit`) o agregar notas en todas sus canciones al instante.
+- **Editar o Eliminar Álbum:** haz clic en **`✏️ Edit Album`** junto al lanzamiento para modificar título, tipo o año, o en **`🗑️`** para eliminarlo (las canciones asociadas pasan limpiamente a `Standalone Singles` sin perderse).
 
-En el panel de estudio inferior (**`Song Study Notes -> Encrypted Word (PC)`**):
-- Pega un fragmento de letra en **`Lyrics Breakdown, Meanings & Explanations`**.
-- Haz clic en **`✨ Explain Lyrics & Romanize (AI)`** (o presiona **`Ctrl + Enter`**) para obtener traducción, romanización y notas culturales/gramaticales con Gemini o Local Engine.
-- Haz clic en **`↘ Append Romanization & Vocabulary into Study Fields Below`** y luego en **`Save & Queue to Encrypted Word`** para enviarlo cifrado (E2EE) a tu archivo Word local.
+**Importar y explicar letras / subtítulos (incluyendo `yt-dlp` desde tu PC):**
+En **`Song Study Notes -> Encrypted Word (PC)`**:
+- **Desde archivo o comando `yt-dlp` local:** si el video de YouTube incluye subtítulos (`CC`/captions), puedes descargarlos y limpiarlos automáticamente en tu PC con:
+  `python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip`
+  Luego usa **`📥 Import .srt/.vtt/.lrc`** para cargar el archivo limpio directamente al editor, o **`🧹 Clean Timestamps`** si pegaste texto con marcas de tiempo, y presiona **`💻 yt-dlp (PC)`** para copiar el comando exacto de la canción seleccionada.
+- **Explicar y guardar cifrado E2EE en Word:** presiona **`✨ Explain Lyrics & Romanize (AI)`** (o **`Ctrl + Enter`**), luego **`↘ Append Romanization & Vocabulary into Study Fields Below`** y **`Save & Queue to Encrypted Word`** para enviarlo cifrado hacia tu Word local.
 
 ---
 
@@ -293,8 +316,11 @@ Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes 
 
 | Dónde estás | Tecla rápida | Qué hace |
 | --- | --- | --- |
+| **Cualquier pantalla de la app *(Global Admin)*** | `Alt + T` | Abre/cierra el **Traductor Rápido Flotante (`🌐`)** y captura automáticamente cualquier palabra o frase que tengas subrayada/seleccionada. |
+| **Traductor Bilingüe (`translatorInput` / `floatTranslatorInput` / `popupTranslatorInput`)** | `Enter` | Traduce al instante (`Shift + Enter` inserta salto de línea). |
+| **Traductor Flotante / Modales abiertos** | `Esc` | Cierra el traductor flotante, menús móviles o ventanas modales activas. |
 | **Music Song Finder (`musicYtSearchQuery`)** | `Enter` | Abre/ejecuta la búsqueda de la canción al instante sin soltar el teclado. |
-| **Campo URL de Canción (`musicSongYtUrl`)** | `Enter` | Dispara **Auto-fill** (rellena título y artista desde YouTube/YT Music antes de guardar). |
+| **Campo URL de Canción (`musicSongYtUrl`)** | `Enter` | Dispara **Auto-fill** (rellena título, artista y álbum/año desde YouTube/YT Music antes de guardar). |
 | **Filtro de Catálogo (`musicFilterSearch`)** | `Enter` | Selecciona directamente la primera canción coincidente para estudiar. |
 | **Pregunta al Tutor IA (`langAiQuestion`)** | `Enter` | Envía la pregunta a Gemini / Local Engine (`Shift + Enter` agrega salto de línea). |
 | **Caja de Letra de Canción (`musicStudyLyrics`)** | `Ctrl + Enter` | Ejecuta **`✨ Explain Lyrics & Romanize (AI)`** al instante. |

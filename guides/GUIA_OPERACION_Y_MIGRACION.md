@@ -8,12 +8,12 @@
 
 | Tarea | Sección |
 | :--- | :--- |
-| Usar paso a paso cada pantalla (Mood, Sueño, Diario, Música PC/Celular, Agenda, ntfy) | [Manual de Usuario](./MANUAL_DE_USUARIO.md) |
+| Usar paso a paso cada pantalla (Mood, Sueño, Diario, Traductor `Alt+T`, Música PC/Celular, Agenda, ntfy) | [Manual de Usuario](./MANUAL_DE_USUARIO.md) |
 | Ver estado de `.env` / `.env.enc` en mi PC | [1.1 Ver estado actual](#11-ver-estado-actual-de-la-bóveda) |
 | Consultar una variable local sin crear `.env` en disco | [1.2 Consultar variables solo en RAM](#12-consultar-variables-sin-escribir-env-en-disco) |
 | Ver completo o editar `.env` y volver a cifrarlo | [1.3 Ver completo, editar y re-sellar](#13-ver-completo-editar-y-re-sellar) |
 | Cambiar la contraseña maestra de `.env.enc` | [1.4 Cambiar contraseña maestra](#14-cambiar-la-contraseña-maestra) |
-| Ejecutar el sincronizador de Word y revisar sus variables | [2. Sincronizador Word local](#2-sincronizador-word-local-sincronizadorpy) |
+| Ejecutar el sincronizador de Word, extraer subtítulos `yt-dlp` y abrir Traductor tipo extensión | [2. Sincronizador Word local y herramientas PC](#2-sincronizador-word-local-sincronizadorpy) |
 | Correr pruebas, subir rama y hacer PR a `main` | [3. Git Bash, pruebas y rama protegida](#3-git-bash-pruebas-y-rama-protegida-main) |
 | Revisar variables/secrets en GitHub y logs/cron en EC2 | [4. Qué consultar en GitHub y en EC2](#4-qué-consultar-en-github-y-en-ec2) |
 | Sacar respaldo manual o restaurar desde Google Drive | [5. Respaldos y restauración manual](#5-respaldos-manuales-y-restauración-desde-drive) |
@@ -136,6 +136,27 @@ python sincronitation/sincronizador.py
 # 3. Consultar los últimos eventos del sincronizador
 tail -n 30 sincronitation/historial.log
 ```
+
+### 2.1 Extractor local de subtítulos / letras con `yt-dlp` (`sincronitation/yt_lyrics_helper.py`)
+Para videos de YouTube o YouTube Music que incluyan subtítulos (`CC` manuales o auto-generados) puedes extraerlos en tu PC sin cargar librerías Python pesadas ni `yt-dlp` dentro de AWS EC2:
+```bash
+# Extrae subtítulos (en, ko, es), limpia timestamps y los copia al portapapeles
+python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip
+
+# Guardar en archivo .txt UTF-8 combinando todos los idiomas encontrados
+python sincronitation/yt_lyrics_helper.py "https://music.youtube.com/watch?v=VIDEO_ID" --all-langs --langs ko,en,es --out letra.txt
+
+# Limpiar un archivo .srt / .vtt / .lrc ya descargado sin usar red
+python sincronitation/yt_lyrics_helper.py --clean-file subtitulos.vtt --clip
+```
+* Banderas disponibles: `--langs`, `--all-langs`, `--out`, `--clip`, `--json`, `--yt-dlp-bin` y `--clean-file`.
+* En la app web (**Learn with Music -> Song Study Notes**), también puedes importar archivos `.srt`, `.vtt`, `.lrc` o `.txt` directamente en el navegador con **`📥 Import .srt/.vtt/.lrc`** o limpiar timestamps pegados con **`🧹 Clean Timestamps`**.
+* *(Nota técnica: muchos "Art Tracks" automáticos de `music.youtube.com` no contienen pista CC; en ese caso el comando indica qué subtítulos faltan y puedes apuntar al M/V oficial o Lyric Video en YouTube).*
+
+### 2.2 Fijar el Traductor como Ventana / Extensión de Escritorio o Celular
+1. Abre **`🌐 Quick Translator`** (botón flotante o atajo **`Alt + T`**) y presiona **`🪟 Window`** (o accede directo a `http://TU_IP:3000/translator-popup.html`).
+2. En **Chrome / Edge (Windows)**: clic en **`⋮` → Guardar y compartir → Crear acceso directo** y marca **Abrir como ventana**.
+3. En **Chrome (Android / OPPO A79)**: menú **`⋮` → Agregar a pantalla principal** para usarlo como mini app independiente mientras ves YouTube o lees PDFs.
 
 ---
 
@@ -437,6 +458,7 @@ Además de usar los botones **🔍 Inspect Live Wire Packet** y **⚡ Benchmark 
    - Rechazo inmediato (`400 TRANSPORT_MAC_INVALID`) si un atacante altera un solo carácter de `ct`.
    - Bloqueo (`409 TRANSPORT_REPLAY`) si se reenvía un paquete capturado anteriormente.
 
-### 11.3 Repertorio Musical en IA, Memoria Persistente y Bitácora de Crisis
-- **`RegistrosCrisis` y migración:** se crea automáticamente al iniciar `server.js` mediante `inicializarTablasSeguridad()` e igualmente está declarada en `init.sql` (13 tablas totales), garantizando migración sin pérdida de datos en nuevas instancias EC2.
-- **Memoria Persistente (`languageMemory`) + Repertorio (`MusicaCanciones`):** el endpoint `POST /api/language/analyze` consulta en tiempo real tu catálogo de canciones registradas y tu memoria léxica almacenada en `ConfiguracionUsuario`, de modo que el Tutor IA reconoce artistas, álbumes y canciones de tu repertorio automáticamente al migrar de servidor o restaurar respaldos.
+### 11.3 Repertorio Musical en IA, Traductor Global, `yt_lyrics_helper.py` y Bitácora de Crisis
+- **`RegistrosCrisis`, `RegistrosSleep` y migración:** se crean y actualizan automáticamente al iniciar `server.js` mediante `inicializarTablasSeguridad()` e igualmente están declaradas en `init.sql` (13 tablas totales), garantizando migración sin pérdida de datos en nuevas instancias EC2.
+- **Memoria Persistente (`languageMemory`) + Repertorio (`MusicaCanciones` / `MusicaAlbumes`) + Traductor:** los endpoints `POST /api/language/analyze` y `POST /api/language/translate` consultan en tiempo real tu catálogo de canciones registradas y tu memoria léxica almacenada en `ConfiguracionUsuario`, de modo que tanto el Tutor IA como el Traductor Flotante (`Alt+T` / `/translator-popup.html`) mantienen consistencia terminológica tras migrar de servidor o restaurar respaldos.
+- **Resolución YouTube / YT Music (`POST /api/english/music/resolve`) y extractor local (`sincronitation/yt_lyrics_helper.py`):** la detección automática de álbum/año y capacidad de Mini Player embebido (`embeddable`) corre con `0 MB RAM` extra en EC2, mientras `yt_lyrics_helper.py` aprovecha `yt-dlp` en tu PC local sin requerir instalaciones ni espacio extra dentro del contenedor Docker.

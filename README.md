@@ -28,23 +28,23 @@ La aplicación cuenta con una **interfaz principal (`Inicio`)**, una **bandeja i
 3. **⚠️ Bitácora Clínica de Crisis (`Crisis Log`):** Registro rápido de episodios agudos (estrés, ira/rabia, ansiedad, pánico, sobrecarga) con **fecha**, **hora exacta (`HH:MM`)**, **intensidad 1–5** y **motivo en español**, visible también en modo **solo lectura** para el psiquiatra/psicóloga dentro del Resumen Semanal (`Ctrl + Enter` guarda al instante).
 4. **🌙 Control de Sueño:** Cálculo automático de horas dormidas en **formato normal de horas y minutos (`7h 30m` / `7 hrs 30 min`)**, calidad (`Good`, `Fair`, `Bad`), soporte de sueño intermitente/siestas y recordatorio matutino configurable con opción de posponer (*Snooze 15m / 30m / 1h*).
 5. **🖋️ Journal Notes:** Diario en inglés con corrector ortográfico nativo y cifrado de extremo a extremo (AES via CryptoJS) en el navegador antes de encolarse hacia [`sincronitation/sincronizador.py`](sincronitation/sincronizador.py) para escribir en Word.
-6. **📖 Language Learning Studio (`English` · `한국어 Korean` · `🎵 K-Pop EN+KR` + `Gemini AI`):** Cuaderno multilingüe (extensible a futuros idiomas) con vocabulario, gramática, *phrasal verbs/expressions*, transliteración automática **Hangul → Revised Romanization**, **Memoria Persistente (`Memory Bank`)**, **conocimiento automático de tu repertorio musical registrado**, atajos `Enter` / `Ctrl+Enter` y asistente de IA optimizado para AWS `t3.micro` (**Google Gemini API** a 0 MB RAM locales + **motor lingüístico local instantáneo sin conexión** para analizar letras mixtas inglés+coreano de K-Pop). Todo se sincroniza cifrado E2EE hacia tu Word local (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada y módulo **Learn with Music**:
-   - Busca canciones directamente en YouTube (PC) o YouTube Music (celular) (`Enter` busca de inmediato) mediante URL normalizada de pista individual (sin alterar tus playlists).
-   - Navega tu repertorio en un **selector interactivo de 3 columnas con el cursor (`Artistas → Álbumes → Canciones`)** y organiza tu catálogo en MySQL **únicamente con metadatos** agrupados por **Artista**, **Colaboraciones**, **Álbum / Mini Álbum / EP / Single / OST** y filtro por **Idioma** (`English`, `Korean`, `English + Korean (K-Pop)`).
-   - Explica letras y vocabulario con Gemini/IA (consciente de tus canciones registradas) y cifra las notas completas con **E2EE** hacia la sección **`4. Songs & Music Study`** de tu Word local.
-6. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
+6. **📖 Language Learning Studio (`English` · `한국어 Korean` · `🎵 K-Pop EN+KR` + `Gemini AI` + Traductor Global):** Cuaderno multilingüe (extensible a futuros idiomas) con vocabulario, gramática, *phrasal verbs/expressions*, transliteración automática **Hangul → Revised Romanization**, **Memoria Persistente (`Memory Bank`)**, **conocimiento automático de tu repertorio musical registrado**, atajos `Enter` / `Ctrl+Enter` y asistente de IA optimizado para AWS `t3.micro` (**Google Gemini API** a 0 MB RAM locales + **motor lingüístico local instantáneo sin conexión** para analizar letras mixtas inglés+coreano de K-Pop). Todo se sincroniza cifrado E2EE hacia tu Word local (`english-notes/English_Learning_Notebook.docx`) con tabla de contenido autogenerada:
+   - **🌐 Traductor Bilingüe Global (Panel + Ventana Flotante tipo Extensión `/translator-popup.html` + `Alt+T`):** Traduce al instante Inglés ↔ Español y Coreano ↔ Inglés/Español (con romanización Hangul y explicación en español) desde cualquier pantalla mediante el botón flotante `🌐`, el menú lateral o abriéndolo en su **ventana emergente independiente** junto a YouTube, PDFs o Word.
+   - **🎵 Learn with Music + Álbumes CRUD:** Crea Álbumes / Mini Álbumes vacíos (`+ New Album`) y agrega o edita canciones/vínculos directamente, busca en YouTube (PC) o YouTube Music (celular) sin alterar tus playlists, usa **Auto-fill** inteligente (detecta canción, artista, colaboradores, álbum, año y si permite `embed`), reproduce mediante Mini Player o **📺 Ventana flotante sin bloqueos**, e importa subtítulos `.srt`/`.vtt`/`.lrc` extraídos con [`sincronitation/yt_lyrics_helper.py`](sincronitation/yt_lyrics_helper.py) (`yt-dlp` local) antes de cifrar las notas con **E2EE** hacia `4. Songs & Music Study`.
+7. **🗓️ Agenda Semanal (`Organize Your Week`):** Planificador semanal pastel dividido en:
    - **Tipos de actividad:** **Evento** (`evento`: clases, citas, reuniones) y **Tarea** (`tarea`).
    - **Dos categorías principales:** **🎓 Universidad** (`universidad`) y **👤 Personal** (`personal`), con filtros rápidos por categoría y tipo, y divisores visuales por categoría dentro de cada bloque del día (**Morning**, **At School / Classes**, **Afternoon**, **Night**).
    - **Flujo tipo Jira:** selector directo e icono de estado **`To Do`** (`todo`), **`In Progress`** (`in_progress`) y **`Done`** (`done`) sincronizados con `completada` y recordatorios anticipados configurables por actividad.
-7. **📈 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`) con leyenda y tarjetas semanales de sueño con detección automática de sueño intermitente.
-8. **⚙️ Configuración (`Settings`):** Vista dedicada para gestionar notificaciones en la barra del celular (**`ntfy`** sin requerir HTTPS ni notificaciones en la computadora), horarios y reglas de recordatorios (Estado de ánimo, `Madrugada` opcional, Sueño, Agenda, revisión nocturna de notas Word, estudio de inglés opcional), valores predeterminados de agenda, zona horaria IANA, tema claro/oscuro y administración de la clave local E2EE de 32 caracteres.
-9. **🩺 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
+8. **🎓 Horario ITS, Residencias, Trabajo y GPS de Casa:** Control semestral del Instituto Tecnológico de Saltillo (croquis de salones, días inhábiles/vacaciones, auto-sincronización con Agenda), residencias profesionales (500 h), horario laboral, configuración de Casa y actualización GPS desde el celular incluso en HTTP (incluyendo webhook HMAC firmado).
+9. **📈 Resumen Semanal:** Matriz semanal de colores de estado de ánimo (Domingo a Sábado, incluyendo `Madrugada`), tarjetas de sueño/desvelos (`3:00 AM`, noches sin dormir y motivo) y bitácora clínica de crisis.
+10. **⚙️ Configuración (`Settings`):** Vista dedicada para gestionar notificaciones en la barra del celular (**`ntfy`** sin requerir HTTPS ni notificaciones en la computadora), horarios y reglas de recordatorios (Estado de ánimo, `Madrugada` opcional, Sueño, Agenda, revisión nocturna de notas Word, estudio de inglés opcional), **Google Gemini API Key / Modelo**, valores predeterminados de agenda, zona horaria IANA, tema claro/oscuro y administración de la clave local E2EE de 32 caracteres.
+11. **🩺 Autenticación, Seguridad y Permisos por Rol (`admin` vs `psiquiatra`):**
    - **Propietario (`admin` — `ADMIN_EMAIL`):** Acceso completo a todos los módulos, recordatorios, configuración y gestión de cuentas psiquiátricas con activación/desactivación (`#view-medico`).
-   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado a **Resumen Semanal** de ánimo y sueño (`#view-resumen`); bloqueado por RBAC (`403`) en agenda, notas, configuración y recordatorios.
+   - **Psiquiatra (`psiquiatra`):** Acceso estrictamente de **solo lectura** limitado a **Resumen Semanal** de ánimo, sueño/desvelos y crisis (`#view-resumen`); bloqueado por RBAC (`403`) en agenda, notas, traductor, configuración y recordatorios.
    - **Sesión persistente:** Permanece activa mediante cookie `HttpOnly; SameSite=Lax` y tabla `SesionesAuth` hasta cerrar sesión (**Sign Out**) o hasta el **domingo `00:00`**.
    - **Transporte de Red Cifrado sobre HTTP ("HTTPS Simulado"):** Túnel híbrido **`X25519 (Curve25519 ECDH) + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC)`** (`public/transport-crypto.js` ↔ `lib/transport-crypto.js`) que cifra en el navegador las peticiones y respuestas `/api/*` incluso en orígenes HTTP (`http://IP:3000`) con *Forward Secrecy*, detección de manipulación y alto rendimiento para payloads grandes.
-   - **Seguridad Checklist U2:** Contraseñas con `bcryptjs` (12 rondas), tokens SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`), *rate limiting* multicapa en API/Auth/acciones de recordatorio, protección SSRF en URLs de notificación, idempotencia (`X-Idempotency-Key` + locks en botones), MFA opcional y recuperación por correo (`nodemailer`).
-10. **🎛️ Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y cambio de tema desde barra lateral, móvil y *Settings*.
+   - **Seguridad Checklist U2:** Contraseñas con `bcryptjs` (12 rondas), tokens SHA-256, cabeceras HTTP de seguridad (`CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`), *rate limiting* multicapa en API/Auth/acciones de recordatorio, protección SSRF en URLs de notificación/YouTube, idempotencia (`X-Idempotency-Key` + locks en botones), MFA opcional y recuperación por correo (`nodemailer`).
+12. **🎛️ Tema Oscuro, Carga Progresiva y Modo Claro:** Inicialización síncrona de tema (`theme-init.js`), pantalla de carga inicial (`#appBootScreen`) para evitar destellos del login con sesión activa, indicadores circulares de carga en red lenta y cambio de tema desde barra lateral, móvil y *Settings*.
 
 ---
 
@@ -75,7 +75,10 @@ mood-tracker/
 │   ├── GUIA_OPERACION_Y_MIGRACION.md
 │   └── GUIA_TECNICA_ARQUITECTURA.md
 ├── public/                         # Archivos estáticos servidos por Express
-│   ├── index.html                  # Shell principal, tray de recordatorios, Agenda Jira y vista Settings
+│   ├── index.html                  # Shell principal, traductor flotante, tray, Agenda Jira y Settings
+│   ├── translator-popup.html       # Ventana emergente independiente del Traductor Bilingüe (tipo extensión)
+│   ├── translator-widget.js        # Controlador compartido del traductor (inline, flotante y popup)
+│   ├── translator-popup.js         # Inicialización y handoff al Word desde la ventana emergente
 │   ├── dashboard.html              # Redirección compatible hacia index.html#resumen
 │   ├── theme-init.js               # Inicialización temprana de tema antes del primer pintado (CSP)
 │   ├── transport-crypto.js         # Cliente X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256 en navegador HTTP
@@ -83,7 +86,8 @@ mood-tracker/
 │   └── frontend.js                 # Navegación, túnel cifrado, E2EE, AI Studio, agenda/horario y settings
 ├── lib/                            # Módulos backend desacoplados (0 dependencias extra)
 │   ├── transport-crypto.js         # Gestor OpenSSL X25519 + AES-256-CTR-HMAC en Node.js
-│   └── language-studio.js          # Registro multilingüe, Romanización Hangul y cliente Gemini API
+│   ├── language-studio.js          # Registro multilingüe, Romanización Hangul, traductor y Gemini API
+│   └── youtube-metadata.js         # Parser de álbum/artista/año/embeddable YT/YT Music y limpiador .srt/.vtt/.lrc
 ├── scripts/
 │   ├── backup.sh                   # Script de respaldo MySQL -> Google Drive (rclone)
 │   ├── env-vault.sh                # Cifrado AES-256-CBC (PBKDF2) de .env en el servidor EC2
@@ -91,12 +95,14 @@ mood-tracker/
 │   └── restore.sh                  # Script de restauración automática desde Google Drive
 ├── sincronitation/                 # Scripts locales en Windows (ignorados en Git/Docker)
 │   ├── sincronizador.py            # Cliente local Windows para Journal (.docx protegido) y English (.docx)
+│   ├── yt_lyrics_helper.py         # Extractor PC de subtítulos/CC de YouTube con yt-dlp local y portapapeles UTF-8
 │   └── historial.log               # Bitácora del sincronizador
 ├── tests/                          # Suite automatizada con node:test (sin BD real requerida)
 │   ├── ci-summary.js               # Resumen Markdown de pruebas para GitHub Actions
 │   ├── local-vault.test.js         # Pruebas de cifrado local e interoperabilidad Python
-│   ├── server.integration.test.js  # Pruebas API, RBAC, Rate Limit, Agenda Jira, Settings y Recordatorios
-│   └── syntax-and-config.test.js   # Verificación de sintaxis, CSS, SQL, HTML, docs y CI/CD
+│   ├── server.integration.test.js  # Pruebas API, RBAC, Rate Limit, Agenda Jira, Música, IA y GPS
+│   ├── syntax-and-config.test.js   # Verificación de sintaxis, CSS, SQL, HTML, docs y CI/CD
+│   └── youtube-metadata.test.js    # Pruebas unitarias de metadatos YouTube / YT Music y limpieza .vtt/.lrc
 ├── .dockerignore                   # Exclusiones del contexto Docker (incluye tests/, guides/, .env*)
 ├── .env                            # Variables de entorno temporales (no versionado; usar .env.enc)
 ├── .env.enc                        # Bóveda cifrada local de variables de entorno
@@ -104,7 +110,7 @@ mood-tracker/
 ├── .gitignore
 ├── docker-compose.yml              # Orquestación de MySQL 8.0 (512m) + Node.js (220m)
 ├── Dockerfile                      # Imagen node:20-alpine optimizada para EC2 t3.micro
-├── init.sql                        # Esquema inicial completo de las 8 tablas MySQL
+├── init.sql                        # Esquema inicial completo de las 13 tablas MySQL
 ├── package.json                    # Dependencias Node y script "npm test"
 ├── package-lock.json
 ├── README.md                       # Documentación principal del proyecto (este archivo)
@@ -115,25 +121,29 @@ mood-tracker/
 
 ## 📚 Guías del Proyecto
 
-* [Manual de Usuario (Paso a Paso)](guides/MANUAL_DE_USUARIO.md): guía práctica de cada pantalla (`Home`, `Mood`, `Sleep`, `Journal E2EE`, `English Notebook`, `Learn with Music` con YouTube en PC vs YouTube Music en celular sin alterar playlists, `Weekly Agenda`, `Weekly Summary`, acceso médico y notificaciones `ntfy`).
-* [Guía Técnica de Arquitectura e Implementación](guides/GUIA_TECNICA_ARQUITECTURA.md): diseño por capas, esquema MySQL, seguridad E2EE/RBAC, optimizaciones para `t3.micro` y flujo CI/CD.
-* [Guía de Operación, Bóveda Local y Migración EC2](guides/GUIA_OPERACION_Y_MIGRACION.md): gestión de `.env.enc`, sincronizador de Word en Windows (`sincronizador.py`), respaldos con `rclone` y migración de instancia AWS EC2.
+* [Manual de Usuario (Paso a Paso)](guides/MANUAL_DE_USUARIO.md): guía práctica de cada pantalla (`Home`, `Mood`, `Sleep` y registro de desvelo, `Journal E2EE`, `English Notebook` + **Traductor Bilingüe Global** con acceso flotante/`Alt+T`/`/translator-popup.html`, `Learn with Music` con Mini Player embebido/emergente + `Auto-fill` + `yt-dlp`, `Weekly Agenda`, `Weekly Summary`, acceso médico y notificaciones `ntfy`).
+* [Guía Técnica de Arquitectura e Implementación](guides/GUIA_TECNICA_ARQUITECTURA.md): diseño por capas, esquema MySQL (13 tablas), seguridad E2EE/RBAC, optimizaciones para `t3.micro` y flujo CI/CD.
+* [Guía de Operación, Bóveda Local y Migración EC2](guides/GUIA_OPERACION_Y_MIGRACION.md): gestión de `.env.enc`, sincronizador de Word en Windows (`sincronizador.py`), extractor local `yt-dlp` (`yt_lyrics_helper.py`), respaldos con `rclone` y migración de instancia AWS EC2.
 
 ---
 
 ## 🗄️ Base de Datos (`init.sql` y Migración Automática)
 
-El archivo `init.sql` define **8 tablas principales** (y `server.js` crea/migra automáticamente al arrancar las tablas nuevas y las columnas nuevas de `RegistrosAgenda` sin perder datos):
+El archivo `init.sql` define **13 tablas principales** (y `server.js` crea/migra automáticamente al arrancar las columnas o tablas faltantes sin perder datos):
 
 * **`RegistrosMood`**: `id`, `fecha`, `momento_dia` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`), `estado_animo`, `color_hex`, `fecha_registro` (`UNIQUE(fecha, momento_dia)`).
-* **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `fecha_registro`.
+* **`RegistrosSleep`**: `id`, `fecha`, `horas`, `calidad`, `hora_dormir`, `hora_despertar`, `es_desvelo`, `tipo_registro`, `motivo_desvelo`, `fecha_registro`.
 * **`RegistrosCrisis`**: `id`, `fecha`, `hora`, `tipo_crisis`, `intensidad` (`1..5`), `motivo` (texto en español), `fecha_registro`.
 * **`RegistrosAgenda`**: `id`, `fecha`, `bloque` (`manana`, `cole`, `tarde`, `noche`), `hora`, `actividad`, `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `completada`, `recordatorio_min`, `fecha_registro`.
 * **`Usuarios`**: `id`, `nombre`, `email`, `password_hash` (bcrypt), `rol` (`admin` o `psiquiatra`), `estado` (`activo`, `inactivo`, `suspendido`), `fecha_registro`.
 * **`SesionesAuth`**: `id`, `usuario_id`, `token_hash` (SHA-256), `expira_en` (próximo domingo `00:00`), `creado_en`.
 * **`CodigosSeguridad`**: `id`, `email`, `tipo` (`registro`, `reset`, `mfa`), `token_hash` (SHA-256), `expira_en`, `usado`, `creado_en`.
-* **`ConfiguracionUsuario`**: `usuario_id` (PK / FK), `config_json` (`LONGTEXT` con configuración de `ntfy`, reglas de recordatorios y preferencias), `actualizado_en`.
-* **`RecordatoriosEstado`**: `id`, `usuario_id`, `clave_unica`, `tipo`, `ref_id`, `titulo`, `mensaje`, `estado` (`active`, `snoozed`, `dismissed`), `snooze_hasta`, `enviado_push_en`.
+* **`ConfiguracionUsuario`**: `usuario_id` (PK / FK), `config_json` (`LONGTEXT` con configuración de `ntfy`, casa/ubicación manual + modo móvil GPS/Wi-Fi y reglas de recordatorios), `actualizado_en`.
+* **`RecordatoriosEstado`**: `id`, `usuario_id`, `clave_unica`, `tipo`, `ref_id`, `titulo`, `mensaje`, `estado` (`active`, `snoozed`, `sent`, `dismissed`), `snooze_hasta`, `enviado_push_en`, `actualizado_en`.
+* **`MusicaArtistas`**: `id`, `usuario_id`, `nombre`, `nombre_normalizado`, `tipo_artista` (`solo`, `group`, `duo`, `collab_project`), `notas_cortas`, `creado_en`.
+* **`MusicaAlbumes`**: `id`, `usuario_id`, `artista_principal_id`, `titulo`, `titulo_normalizado`, `tipo_lanzamiento` (`album`, `mini_album`, `ep`, `single`, `ost`, `collab_single`), `anio`, `notas_cortas`, `creado_en`.
+* **`MusicaCanciones`**: `id`, `usuario_id`, `album_id`, `titulo`, `numero_pista`, `idioma`, `yt_music_url`, `yt_video_id`, `thumbnail_url`, `estado_estudio` (`to_study`, `in_progress`, `mastered`), `enfoque_corto`, `word_sincronizado`, `ultimo_estudio_en`, `creado_en`, `actualizado_en`.
+* **`MusicaCancionArtistas`**: `cancion_id`, `artista_id`, `rol` (`main`, `feat`, `collab`, `producer`), `orden` (`PRIMARY KEY (cancion_id, artista_id)`).
 
 ### Esquema / migración manual de `RegistrosAgenda` en AWS EC2
 
@@ -198,23 +208,22 @@ EOF
   * Body: `{ "fecha": "2026-11-13", "momento_dia": "Morning", "estado_animo": "Happy", "color_hex": "#FDE047" }`
 * `GET /api/get-moods?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, momento_dia, color_hex }` en el rango.
 
-### Control de Sueño y Bitácora de Crisis
-* `POST /api/insert-sleep`: Inserta un registro de sueño.
-  * Body: `{ "fecha": "2026-11-13", "horas": 7.5, "calidad": "Good" }`
-* `GET /api/get-sleep?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve `{ fecha, horas, calidad }` en el rango.
-* `POST /api/insert-crisis`: Registra una crisis (`Estrés`, `Ira / Rabia`, `Ansiedad`, `Pánico`, etc.) con fecha, hora (`HH:MM`), intensidad `1..5` y motivo en español (solo `admin`).
-* `GET /api/get-crisis[?begin=YYYY-MM-DD&end=YYYY-MM-DD]`: Consulta episodios de crisis (permitido tanto a `admin` como a `psiquiatra` en modo solo lectura).
-* `DELETE /api/delete-crisis/:id`: Elimina un registro de crisis específico (solo `admin`).
+### Control de Sueño, Desvelos y Bitácora de Crisis
+* `POST /api/insert-sleep`, `PUT /api/update-sleep/:id` y `DELETE /api/delete-sleep/:id`: Registra o ajusta sueño normal, desvelos (`3:00 AM`, `goingToSleepNow` + `Complete Wake-Up`) o noches sin dormir (`0 hrs`) con motivo clínico opcional (`admin`).
+* `GET /api/get-sleep?begin=YYYY-MM-DD&end=YYYY-MM-DD`: Devuelve sueño, horarios y detalles de desvelo (`admin` y `psiquiatra` solo lectura).
+* `POST /api/insert-crisis`, `GET /api/get-crisis[?begin=YYYY-MM-DD&end=YYYY-MM-DD]` y `DELETE /api/delete-crisis/:id`: Bitácora de crisis (`Estrés`, `Ira / Rabia`, `Ansiedad`, `Pánico`, etc.) con fecha, hora (`HH:MM`), intensidad `1..5` y motivo en español (lectura permitida al psiquiatra).
 
-### Journal Notes, Language Learning Studio & AI (PC Word Sync + Learn with Music)
+### Journal Notes, Language Learning Studio, Traductor Global & Music
 * `POST /api/send-to-pc` y `GET /api/pull-text`: Cola E2EE para el diario privado protegido con contraseña.
 * `POST /api/send-english` y `GET /api/pull-english`: Cola E2EE para el cuaderno Word local multilingüe (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs` y `4. Songs & Music Study`).
-* `GET /api/language/registry`: Lista los idiomas configurados (`en`, `ko`, `en_ko` K-Pop), modelos Gemini recomendados y estado de clave.
-* `POST /api/language/romanize`: Translitera texto Hangul (`한국어`) a Romanización Revisada instantáneamente (`0 MB RAM`).
-* `POST /api/language/analyze`: Analiza letras o frases vía **Google Gemini API** (configurable por modelo) o **motor local EN/KR**, devolviendo traducción, explicación línea por línea, romanización y borrador listo para Word.
-* `GET /api/english/music/catalog`: Lista artistas, colaboraciones, álbumes / mini álbumes y metadatos de canciones del propietario (`admin`).
-* `GET /api/english/music/search?q=...` y `POST /api/english/music/resolve`: Genera enlace directo de búsqueda en **YouTube / YouTube Music**, valida/normaliza URLs (`youtu.be`, `youtube.com`, `music.youtube.com`) sin riesgo SSRF y obtiene título/artista vía oEmbed oficial.
-* `POST /api/english/music/songs`, `PUT /api/english/music/songs/:id`, `PATCH /api/english/music/songs/:id/status` y `DELETE /api/english/music/songs/:id`: Gestión de canciones por artista/colaboración, idioma y tipo de lanzamiento (bloquea textos largos >255 caracteres para mantener letras fuera de MySQL).
+* `GET /api/language/registry` y `GET /api/language/memory`: Registro de idiomas (`en`, `ko`, `en_ko`), modelos Gemini y memoria léxica persistente.
+* `POST /api/language/romanize`, `POST /api/language/analyze` y `POST /api/language/translate`: Transliteración Hangul instantánea, análisis bilingüe EN/KR con reconocimiento de repertorio musical, y **traductor rápido EN↔ES y KO↔EN/ES** usado tanto en el estudio como en el panel flotante (`Alt+T`) y `/translator-popup.html`.
+* `GET /api/english/music/catalog`, `GET /api/english/music/search?q=...` y `POST /api/english/music/resolve`: Catálogo, búsqueda segura y auto-completado inteligente desde YouTube / YouTube Music (título limpio, artista, colaboradores, álbum, año, tipo de lanzamiento y bandera `embeddable`).
+* `POST /api/english/music/albums`, `PATCH /api/english/music/artists/:id`, `PATCH /api/english/music/albums/:id`, `DELETE /api/english/music/albums/:id` y `POST/PUT/PATCH/DELETE /api/english/music/songs...`: CRUD completo de artistas, álbumes/mini álbumes y canciones (manteniendo letras fuera de MySQL).
+
+### Horario ITS, Casa y GPS del Teléfono en HTTP
+* `GET /api/planner/state`, `PUT /api/planner/state` y `POST /api/planner/sync-agenda`: Semestres ITS, croquis de salones, vacaciones, residencias profesionales, trabajo y sincronización automática con Agenda.
+* `POST /api/planner/resolve-location`, `POST /api/planner/request-phone-gps`, `GET /api/planner/phone-gps-token`, `POST /api/planner/phone-gps-token/rotate` y `GET/POST /api/planner/phone-location?token=...`: Resolución anti-Null-Island (`(0,0)`), geocodificación Saltillo y captura GPS por webhook HTTP HMAC.
 
 ### Transporte Híbrido Cifrado ("HTTPS Simulado" sobre HTTP)
 * `POST /api/transport/handshake`: Intercambio efímero **X25519 (Curve25519 ECDH) + HKDF-SHA256** que establece `encKey` y `macKey` simétricas en RAM (TTL 12h).

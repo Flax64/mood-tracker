@@ -3536,234 +3536,182 @@ function initLanguageAiStudio() {
     initBilingualTranslatorPanel();
 }
 
+function applyTranslationToVocabularyForm(translation, { switchToEnglish = true } = {}) {
+    if (!translation) return;
+    if (switchToEnglish && typeof showView === 'function') {
+        showView('english', true);
+    }
+    const vocabTab = document.querySelector('.english-tab-btn[data-english-cat="vocabulary"]');
+    if (vocabTab) vocabTab.click();
+    const draft = translation.wordNoteDraft || {};
+    const setIf = (id, v) => {
+        const el = document.getElementById(id);
+        if (el && v) {
+            el.value = v;
+            if (typeof syncStudyDraftForId === 'function') syncStudyDraftForId(id);
+        }
+    };
+    setIf('engWord', draft.word || translation.sourceText || '');
+    setIf('engRomanization', draft.romanization || translation.romanization || '');
+    setIf('engSpanish', draft.meaning || translation.spanishMeaning || translation.translatedText || '');
+    setIf('engVocabExample', draft.example || (translation.examples && translation.examples[0]) || '');
+    setIf('engVocabNotes', draft.notes || translation.explanationEs || '');
+    document.getElementById('englishPracticeForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    showToast('ok', 'Copied translation into Glossary Study Form!');
+}
+
 function initBilingualTranslatorPanel() {
     const panel = document.getElementById('languageTranslatorPanel');
-    if (!panel || panel.dataset.wired === 'true') return;
-    panel.dataset.wired = 'true';
+    const widgetApi = window.DailyHubTranslator;
+    if (!panel || !widgetApi) return;
 
-    const dirPills = Array.from(panel.querySelectorAll('#translatorDirPills [data-dir]'));
-    const dirSelect = document.getElementById('translatorDirectionSelect');
-    const engineSelect = document.getElementById('translatorEngineSelect');
-    const inputEl = document.getElementById('translatorInput');
-    const contextEl = document.getElementById('translatorContextInput');
-    const btnRun = document.getElementById('btnRunTranslator');
-    const resultBox = document.getElementById('translatorResultBox');
-    let lastTranslation = null;
+    widgetApi.mountTranslatorInstance({
+        panel,
+        dirPills: Array.from(panel.querySelectorAll('#translatorDirPills [data-dir]')),
+        dirSelect: document.getElementById('translatorDirectionSelect'),
+        engineSelect: document.getElementById('translatorEngineSelect'),
+        inputEl: document.getElementById('translatorInput'),
+        contextEl: document.getElementById('translatorContextInput'),
+        btnRun: document.getElementById('btnRunTranslator'),
+        btnPopout: document.getElementById('btnPopoutTranslator'),
+        resultBox: document.getElementById('translatorResultBox'),
+        fetchJsonFn: resilientFetchJson,
+        buttonLockFn: runWithButtonLock,
+        renderFallbackFn: renderAiNetworkFallback,
+        createLoadingFn: createLoadingBanner,
+        onMemoryUpdate: updateAiMemoryBadgeUI,
+        onSendToStudyForm: data => applyTranslationToVocabularyForm(data, { switchToEnglish: false }),
+        onToast: showToast
+    });
+}
 
-    const setDirection = (dir) => {
-        const chosen = String(dir || 'en_es');
-        if (dirSelect) dirSelect.value = chosen;
-        dirPills.forEach(p => {
-            p.classList.toggle('active', p.getAttribute('data-dir') === chosen);
-        });
-    };
+let floatingTranslatorController = null;
 
-    dirPills.forEach(pill => {
-        pill.addEventListener('click', () => {
-            setDirection(pill.getAttribute('data-dir'));
-            if (inputEl && !inputEl.value.trim()) inputEl.focus();
-        });
+function openFloatingTranslator({ text = '', toggle = false } = {}) {
+    if (!currentUser || currentUser.rol !== 'admin') return;
+    const drawer = document.getElementById('floatingTranslatorModal');
+    if (!drawer) return;
+
+    if (toggle && !drawer.hidden && !text) {
+        drawer.hidden = true;
+        return;
+    }
+
+    drawer.hidden = false;
+    if (floatingTranslatorController) {
+        if (text) {
+            floatingTranslatorController.setInputText(text);
+            floatingTranslatorController.triggerTranslate();
+        } else {
+            floatingTranslatorController.focusInput();
+        }
+    }
+}
+
+function closeFloatingTranslator() {
+    const drawer = document.getElementById('floatingTranslatorModal');
+    if (drawer) drawer.hidden = true;
+}
+
+function consumePendingPopupTranslatorVocab() {
+    try {
+        const raw = localStorage.getItem('pdh_pending_translator_vocab');
+        if (!raw) return;
+        localStorage.removeItem('pdh_pending_translator_vocab');
+        const parsed = JSON.parse(raw);
+        if (parsed && currentUser && currentUser.rol === 'admin') {
+            applyTranslationToVocabularyForm(parsed, { switchToEnglish: true });
+        }
+    } catch (_) {}
+}
+
+function initGlobalFloatingTranslator() {
+    const drawer = document.getElementById('floatingTranslatorModal');
+    const widgetApi = window.DailyHubTranslator;
+    if (!drawer || !widgetApi || drawer.dataset.globalWired === 'true') return;
+    drawer.dataset.globalWired = 'true';
+
+    floatingTranslatorController = widgetApi.mountTranslatorInstance({
+        panel: drawer,
+        dirPills: Array.from(drawer.querySelectorAll('#floatTranslatorDirPills [data-dir]')),
+        dirSelect: document.getElementById('floatTranslatorDirectionSelect'),
+        engineSelect: document.getElementById('floatTranslatorEngineSelect'),
+        inputEl: document.getElementById('floatTranslatorInput'),
+        contextEl: document.getElementById('floatTranslatorContextInput'),
+        btnRun: document.getElementById('btnRunFloatTranslator'),
+        btnPaste: document.getElementById('btnFloatTranslatorPaste'),
+        btnClear: document.getElementById('btnFloatTranslatorClear'),
+        btnPopout: document.getElementById('btnFloatPopoutTranslator'),
+        resultBox: document.getElementById('floatTranslatorResultBox'),
+        fetchJsonFn: resilientFetchJson,
+        buttonLockFn: runWithButtonLock,
+        renderFallbackFn: renderAiNetworkFallback,
+        createLoadingFn: createLoadingBanner,
+        onMemoryUpdate: updateAiMemoryBadgeUI,
+        onSendToStudyForm: data => {
+            closeFloatingTranslator();
+            applyTranslationToVocabularyForm(data, { switchToEnglish: true });
+        },
+        onToast: showToast
     });
 
-    if (dirSelect) {
-        dirSelect.addEventListener('change', () => setDirection(dirSelect.value));
-    }
-
-    const renderTranslationResult = (data) => {
-        if (!resultBox || !data) return;
-        resultBox.replaceChildren();
-        resultBox.hidden = false;
-
-        const headRow = document.createElement('div');
-        headRow.className = 'lang-translator-footer';
-
-        const dirBadge = document.createElement('span');
-        dirBadge.className = 'lang-ai-badge';
-        dirBadge.textContent = `${data.directionLabel || data.direction || 'Translation'}`;
-
-        const engBadge = document.createElement('span');
-        engBadge.className = 'lang-ai-badge';
-        engBadge.textContent = data.engine === 'gemini'
-            ? `🤖 Gemini (${data.model || 'gemini-2.5-flash'})`
-            : '⚡ Instant Local Dictionary (0 MB RAM)';
-
-        headRow.append(dirBadge, engBadge);
-        resultBox.appendChild(headRow);
-
-        const grid = document.createElement('div');
-        grid.className = 'lang-translator-result-grid';
-
-        const mainCard = document.createElement('div');
-        mainCard.className = 'lang-translator-card';
-        const mainLbl = document.createElement('small');
-        mainLbl.className = 'muted-text';
-        mainLbl.textContent = data.partOfSpeech ? `Translation (${data.partOfSpeech})` : 'Translation';
-        const mainVal = document.createElement('div');
-        mainVal.className = 'lang-translator-main-value';
-        mainVal.textContent = data.translatedText || '';
-        mainCard.append(mainLbl, mainVal);
-        if (data.romanization) {
-            const rom = document.createElement('div');
-            rom.className = 'lang-translator-rom';
-            rom.textContent = `Pronunciación / Romanization: ${data.romanization}`;
-            mainCard.appendChild(rom);
+    const getSelectionText = () => {
+        try {
+            return String(window.getSelection ? window.getSelection().toString() : '').trim().slice(0, 600);
+        } catch (_) {
+            return '';
         }
-        grid.appendChild(mainCard);
-
-        if (data.spanishMeaning || data.explanationEs || data.englishBridge) {
-            const esCard = document.createElement('div');
-            esCard.className = 'lang-translator-card';
-            const esLbl = document.createElement('small');
-            esLbl.className = 'muted-text';
-            esLbl.textContent = 'Significado y explicación en Español';
-            const esVal = document.createElement('div');
-            esVal.className = 'lang-translator-main-value';
-            esVal.textContent = data.spanishMeaning || data.translatedText || '';
-            esCard.append(esLbl, esVal);
-
-            if (data.englishBridge && data.direction !== 'ko_en') {
-                const bridge = document.createElement('small');
-                bridge.textContent = `English bridge: ${data.englishBridge}`;
-                esCard.appendChild(bridge);
-            }
-            if (data.explanationEs) {
-                const exp = document.createElement('small');
-                exp.className = 'muted-text';
-                exp.textContent = data.explanationEs;
-                esCard.appendChild(exp);
-            }
-            grid.appendChild(esCard);
-        }
-
-        resultBox.appendChild(grid);
-
-        if (data.literalMeaning) {
-            const lit = document.createElement('small');
-            lit.className = 'muted-text';
-            lit.textContent = `Literal: ${data.literalMeaning}`;
-            resultBox.appendChild(lit);
-        }
-
-        if (Array.isArray(data.alternatives) && data.alternatives.length) {
-            const alts = document.createElement('small');
-            alts.textContent = `Otras formas / matices: ${data.alternatives.join(' · ')}`;
-            resultBox.appendChild(alts);
-        }
-
-        if (Array.isArray(data.examples) && data.examples.length) {
-            const ex = document.createElement('small');
-            ex.className = 'muted-text';
-            ex.textContent = `Ejemplo: ${data.examples[0]}`;
-            resultBox.appendChild(ex);
-        }
-
-        if (data.fallbackReason) {
-            const warn = document.createElement('small');
-            warn.className = 'muted-text';
-            warn.textContent = data.fallbackReason;
-            resultBox.appendChild(warn);
-        }
-
-        const footer = document.createElement('div');
-        footer.className = 'lang-translator-footer';
-
-        const sendBtn = document.createElement('button');
-        sendBtn.type = 'button';
-        sendBtn.className = 'btn-secondary btn-small';
-        sendBtn.textContent = '📝 Send to Vocabulary Study Form';
-        sendBtn.addEventListener('click', () => {
-            if (!lastTranslation) return;
-            const vocabTab = document.querySelector('.english-tab-btn[data-english-cat="vocabulary"]');
-            if (vocabTab) vocabTab.click();
-            const draft = lastTranslation.wordNoteDraft || {};
-            const setIf = (id, v) => {
-                const el = document.getElementById(id);
-                if (el && v) {
-                    el.value = v;
-                    syncStudyDraftForId(id);
-                }
-            };
-            setIf('engWord', draft.word || lastTranslation.sourceText || '');
-            setIf('engRomanization', draft.romanization || lastTranslation.romanization || '');
-            setIf('engSpanish', draft.meaning || lastTranslation.spanishMeaning || lastTranslation.translatedText || '');
-            setIf('engVocabExample', draft.example || (lastTranslation.examples && lastTranslation.examples[0]) || '');
-            setIf('engVocabNotes', draft.notes || lastTranslation.explanationEs || '');
-            document.getElementById('englishPracticeForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            showToast('ok', 'Copied translation into Glossary Study Form!');
-        });
-
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.className = 'btn-secondary btn-small';
-        copyBtn.textContent = '📋 Copy Translation';
-        copyBtn.addEventListener('click', async () => {
-            const txt = data.translatedText || '';
-            try {
-                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-                    await navigator.clipboard.writeText(txt);
-                }
-                showToast('ok', 'Translation copied to clipboard.');
-            } catch (_) {
-                showToast('info', `Translation: ${txt}`);
-            }
-        });
-
-        footer.append(sendBtn, copyBtn);
-        resultBox.appendChild(footer);
     };
 
-    const translatorTracker = createRequestTracker();
-
-    const triggerTranslate = () => {
-        if (!btnRun) return;
-        const text = (inputEl?.value || '').trim();
-        if (!text) {
-            showToast('err', 'Type a word, phrase, or lyric line to translate.');
-            inputEl?.focus();
-            return;
-        }
-        const direction = dirSelect?.value || 'en_es';
-        const mode = engineSelect?.value || 'auto';
-        const context = (contextEl?.value || '').trim();
-
-        const { seq, signal } = translatorTracker.begin();
-        if (resultBox) {
-            resultBox.hidden = false;
-            resultBox.replaceChildren(createLoadingBanner('Traduciendo...', 'sm'));
-        }
-
-        runWithButtonLock(btnRun, async () => {
-            const resp = await resilientFetchJson('/api/language/translate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text, direction, mode, context })
-            }, { timeoutMs: 26000, externalSignal: signal });
-
-            if (resp.aborted || !translatorTracker.isCurrent(seq)) return;
-
-            if (!resp.ok || !resp.data) {
-                renderAiNetworkFallback(resultBox, {
-                    title: 'No se pudo completar la traducción por red',
-                    message: resp.errorMessage,
-                    sampleText: text,
-                    onRetry: triggerTranslate
-                });
-                showToast('err', resp.errorMessage);
-                return;
-            }
-
-            const data = resp.data;
-            lastTranslation = data;
-            if (data.languageMemory) {
-                updateAiMemoryBadgeUI(data.languageMemory);
-            }
-            renderTranslationResult(data);
-        }, { loadingText: 'Translating...' });
-    };
-
-    if (btnRun) {
-        btnRun.addEventListener('click', triggerTranslate);
+    const btnFab = document.getElementById('btnFloatingTranslatorFab');
+    if (btnFab) {
+        btnFab.addEventListener('click', () => {
+            openFloatingTranslator({ text: getSelectionText(), toggle: true });
+        });
     }
+
+    const btnSidebar = document.getElementById('btnSidebarOpenTranslator');
+    if (btnSidebar) {
+        btnSidebar.addEventListener('click', () => {
+            if (typeof setMobileMenuOpen === 'function') setMobileMenuOpen(false);
+            openFloatingTranslator({ text: getSelectionText(), toggle: false });
+        });
+    }
+
+    const btnMobileTop = document.getElementById('btnMobileTranslator');
+    if (btnMobileTop) {
+        btnMobileTop.addEventListener('click', () => {
+            openFloatingTranslator({ text: getSelectionText(), toggle: true });
+        });
+    }
+
+    const btnClose = document.getElementById('btnCloseFloatingTranslator');
+    if (btnClose) {
+        btnClose.addEventListener('click', closeFloatingTranslator);
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 't' || e.key === 'T')) {
+            if (!currentUser || currentUser.rol !== 'admin') return;
+            e.preventDefault();
+            openFloatingTranslator({ text: getSelectionText(), toggle: true });
+        } else if (e.key === 'Escape' && !drawer.hidden) {
+            closeFloatingTranslator();
+        }
+    });
+
+    window.addEventListener('message', (event) => {
+        if (event.origin !== window.location.origin) return;
+        const msg = event.data;
+        if (msg && msg.type === 'pdh_translator_send_vocab' && msg.translation) {
+            try { localStorage.removeItem('pdh_pending_translator_vocab'); } catch (_) {}
+            if (currentUser && currentUser.rol === 'admin') {
+                applyTranslationToVocabularyForm(msg.translation, { switchToEnglish: true });
+            }
+        }
+    });
+
+    window.addEventListener('focus', consumePendingPopupTranslatorVocab);
 }
 
 // ==========================================
@@ -3801,9 +3749,59 @@ const musicState = {
     selectedSongId: null,
     editingSongId: null,
     embedOpen: false,
+    embedHost: 'youtube',
+    embeddableByVideoId: {},
     navArtistId: null,
     navAlbumKey: null
 };
+
+function cleanCaptionTextToLyricsClient(rawText) {
+    const normalized = String(rawText || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+    if (!normalized.trim()) return '';
+    const out = [];
+    let skippingBlock = false;
+
+    for (const rawLine of normalized.split('\n')) {
+        let line = rawLine.trim();
+        if (!line) {
+            skippingBlock = false;
+            continue;
+        }
+        if (/^(?:WEBVTT(?:\s|$)|Kind:|Language:)/i.test(line)) continue;
+        if (/^(?:NOTE|STYLE|REGION)(?:\s|$)/.test(line)) {
+            skippingBlock = true;
+            continue;
+        }
+        if (skippingBlock) continue;
+        if (/^\d+$/.test(line)) continue;
+        if (/^(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{2,3}\s*-->\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{2,3}/.test(line)) continue;
+        if (/^\[(?:ar|ti|al|au|by|offset|re|ve|length)\s*:[^\]]*\]$/i.test(line)) continue;
+
+        line = line
+            .replace(/\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]/g, '')
+            .replace(/<\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?>/g, '')
+            .replace(/<\/?[^>]+>/g, '')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;|&apos;/g, "'")
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!line) continue;
+        if (out.length > 0 && out[out.length - 1] === line) continue;
+        out.push(line);
+    }
+    return out.join('\n').trim();
+}
+
+function getYtdlpCommandForSong(song) {
+    const targetUrl = (song && song.yt_video_id)
+        ? `https://www.youtube.com/watch?v=${song.yt_video_id}`
+        : ((song && (song.youtube_url || song.yt_music_url)) || 'https://www.youtube.com/watch?v=VIDEO_ID');
+    return `python sincronitation/yt_lyrics_helper.py "${targetUrl}" --clip`;
+}
 
 async function cargarCatalogoMusical() {
     const container = document.getElementById('musicCatalogContainer');
@@ -3940,10 +3938,12 @@ function actualizarBarraCancionEstudio() {
     const openYtBtn = document.getElementById('btnMusicStudyOpenYt');
     const toggleEmbedBtn = document.getElementById('btnMusicToggleEmbed');
     const embedBox = document.getElementById('musicEmbedPlayerBox');
+    const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
     const song = getCancionSeleccionada();
 
     if (songIdInput) songIdInput.value = song ? String(song.id) : '';
     if (editSelectedBtn) editSelectedBtn.hidden = !song;
+    if (ytdlpCmdEl) ytdlpCmdEl.textContent = getYtdlpCommandForSong(song);
 
     if (!song) {
         if (bar) {
@@ -3965,8 +3965,8 @@ function actualizarBarraCancionEstudio() {
         bar.textContent = `Studying: ${artistsText} — ${song.titulo}${albumText}`;
     }
 
+    const targetPlayback = getSongTargetPlaybackInfo(song);
     if (openYtBtn) {
-        const targetPlayback = getSongTargetPlaybackInfo(song);
         if (targetPlayback.url) {
             openYtBtn.href = targetPlayback.url;
             openYtBtn.textContent = targetPlayback.fullLabel;
@@ -3976,8 +3976,9 @@ function actualizarBarraCancionEstudio() {
         }
     }
 
+    const validVideoId = song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id);
     if (toggleEmbedBtn) {
-        if (song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id)) {
+        if (validVideoId) {
             toggleEmbedBtn.hidden = false;
             toggleEmbedBtn.textContent = musicState.embedOpen ? 'Hide Mini Player' : 'Mini Player';
         } else {
@@ -3987,14 +3988,57 @@ function actualizarBarraCancionEstudio() {
     }
 
     if (embedBox) {
-        if (musicState.embedOpen && song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id)) {
+        if (musicState.embedOpen && validVideoId) {
+            const isNoCookie = musicState.embedHost === 'nocookie';
+            const hostDomain = isNoCookie ? 'www.youtube-nocookie.com' : 'www.youtube.com';
+
             const iframe = document.createElement('iframe');
-            iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(song.yt_video_id)}?rel=0`;
+            iframe.src = `https://${hostDomain}/embed/${encodeURIComponent(song.yt_video_id)}?rel=0&playsinline=1&enablejsapi=1`;
             iframe.title = `${song.titulo} - Audio / Video Study Player`;
-            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+            iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
             iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
             iframe.allowFullscreen = true;
-            embedBox.replaceChildren(iframe);
+
+            const toolbar = document.createElement('div');
+            toolbar.className = 'music-embed-toolbar';
+
+            const btnPopup = document.createElement('button');
+            btnPopup.type = 'button';
+            btnPopup.className = 'btn-primary btn-small';
+            btnPopup.textContent = '📺 Ventana flotante (sin bloqueo)';
+            btnPopup.addEventListener('click', () => {
+                const popUrl = targetPlayback.url || `https://www.youtube.com/watch?v=${encodeURIComponent(song.yt_video_id)}`;
+                window.open(popUrl, 'ytStudyFloatingPlayer', 'width=540,height=380,resizable=yes,scrollbars=yes');
+            });
+
+            const btnSwitchHost = document.createElement('button');
+            btnSwitchHost.type = 'button';
+            btnSwitchHost.className = 'btn-secondary btn-small';
+            btnSwitchHost.textContent = isNoCookie ? '🔄 Usar youtube.com' : '🔄 Probar nocookie';
+            btnSwitchHost.addEventListener('click', () => {
+                musicState.embedHost = isNoCookie ? 'youtube' : 'nocookie';
+                actualizarBarraCancionEstudio();
+            });
+
+            toolbar.append(btnPopup, btnSwitchHost);
+            if (targetPlayback.url) {
+                const extLink = document.createElement('a');
+                extLink.className = 'btn-secondary btn-small';
+                extLink.href = targetPlayback.url;
+                extLink.target = '_blank';
+                extLink.rel = 'noopener noreferrer';
+                extLink.textContent = `↗ ${targetPlayback.fullLabel}`;
+                toolbar.appendChild(extLink);
+            }
+
+            const note = document.createElement('div');
+            const knownBlocked = musicState.embeddableByVideoId[song.yt_video_id] === false;
+            note.className = knownBlocked ? 'music-embed-fallback-note is-warning' : 'music-embed-fallback-note';
+            note.textContent = knownBlocked
+                ? '⚠️ El sello/canal dueño de este video deshabilitó la reproducción incrustada (embed) fuera de YouTube. Usa "📺 Ventana flotante (sin bloqueo)" para verlo y escucharlo lado a lado.'
+                : '💡 Si aparece "Este video no está disponible", el canal/sello restringe iframes externos (o por IP sin HTTPS). Usa "📺 Ventana flotante (sin bloqueo)" o "🔄 Probar nocookie".';
+
+            embedBox.replaceChildren(iframe, toolbar, note);
             embedBox.hidden = false;
         } else {
             embedBox.hidden = true;
@@ -5027,15 +5071,61 @@ if (englishMusicStudioRoot) {
                         ? (data.youtubeUrl || data.ytMusicUrl)
                         : (data.ytMusicUrl || data.youtubeUrl);
                     if (urlInput && resolvedUrl) urlInput.value = resolvedUrl;
+
+                    if (data.videoId && typeof data.embeddable === 'boolean') {
+                        musicState.embeddableByVideoId[data.videoId] = data.embeddable;
+                    }
+
                     const titleEl = document.getElementById('musicSongTitle');
                     const artistEl = document.getElementById('musicMainArtist');
-                    if (titleEl && !titleEl.value.trim() && data.suggestedTitle) {
+                    const collabsEl = document.getElementById('musicCollaborators');
+                    const albumEl = document.getElementById('musicAlbumTitle');
+                    const albumTypeEl = document.getElementById('musicAlbumType');
+                    const albumYearEl = document.getElementById('musicAlbumYear');
+
+                    const currentTitle = (titleEl?.value || '').trim();
+                    const looksRawYtTitle = !currentTitle || /[\[(]?(?:M\/V|Official\s+(?:Music\s+)?Video|Official\s+Audio|Lyric\s+Video)[\])]?|\s-\s*['"]/i.test(currentTitle);
+                    if (titleEl && looksRawYtTitle && data.suggestedTitle) {
                         titleEl.value = data.suggestedTitle;
                     }
-                    if (artistEl && !artistEl.value.trim() && data.suggestedArtist) {
+
+                    const currentArtist = (artistEl?.value || '').trim();
+                    if (artistEl && (!currentArtist || /\s*-\s*Topic$/i.test(currentArtist)) && data.suggestedArtist) {
                         artistEl.value = data.suggestedArtist;
                     }
-                    mostrarBannerMusica('musicSongFormBanner', 'ok', 'Link verified and cleaned (single-track, playlist-safe).');
+
+                    if (collabsEl && !collabsEl.value.trim() && data.suggestedCollaborators) {
+                        collabsEl.value = data.suggestedCollaborators;
+                    }
+
+                    let albumWasAutoFilled = false;
+                    if (albumEl && !albumEl.value.trim() && data.suggestedAlbumTitle) {
+                        albumEl.value = data.suggestedAlbumTitle;
+                        albumWasAutoFilled = true;
+                    }
+
+                    if (albumTypeEl && data.suggestedAlbumType && (albumWasAutoFilled || albumTypeEl.value === 'album')) {
+                        albumTypeEl.value = data.suggestedAlbumType;
+                    }
+
+                    if (albumYearEl && !albumYearEl.value.trim() && data.suggestedAlbumYear) {
+                        albumYearEl.value = String(data.suggestedAlbumYear);
+                    }
+
+                    const summaryParts = [];
+                    if (data.suggestedTitle) summaryParts.push(`Track: "${data.suggestedTitle}"`);
+                    if (data.suggestedArtist) summaryParts.push(`Artist: ${data.suggestedArtist}`);
+                    if (data.suggestedAlbumTitle) {
+                        summaryParts.push(`Album: ${data.suggestedAlbumTitle}${data.suggestedAlbumYear ? ` (${data.suggestedAlbumYear})` : ''}`);
+                    }
+                    const embedWarning = data.embeddable === false
+                        ? ' · ⚠️ Owner blocks iframe embed (use Ventana flotante in Study Player).'
+                        : '';
+                    const msg = summaryParts.length
+                        ? `Auto-fill detected -> ${summaryParts.join(' · ')}${embedWarning}`
+                        : `Link verified and cleaned (single-track, playlist-safe).${embedWarning}`;
+                    mostrarBannerMusica('musicSongFormBanner', 'ok', msg);
+                    actualizarBarraCancionEstudio();
                 } catch (err) {
                     mostrarBannerMusica('musicSongFormBanner', 'err', err.message || 'Could not resolve link.');
                 }
@@ -5050,6 +5140,94 @@ if (englishMusicStudioRoot) {
         btnToggleEmbed.addEventListener('click', () => {
             musicState.embedOpen = !musicState.embedOpen;
             actualizarBarraCancionEstudio();
+        });
+    }
+
+    const btnImportLyricsFile = document.getElementById('btnMusicImportLyricsFile');
+    const lyricsFileInput = document.getElementById('musicLyricsFileInput');
+    const btnCleanTimestamps = document.getElementById('btnMusicCleanTimestamps');
+    const btnToggleYtdlpHint = document.getElementById('btnMusicToggleYtdlpHint');
+    const ytdlpHelperBox = document.getElementById('musicYtdlpHelperBox');
+    const btnCopyYtdlpCmd = document.getElementById('btnMusicCopyYtdlpCmd');
+
+    if (btnImportLyricsFile && lyricsFileInput) {
+        btnImportLyricsFile.addEventListener('click', () => {
+            lyricsFileInput.value = '';
+            lyricsFileInput.click();
+        });
+        lyricsFileInput.addEventListener('change', async () => {
+            const file = lyricsFileInput.files && lyricsFileInput.files[0];
+            if (!file) return;
+            try {
+                const rawText = await file.text();
+                const cleaned = cleanCaptionTextToLyricsClient(rawText);
+                const lyricsEl = document.getElementById('musicStudyLyrics');
+                if (!cleaned) {
+                    showToast('err', 'The selected subtitle/lyrics file was empty after cleaning.');
+                    return;
+                }
+                if (lyricsEl) {
+                    lyricsEl.value = cleaned.slice(0, 12000);
+                    lyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
+                    lyricsEl.focus();
+                }
+                showToast('ok', `Imported ${cleaned.split('\n').length} lyric lines cleanly (E2EE local only).`);
+            } catch (err) {
+                showToast('err', 'Could not read file: ' + err.message);
+            }
+        });
+    }
+
+    if (btnCleanTimestamps) {
+        btnCleanTimestamps.addEventListener('click', () => {
+            const lyricsEl = document.getElementById('musicStudyLyrics');
+            const raw = lyricsEl ? lyricsEl.value : '';
+            if (!raw.trim()) {
+                showToast('err', 'Paste subtitles or lyrics first.');
+                return;
+            }
+            const cleaned = cleanCaptionTextToLyricsClient(raw);
+            if (lyricsEl && cleaned) {
+                lyricsEl.value = cleaned.slice(0, 12000);
+                lyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
+                showToast('ok', `Cleaned timestamps (${cleaned.split('\n').length} lines ready).`);
+            }
+        });
+    }
+
+    if (btnToggleYtdlpHint && ytdlpHelperBox) {
+        btnToggleYtdlpHint.addEventListener('click', () => {
+            ytdlpHelperBox.hidden = !ytdlpHelperBox.hidden;
+            const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
+            if (!ytdlpHelperBox.hidden && ytdlpCmdEl) {
+                ytdlpCmdEl.textContent = getYtdlpCommandForSong(getCancionSeleccionada());
+            }
+        });
+    }
+
+    if (btnCopyYtdlpCmd) {
+        btnCopyYtdlpCmd.addEventListener('click', async () => {
+            const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
+            const cmdText = (ytdlpCmdEl && ytdlpCmdEl.textContent) || '';
+            if (!cmdText) return;
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(cmdText);
+                } else {
+                    const tmp = document.createElement('textarea');
+                    tmp.value = cmdText;
+                    tmp.setAttribute('readonly', '');
+                    tmp.style.position = 'fixed';
+                    tmp.style.opacity = '0';
+                    document.body.appendChild(tmp);
+                    tmp.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(tmp);
+                }
+                showToast('ok', 'yt-dlp command copied! Run it in your PC PowerShell.');
+            } catch (_err) {
+                showToast('err', 'Copy failed — select the command text manually.');
+            }
         });
     }
 
@@ -6161,6 +6339,9 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
     showAuthForm(defaultForm, subtitles[defaultForm]);
 
     if (appShell) appShell.hidden = true;
+    const fabEl = document.getElementById('btnFloatingTranslatorFab');
+    if (fabEl) fabEl.hidden = true;
+    closeFloatingTranslator();
     hideBootScreen();
     if (authOverlay) authOverlay.hidden = false;
 }
@@ -9858,9 +10039,6 @@ function initKeyboardShortcuts() {
     bindEnterToButton('musicSongYtUrl', 'btnMusicResolveYt');
     // AI Question box -> Enter asks AI (Shift+Enter adds newline)
     bindEnterToButton('langAiQuestion', 'btnAskLangAi', { multilinePlainEnter: true });
-    // Integrated Bilingual Translator -> Enter translates immediately (Shift+Enter adds newline)
-    bindEnterToButton('translatorInput', 'btnRunTranslator', { multilinePlainEnter: true });
-    bindEnterToButton('translatorContextInput', 'btnRunTranslator');
     // Lyrics study textarea -> Ctrl+Enter runs AI Lyrics Breakdown
     bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
     // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
@@ -9896,6 +10074,7 @@ function initApp() {
     initAuthHandlers();
     initSettingsHandlers();
     initLanguageAiStudio();
+    initGlobalFloatingTranslator();
     initWordStyleProofing();
     initAcademicPlannerHandlers();
     initQuickLocationModal();

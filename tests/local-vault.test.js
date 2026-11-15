@@ -425,4 +425,65 @@ describe('Bóveda local (.env / .env.enc)', () => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
     });
+
+    test('sincronitation/yt_lyrics_helper.py normaliza enlaces YT/YT Music y limpia subtítulos .vtt/.srt/.lrc', () => {
+        const pyHelper = path.join(ROOT_DIR, 'sincronitation', 'yt_lyrics_helper.py');
+        if (!fs.existsSync(pyHelper)) return;
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-lyrics-helper-'));
+        try {
+            const vttFile = path.join(tmpDir, 'drip.vtt');
+            fs.writeFileSync(
+                vttFile,
+                [
+                    'WEBVTT',
+                    'Kind: captions',
+                    'Language: en',
+                    '',
+                    '00:00:01.000 --> 00:00:03.000',
+                    '<c>Baby</c><00:00:01.500> got no chill',
+                    '',
+                    '00:00:03.000 --> 00:00:05.000',
+                    'Baby got no chill',
+                    '',
+                    '00:00:05.000 --> 00:00:07.500',
+                    '네 맘을 사로잡아 &amp; shine'
+                ].join('\n'),
+                'utf8'
+            );
+
+            const pyCode = [
+                'import json, sys',
+                'sys.path.insert(0, sys.argv[1])',
+                'import yt_lyrics_helper as ylh',
+                'assert ylh.extract_video_id("https://music.youtube.com/watch?v=Zp-Jhuhq0bQ&list=RDAMVM") == "Zp-Jhuhq0bQ"',
+                'assert ylh.extract_video_id("https://youtu.be/Zp-Jhuhq0bQ") == "Zp-Jhuhq0bQ"',
+                'meta = ylh.extract_metadata_from_info_json({',
+                '  "id": "Zp-Jhuhq0bQ",',
+                '  "uploader": "BABYMONSTER - Topic",',
+                '  "playable_in_embed": False,',
+                '  "description": "Provided to YouTube by YG PLUS\\n\\nDRIP \\u00b7 BABYMONSTER\\n\\nDrip\\n\\nReleased on: 2024-11-01",',
+                '  "subtitles": {"en": [], "ko": []},',
+                '  "automatic_captions": {"es": []}',
+                '})',
+                'assert meta["title"] == "DRIP"',
+                'assert meta["artist"] == "BABYMONSTER"',
+                'assert meta["album"] == "Drip"',
+                'assert meta["release_year"] == 2024',
+                'assert meta["playable_in_embed"] is False',
+                'cleaned = ylh.clean_caption_text(open(sys.argv[2], encoding="utf-8").read())',
+                'print(json.dumps({"cleaned": cleaned, "meta": meta}, ensure_ascii=False))'
+            ].join('\n');
+
+            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(pyHelper), vttFile], {
+                cwd: ROOT_DIR,
+                encoding: 'utf8'
+            });
+            assert.equal(res.status, 0, res.stderr || res.stdout);
+            const out = JSON.parse(res.stdout.trim());
+            assert.equal(out.cleaned, 'Baby got no chill\n네 맘을 사로잡아 & shine');
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
 });

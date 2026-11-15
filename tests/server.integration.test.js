@@ -2840,6 +2840,107 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.match(autoKoJson.translatedText, /heart|corazón/i);
     });
 
+    it('resuelve metadatos completos (álbum, año, artista y embeddable) desde POST /api/english/music/resolve', async () => {
+        // Creamos mini álbum único para probar emparejamiento con catálogo incluso sin bloque "Provided to YouTube"
+        const albRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/albums',
+            headers: { Cookie: adminCookie },
+            body: {
+                mainArtist: 'BABYMONSTER',
+                artistType: 'group',
+                albumTitle: 'We go up',
+                albumType: 'mini_album',
+                albumYear: 2025
+            }
+        });
+        assert.strictEqual(albRes.status, 201);
+
+        const origFetch = global.fetch;
+        global.fetch = async (url) => {
+            const target = String(url);
+            if (target.includes('youtube.com/oembed')) {
+                const isWeGoUp = target.includes('wgu98765432');
+                return {
+                    ok: true,
+                    json: async () => ({
+                        title: isWeGoUp ? "BABYMONSTER - 'WE GO UP' M/V" : "BABYMONSTER - 'DRIP' M/V",
+                        author_name: 'BABYMONSTER'
+                    })
+                };
+            }
+            if (target.includes('youtube.com/watch?v=Zp-Jhuhq0bQ')) {
+                const playerResp = {
+                    videoDetails: {
+                        title: "BABYMONSTER - 'DRIP' M/V",
+                        author: 'BABYMONSTER',
+                        shortDescription: 'Provided to YouTube by YG PLUS\n\nDRIP · BABYMONSTER\n\nDRIP\n\nReleased on: 2024-11-01'
+                    },
+                    playabilityStatus: { status: 'OK', playableInEmbed: false }
+                };
+                return {
+                    ok: true,
+                    text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResp)};</script>`
+                };
+            }
+            if (target.includes('youtube.com/watch?v=wgu98765432')) {
+                const playerResp = {
+                    videoDetails: {
+                        title: "BABYMONSTER - 'WE GO UP' M/V",
+                        author: 'BABYMONSTER',
+                        shortDescription: 'Official Music Video'
+                    },
+                    playabilityStatus: { status: 'OK', playableInEmbed: true }
+                };
+                return {
+                    ok: true,
+                    text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResp)};</script>`
+                };
+            }
+            return { ok: false };
+        };
+
+        try {
+            const resolveRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/resolve',
+                headers: { Cookie: adminCookie },
+                body: { url: 'https://music.youtube.com/watch?v=Zp-Jhuhq0bQ&list=RDAMVMZp-Jhuhq0bQ' }
+            });
+            assert.strictEqual(resolveRes.status, 200);
+            const data = JSON.parse(resolveRes.body);
+            assert.strictEqual(data.videoId, 'Zp-Jhuhq0bQ');
+            assert.strictEqual(data.ytMusicUrl, 'https://music.youtube.com/watch?v=Zp-Jhuhq0bQ');
+            assert.strictEqual(data.youtubeUrl, 'https://www.youtube.com/watch?v=Zp-Jhuhq0bQ');
+            assert.strictEqual(data.suggestedTitle, 'DRIP');
+            assert.strictEqual(data.suggestedArtist, 'BABYMONSTER');
+            assert.strictEqual(data.suggestedAlbumTitle, 'DRIP');
+            assert.strictEqual(data.suggestedAlbumType, 'album');
+            assert.strictEqual(data.suggestedAlbumYear, 2024);
+            assert.strictEqual(data.embeddable, false);
+
+            const resolveWguRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/resolve',
+                headers: { Cookie: adminCookie },
+                body: { url: 'https://www.youtube.com/watch?v=wgu98765432' }
+            });
+            assert.strictEqual(resolveWguRes.status, 200);
+            const wguData = JSON.parse(resolveWguRes.body);
+            assert.strictEqual(wguData.suggestedTitle, 'WE GO UP');
+            assert.strictEqual(wguData.suggestedArtist, 'BABYMONSTER');
+            assert.strictEqual(wguData.suggestedAlbumTitle, 'We go up');
+            assert.strictEqual(wguData.suggestedAlbumType, 'mini_album');
+            assert.strictEqual(wguData.suggestedAlbumYear, 2025);
+            assert.strictEqual(wguData.embeddable, true);
+        } finally {
+            global.fetch = origFetch;
+        }
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;

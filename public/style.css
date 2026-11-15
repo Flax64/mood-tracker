@@ -4028,6 +4028,7 @@ select,
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-soft, #f8fafc);
 }
 
 .music-embed-box iframe {
@@ -4035,6 +4036,51 @@ select,
     height: 220px;
     border: 0;
     display: block;
+    background: #000;
+}
+
+.music-embed-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.55rem 0.75rem;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-card, #ffffff);
+}
+
+.music-embed-fallback-note {
+    padding: 0.5rem 0.75rem 0.65rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--text-muted, #64748b);
+    border-top: 1px dashed var(--border-color, #e2e8f0);
+}
+
+.music-embed-fallback-note.is-warning {
+    background: rgba(245, 158, 11, 0.12);
+    color: #92400e;
+    font-weight: 500;
+}
+
+:root[data-theme="dark"] .music-embed-box {
+    background: #0f172a;
+    border-color: #293548;
+}
+
+:root[data-theme="dark"] .music-embed-toolbar {
+    background: #172033;
+    border-top-color: #293548;
+}
+
+:root[data-theme="dark"] .music-embed-fallback-note {
+    color: #94a3b8;
+    border-top-color: #293548;
+}
+
+:root[data-theme="dark"] .music-embed-fallback-note.is-warning {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fcd34d;
 }
 
 :root[data-theme="dark"] .music-privacy-callout {
@@ -5204,6 +5250,48 @@ select,
     margin-bottom: 6px;
 }
 
+.music-lyrics-label-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.music-ytdlp-helper {
+    margin: 6px 0 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-soft, #f8fafc);
+}
+
+.music-ytdlp-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 0.86rem;
+}
+
+.music-ytdlp-cmd {
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+:root[data-theme="dark"] .music-ytdlp-helper {
+    background: #172033;
+    border-color: #293548;
+}
+
 .music-ai-apply-row {
     margin-top: 8px;
     margin-bottom: 10px;
@@ -6337,6 +6425,199 @@ body {
     border-color: #334155;
     color: #cbd5e1;
 }
+
+/* Global Extension-Style Floating Translator & Standalone Popup Window */
+.lang-translator-head-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.translator-fab {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 950;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    border-radius: 999px;
+    background: linear-gradient(135deg, #059669, #0d9488);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: pointer;
+    box-shadow: 0 10px 26px rgba(5, 150, 105, 0.35);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.translator-fab:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 30px rgba(5, 150, 105, 0.45);
+}
+
+.translator-fab[hidden] {
+    display: none;
+}
+
+.floating-translator-drawer {
+    position: fixed;
+    right: 20px;
+    bottom: 76px;
+    z-index: 980;
+    width: min(440px, calc(100vw - 24px));
+    max-height: min(82vh, 660px);
+    overflow-y: auto;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    background: var(--bg-card, #ffffff);
+    color: var(--text-main, #0f172a);
+    box-shadow: 0 22px 48px rgba(15, 23, 42, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.floating-translator-drawer[hidden] {
+    display: none;
+}
+
+.floating-translator-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.floating-translator-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.98rem;
+}
+
+.floating-translator-win-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.floating-translator-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.floating-translator-input-row textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.select-compact {
+    padding: 4px 8px;
+    font-size: 0.78rem;
+}
+
+.translator-popup-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.translator-popup-body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg-app, #f8fafc);
+    color: var(--text-main, #0f172a);
+}
+
+.translator-popup-shell {
+    max-width: 540px;
+    margin: 0 auto;
+    padding: 14px 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.translator-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.translator-popup-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.translator-popup-brand h1 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.translator-popup-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.translator-popup-panel {
+    margin: 0;
+}
+
+.translator-popup-tip {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    margin: 0;
+}
+
+:root[data-theme="dark"] .floating-translator-drawer {
+    background: #0f172a;
+    border-color: rgba(52, 211, 153, 0.45);
+    color: #e2e8f0;
+    box-shadow: 0 24px 56px rgba(0, 0, 0, 0.65);
+}
+
+:root[data-theme="dark"] .translator-popup-body {
+    background: #0b1120;
+    color: #e2e8f0;
+}
+
+@media (max-width: 640px) {
+    .translator-fab {
+        right: 12px;
+        bottom: 12px;
+        padding: 9px 13px;
+        font-size: 0.82rem;
+    }
+
+    .floating-translator-drawer {
+        left: 10px;
+        right: 10px;
+        bottom: 62px;
+        width: auto;
+        max-height: 78vh;
+        padding: 12px;
+    }
+
+    .floating-translator-input-row {
+        flex-direction: column;
+    }
+
+    .floating-translator-input-row button {
+        width: 100%;
+    }
+}
+
 
 
 

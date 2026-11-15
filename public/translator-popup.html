@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Hub Translator (Mini Window)</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23059669'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='18'%3E%F0%9F%8C%90%3C/text%3E%3C/svg%3E">
+    <script src="theme-init.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <script src="translator-widget.js" defer></script>
+    <script src="translator-popup.js" defer></script>
+</head>
+
+<body class="translator-popup-body">
+    <main class="translator-popup-shell">
+        <header class="translator-popup-header">
+            <div class="translator-popup-brand">
+                <span aria-hidden="true">🌐</span>
+                <div>
+                    <h1>Daily Hub Translator</h1>
+                    <small class="muted-text">EN ↔ ES · 한국어 ↔ EN/ES (0 MB Server RAM)</small>
+                </div>
+            </div>
+            <div class="translator-popup-head-actions">
+                <button type="button" class="icon-btn" id="btnPopupThemeToggle" title="Toggle light or dark theme" aria-label="Toggle theme">☀️</button>
+                <a href="/" class="btn-secondary btn-small" id="linkBackMainHub" target="_blank" rel="noopener noreferrer">🏠 Main Hub</a>
+            </div>
+        </header>
+
+        <div id="popupAuthNotice" class="ai-network-fallback" hidden>
+            <strong>🔒 Sesión no iniciada o expirada</strong>
+            <small>Inicia sesión primero en la pestaña principal de Personal Daily Hub para habilitar Gemini y tu diccionario inteligente.</small>
+            <div class="ai-network-fallback-actions">
+                <a href="/" class="btn-primary btn-small" target="_blank" rel="noopener noreferrer">Abrir Daily Hub para iniciar sesión</a>
+                <button type="button" class="btn-secondary btn-small" id="btnPopupRetryAuth">🔄 Verificar sesión</button>
+            </div>
+        </div>
+
+        <section class="lang-translator-panel translator-popup-panel" id="popupTranslatorPanel" aria-label="Floating Extension Translator">
+            <div class="lang-translator-dirs" id="popupDirPills" role="group" aria-label="Translation Direction">
+                <button type="button" class="lang-dir-pill active" data-dir="en_es">🇺🇸 → 🇪🇸 EN → ES</button>
+                <button type="button" class="lang-dir-pill" data-dir="ko_en">🇰🇷 → 🇺🇸 KO → EN</button>
+                <button type="button" class="lang-dir-pill" data-dir="ko_es">🇰🇷 → 🇪🇸 KO → ES</button>
+                <button type="button" class="lang-dir-pill" data-dir="auto">🌐 Auto</button>
+                <button type="button" class="lang-dir-pill" data-dir="es_en">🇪🇸 → 🇺🇸 ES → EN</button>
+                <button type="button" class="lang-dir-pill" data-dir="es_ko">🇪🇸 → 🇰🇷 ES → KO</button>
+            </div>
+
+            <div class="translator-popup-toolbar">
+                <button type="button" class="btn-secondary btn-small" id="btnPopupPaste">📋 Paste &amp; Translate</button>
+                <button type="button" class="btn-secondary btn-small" id="btnPopupClear">🧹 Clear</button>
+                <span class="lang-ai-badge" id="popupStatusBadge">Instant Ready</span>
+            </div>
+
+            <div class="lang-translator-bar">
+                <textarea id="popupTranslatorInput" rows="3" maxlength="4000"
+                    placeholder="Type or paste any word, phrase, or lyric (Enter to translate · Shift+Enter for new line)..."></textarea>
+                <div class="lang-translator-actions">
+                    <select id="popupDirectionSelect" class="select-input" aria-label="Translation direction">
+                        <option value="en_es" selected>English → Español</option>
+                        <option value="ko_en">Coreano → English</option>
+                        <option value="ko_es">Coreano → Español</option>
+                        <option value="auto">Auto Detect (EN/KO)</option>
+                        <option value="es_en">Español → English</option>
+                        <option value="es_ko">Español → Coreano</option>
+                    </select>
+                    <select id="popupEngineSelect" class="select-input" aria-label="Translator engine">
+                        <option value="auto">Auto (Gemini / Local)</option>
+                        <option value="gemini">Google Gemini AI</option>
+                        <option value="offline">Instant Local (0 RAM)</option>
+                    </select>
+                    <button type="button" class="btn-submit" id="btnRunPopupTranslator">Translate</button>
+                </div>
+            </div>
+
+            <input type="text" id="popupContextInput" maxlength="400"
+                placeholder="Optional context (song, PDF, sentence)...">
+
+            <div id="popupTranslatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
+        </section>
+
+        <p class="muted-text translator-popup-tip">
+            💡 Tip Chrome / Edge: abre el menú <strong>⋮ → Guardar y compartir → Crear acceso directo (Abrir como ventana)</strong> para fijar este traductor en tu barra de Windows como si fuera una app/extensión propia.
+        </p>
+    </main>
+
+    <div id="popupToastContainer" class="app-toast-container" aria-live="polite" aria-atomic="true"></div>
+</body>
+
+</html>

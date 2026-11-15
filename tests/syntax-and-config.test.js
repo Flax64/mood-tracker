@@ -17,13 +17,33 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'server.js',
             'lib/transport-crypto.js',
             'lib/language-studio.js',
+            'lib/youtube-metadata.js',
             'public/theme-init.js',
             'public/transport-crypto.js',
+            'public/translator-widget.js',
+            'public/translator-popup.js',
             'public/frontend.js',
             'tests/ci-summary.js'
         ]) {
             execFileSync(process.execPath, ['--check', path.join(ROOT, rel)], { stdio: 'pipe' });
         }
+
+        const popupHtml = fs.readFileSync(path.join(ROOT, 'public/translator-popup.html'), 'utf8');
+        for (const token of [
+            '<script src="theme-init.js"></script>',
+            '<link rel="stylesheet" href="style.css">',
+            '<script src="translator-widget.js" defer></script>',
+            '<script src="translator-popup.js" defer></script>',
+            'id="popupTranslatorInput"',
+            'id="btnRunPopupTranslator"',
+            'id="popupTranslatorResultBox"'
+        ]) {
+            assert.ok(popupHtml.includes(token), `public/translator-popup.html missing required token: ${token}`);
+        }
+        assert.ok(
+            !/<script\b(?![^>]*\bsrc\s*=)[^>]*>/i.test(popupHtml),
+            'public/translator-popup.html must not include inline <script> tags due to strict CSP'
+        );
     });
 
     it('valida sintaxis de scripts embebidos y estructura básica de HTML', () => {
@@ -117,21 +137,25 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         assert.strictEqual(opens, closes, `Llaves desbalanceadas en style.css: ${opens} vs ${closes}`);
     });
 
-    it('valida sintaxis Python de sincronitation/sincronizador.py cuando está presente en disco', () => {
-        const pyPath = path.join(ROOT, 'sincronitation', 'sincronizador.py');
-        if (!fs.existsSync(pyPath)) {
-            return;
-        }
-        const pyCode = fs.readFileSync(pyPath, 'utf8');
-        assert.match(pyCode, /EC2_HOST/);
-        assert.match(pyCode, /JOURNAL_SECRET_KEY/);
-
+    it('valida sintaxis Python de sincronitation/sincronizador.py y yt_lyrics_helper.py cuando están presentes en disco', () => {
+        const pyFiles = [
+            path.join(ROOT, 'sincronitation', 'sincronizador.py'),
+            path.join(ROOT, 'sincronitation', 'yt_lyrics_helper.py')
+        ];
         const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
-        execFileSync(
-            pyCmd,
-            ['-c', 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', pyPath],
-            { stdio: 'pipe' }
-        );
+        for (const pyPath of pyFiles) {
+            if (!fs.existsSync(pyPath)) continue;
+            const pyCode = fs.readFileSync(pyPath, 'utf8');
+            if (pyPath.endsWith('sincronizador.py')) {
+                assert.match(pyCode, /EC2_HOST/);
+                assert.match(pyCode, /JOURNAL_SECRET_KEY/);
+            }
+            execFileSync(
+                pyCmd,
+                ['-c', 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', pyPath],
+                { stdio: 'pipe' }
+            );
+        }
     });
 
     it('valida formato Unix (LF), cabecera e higiene de los scripts bash', () => {
@@ -283,7 +307,19 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="sleepModePills"',
             'id="sleepEsDesvelo"',
             'id="sleepStillAwake"',
-            'id="resumenSleepDetailsList"'
+            'id="resumenSleepDetailsList"',
+            'id="btnMusicImportLyricsFile"',
+            'id="musicLyricsFileInput"',
+            'id="btnMusicCleanTimestamps"',
+            'id="btnMusicToggleYtdlpHint"',
+            'id="musicYtdlpHelperBox"',
+            'id="btnFloatingTranslatorFab"',
+            'id="floatingTranslatorModal"',
+            'id="btnFloatPopoutTranslator"',
+            'id="btnSidebarOpenTranslator"',
+            'id="btnMobileTranslator"',
+            'id="btnPopoutTranslator"',
+            'id="floatTranslatorInput"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
@@ -315,7 +351,14 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.quick-loc-presets',
             '.phone-webhook-box',
             '.sleep-desvelo-badge',
-            '.sleep-mode-pill'
+            '.sleep-mode-pill',
+            '.music-embed-toolbar',
+            '.music-embed-fallback-note',
+            '.music-lyrics-label-actions',
+            '.music-ytdlp-helper',
+            '.translator-fab',
+            '.floating-translator-drawer',
+            '.translator-popup-shell'
         ]) {
             assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }
