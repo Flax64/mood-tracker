@@ -1,8 +1,35 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.0.0",
-  "updatedAt": "2026-11-15T00:00:00.000Z",
+  "currentVersion": "1.1.0",
+  "updatedAt": "2026-11-15T14:54:46.321Z",
   "releases": [
+    {
+      "version": "1.1.0",
+      "tag": "v1.1.0",
+      "bumpType": "minor",
+      "previousVersion": "1.0.0",
+      "releasedAt": "2026-11-15T14:54:46.321Z",
+      "commitSha": "61335e8",
+      "trigger": "push",
+      "summary": "feat(ui,i18n,docs): enforce dark mode, complete EN/ES translation, visual guide, and Windows sync lifecycle docs",
+      "counts": {
+        "breaking": 0,
+        "features": 2,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(ui,i18n,docs): enforce dark mode, complete EN/ES translation, visual guide, and Windows sync lifecycle docs (4fcc3ea)",
+          "feat(music,ai,translator,sync): add popout translator, yt-dlp player, encrypted PC Word lyrics bridge, and AI auto-sync (f76fd0b)"
+        ],
+        "fixes": [
+          "fix: verificacion de logica (61335e8)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.0.0",
       "tag": "v1.0.0",
