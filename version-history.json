@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.1.2",
+  "updatedAt": "2026-11-15T17:47:12.127Z",
   "releases": [
+    {
+      "version": "1.1.2",
+      "tag": "v1.1.2",
+      "bumpType": "patch",
+      "previousVersion": "1.1.1",
+      "releasedAt": "2026-11-15T17:47:12.127Z",
+      "commitSha": "95708c5",
+      "trigger": "push",
+      "summary": "feat",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 0,
+        "maintenance": 1
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [],
+        "maintenance": [
+          "feat (745019a)"
+        ]
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",
