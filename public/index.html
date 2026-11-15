@@ -697,8 +697,8 @@
                         <div class="view-header-main">
                             <span class="view-header-icon" aria-hidden="true">🌙</span>
                             <div>
-                                <h2>Sleep Tracker</h2>
-                                <p class="view-header-subtitle">Log bedtime and wake-up time. Split sleep or naps logged on the same day add together automatically.</p>
+                                <h2>Sleep &amp; Desvelo Tracker</h2>
+                                <p class="view-header-subtitle">Log bedtime, wake-up time, late-night bedtimes (e.g. 3:00 AM), or all-nighters (Desvelo). Late-night patterns and notes are shared with your psychiatrist.</p>
                             </div>
                         </div>
                         <div class="view-header-actions">
@@ -709,25 +709,66 @@
                     <div class="view-grid-2">
                         <div class="card view-main-card">
                             <form id="sleepForm">
+                                <input type="hidden" id="sleepTipoRegistro" value="normal">
+
+                                <div class="form-group">
+                                    <label>Entry Type:</label>
+                                    <div class="sleep-mode-pills" id="sleepModePills" role="group" aria-label="Sleep or desvelo entry type">
+                                        <button type="button" class="sleep-mode-pill active" data-sleep-mode="normal">🌙 Sleep Session</button>
+                                        <button type="button" class="sleep-mode-pill" data-sleep-mode="desvelo_tarde">🦉 Desvelo / Late Bedtime (e.g. 3 AM)</button>
+                                        <button type="button" class="sleep-mode-pill" data-sleep-mode="desvelo_total">⚡ All-Nighter / No Sleep (0 hrs)</button>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="label-with-helper">
+                                        <label for="sleepDate">Date of rest / wake-up:</label>
+                                        <div class="sleep-date-quick">
+                                            <button type="button" class="text-link-btn" id="btnSleepDateYesterday">Yesterday</button>
+                                            <button type="button" class="text-link-btn" id="btnSleepDateToday">Today</button>
+                                        </div>
+                                    </div>
+                                    <input type="date" id="sleepDate" required>
+                                </div>
+
                                 <div class="form-row-2">
                                     <div class="form-group">
-                                        <label for="sleepTime">Fell asleep at:</label>
+                                        <div class="label-with-helper">
+                                            <label for="sleepTime" id="sleepTimeLabel">Fell asleep at:</label>
+                                            <button type="button" class="text-link-btn" id="btnSleepBedtimeNow">Use current time</button>
+                                        </div>
                                         <input type="time" id="sleepTime" class="hour-picker" required>
                                     </div>
 
-                                    <div class="form-group">
+                                    <div class="form-group" id="sleepWakeupGroup">
                                         <div class="label-with-helper">
-                                            <label for="wakeupTime">Woke up at:</label>
+                                            <label for="wakeupTime" id="wakeupTimeLabel">Woke up at:</label>
                                             <button type="button" class="text-link-btn" id="btnSleepUseNow">Use current time</button>
                                         </div>
                                         <input type="time" id="wakeupTime" class="hour-picker" required>
                                     </div>
                                 </div>
 
+                                <div class="sleep-desvelo-controls" id="sleepDesveloControls">
+                                    <div class="sleep-auto-banner" id="sleepDesveloAutoBanner" hidden>
+                                        🦉 <strong>Late-night bedtime detected (<span id="sleepDetectedBedtimeText">3:00 AM</span>):</strong> automatically marked as <strong>Desvelo</strong> for your psychiatrist's weekly report.
+                                    </div>
+
+                                    <label class="sleep-desvelo-toggle" for="sleepEsDesvelo" id="sleepEsDesveloRow">
+                                        <input type="checkbox" id="sleepEsDesvelo">
+                                        <span>🦉 Mark as <strong>Desvelo / Late Bedtime</strong> (highlighted in Psychiatrist Weekly Summary)</span>
+                                    </label>
+
+                                    <label class="sleep-desvelo-toggle" for="sleepStillAwake" id="sleepStillAwakeRow">
+                                        <input type="checkbox" id="sleepStillAwake">
+                                        <span>⏳ Going to sleep just now (e.g. 3:00 AM) — log bedtime immediately and add wake-up time later</span>
+                                    </label>
+                                </div>
+
                                 <div class="sleep-duration-preview">
                                     <div>
-                                        <span class="muted-text">Calculated sleep duration</span>
-                                        <strong id="sleepDurationBadge">-- hrs</strong>
+                                        <span class="muted-text" id="sleepDurationLabel">Calculated sleep duration</span>
+                                        <strong id="sleepDurationBadge">-- hrs -- min</strong>
                                     </div>
                                     <input type="text" id="sleepHours" step="0.1" readonly aria-label="Total hours of sleep">
                                 </div>
@@ -747,6 +788,12 @@
                                     </select>
                                 </div>
 
+                                <div class="form-group" id="sleepMotivoGroup" hidden>
+                                    <label for="sleepMotivoDesvelo">Motivo / Nota del desvelo (opcional · visible para el psiquiatra):</label>
+                                    <textarea id="sleepMotivoDesvelo" lang="es" spellcheck="true" rows="2" maxlength="500"
+                                        placeholder="Ej: Me dormí hasta las 3:00 AM por insomnio, ansiedad o proyecto; o pasé la noche en vela..."></textarea>
+                                </div>
+
                                 <div id="sleepStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
 
                                 <div class="form-action-stack">
@@ -758,13 +805,13 @@
                         <aside class="card side-insight-card">
                             <div class="side-insight-head">
                                 <h3>Today's Sleep Summary</h3>
-                                <span class="muted-text">Intermittent friendly</span>
+                                <span class="muted-text">Desvelo &amp; Intermittent</span>
                             </div>
                             <div id="sleepTodaySummary" class="sleep-today-box">
                                 <p class="muted-text">Loading today's sleep log...</p>
                             </div>
                             <div class="side-tip-box">
-                                <strong>Tip:</strong> Best recorded right after waking up. Multiple sleep sessions on the same day accumulate cleanly without overwriting earlier rest.
+                                <strong>Tip:</strong> Bedtimes between <strong>1:00 AM and 5:59 AM</strong> (like 3:00 AM) are automatically flagged as <strong>Desvelo</strong> for your psychiatrist. If you are just going to bed at 3:00 AM, check <em>"Going to sleep just now"</em> to save your bedtime right away and complete your wake-up time in the morning!
                             </div>
                         </aside>
                     </div>
@@ -1785,28 +1832,37 @@
 
                                     <hr class="section-divider">
                                     <h4>🏠 Home / Base Location (for 1st Class &amp; Morning Commute)</h4>
+                                    <p class="form-hint" id="homeLocationSummaryText">
+                                        Enter your Saltillo street address or paste a Google Maps link, then click <strong>Save &amp; Find Home Location</strong>.
+                                    </p>
                                     <div class="form-row-2">
                                         <div class="form-group">
-                                            <label for="homeLocationAddress">Address / Neighborhood:</label>
-                                            <input type="text" id="homeLocationAddress" maxlength="200" placeholder="e.g. Mi Casa, Saltillo, Coah.">
+                                            <label for="homeLocationLabel">Home Label:</label>
+                                            <input type="text" id="homeLocationLabel" maxlength="80" value="Mi Casa" placeholder="e.g. Mi Casa">
                                         </div>
                                         <div class="form-group">
-                                            <label for="homeLocationMapsUrl">Google Maps Link (optional):</label>
-                                            <input type="text" id="homeLocationMapsUrl" maxlength="500" placeholder="Paste Google Maps link or coordinates...">
+                                            <label for="homeLocationAddress">Street Address / Neighborhood (auto-locates in Saltillo):</label>
+                                            <input type="text" id="homeLocationAddress" maxlength="200" placeholder="e.g. Margarita Maza de Juárez 924, Saltillo, Coah.">
                                         </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="homeLocationMapsUrl">Google Maps Link or Coordinates (optional — auto-fills Lat/Lng):</label>
+                                        <input type="text" id="homeLocationMapsUrl" maxlength="500" placeholder="Paste Google Maps link (maps.app.goo.gl / google.com/maps) or 25.43..., -100.99...">
                                     </div>
                                     <div class="form-row-2">
                                         <div class="form-group">
                                             <label for="homeLocationLat">Home Latitude:</label>
-                                            <input type="number" id="homeLocationLat" step="any" placeholder="e.g. 25.412300">
+                                            <input type="number" id="homeLocationLat" step="any" placeholder="e.g. 25.431683">
                                         </div>
                                         <div class="form-group">
                                             <label for="homeLocationLng">Home Longitude:</label>
-                                            <input type="number" id="homeLocationLng" step="any" placeholder="e.g. -101.005400">
+                                            <input type="number" id="homeLocationLng" step="any" placeholder="e.g. -100.992006">
                                         </div>
                                     </div>
-                                    <div class="settings-inline-actions">
-                                        <button type="button" class="agenda-chip-btn" data-use-gps-target="home">📍 Set Home from My Current GPS</button>
+                                    <div class="settings-inline-actions" style="flex-wrap: wrap;">
+                                        <button type="button" class="btn-submit btn-small" id="btnSaveHomeLocation">💾 Save &amp; 🔍 Find Home Location</button>
+                                        <button type="button" class="agenda-chip-btn" data-use-gps-target="home">📍 Set Home from Phone/GPS</button>
+                                        <a id="homeLocationVerifyLink" href="#" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-small" hidden style="text-decoration:none;display:inline-flex;align-items:center;">🗺️ Verify Home in Maps</a>
                                     </div>
 
                                     <hr class="section-divider">
@@ -1824,12 +1880,42 @@
                                 </div>
 
                                 <div class="music-panel-card">
-                                    <div class="music-panel-head">
+                                    <div class="music-panel-head" style="flex-wrap: wrap; gap: 8px;">
                                         <h3>🚗 Live Route, Distance &amp; Traffic Estimator</h3>
-                                        <button type="button" class="btn-secondary btn-small" data-use-gps-target="current">📍 Refresh GPS</button>
+                                        <div class="quick-loc-header-btns">
+                                            <button type="button" class="btn-secondary btn-small" data-use-gps-target="current">📍 Refresh GPS</button>
+                                            <button type="button" class="agenda-chip-btn" id="btnPingPhoneGps">📲 Ping Phone GPS (ntfy)</button>
+                                            <button type="button" class="agenda-chip-btn" id="btnClearCurrentGps">🏠 Use Saved Home</button>
+                                        </div>
                                     </div>
                                     <p class="muted-text" id="liveCommuteOriginText">Origin: Detecting your saved Home or live GPS location...</p>
+                                    <p class="form-hint" id="liveCommuteOriginMeta"></p>
                                     <div id="liveCommuteCardsContainer" class="music-catalog-container"></div>
+
+                                    <details class="quick-loc-details" id="phoneWebhookSetupBox" style="margin-top: 14px;">
+                                        <summary>🤖 Automatic Phone GPS over Plain HTTP (no HTTPS / domain needed)</summary>
+                                        <p class="form-hint" style="margin-top: 6px;">
+                                            Because this server uses plain <code>http://</code> without a domain, Chrome/OPPO A79 blocks silent background browser GPS unless you either:
+                                            (1) tap <strong>📲 Ping Phone GPS (ntfy)</strong>,
+                                            (2) whitelist this HTTP origin once in Chrome flags, or
+                                            (3) paste this signed webhook URL into Android <strong>MacroDroid / Automate</strong> to send real phone GPS automatically.
+                                        </p>
+                                        <div class="settings-inline-actions" style="margin-top: 8px; flex-wrap: wrap;">
+                                            <button type="button" class="agenda-chip-btn" id="btnLoadPhoneWebhook">🔑 Show Phone HTTP Webhook</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnRotatePhoneWebhook">🔄 Rotate Token</button>
+                                        </div>
+                                        <div id="phoneWebhookCredentialsBox" class="phone-webhook-box" hidden>
+                                            <div class="form-hint"><strong>Android HTTP GET / POST Webhook URL (keep secret):</strong></div>
+                                            <div class="phone-webhook-row">
+                                                <code id="phoneWebhookUrlCode" class="quick-loc-origin-code phone-webhook-code"></code>
+                                                <button type="button" class="agenda-chip-btn" id="btnCopyPhoneWebhook">📋 Copy URL</button>
+                                            </div>
+                                            <div class="form-hint" style="margin-top: 6px;">
+                                                Send <code>GET</code> with <code>&amp;lat=25.44&amp;lng=-100.99</code> OR <code>POST JSON</code>:
+                                            </div>
+                                            <code id="phoneWebhookBodyCode" class="quick-loc-origin-code phone-webhook-code">{"lat":[lv=lat],"lng":[lv=lng],"source":"macrodroid_gps"}</code>
+                                        </div>
+                                    </details>
                                 </div>
                             </div>
                         </div>
@@ -1849,7 +1935,7 @@
             <section class="app-view" id="view-resumen" data-title="Weekly Summary">
                 <div class="tracker-container view-shell">
                     <div class="readonly-banner" id="medicoReadonlyBanner" hidden>
-                        🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker, Sleep Hours &amp; Crisis Log.
+                        🩺 <strong>Clinical View (Read-Only):</strong> Authorized view of Mood Tracker, Sleep &amp; Desvelo Log &amp; Crisis Log.
                     </div>
 
                     <div class="view-header-card">
@@ -1967,9 +2053,18 @@
                             </ul>
                         </aside>
 
-                        <div class="sleep-container">
-                            <h3>🌙 Sleep Summary</h3>
+                        <div class="sleep-container" id="resumenSleepSection">
+                            <h3>🌙 Sleep &amp; Desvelo Summary</h3>
                             <div class="sleep-grid" id="sleepGrid"></div>
+                            <div class="sleep-details-panel card" id="resumenSleepDetailsContainer">
+                                <div class="side-insight-head">
+                                    <h4>🦉 Bedtimes, Desvelos &amp; Late-Night Details (Visible to Patient &amp; Psychiatrist Read-Only)</h4>
+                                    <span class="muted-text" id="resumenSleepCount"></span>
+                                </div>
+                                <div id="resumenSleepDetailsList" class="sleep-detail-list">
+                                    <p class="muted-text">Loading sleep &amp; desvelo details for this week...</p>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="crisis-summary-container card" id="resumenCrisisSection">
@@ -2546,19 +2641,23 @@
                 <button type="button" class="modal-close-btn" id="btnCloseQuickLocModal" aria-label="Close modal">✕</button>
             </div>
             <div id="quickLocationHttpNotice" class="quick-loc-hint-box" hidden>
-                <strong>🔒 Why Browser GPS Was Blocked:</strong> Modern browsers (Edge, Chrome, OPPO A79) restrict <code>navigator.geolocation</code> to <code>https://</code> or <code>localhost</code>. Even with our X25519 encrypted API tunnel, the address bar uses plain <code>http://</code>. Use <strong>1-Tap Presets</strong> or paste a <strong>Google Maps link</strong> below:
+                <strong>📱 Phone GPS over Plain HTTP (No Domain Needed):</strong> Browsers (Chrome on OPPO A79, Edge on PC) block <code>navigator.geolocation</code> on plain <code>http://</code> unless enabled in flags below. Use <strong>📲 Ping My Phone (ntfy)</strong>, pick <strong>Saved Home / 1-Tap Presets</strong>, or paste your <strong>street address or Google Maps Share link</strong>:
             </div>
 
-            <div class="quick-loc-section-label">1-Tap Quick Locations:</div>
+            <div class="quick-loc-section-label">1-Tap Quick Locations &amp; Phone Actions:</div>
             <div id="quickLocationPresets" class="quick-loc-presets"></div>
+            <div class="quick-loc-phone-actions" style="margin-top: 8px;">
+                <button type="button" class="agenda-chip-btn" id="btnModalPingPhoneGps">📲 Ping My Phone for GPS (ntfy)</button>
+                <button type="button" class="agenda-chip-btn" id="btnModalUseHomeOrigin">🏠 Use Saved Home as Origin</button>
+            </div>
 
             <form id="quickLocationForm" autocomplete="off" style="margin-top: 12px;">
                 <input type="hidden" id="quickLocationTarget" value="current">
                 <div class="form-group">
-                    <label for="quickLocationInput">Or paste Google Maps link / coordinates (lat, lng):</label>
+                    <label for="quickLocationInput">Or paste street address, Google Maps link, or coordinates (lat, lng):</label>
                     <input type="text" id="quickLocationInput" maxlength="500"
-                        placeholder="e.g. 25.443706, -100.993845 or https://maps.app.goo.gl/...">
-                    <small class="form-hint">In Google Maps (PC or OPPO A79): tap a spot → Share / Copy link → paste here.</small>
+                        placeholder="e.g. Margarita Maza de Juárez 924, Saltillo  OR  https://maps.app.goo.gl/...  OR  25.4437, -100.9938">
+                    <small class="form-hint">In Google Maps (OPPO A79): tap blue dot / place → Share → Copy link → paste here, OR type your Saltillo street address.</small>
                 </div>
                 <div id="quickLocationBanner" class="inline-status-banner" hidden aria-live="polite"></div>
                 <div class="modal-actions" style="justify-content: space-between; flex-wrap: wrap;">
@@ -2571,12 +2670,13 @@
             </form>
 
             <details class="quick-loc-details">
-                <summary>⚙️ Optional: Unlock Hardware Browser GPS on Edge / Chrome HTTP</summary>
+                <summary>⚙️ Enable 1-Tap Phone Hardware GPS on Chrome (OPPO A79) / Edge HTTP</summary>
                 <p class="form-hint" style="margin-top:6px;">
-                    Open <code>edge://flags/#unsafely-treat-insecure-origin-as-secure</code> (PC) or <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> (Android), add <code id="quickLocationOriginCode" class="quick-loc-origin-code">http://...</code>, set to <strong>Enabled</strong> and relaunch.
+                    1. On your phone Chrome open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> (Edge PC: <code>edge://flags/#unsafely-treat-insecure-origin-as-secure</code>).<br>
+                    2. Add <code id="quickLocationOriginCode" class="quick-loc-origin-code">http://...</code> <button type="button" class="agenda-chip-btn" id="btnCopyQuickLocOrigin" style="padding:2px 8px;font-size:0.74rem;">📋 Copy</button>, select <strong>Enabled</strong>, tap <strong>Relaunch</strong>.
                 </p>
                 <div style="margin-top:8px;">
-                    <button type="button" class="agenda-chip-btn" id="btnRetryBrowserGps">🛰️ Retry Browser Hardware GPS</button>
+                    <button type="button" class="agenda-chip-btn" id="btnRetryBrowserGps">🛰️ Retry Phone / Browser Hardware GPS</button>
                 </div>
             </details>
         </div>

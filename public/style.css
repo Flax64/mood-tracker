@@ -5589,3 +5589,308 @@ body {
     color: #e2e8f0;
 }
 
+.quick-loc-header-btns,
+.quick-loc-phone-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.phone-webhook-box {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 10px;
+    background: var(--bg-soft, rgba(148, 163, 184, 0.08));
+}
+
+.phone-webhook-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.phone-webhook-code {
+    display: block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    padding: 6px 8px;
+    font-size: 0.74rem;
+    flex: 1 1 220px;
+}
+
+:root[data-theme="dark"] .phone-webhook-box {
+    background: rgba(15, 23, 42, 0.65);
+    border-color: #334155;
+}
+
+/* Sleep & Desvelo Tracker Styles */
+.sleep-mode-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.sleep-mode-pill {
+    flex: 1 1 auto;
+    min-width: 140px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    background: var(--bg-surface-alt, #f8fafc);
+    color: var(--text-main, #1e293b);
+    font: inherit;
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.16s, background 0.16s, color 0.16s, transform 0.12s;
+    text-align: center;
+}
+
+.sleep-mode-pill:hover {
+    border-color: #6366f1;
+    transform: translateY(-1px);
+}
+
+.sleep-mode-pill.active {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    border-color: transparent;
+    color: #ffffff;
+}
+
+.sleep-date-quick {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sleep-desvelo-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.sleep-auto-banner {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.1);
+    color: var(--text-main, #1e293b);
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+
+.sleep-desvelo-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 9px 11px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-surface-alt, #f8fafc);
+    font-size: 0.84rem;
+    line-height: 1.4;
+    cursor: pointer;
+    color: var(--text-main, #1e293b);
+}
+
+.sleep-desvelo-toggle input[type="checkbox"] {
+    width: auto;
+    margin: 2px 0 0;
+    flex-shrink: 0;
+    accent-color: #7c3aed;
+}
+
+.sleep-card.has-desvelo {
+    background: rgba(139, 92, 246, 0.06);
+}
+
+.sleep-desvelo-tag {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(139, 92, 246, 0.16);
+    color: #6d28d9;
+}
+
+.sleep-desvelo-tag.is-total {
+    background: rgba(239, 68, 68, 0.16);
+    color: #b91c1c;
+}
+
+.sleep-details-panel {
+    margin-top: 10px;
+    padding: 16px 18px;
+}
+
+.sleep-details-panel h4 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-main, #1e293b);
+}
+
+.sleep-detail-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.sleep-detail-card {
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-left: 4px solid #3b82f6;
+    border-radius: 10px;
+    padding: 11px 14px;
+    background: var(--bg-soft, #f8fafc);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sleep-detail-card.is-desvelo {
+    border-left-color: #8b5cf6;
+}
+
+.sleep-detail-card.is-total {
+    border-left-color: #ef4444;
+}
+
+.sleep-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.sleep-detail-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.sleep-desvelo-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 800;
+    background: rgba(139, 92, 246, 0.16);
+    color: #6d28d9;
+}
+
+.sleep-desvelo-badge.is-total {
+    background: rgba(239, 68, 68, 0.15);
+    color: #b91c1c;
+}
+
+.sleep-desvelo-badge.is-normal {
+    background: rgba(59, 130, 246, 0.14);
+    color: #1d4ed8;
+}
+
+.sleep-detail-note {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    color: var(--text-main, #1e293b);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.sleep-today-card {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    background: var(--bg-surface-alt, #f8fafc);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sleep-today-card.is-desvelo {
+    border-left: 4px solid #8b5cf6;
+}
+
+.sleep-today-card.is-total {
+    border-left: 4px solid #ef4444;
+}
+
+.sleep-today-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.sleep-today-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+:root[data-theme="dark"] .sleep-mode-pill,
+:root[data-theme="dark"] .sleep-desvelo-toggle,
+:root[data-theme="dark"] .sleep-today-card,
+:root[data-theme="dark"] .sleep-detail-card {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+:root[data-theme="dark"] .sleep-mode-pill.active {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-color: transparent;
+    color: #ffffff;
+}
+
+:root[data-theme="dark"] .sleep-auto-banner {
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(167, 139, 250, 0.45);
+    color: #ede9fe;
+}
+
+:root[data-theme="dark"] .sleep-card.has-desvelo {
+    background: rgba(139, 92, 246, 0.14);
+}
+
+:root[data-theme="dark"] .sleep-desvelo-tag,
+:root[data-theme="dark"] .sleep-desvelo-badge {
+    background: rgba(167, 139, 250, 0.22);
+    color: #ddd6fe;
+}
+
+:root[data-theme="dark"] .sleep-desvelo-tag.is-total,
+:root[data-theme="dark"] .sleep-desvelo-badge.is-total {
+    background: rgba(248, 113, 113, 0.22);
+    color: #fecaca;
+}
+
+:root[data-theme="dark"] .sleep-desvelo-badge.is-normal {
+    background: rgba(96, 165, 250, 0.2);
+    color: #bfdbfe;
+}
+
+@media (max-width: 640px) {
+    .sleep-mode-pill {
+        flex: 1 1 100%;
+        text-align: left;
+    }
+    .sleep-details-panel {
+        padding: 12px;
+    }
+}
+
+

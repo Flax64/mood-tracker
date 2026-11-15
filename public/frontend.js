@@ -828,6 +828,36 @@ function formatHoursMinutes(decimalHours, { compact = false } = {}) {
     return `${hrs} ${hrLabel} ${mins} min`;
 }
 
+function formatClockTime12h(hhmm) {
+    if (!hhmm || !/^\d{2}:\d{2}/.test(String(hhmm))) return '--';
+    const [hStr, mStr] = String(hhmm).slice(0, 5).split(':');
+    const h = Number(hStr);
+    const m = Number(mStr);
+    if (!Number.isInteger(h) || !Number.isInteger(m)) return String(hhmm);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function isLateBedtimeClock(hhmm) {
+    if (!hhmm || !/^\d{2}:\d{2}/.test(String(hhmm))) return false;
+    const [hStr, mStr] = String(hhmm).slice(0, 5).split(':');
+    const totalMin = Number(hStr) * 60 + Number(mStr);
+    return Number.isFinite(totalMin) && totalMin >= 60 && totalMin < 360;
+}
+
+function parseIsoDateToDayIndex(rawFecha) {
+    if (!rawFecha) return -1;
+    const iso = String(rawFecha).slice(0, 10);
+    const parts = iso.split('-').map(Number);
+    if (parts.length !== 3 || parts.some(Number.isNaN)) {
+        const fallback = new Date(rawFecha);
+        return Number.isNaN(fallback.getTime()) ? -1 : fallback.getUTCDay();
+    }
+    const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+    return Number.isNaN(d.getTime()) ? -1 : d.getUTCDay();
+}
+
 function showView(viewName, updateHash = true, options = {}) {
     let targetView = VALID_VIEWS.has(viewName) ? viewName : 'inicio';
 
@@ -873,6 +903,9 @@ function showView(viewName, updateHash = true, options = {}) {
         }
         if (typeof cargarCrisisRecientes === 'function') cargarCrisisRecientes();
     } else if (targetView === 'sueno') {
+        if (!options.preserveTarget && typeof initSleepViewDefaults === 'function') {
+            initSleepViewDefaults();
+        }
         if (typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
     } else if (targetView === 'journal') {
         updateE2eeKeyStatusUI();
@@ -930,14 +963,21 @@ function openReminderTarget(reminder = {}) {
     }
 
     if (targetView === 'sueno') {
+        const sleepDateEl = document.getElementById('sleepDate');
+        if (sleepDateEl && targetDate) sleepDateEl.value = targetDate;
         showView('sueno', true, { preserveTarget: true });
         setInlineBanner(
             'sleepStatusBanner',
             'info',
-            `Selected ${targetDate} sleep check-in — enter your bedtime, wake-up time, and rest quality.`
+            `Selected ${targetDate} sleep check-in — enter bedtime (auto-detects late desvelo like 3:00 AM), wake-up time, and rest quality.`
         );
         const sleepInput = document.getElementById('sleepTime');
-        if (sleepInput) setTimeout(() => sleepInput.focus(), 60);
+        const wakeInput = document.getElementById('wakeupTime');
+        if (sleepInput && sleepInput.value && wakeInput) {
+            setTimeout(() => wakeInput.focus(), 60);
+        } else if (sleepInput) {
+            setTimeout(() => sleepInput.focus(), 60);
+        }
         return;
     }
 
@@ -1152,12 +1192,25 @@ function cargarInicioResumen() {
                 sleepBox.appendChild(p);
                 return;
             }
-            const totalH = registros.reduce((acc, r) => acc + parseFloat(r.horas || 0), 0);
+            const totalH = registros.reduce((acc, r) => acc + (parseFloat(r.horas) || 0), 0);
+            const desveloRows = registros.filter(r => Number(r.es_desvelo) === 1 || (r.tipo_registro && r.tipo_registro !== 'normal'));
+            const hasAllNighter = desveloRows.some(r => r.tipo_registro === 'desvelo_total');
             const p = document.createElement('p');
             p.style.margin = '0';
             const plural = registros.length === 1 ? 'session' : 'sessions';
-            p.innerHTML = `<strong>${formatHoursMinutes(totalH)}</strong> logged across ${registros.length} ${plural}.`;
+            const strong = document.createElement('strong');
+            strong.textContent = formatHoursMinutes(totalH);
+            p.append(strong, document.createTextNode(` logged across ${registros.length} ${plural}.`));
             sleepBox.appendChild(p);
+            if (desveloRows.length > 0) {
+                const tag = document.createElement('div');
+                tag.className = `sleep-desvelo-tag${hasAllNighter ? ' is-total' : ''}`;
+                const bedList = desveloRows.map(r => r.hora_dormir ? formatClockTime12h(r.hora_dormir) : '').filter(Boolean);
+                tag.textContent = hasAllNighter
+                    ? '⚡ Desvelo total / All-nighter logged'
+                    : `🦉 Desvelo (${bedList.length ? `bed ${bedList.join(', ')}` : `${desveloRows.length}`})`;
+                sleepBox.appendChild(tag);
+            }
         })
         .catch(err => {
             if (isAbortError(err) || !homeSummaryTracker.isCurrent(reqToken.seq)) return;
@@ -1505,17 +1558,22 @@ if (selectSemana) {
             .finally(markOneSettled);
 
         const sleepGrid = document.getElementById('sleepGrid');
+        const sleepDetailsList = document.getElementById('resumenSleepDetailsList');
+        const sleepResumenCount = document.getElementById('resumenSleepCount');
         sleepGrid.replaceChildren(createLoadingBanner('Loading sleep logs...', 'sm'));
+        if (sleepDetailsList) {
+            sleepDetailsList.replaceChildren(createLoadingBanner('Loading sleep & desvelo details...', 'sm'));
+        }
 
         const diasNombres = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         const sumatoriaSueno = {
-            Sunday: { horas: 0, calidades: [], sesiones: [] },
-            Monday: { horas: 0, calidades: [], sesiones: [] },
-            Tuesday: { horas: 0, calidades: [], sesiones: [] },
-            Wednesday: { horas: 0, calidades: [], sesiones: [] },
-            Thursday: { horas: 0, calidades: [], sesiones: [] },
-            Friday: { horas: 0, calidades: [], sesiones: [] },
-            Saturday: { horas: 0, calidades: [], sesiones: [] }
+            Sunday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+            Monday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+            Tuesday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+            Wednesday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+            Thursday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+            Friday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+            Saturday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 }
         };
 
         fetch(`/api/get-sleep?begin=${begin}&end=${end}`, fetchOpts)
@@ -1523,38 +1581,65 @@ if (selectSemana) {
             .then(registros => {
                 if (!resumenTracker.isCurrent(reqToken.seq)) return;
                 sleepGrid.innerHTML = '';
-                registros.forEach(registro => {
-                    const fechaObj = new Date(registro.fecha);
-                    const nombreDia = diasSemana[fechaObj.getUTCDay()];
+                const list = Array.isArray(registros) ? registros : [];
 
-                    const horasRegistro = parseFloat(registro.horas);
+                list.forEach(registro => {
+                    const dayIdx = parseIsoDateToDayIndex(registro.fecha);
+                    if (dayIdx < 0 || dayIdx > 6) return;
+                    const nombreDia = diasSemana[dayIdx];
+
+                    const horasRegistro = parseFloat(registro.horas) || 0;
+                    const isDesvelo = Number(registro.es_desvelo) === 1 || (registro.tipo_registro && registro.tipo_registro !== 'normal');
+                    const isTotal = registro.tipo_registro === 'desvelo_total';
+                    const isPending = registro.tipo_registro === 'desvelo_tarde' && registro.hora_dormir && !registro.hora_despertar && horasRegistro === 0;
+
                     sumatoriaSueno[nombreDia].horas += horasRegistro;
                     sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
                     sumatoriaSueno[nombreDia].sesiones.push(horasRegistro);
+                    if (isDesvelo) sumatoriaSueno[nombreDia].desvelos += 1;
+                    if (isTotal) sumatoriaSueno[nombreDia].totalAllNighters += 1;
+                    if (isPending) sumatoriaSueno[nombreDia].pendingCount += 1;
+                    if (isDesvelo && registro.hora_dormir) {
+                        sumatoriaSueno[nombreDia].lateBedtimes.push(formatClockTime12h(registro.hora_dormir));
+                    }
                 });
 
                 diasSemana.forEach((dia, index) => {
                     const datosDia = sumatoriaSueno[dia];
+                    const cantidadSesiones = datosDia.sesiones.length;
                     let emoji = '➖';
                     let colorBorde = '';
                     let textoHoras = '--';
-                    let textoIntervalos = '';
+                    let intervalText = '';
+                    let desveloTagText = '';
+                    let desveloTagIsTotal = false;
 
-                    if (datosDia.horas > 0) {
+                    if (cantidadSesiones > 0) {
                         const totalH = datosDia.horas;
-                        const cantidadSesiones = datosDia.sesiones.length;
                         const intermitente = cantidadSesiones > 1;
-
-                        textoHoras = formatHoursMinutes(totalH, { compact: true });
+                        textoHoras = datosDia.pendingCount > 0 && totalH === 0
+                            ? 'Pending'
+                            : formatHoursMinutes(totalH, { compact: true });
 
                         if (intermitente) {
                             const listaIntervalos = datosDia.sesiones.map(sesionH =>
                                 formatHoursMinutes(sesionH, { compact: true })
                             );
-                            textoIntervalos = `<div class="sleep-intervals">(${listaIntervalos.join(' + ')})</div>`;
+                            intervalText = `(${listaIntervalos.join(' + ')})`;
                         }
 
-                        if (totalH < 4 || (totalH < 6 && intermitente)) {
+                        if (datosDia.totalAllNighters > 0) {
+                            emoji = '⚡';
+                            colorBorde = '#EF4444';
+                            desveloTagText = '⚡ Desvelo total';
+                            desveloTagIsTotal = true;
+                        } else if (datosDia.desvelos > 0) {
+                            emoji = totalH < 4 ? '🔴' : '🦉';
+                            colorBorde = totalH < 4 ? '#EF4444' : '#8B5CF6';
+                            desveloTagText = datosDia.lateBedtimes.length
+                                ? `🦉 ${datosDia.lateBedtimes[0]}`
+                                : `🦉 ${datosDia.desvelos} desvelo${datosDia.desvelos > 1 ? 's' : ''}`;
+                        } else if (totalH < 4 || (totalH < 6 && intermitente)) {
                             emoji = '🔴';
                             colorBorde = '#EF4444';
                         } else if (totalH >= 7 && !intermitente) {
@@ -1567,24 +1652,59 @@ if (selectSemana) {
                     }
 
                     const card = document.createElement('div');
-                    card.className = 'sleep-card';
+                    card.className = `sleep-card${datosDia.desvelos > 0 ? ' has-desvelo' : ''}`;
                     if (colorBorde) card.style.borderColor = colorBorde;
 
-                    card.innerHTML = `
-                        <div class="day-name">${diasNombres[index]}</div>
-                        <div class="sleep-hours" style="line-height: 1.1;">
-                            ${textoHoras}
-                            ${textoIntervalos}
-                        </div>
-                        <div class="sleep-quality" style="margin-top: 10px;">${emoji}</div>
-                    `;
+                    const dayEl = document.createElement('div');
+                    dayEl.className = 'day-name';
+                    dayEl.textContent = diasNombres[index];
+
+                    const hrsEl = document.createElement('div');
+                    hrsEl.className = 'sleep-hours';
+                    hrsEl.style.lineHeight = '1.1';
+                    hrsEl.append(document.createTextNode(textoHoras));
+                    if (intervalText) {
+                        const intEl = document.createElement('div');
+                        intEl.className = 'sleep-intervals';
+                        intEl.textContent = intervalText;
+                        hrsEl.appendChild(intEl);
+                    }
+
+                    card.append(dayEl, hrsEl);
+
+                    if (desveloTagText) {
+                        const tagEl = document.createElement('div');
+                        tagEl.className = `sleep-desvelo-tag${desveloTagIsTotal ? ' is-total' : ''}`;
+                        tagEl.textContent = desveloTagText;
+                        card.appendChild(tagEl);
+                    }
+
+                    const qualEl = document.createElement('div');
+                    qualEl.className = 'sleep-quality';
+                    qualEl.style.marginTop = '8px';
+                    qualEl.textContent = emoji;
+                    card.appendChild(qualEl);
+
                     sleepGrid.appendChild(card);
                 });
+
+                if (sleepResumenCount) {
+                    const totalDesvelos = list.filter(r => Number(r.es_desvelo) === 1 || (r.tipo_registro && r.tipo_registro !== 'normal')).length;
+                    sleepResumenCount.textContent = list.length === 0
+                        ? 'No sleep records this week'
+                        : `${list.length} session${list.length === 1 ? '' : 's'}${totalDesvelos > 0 ? ` · 🦉 ${totalDesvelos} desvelo${totalDesvelos === 1 ? '' : 's'}` : ''}`;
+                }
+                if (typeof renderSleepDetailCards === 'function') {
+                    renderSleepDetailCards(sleepDetailsList, list);
+                }
             })
             .catch(error => {
                 if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq)) {
                     console.error('Error loading sleep logs:', error);
                     sleepGrid.innerHTML = '<p class="muted-text">Could not load sleep logs.</p>';
+                    if (sleepDetailsList) {
+                        sleepDetailsList.innerHTML = '<p class="muted-text">Could not load sleep &amp; desvelo details.</p>';
+                    }
                 }
             })
             .finally(markOneSettled);
@@ -1615,57 +1735,287 @@ if (selectSemana) {
 }
 
 // ==========================================
-// SLEEP TRACKER FORM LOGIC
+// SLEEP & DESVELO TRACKER FORM LOGIC
 // ==========================================
-function renderSleepTodaySummary(rows = []) {
+const SLEEP_BEDTIME_DRAFT_KEY = 'mt_sleep_bedtime_draft';
+let editingSleepSessionId = null;
+
+function formatSleepQualityBadge(calidad) {
+    if (calidad === 'Good') return '🟢 Good / Restorative';
+    if (calidad === 'Bad') return '🔴 Poor / Heavy';
+    return '🟡 Fair / Light';
+}
+
+function formatSleepIntervalText(row = {}) {
+    const tipo = row.tipo_registro || 'normal';
+    const hrsText = formatHoursMinutes(row.horas);
+    if (tipo === 'desvelo_total') {
+        const atTime = row.hora_dormir ? ` · Awake at ${formatClockTime12h(row.hora_dormir)}` : '';
+        return `All-Nighter / No Sleep (${hrsText})${atTime}`;
+    }
+    if (row.hora_dormir && row.hora_despertar) {
+        return `Bed: ${formatClockTime12h(row.hora_dormir)} → Wake: ${formatClockTime12h(row.hora_despertar)} (${hrsText})`;
+    }
+    if (row.hora_dormir && !row.hora_despertar) {
+        return `Bedtime: ${formatClockTime12h(row.hora_dormir)} (wake-up pending)`;
+    }
+    return `Duration: ${hrsText}`;
+}
+
+function renderSleepDetailCards(container, rows = []) {
+    if (!container) return;
+    const list = Array.isArray(rows) ? [...rows] : [];
+    if (!list.length) {
+        const p = document.createElement('p');
+        p.className = 'muted-text';
+        p.textContent = 'No sleep or desvelo sessions recorded during this week.';
+        container.replaceChildren(p);
+        return;
+    }
+
+    list.sort((a, b) => {
+        const da = String(a.fecha || '').slice(0, 10);
+        const db = String(b.fecha || '').slice(0, 10);
+        if (da !== db) return db.localeCompare(da);
+        return Number(b.id || 0) - Number(a.id || 0);
+    });
+
+    const fragment = document.createDocumentFragment();
+    list.forEach(item => {
+        const tipo = item.tipo_registro || 'normal';
+        const isTotal = tipo === 'desvelo_total';
+        const isDesvelo = Number(item.es_desvelo) === 1 || tipo !== 'normal';
+
+        const card = document.createElement('div');
+        card.className = `sleep-detail-card${isTotal ? ' is-total' : (isDesvelo ? ' is-desvelo' : '')}`;
+
+        const head = document.createElement('div');
+        head.className = 'sleep-detail-head';
+
+        const titleStrong = document.createElement('strong');
+        titleStrong.textContent = `📅 ${formatCrisisDateLabel(item.fecha)} · 🕒 ${formatSleepIntervalText(item)}`;
+
+        const badges = document.createElement('div');
+        badges.className = 'sleep-detail-badges';
+
+        const typeBadge = document.createElement('span');
+        typeBadge.className = `sleep-desvelo-badge${isTotal ? ' is-total' : (isDesvelo ? '' : ' is-normal')}`;
+        if (isTotal) {
+            typeBadge.textContent = '⚡ Desvelo Total (Sin dormir)';
+        } else if (isDesvelo) {
+            typeBadge.textContent = item.hora_dormir
+                ? `🦉 Desvelo · Dormido ${formatClockTime12h(item.hora_dormir)}`
+                : '🦉 Desvelo / Late Bedtime';
+        } else {
+            typeBadge.textContent = '🌙 Regular Sleep';
+        }
+
+        const qBadge = document.createElement('span');
+        qBadge.className = 'home-mood-chip';
+        qBadge.textContent = formatSleepQualityBadge(item.calidad);
+
+        badges.append(typeBadge, qBadge);
+        head.append(titleStrong, badges);
+        card.appendChild(head);
+
+        if (item.motivo_desvelo) {
+            const noteP = document.createElement('p');
+            noteP.className = 'sleep-detail-note';
+            noteP.textContent = `📝 ${item.motivo_desvelo}`;
+            card.appendChild(noteP);
+        }
+
+        fragment.appendChild(card);
+    });
+
+    container.replaceChildren(fragment);
+}
+
+function renderSleepTodaySummary(rows = [], targetDate = '') {
     const box = document.getElementById('sleepTodaySummary');
     if (!box) return;
     const list = Array.isArray(rows) ? rows : [];
+    const todayStr = formatLocalDate(new Date());
+    const headingLabel = !targetDate || targetDate === todayStr
+        ? "Today's accumulated sleep"
+        : `Sleep on ${formatCrisisDateLabel(targetDate)}`;
+
     if (!list.length) {
-        box.innerHTML = '<p class="muted-text">No sleep logged for today yet. Record your session on the left right after waking up.</p>';
+        const p = document.createElement('p');
+        p.className = 'muted-text';
+        p.textContent = !targetDate || targetDate === todayStr
+            ? 'No sleep or desvelo logged for today yet. Record your session on the left.'
+            : `No sleep or desvelo recorded for ${targetDate}.`;
+        box.replaceChildren(p);
         return;
     }
 
     let totalHours = 0;
+    let desveloCount = 0;
     list.forEach(r => {
         totalHours += parseFloat(r.horas) || 0;
+        if (Number(r.es_desvelo) === 1 || (r.tipo_registro && r.tipo_registro !== 'normal')) {
+            desveloCount += 1;
+        }
     });
 
     const metric = document.createElement('div');
     metric.className = 'sleep-today-metric';
     const left = document.createElement('span');
-    left.textContent = `Today's accumulated sleep (${list.length} ${list.length === 1 ? 'session' : 'sessions'})`;
+    left.textContent = `${headingLabel} (${list.length} ${list.length === 1 ? 'session' : 'sessions'}${desveloCount ? ` · 🦉 ${desveloCount} desvelo${desveloCount > 1 ? 's' : ''}` : ''})`;
     const strong = document.createElement('strong');
     strong.textContent = formatHoursMinutes(totalHours);
     metric.append(left, strong);
 
-    const tags = document.createElement('div');
-    tags.className = 'home-mood-chips';
+    const cardsWrap = document.createElement('div');
+    cardsWrap.style.display = 'flex';
+    cardsWrap.style.flexDirection = 'column';
+    cardsWrap.style.gap = '8px';
+
     list.forEach((r, idx) => {
-        const chip = document.createElement('span');
-        chip.className = 'home-mood-chip';
-        const q = r.calidad === 'Good' ? '🟢 Good' : (r.calidad === 'Bad' ? '🔴 Bad' : '🟡 Fair');
-        chip.textContent = `#${idx + 1}: ${formatHoursMinutes(r.horas, { compact: true })} · ${q}`;
-        tags.appendChild(chip);
+        const tipo = r.tipo_registro || 'normal';
+        const isTotal = tipo === 'desvelo_total';
+        const isDesvelo = Number(r.es_desvelo) === 1 || tipo !== 'normal';
+        const isPendingWake = tipo === 'desvelo_tarde' && r.hora_dormir && !r.hora_despertar && (parseFloat(r.horas) || 0) === 0;
+
+        const card = document.createElement('div');
+        card.className = `sleep-today-card${isTotal ? ' is-total' : (isDesvelo ? ' is-desvelo' : '')}`;
+
+        const head = document.createElement('div');
+        head.className = 'sleep-today-card-head';
+
+        const title = document.createElement('strong');
+        title.style.fontSize = '0.88rem';
+        const prefix = isTotal ? '⚡' : (isDesvelo ? '🦉' : '🌙');
+        title.textContent = `${prefix} #${idx + 1}: ${formatSleepIntervalText(r)}`;
+
+        const qBadge = document.createElement('span');
+        qBadge.className = 'home-mood-chip';
+        qBadge.textContent = formatSleepQualityBadge(r.calidad);
+
+        head.append(title, qBadge);
+        card.appendChild(head);
+
+        if (r.motivo_desvelo) {
+            const note = document.createElement('div');
+            note.className = 'muted-text';
+            note.style.fontSize = '0.82rem';
+            note.textContent = `📝 ${r.motivo_desvelo}`;
+            card.appendChild(note);
+        }
+
+        if (r.id) {
+            const actions = document.createElement('div');
+            actions.className = 'sleep-today-actions';
+            if (isPendingWake && typeof enterSleepWakeupCompletion === 'function') {
+                const completeBtn = document.createElement('button');
+                completeBtn.type = 'button';
+                completeBtn.className = 'agenda-chip-btn';
+                completeBtn.textContent = '⏰ Complete Wake-Up Now';
+                completeBtn.addEventListener('click', () => enterSleepWakeupCompletion(r));
+                actions.appendChild(completeBtn);
+            }
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'btn-secondary btn-small';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+                const ok = await openConfirmDialog({
+                    title: 'Delete Sleep Log?',
+                    message: 'Remove this sleep / desvelo session from your records?',
+                    confirmText: 'Delete',
+                    danger: true
+                });
+                if (!ok) return;
+                runWithButtonLock(delBtn, async () => {
+                    const res = await fetch(`/api/delete-sleep/${r.id}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        showToast('ok', 'Sleep log removed.');
+                        cargarSuenoHoy();
+                    } else {
+                        showToast('err', 'Could not delete sleep log.');
+                    }
+                }, { loadingText: '...' });
+            });
+            actions.appendChild(delBtn);
+            card.appendChild(actions);
+        }
+
+        cardsWrap.appendChild(card);
     });
 
-    box.replaceChildren(metric, tags);
+    box.replaceChildren(metric, cardsWrap);
 }
 
-function cargarSuenoHoy() {
+function cargarSuenoHoy(explicitDate = '') {
     if (!currentUser || currentUser.rol !== 'admin') return;
-    const todayStr = formatLocalDate(new Date());
-    fetch(`/api/get-sleep?begin=${encodeURIComponent(todayStr)}&end=${encodeURIComponent(todayStr)}`, { cache: 'no-store' })
+    const sleepDateInput = document.getElementById('sleepDate');
+    const targetDate = explicitDate || (sleepDateInput && sleepDateInput.value) || formatLocalDate(new Date());
+    fetch(`/api/get-sleep?begin=${encodeURIComponent(targetDate)}&end=${encodeURIComponent(targetDate)}`, { cache: 'no-store' })
         .then(r => (r.ok ? r.json() : []))
-        .then(rows => renderSleepTodaySummary(rows))
-        .catch(() => renderSleepTodaySummary([]));
+        .then(rows => renderSleepTodaySummary(rows, targetDate))
+        .catch(() => renderSleepTodaySummary([], targetDate));
 }
+
+let initSleepViewDefaults = () => {};
+let enterSleepWakeupCompletion = () => {};
 
 const formSleep = document.getElementById('sleepForm');
 if (formSleep) {
+    const tipoInput = document.getElementById('sleepTipoRegistro');
+    const modePills = document.querySelectorAll('#sleepModePills [data-sleep-mode]');
+    const dateInput = document.getElementById('sleepDate');
+    const sleepTimeInput = document.getElementById('sleepTime');
+    const wakeupTimeInput = document.getElementById('wakeupTime');
+    const wakeupGroup = document.getElementById('sleepWakeupGroup');
+    const sleepTimeLabel = document.getElementById('sleepTimeLabel');
+    const esDesveloCheck = document.getElementById('sleepEsDesvelo');
+    const esDesveloRow = document.getElementById('sleepEsDesveloRow');
+    const stillAwakeCheck = document.getElementById('sleepStillAwake');
+    const stillAwakeRow = document.getElementById('sleepStillAwakeRow');
+    const autoBanner = document.getElementById('sleepDesveloAutoBanner');
+    const detectedText = document.getElementById('sleepDetectedBedtimeText');
+    const motivoGroup = document.getElementById('sleepMotivoGroup');
+    const motivoInput = document.getElementById('sleepMotivoDesvelo');
+    const durationLabel = document.getElementById('sleepDurationLabel');
     const badgeEl = document.getElementById('sleepDurationBadge');
+    const inputSleep = document.getElementById('sleepHours');
     const qualitySelect = document.getElementById('quality-sleep');
     const qualityCards = document.querySelectorAll('#sleepQualityCards .sleep-quality-card');
+    const submitBtn = document.getElementById('btn-save-sleep');
+
+    let userManuallyToggledDesvelo = false;
+    let lastSavedSleepSignature = '';
+
+    function saveSleepBedtimeDraft() {
+        if (editingSleepSessionId) return;
+        const horaDormir = sleepTimeInput?.value || '';
+        const motivo = motivoInput?.value || '';
+        if (!horaDormir && !motivo) {
+            localStorage.removeItem(SLEEP_BEDTIME_DRAFT_KEY);
+            return;
+        }
+        try {
+            localStorage.setItem(SLEEP_BEDTIME_DRAFT_KEY, JSON.stringify({
+                fecha: dateInput?.value || formatLocalDate(new Date()),
+                horaDormir,
+                tipoRegistro: tipoInput?.value || 'normal',
+                esDesvelo: Boolean(esDesveloCheck?.checked),
+                motivoDesvelo: motivo,
+                savedAt: Date.now()
+            }));
+        } catch {
+            // ignore storage errors
+        }
+    }
+
+    function clearSleepBedtimeDraft() {
+        try {
+            localStorage.removeItem(SLEEP_BEDTIME_DRAFT_KEY);
+        } catch {
+            // ignore
+        }
+    }
 
     function syncQualityCards(val) {
         qualityCards.forEach(card => {
@@ -1673,27 +2023,108 @@ if (formSleep) {
         });
     }
 
-    qualityCards.forEach(card => {
-        card.addEventListener('click', () => {
-            const q = card.getAttribute('data-quality') || '';
-            if (qualitySelect) qualitySelect.value = q;
-            syncQualityCards(q);
-            setInlineBanner('sleepStatusBanner', '', '');
+    function syncSleepModeUI({ preserveManualDesvelo = false } = {}) {
+        const mode = tipoInput?.value || 'normal';
+        modePills.forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-sleep-mode') === mode);
         });
-    });
 
-    if (qualitySelect) {
-        qualitySelect.addEventListener('change', () => {
-            syncQualityCards(qualitySelect.value);
-            setInlineBanner('sleepStatusBanner', '', '');
-        });
+        const isAllNighter = mode === 'desvelo_total';
+        const isLateMode = mode === 'desvelo_tarde';
+        const sleepClock = sleepTimeInput?.value || '';
+        const lateDetected = isLateBedtimeClock(sleepClock);
+
+        if (isAllNighter) {
+            if (sleepTimeLabel) sleepTimeLabel.textContent = 'Stayed awake / Desvelo time (optional):';
+            if (sleepTimeInput) sleepTimeInput.required = false;
+            if (wakeupGroup) wakeupGroup.hidden = true;
+            if (wakeupTimeInput) wakeupTimeInput.required = false;
+            if (stillAwakeRow) stillAwakeRow.hidden = true;
+            if (stillAwakeCheck) stillAwakeCheck.checked = false;
+            if (esDesveloRow) esDesveloRow.hidden = true;
+            if (esDesveloCheck) esDesveloCheck.checked = true;
+            if (autoBanner) autoBanner.hidden = true;
+            if (motivoGroup) motivoGroup.hidden = false;
+            if (qualitySelect && !qualitySelect.value) {
+                qualitySelect.value = 'Bad';
+                syncQualityCards('Bad');
+            }
+            if (submitBtn && !editingSleepSessionId) submitBtn.textContent = 'Log All-Nighter (0 hrs Desvelo)';
+        } else {
+            if (sleepTimeLabel) sleepTimeLabel.textContent = 'Fell asleep at:';
+            if (sleepTimeInput) sleepTimeInput.required = true;
+            if (esDesveloRow) esDesveloRow.hidden = false;
+            if (stillAwakeRow) stillAwakeRow.hidden = !(isLateMode || lateDetected);
+            if (!isLateMode && !lateDetected && stillAwakeCheck) {
+                stillAwakeCheck.checked = false;
+            }
+            const stillAwake = Boolean(stillAwakeCheck?.checked);
+            if (wakeupGroup) wakeupGroup.hidden = stillAwake;
+            if (wakeupTimeInput) {
+                wakeupTimeInput.required = !stillAwake;
+                wakeupTimeInput.disabled = stillAwake;
+            }
+            if (isLateMode) {
+                if (esDesveloCheck) esDesveloCheck.checked = true;
+            } else if (!preserveManualDesvelo) {
+                if (esDesveloCheck && lateDetected && !userManuallyToggledDesvelo) {
+                    esDesveloCheck.checked = true;
+                } else if (esDesveloCheck && !lateDetected && !userManuallyToggledDesvelo) {
+                    esDesveloCheck.checked = false;
+                }
+            }
+            if (autoBanner) {
+                autoBanner.hidden = !lateDetected;
+                if (lateDetected && detectedText) {
+                    detectedText.textContent = formatClockTime12h(sleepClock);
+                }
+            }
+            const showMotivo = isLateMode || lateDetected || Boolean(esDesveloCheck?.checked) || Boolean(motivoInput?.value.trim());
+            if (motivoGroup) motivoGroup.hidden = !showMotivo;
+            if (submitBtn && !editingSleepSessionId) {
+                if (stillAwake) {
+                    submitBtn.textContent = 'Save Late Bedtime Now';
+                } else if (esDesveloCheck?.checked) {
+                    submitBtn.textContent = 'Log Sleep & Desvelo';
+                } else {
+                    submitBtn.textContent = 'Log Sleep Session';
+                }
+            }
+        }
+
+        if (editingSleepSessionId && submitBtn) {
+            submitBtn.textContent = 'Complete Sleep Wake-Up';
+        }
+        calcularHoras();
     }
 
     function calcularHoras() {
-        const sleepTime = document.getElementById('sleepTime').value;
-        const wakeupTime = document.getElementById('wakeupTime').value;
-        const inputSleep = document.getElementById('sleepHours');
+        const mode = tipoInput?.value || 'normal';
+        const sleepTime = sleepTimeInput?.value || '';
+        const wakeupTime = wakeupTimeInput?.value || '';
+        const stillAwake = Boolean(stillAwakeCheck?.checked);
 
+        if (mode === 'desvelo_total') {
+            if (durationLabel) durationLabel.textContent = 'All-nighter / No sleep logged';
+            if (inputSleep) {
+                inputSleep.value = '0 hrs 0 min';
+                inputSleep.dataset.decimal = '0';
+            }
+            if (badgeEl) badgeEl.textContent = '0 hrs 0 min (Desvelo Total)';
+            return;
+        }
+
+        if (stillAwake && sleepTime) {
+            if (durationLabel) durationLabel.textContent = 'Pending wake-up (Bedtime saved)';
+            if (inputSleep) {
+                inputSleep.value = 'Pending';
+                inputSleep.dataset.decimal = '0';
+            }
+            if (badgeEl) badgeEl.textContent = `Bedtime ${formatClockTime12h(sleepTime)} (Pending)`;
+            return;
+        }
+
+        if (durationLabel) durationLabel.textContent = 'Calculated sleep duration';
         if (sleepTime && wakeupTime) {
             const sleepDate = new Date(`2000-01-01T${sleepTime}`);
             const wakeupDate = new Date(`2000-01-01T${wakeupTime}`);
@@ -1713,13 +2144,176 @@ if (formSleep) {
             inputSleep.value = visualText;
             inputSleep.dataset.decimal = (totalMinutes / 60).toFixed(2);
             if (badgeEl) badgeEl.textContent = visualText;
-        } else if (badgeEl) {
-            badgeEl.textContent = '-- hrs -- min';
+        } else {
+            if (inputSleep) {
+                inputSleep.value = '';
+                delete inputSleep.dataset.decimal;
+            }
+            if (badgeEl) badgeEl.textContent = '-- hrs -- min';
         }
     }
 
-    document.getElementById('sleepTime').addEventListener('change', () => calcularHoras());
-    document.getElementById('wakeupTime').addEventListener('change', () => calcularHoras());
+    initSleepViewDefaults = function initSleepViewDefaultsImpl() {
+        editingSleepSessionId = null;
+        if (dateInput && !dateInput.value) {
+            dateInput.value = formatLocalDate(new Date());
+        }
+        try {
+            const rawDraft = localStorage.getItem(SLEEP_BEDTIME_DRAFT_KEY);
+            if (rawDraft) {
+                const draft = JSON.parse(rawDraft);
+                const maxAgeMs = 36 * 60 * 60 * 1000;
+                if (draft && (!draft.savedAt || Date.now() - draft.savedAt < maxAgeMs)) {
+                    if (sleepTimeInput && draft.horaDormir && !sleepTimeInput.value) {
+                        sleepTimeInput.value = draft.horaDormir;
+                    }
+                    if (tipoInput && draft.tipoRegistro && SLEEP_TIPOS_LIST_SET_OK(draft.tipoRegistro)) {
+                        tipoInput.value = draft.tipoRegistro;
+                    }
+                    if (esDesveloCheck && typeof draft.esDesvelo === 'boolean') {
+                        esDesveloCheck.checked = draft.esDesvelo;
+                    }
+                    if (motivoInput && draft.motivoDesvelo && !motivoInput.value) {
+                        motivoInput.value = draft.motivoDesvelo;
+                    }
+                }
+            }
+        } catch {
+            // ignore
+        }
+        syncSleepModeUI({ preserveManualDesvelo: true });
+    };
+
+    function SLEEP_TIPOS_LIST_SET_OK(val) {
+        return val === 'normal' || val === 'desvelo_tarde' || val === 'desvelo_total';
+    }
+
+    enterSleepWakeupCompletion = function enterSleepWakeupCompletionImpl(row) {
+        if (!row || !row.id) return;
+        editingSleepSessionId = Number(row.id);
+        const now = new Date();
+        const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        if (dateInput && row.fecha) dateInput.value = String(row.fecha).slice(0, 10);
+        if (tipoInput) tipoInput.value = row.tipo_registro || 'desvelo_tarde';
+        if (sleepTimeInput && row.hora_dormir) sleepTimeInput.value = String(row.hora_dormir).slice(0, 5);
+        if (stillAwakeCheck) stillAwakeCheck.checked = false;
+        if (wakeupTimeInput) wakeupTimeInput.value = nowHHMM;
+        if (esDesveloCheck) esDesveloCheck.checked = true;
+        if (motivoInput) motivoInput.value = row.motivo_desvelo || '';
+        if (qualitySelect && row.calidad) {
+            qualitySelect.value = row.calidad;
+            syncQualityCards(row.calidad);
+        }
+        syncSleepModeUI({ preserveManualDesvelo: true });
+        setInlineBanner(
+            'sleepStatusBanner',
+            'info',
+            `Completing wake-up for bedtime ${formatClockTime12h(row.hora_dormir)} — adjust wake-up time or quality if needed and click "Complete Sleep Wake-Up".`
+        );
+        formSleep.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    modePills.forEach(pill => {
+        pill.addEventListener('click', () => {
+            editingSleepSessionId = null;
+            userManuallyToggledDesvelo = false;
+            if (tipoInput) tipoInput.value = pill.getAttribute('data-sleep-mode') || 'normal';
+            setInlineBanner('sleepStatusBanner', '', '');
+            syncSleepModeUI();
+            saveSleepBedtimeDraft();
+        });
+    });
+
+    if (dateInput) {
+        dateInput.value = formatLocalDate(new Date());
+        dateInput.addEventListener('change', () => {
+            cargarSuenoHoy(dateInput.value);
+            saveSleepBedtimeDraft();
+        });
+    }
+
+    const btnToday = document.getElementById('btnSleepDateToday');
+    if (btnToday && dateInput) {
+        btnToday.addEventListener('click', () => {
+            dateInput.value = formatLocalDate(new Date());
+            cargarSuenoHoy(dateInput.value);
+            saveSleepBedtimeDraft();
+        });
+    }
+
+    const btnYesterday = document.getElementById('btnSleepDateYesterday');
+    if (btnYesterday && dateInput) {
+        btnYesterday.addEventListener('click', () => {
+            const y = new Date();
+            y.setDate(y.getDate() - 1);
+            dateInput.value = formatLocalDate(y);
+            cargarSuenoHoy(dateInput.value);
+            saveSleepBedtimeDraft();
+        });
+    }
+
+    if (esDesveloCheck) {
+        esDesveloCheck.addEventListener('change', () => {
+            userManuallyToggledDesvelo = true;
+            syncSleepModeUI({ preserveManualDesvelo: true });
+            saveSleepBedtimeDraft();
+        });
+    }
+
+    if (stillAwakeCheck) {
+        stillAwakeCheck.addEventListener('change', () => {
+            editingSleepSessionId = null;
+            syncSleepModeUI({ preserveManualDesvelo: true });
+        });
+    }
+
+    qualityCards.forEach(card => {
+        card.addEventListener('click', () => {
+            const q = card.getAttribute('data-quality') || '';
+            if (qualitySelect) qualitySelect.value = q;
+            syncQualityCards(q);
+            setInlineBanner('sleepStatusBanner', '', '');
+        });
+    });
+
+    if (qualitySelect) {
+        qualitySelect.addEventListener('change', () => {
+            syncQualityCards(qualitySelect.value);
+            setInlineBanner('sleepStatusBanner', '', '');
+        });
+    }
+
+    if (sleepTimeInput) {
+        sleepTimeInput.addEventListener('change', () => {
+            userManuallyToggledDesvelo = false;
+            syncSleepModeUI();
+            saveSleepBedtimeDraft();
+        });
+    }
+
+    if (wakeupTimeInput) {
+        wakeupTimeInput.addEventListener('change', () => calcularHoras());
+    }
+
+    if (motivoInput) {
+        motivoInput.addEventListener('input', () => saveSleepBedtimeDraft());
+    }
+
+    const btnBedNow = document.getElementById('btnSleepBedtimeNow');
+    if (btnBedNow && sleepTimeInput) {
+        btnBedNow.addEventListener('click', () => {
+            const now = new Date();
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
+            sleepTimeInput.value = `${hh}:${mm}`;
+            userManuallyToggledDesvelo = false;
+            if (tipoInput && isLateBedtimeClock(sleepTimeInput.value) && tipoInput.value === 'normal') {
+                tipoInput.value = 'desvelo_tarde';
+            }
+            syncSleepModeUI();
+            saveSleepBedtimeDraft();
+        });
+    }
 
     const btnUseNow = document.getElementById('btnSleepUseNow');
     if (btnUseNow) {
@@ -1727,65 +2321,111 @@ if (formSleep) {
             const now = new Date();
             const hh = String(now.getHours()).padStart(2, '0');
             const mm = String(now.getMinutes()).padStart(2, '0');
-            const wakeInput = document.getElementById('wakeupTime');
-            if (wakeInput) wakeInput.value = `${hh}:${mm}`;
-            calcularHoras();
+            if (wakeupTimeInput) wakeupTimeInput.value = `${hh}:${mm}`;
+            if (stillAwakeCheck) stillAwakeCheck.checked = false;
+            syncSleepModeUI({ preserveManualDesvelo: true });
         });
     }
-
-    let lastSavedSleepSignature = '';
 
     formSleep.addEventListener('submit', (e) => {
         e.preventDefault();
         const btnGuardarSleep = document.getElementById('btn-save-sleep');
         if (!btnGuardarSleep || busyActionElements.has(btnGuardarSleep) || btnGuardarSleep.disabled) return;
 
-        const sleepTime = document.getElementById('sleepTime').value;
-        const wakeupTime = document.getElementById('wakeupTime').value;
+        const fecha = (dateInput?.value || formatLocalDate(new Date())).trim();
+        const tipoRegistro = tipoInput?.value || 'normal';
+        const sleepTime = (sleepTimeInput?.value || '').trim();
+        const stillAwake = Boolean(stillAwakeCheck?.checked);
+        const wakeupTime = stillAwake || tipoRegistro === 'desvelo_total' ? '' : (wakeupTimeInput?.value || '').trim();
         const quality = qualitySelect ? qualitySelect.value : '';
+        const esDesvelo = Boolean(esDesveloCheck?.checked) || tipoRegistro !== 'normal' || isLateBedtimeClock(sleepTime);
+        const motivoDesvelo = (motivoInput?.value || '').trim();
 
-        if (!sleepTime || !wakeupTime || !quality) {
-            setInlineBanner('sleepStatusBanner', 'err', 'Please fill in bedtime, wake-up time, and rest quality.');
+        if (!fecha) {
+            setInlineBanner('sleepStatusBanner', 'err', 'Please select the date for this sleep or desvelo entry.');
+            return;
+        }
+        if (tipoRegistro !== 'desvelo_total') {
+            if (!sleepTime || (!stillAwake && !wakeupTime) || !quality) {
+                setInlineBanner('sleepStatusBanner', 'err', 'Please fill in bedtime, wake-up time (or check "Going to sleep just now"), and rest quality.');
+                return;
+            }
+        } else if (!quality) {
+            setInlineBanner('sleepStatusBanner', 'err', 'Please select how you feel (quality) for this all-nighter log.');
             return;
         }
 
-        const horas = parseFloat(document.getElementById('sleepHours').dataset.decimal);
-        if (!Number.isFinite(horas) || horas <= 0) {
+        const horas = tipoRegistro === 'desvelo_total' || stillAwake
+            ? 0
+            : parseFloat(document.getElementById('sleepHours').dataset.decimal);
+
+        if (tipoRegistro !== 'desvelo_total' && !stillAwake && (!Number.isFinite(horas) || horas <= 0)) {
             setInlineBanner('sleepStatusBanner', 'err', 'Bedtime and wake-up time cannot result in 0 hours of sleep.');
             return;
         }
 
-        const fecha = formatLocalDate(new Date());
-        const sleepSignature = `${fecha}|${sleepTime}|${wakeupTime}|${horas}|${quality}`;
-        if (sleepSignature === lastSavedSleepSignature) {
+        const datos = {
+            fecha,
+            horas,
+            calidad: quality,
+            horaDormir: sleepTime,
+            horaDespertar: wakeupTime,
+            esDesvelo,
+            tipoRegistro: tipoRegistro === 'normal' && esDesvelo ? 'desvelo_tarde' : tipoRegistro,
+            motivoDesvelo
+        };
+
+        const sleepSignature = `${editingSleepSessionId || 'new'}|${fecha}|${sleepTime}|${wakeupTime}|${horas}|${quality}|${datos.tipoRegistro}|${esDesvelo ? 1 : 0}|${motivoDesvelo}`;
+        if (!editingSleepSessionId && sleepSignature === lastSavedSleepSignature) {
             setInlineBanner('sleepStatusBanner', 'info', 'This exact sleep session was already logged.');
             return;
         }
 
         setInlineBanner('sleepStatusBanner', '', '');
-        const datos = { fecha, horas, calidad: quality };
 
         runWithButtonLock(btnGuardarSleep, async () => {
             try {
-                const mensaje = await submitMutationRequest({
-                    url: '/api/insert-sleep',
-                    method: 'POST',
-                    scopeKey: 'sleep',
-                    signature: sleepSignature,
-                    buildBody: () => datos
-                });
-                lastSavedSleepSignature = sleepSignature;
+                let mensaje = '';
+                if (editingSleepSessionId) {
+                    const res = await fetch(`/api/update-sleep/${editingSleepSessionId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(datos)
+                    });
+                    if (!res.ok) throw new Error(await res.text() || 'Error updating sleep record.');
+                    const json = await res.json();
+                    mensaje = json.message || 'Sleep session completed!';
+                    editingSleepSessionId = null;
+                } else {
+                    mensaje = await submitMutationRequest({
+                        url: '/api/insert-sleep',
+                        method: 'POST',
+                        scopeKey: 'sleep',
+                        signature: sleepSignature,
+                        buildBody: () => datos
+                    });
+                    lastSavedSleepSignature = sleepSignature;
+                }
+
+                clearSleepBedtimeDraft();
                 setInlineBanner('sleepStatusBanner', 'ok', mensaje);
                 showToast('ok', mensaje);
-                document.getElementById('sleepTime').value = '';
-                document.getElementById('wakeupTime').value = '';
-                const hoursInput = document.getElementById('sleepHours');
-                hoursInput.value = '';
-                delete hoursInput.dataset.decimal;
-                if (badgeEl) badgeEl.textContent = '-- hrs';
+                if (sleepTimeInput) sleepTimeInput.value = '';
+                if (wakeupTimeInput) wakeupTimeInput.value = '';
+                if (motivoInput) motivoInput.value = '';
+                if (stillAwakeCheck) stillAwakeCheck.checked = false;
+                if (esDesveloCheck) esDesveloCheck.checked = false;
+                userManuallyToggledDesvelo = false;
+                if (tipoInput) tipoInput.value = 'normal';
+                if (inputSleep) {
+                    inputSleep.value = '';
+                    delete inputSleep.dataset.decimal;
+                }
+                if (badgeEl) badgeEl.textContent = '-- hrs -- min';
                 if (qualitySelect) qualitySelect.value = '';
                 syncQualityCards('');
-                cargarSuenoHoy();
+                syncSleepModeUI();
+                cargarSuenoHoy(fecha);
                 cargarRecordatoriosActivos();
             } catch (error) {
                 setInlineBanner('sleepStatusBanner', 'err', 'Error: ' + error.message);
@@ -1793,6 +2433,8 @@ if (formSleep) {
             }
         }, { loadingText: 'Saving...' });
     });
+
+    initSleepViewDefaults();
 }
 
 // ==========================================
@@ -4669,6 +5311,7 @@ function enterAppSession(user) {
 
         const urlParams = new URLSearchParams(window.location.search);
         const rView = urlParams.get('rView');
+        const shouldCaptureGps = urlParams.get('captureGps') === '1';
         const initialHash = window.location.hash.replace('#', '');
         if (rView && VALID_VIEWS.has(rView)) {
             openReminderTarget({
@@ -4681,6 +5324,13 @@ function enterAppSession(user) {
                 refId: urlParams.get('rRef') || null
             });
             history.replaceState(null, '', `${window.location.pathname}#${rView}`);
+            if (shouldCaptureGps && currentUser?.rol === 'admin') {
+                setTimeout(() => triggerSmartGpsCapture('current'), 450);
+            }
+        } else if (shouldCaptureGps && currentUser?.rol === 'admin') {
+            openReminderTarget({ targetView: 'horario', targetTab: 'locations' });
+            history.replaceState(null, '', `${window.location.pathname}#horario`);
+            setTimeout(() => triggerSmartGpsCapture('current'), 450);
         } else {
             const startView = VALID_VIEWS.has(initialHash) ? initialHash : 'inicio';
             showView(startView, false);
@@ -5661,6 +6311,49 @@ function cargarSettingsVista() {
         });
 }
 
+async function copyTextToClipboard(text, sourceInput = null) {
+    if (window.isSecureContext && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (_) {
+            // Fall back to execCommand below
+        }
+    }
+
+    // Works reliably on HTTP mobile browsers (e.g. http://EC2-IP:3000)
+    const helper = document.createElement('textarea');
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.top = '0';
+    helper.style.left = '-9999px';
+    helper.style.fontSize = '16px';
+    helper.style.opacity = '0';
+    document.body.appendChild(helper);
+
+    let copied = false;
+    try {
+        helper.focus({ preventScroll: true });
+        helper.select();
+        helper.setSelectionRange(0, text.length);
+        copied = Boolean(document.execCommand && document.execCommand('copy'));
+    } catch (_) {
+        copied = false;
+    } finally {
+        document.body.removeChild(helper);
+    }
+
+    if (!copied && sourceInput && typeof sourceInput.focus === 'function') {
+        sourceInput.focus();
+        if (typeof sourceInput.select === 'function') sourceInput.select();
+        if (typeof sourceInput.setSelectionRange === 'function') {
+            sourceInput.setSelectionRange(0, text.length);
+        }
+    }
+    return copied;
+}
+
 function initSettingsHandlers() {
     const settingsForm = document.getElementById('settingsForm');
     if (!settingsForm) return;
@@ -5692,49 +6385,6 @@ function initSettingsHandlers() {
                 setSettingsBanner('ok', 'Generated a private topic. Subscribe to it in the ntfy phone app and save settings.');
             }
         });
-    }
-
-    async function copyTextToClipboard(text, sourceInput = null) {
-        if (window.isSecureContext && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-            try {
-                await navigator.clipboard.writeText(text);
-                return true;
-            } catch (_) {
-                // Fall back to execCommand below
-            }
-        }
-
-        // Works reliably on HTTP mobile browsers (e.g. http://EC2-IP:3000)
-        const helper = document.createElement('textarea');
-        helper.value = text;
-        helper.setAttribute('readonly', '');
-        helper.style.position = 'fixed';
-        helper.style.top = '0';
-        helper.style.left = '-9999px';
-        helper.style.fontSize = '16px';
-        helper.style.opacity = '0';
-        document.body.appendChild(helper);
-
-        let copied = false;
-        try {
-            helper.focus({ preventScroll: true });
-            helper.select();
-            helper.setSelectionRange(0, text.length);
-            copied = Boolean(document.execCommand && document.execCommand('copy'));
-        } catch (_) {
-            copied = false;
-        } finally {
-            document.body.removeChild(helper);
-        }
-
-        if (!copied && sourceInput) {
-            sourceInput.focus();
-            sourceInput.select();
-            if (typeof sourceInput.setSelectionRange === 'function') {
-                sourceInput.setSelectionRange(0, text.length);
-            }
-        }
-        return copied;
     }
 
     if (btnCopyTopic) {
@@ -6672,6 +7322,128 @@ function updateResHoursProgressDisplay() {
     }
 }
 
+function isValidNonZeroCoordPair(lat, lng) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+    if (Math.abs(lat) < 0.001 && Math.abs(lng) < 0.001) return false;
+    return true;
+}
+
+function extractCoordsFromMapsUrlClient(rawUrl = '') {
+    const raw = String(rawUrl || '').trim();
+    if (!raw) return null;
+    let decoded = raw;
+    try {
+        decoded = decodeURIComponent(raw);
+    } catch (_) {
+        decoded = raw;
+    }
+    const candidateStr = `${raw}\n${decoded}`;
+    const pinMatch = candidateStr.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/) ||
+                     candidateStr.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/) ||
+                     candidateStr.match(/[?&](?:q|query|ll|center|destination|origin)=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i) ||
+                     candidateStr.match(/(?:^|[\s:/=])(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+    if (!pinMatch) return null;
+    const lat = Number(pinMatch[1]);
+    const lng = Number(pinMatch[2]);
+    if (!isValidNonZeroCoordPair(lat, lng)) return null;
+    return {
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6))
+    };
+}
+
+function updateHomeLocationVerifyUI() {
+    const latNum = Number(document.getElementById('homeLocationLat')?.value);
+    const lngNum = Number(document.getElementById('homeLocationLng')?.value);
+    const latRaw = String(document.getElementById('homeLocationLat')?.value || '').trim();
+    const lngRaw = String(document.getElementById('homeLocationLng')?.value || '').trim();
+    const verifyLink = document.getElementById('homeLocationVerifyLink');
+    const summaryEl = document.getElementById('homeLocationSummaryText');
+    const label = String(document.getElementById('homeLocationLabel')?.value || 'Mi Casa').trim();
+    const addr = String(document.getElementById('homeLocationAddress')?.value || '').trim();
+
+    const valid = Boolean(latRaw && lngRaw && isValidNonZeroCoordPair(latNum, lngNum));
+    if (verifyLink) {
+        if (valid) {
+            verifyLink.href = `https://www.google.com/maps?q=${latNum.toFixed(6)},${lngNum.toFixed(6)}`;
+            verifyLink.hidden = false;
+        } else {
+            verifyLink.href = '#';
+            verifyLink.hidden = true;
+        }
+    }
+    if (summaryEl) {
+        if (valid) {
+            summaryEl.textContent = `✅ Home saved (${label || 'Mi Casa'}${addr ? ` · ${addr}` : ''}): ${latNum.toFixed(6)}, ${lngNum.toFixed(6)}`;
+        } else {
+            summaryEl.textContent = 'Enter your Saltillo street address or paste a Google Maps link, then click "Save & Find Home Location".';
+        }
+    }
+}
+
+async function triggerClearCurrentGpsOrigin(btnEl, onAfterDone = null) {
+    const run = async () => {
+        try {
+            const resData = await submitMutationRequest({
+                url: '/api/planner/location',
+                method: 'POST',
+                scopeKey: 'planner-clear-current-gps',
+                signature: `clear:${Date.now()}`,
+                buildBody: () => ({ target: 'clear_current' }),
+                parseJson: true
+            });
+            if (resData?.planner) {
+                academicPlannerState = resData.planner;
+                renderPlannerResidenciasAndWorkUI();
+            }
+            if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
+            showToast('ok', resData?.message || 'Commutes now use your Saved Home as origin.');
+            if (typeof onAfterDone === 'function') onAfterDone(resData);
+        } catch (err) {
+            showToast('err', err.message || 'Could not switch origin to Home.');
+        }
+    };
+    if (btnEl) {
+        return runWithButtonLock(btnEl, run, { loadingText: 'Switching...' });
+    }
+    return run();
+}
+
+async function triggerPingPhoneForGps(btnEl, bannerEl = null) {
+    const run = async () => {
+        try {
+            const resData = await submitMutationRequest({
+                url: '/api/planner/request-phone-gps',
+                method: 'POST',
+                scopeKey: 'planner-request-phone-gps',
+                signature: String(Date.now()),
+                buildBody: () => ({}),
+                parseJson: true
+            });
+            const msg = resData?.message || 'GPS request sent to your phone via ntfy! Tap the notification on your phone.';
+            showToast('ok', msg);
+            if (bannerEl) {
+                bannerEl.className = 'inline-status-banner is-ok';
+                bannerEl.textContent = msg;
+                bannerEl.hidden = false;
+            }
+        } catch (err) {
+            const msg = err.message || 'Could not ping phone via ntfy.';
+            showToast('err', msg);
+            if (bannerEl) {
+                bannerEl.className = 'inline-status-banner is-error';
+                bannerEl.textContent = msg;
+                bannerEl.hidden = false;
+            }
+        }
+    };
+    if (btnEl) {
+        return runWithButtonLock(btnEl, run, { loadingText: 'Sending...' });
+    }
+    return run();
+}
+
 function renderPlannerResidenciasAndWorkUI() {
     if (!academicPlannerState) return;
     const setCheck = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
@@ -6723,12 +7495,17 @@ function renderPlannerResidenciasAndWorkUI() {
     setVal('plannerNearRadiusKm', academicPlannerState.nearRadiusKm ?? 0.85);
 
     const locs = academicPlannerState.locations || {};
+    const homeLat = Number(locs.home?.lat);
+    const homeLng = Number(locs.home?.lng);
+    const hasHomePair = locs.home?.lat !== null && locs.home?.lat !== undefined && locs.home?.lng !== null && locs.home?.lng !== undefined && isValidNonZeroCoordPair(homeLat, homeLng);
+    setVal('homeLocationLabel', locs.home?.label || 'Mi Casa');
     setVal('homeLocationAddress', locs.home?.address || '');
     setVal('homeLocationMapsUrl', locs.home?.mapsUrl || '');
-    setVal('homeLocationLat', locs.home?.lat ?? '');
-    setVal('homeLocationLng', locs.home?.lng ?? '');
+    setVal('homeLocationLat', hasHomePair ? homeLat : '');
+    setVal('homeLocationLng', hasHomePair ? homeLng : '');
     setVal('uniLocationLat', locs.university?.lat ?? 25.443706);
     setVal('uniLocationLng', locs.university?.lng ?? -100.993845);
+    updateHomeLocationVerifyUI();
 }
 
 function collectPlannerStateFromDOM() {
@@ -6740,6 +7517,14 @@ function collectPlannerStateFromDOM() {
         const n = Number(s);
         return Number.isFinite(n) ? n : null;
     };
+    const cleanCoordPair = (latId, lngId) => {
+        const lat = numOrNull(latId);
+        const lng = numOrNull(lngId);
+        if (lat === null || lng === null || !isValidNonZeroCoordPair(lat, lng)) {
+            return { lat: null, lng: null };
+        }
+        return { lat, lng };
+    };
 
     const activeSem = getActiveSemesterObj();
     if (activeSem) {
@@ -6749,6 +7534,7 @@ function collectPlannerStateFromDOM() {
         activeSem.endDate = val('plannerSemEnd') || activeSem.endDate;
     }
 
+    const resCoords = cleanCoordPair('resLocationLat', 'resLocationLng');
     const resDays = Array.from(document.querySelectorAll('#resDaysGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
     academicPlannerState.residencias = {
         ...academicPlannerState.residencias,
@@ -6766,11 +7552,12 @@ function collectPlannerStateFromDOM() {
             label: val('resCompanyName') || 'Empresa de Residencias',
             address: val('resLocationAddress'),
             mapsUrl: val('resLocationMapsUrl'),
-            lat: numOrNull('resLocationLat'),
-            lng: numOrNull('resLocationLng')
+            lat: resCoords.lat,
+            lng: resCoords.lng
         }
     };
 
+    const workCoords = cleanCoordPair('workLocationLat', 'workLocationLng');
     const workDays = Array.from(document.querySelectorAll('#workDaysGroup input[type="checkbox"]:checked')).map(cb => Number(cb.value));
     academicPlannerState.work = {
         ...academicPlannerState.work,
@@ -6786,8 +7573,8 @@ function collectPlannerStateFromDOM() {
             label: val('workCompanyName') || 'Lugar de Trabajo',
             address: val('workLocationAddress'),
             mapsUrl: val('workLocationMapsUrl'),
-            lat: numOrNull('workLocationLat'),
-            lng: numOrNull('workLocationLng')
+            lat: workCoords.lat,
+            lng: workCoords.lng
         }
     };
 
@@ -6797,23 +7584,26 @@ function collectPlannerStateFromDOM() {
     academicPlannerState.parkingBufferMinutes = Number(document.getElementById('plannerParkingBufferMin')?.value || 8);
     academicPlannerState.nearRadiusKm = Number(document.getElementById('plannerNearRadiusKm')?.value || 0.85);
 
+    const homeCoords = cleanCoordPair('homeLocationLat', 'homeLocationLng');
+    const uniCoords = cleanCoordPair('uniLocationLat', 'uniLocationLng');
+
     academicPlannerState.locations = {
         ...academicPlannerState.locations,
         home: {
-            label: 'Mi Casa',
+            label: val('homeLocationLabel') || 'Mi Casa',
             address: val('homeLocationAddress'),
             mapsUrl: val('homeLocationMapsUrl'),
-            lat: numOrNull('homeLocationLat'),
-            lng: numOrNull('homeLocationLng')
+            lat: homeCoords.lat,
+            lng: homeCoords.lng
         },
         university: {
             label: 'Instituto Tecnológico de Saltillo (Blvd. V. Carranza #2400)',
             address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo',
-            mapsUrl: (numOrNull('uniLocationLat') !== null && numOrNull('uniLocationLng') !== null)
-                ? `https://www.google.com/maps?q=${numOrNull('uniLocationLat')},${numOrNull('uniLocationLng')}`
+            mapsUrl: (uniCoords.lat !== null && uniCoords.lng !== null)
+                ? `https://www.google.com/maps?q=${uniCoords.lat},${uniCoords.lng}`
                 : 'https://www.google.com/maps?q=25.443706,-100.993845',
-            lat: numOrNull('uniLocationLat') ?? 25.443706,
-            lng: numOrNull('uniLocationLng') ?? -100.993845
+            lat: uniCoords.lat ?? 25.443706,
+            lng: uniCoords.lng ?? -100.993845
         }
     };
 
@@ -6822,6 +7612,7 @@ function collectPlannerStateFromDOM() {
 
 function renderLiveCommuteCards(previewOrList = []) {
     const originTextEl = document.getElementById('liveCommuteOriginText');
+    const originMetaEl = document.getElementById('liveCommuteOriginMeta');
     const container = document.getElementById('liveCommuteCardsContainer');
     const preview = Array.isArray(previewOrList)
         ? { commutes: previewOrList }
@@ -6831,11 +7622,31 @@ function renderLiveCommuteCards(previewOrList = []) {
         academicPlannerCommutePreview = previewOrList;
     }
 
+    const hasValidOrigin = preview.originCoords &&
+        isValidNonZeroCoordPair(Number(preview.originCoords.lat), Number(preview.originCoords.lng));
+
     if (originTextEl) {
-        if (preview.originCoords && Number.isFinite(preview.originCoords.lat)) {
-            originTextEl.textContent = `Origin (${preview.originSource || 'GPS'}): ${preview.originCoords.lat.toFixed(5)}, ${preview.originCoords.lng.toFixed(5)}`;
+        if (hasValidOrigin) {
+            originTextEl.textContent = `Origin (${preview.originSource || 'GPS'}): ${Number(preview.originCoords.lat).toFixed(5)}, ${Number(preview.originCoords.lng).toFixed(5)}`;
         } else {
-            originTextEl.textContent = 'Origin: Not set yet. Click "Update My GPS", save your Home location, or pick a Saltillo preset.';
+            originTextEl.textContent = 'Origin: Not set yet. Enter your Home street address on the left, click "Update My GPS", or pick a Saltillo preset.';
+        }
+    }
+
+    if (originMetaEl) {
+        if (hasValidOrigin && preview.originKind === 'current') {
+            let timeStr = '';
+            if (preview.originUpdatedAt) {
+                const dt = new Date(preview.originUpdatedAt);
+                if (!Number.isNaN(dt.getTime())) {
+                    timeStr = ` · Updated ${dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                }
+            }
+            originMetaEl.textContent = `📡 Active live origin (${preview.originTechnicalSource || 'gps'}${timeStr}). Click "🏠 Use Saved Home" above to reset origin back to Home.`;
+        } else if (hasValidOrigin && preview.originKind === 'home') {
+            originMetaEl.textContent = '🏠 Using your Saved Home location as origin.';
+        } else {
+            originMetaEl.textContent = '';
         }
     }
 
@@ -6914,6 +7725,10 @@ function applyCapturedLocationToTarget(target, coords, label, source = 'gps') {
     if (!coords) return;
     const lat = Number(coords.lat);
     const lng = Number(coords.lng);
+    if (!isValidNonZeroCoordPair(lat, lng)) {
+        showToast('err', 'Rejected invalid (0, 0) coordinates.');
+        return Promise.reject(new Error('Invalid (0, 0) coordinates.'));
+    }
     const mapUrl = `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`;
     const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = String(v); };
 
@@ -6921,6 +7736,7 @@ function applyCapturedLocationToTarget(target, coords, label, source = 'gps') {
         setVal('homeLocationLat', lat.toFixed(6));
         setVal('homeLocationLng', lng.toFixed(6));
         setVal('homeLocationMapsUrl', mapUrl);
+        updateHomeLocationVerifyUI();
     } else if (target === 'residencias') {
         setVal('resLocationLat', lat.toFixed(6));
         setVal('resLocationLng', lng.toFixed(6));
@@ -6939,7 +7755,10 @@ function applyCapturedLocationToTarget(target, coords, label, source = 'gps') {
         buildBody: () => ({ target, lat, lng, mapsUrl: mapUrl, label: label || 'Current Location', source }),
         parseJson: true
     }).then(data => {
-        if (data?.planner) academicPlannerState = data.planner;
+        if (data?.planner) {
+            academicPlannerState = data.planner;
+            renderPlannerResidenciasAndWorkUI();
+        }
         if (data?.commutePreview) renderLiveCommuteCards(data.commutePreview);
         else if (data?.commutes) renderLiveCommuteCards({ originCoords: { lat, lng }, originSource: label || 'Current Location', commutes: data.commutes });
         return data;
@@ -6954,6 +7773,7 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
     const originCodeEl = document.getElementById('quickLocationOriginCode');
     const presetsEl = document.getElementById('quickLocationPresets');
     const inputEl = document.getElementById('quickLocationInput');
+    const btnUseHome = document.getElementById('btnModalUseHomeOrigin');
     if (!modal || !presetsEl) return;
 
     const targetLabels = {
@@ -6980,8 +7800,12 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
 
     const presets = [];
     const locs = academicPlannerState?.locations || {};
-    if (locs.home && Number.isFinite(Number(locs.home.lat)) && Number.isFinite(Number(locs.home.lng))) {
-        presets.push({ label: '🏠 Saved Home', lat: Number(locs.home.lat), lng: Number(locs.home.lng) });
+    const hasValidHome = locs.home && isValidNonZeroCoordPair(Number(locs.home.lat), Number(locs.home.lng));
+    if (hasValidHome) {
+        presets.push({ label: `🏠 ${locs.home.label || 'Saved Home'}`, lat: Number(locs.home.lat), lng: Number(locs.home.lng) });
+    }
+    if (btnUseHome) {
+        btnUseHome.hidden = target !== 'current' || !hasValidHome;
     }
     presets.push(
         { label: '💻 ITS Boillot · Sistemas R/S (CTO-004)', lat: 25.443950, lng: -100.989650 },
@@ -6989,11 +7813,11 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
         { label: '⚙️ ITS Miravalle · N/Labs (CTO-003)', lat: 25.445350, lng: -100.991200 }
     );
     const resLoc = academicPlannerState?.residencias?.location;
-    if (resLoc && Number.isFinite(Number(resLoc.lat)) && Number.isFinite(Number(resLoc.lng))) {
+    if (resLoc && isValidNonZeroCoordPair(Number(resLoc.lat), Number(resLoc.lng))) {
         presets.push({ label: '🏢 Saved Residencias', lat: Number(resLoc.lat), lng: Number(resLoc.lng) });
     }
     const workLoc = academicPlannerState?.work?.location;
-    if (workLoc && Number.isFinite(Number(workLoc.lat)) && Number.isFinite(Number(workLoc.lng))) {
+    if (workLoc && isValidNonZeroCoordPair(Number(workLoc.lat), Number(workLoc.lng))) {
         presets.push({ label: '💼 Saved Work', lat: Number(workLoc.lat), lng: Number(workLoc.lng) });
     }
 
@@ -7043,6 +7867,9 @@ function triggerSmartGpsCapture(target = 'current') {
         async (pos) => {
             try {
                 const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                if (!isValidNonZeroCoordPair(coords.lat, coords.lng)) {
+                    throw new Error('Browser returned empty (0, 0) coordinates.');
+                }
                 await applyCapturedLocationToTarget(target, coords, 'Phone/Browser GPS', 'gps');
                 const modal = document.getElementById('quickLocationModal');
                 if (modal) modal.hidden = true;
@@ -7056,7 +7883,7 @@ function triggerSmartGpsCapture(target = 'current') {
             const blockedByOrigin = /secure origin/i.test(msg);
             const friendly = blockedByOrigin
                 ? 'Browser blocked native GPS because this address uses plain HTTP.'
-                : `Browser GPS unavailable (${msg || 'permission denied'}). Choose a quick preset or paste a Google Maps link below.`;
+                : `Browser GPS unavailable (${msg || 'permission denied'}). Choose a quick preset or paste a street address / Google Maps link below.`;
             openQuickLocationModal(target, {
                 showHttpNotice: blockedByOrigin,
                 errorMsg: friendly
@@ -7072,6 +7899,9 @@ function initQuickLocationModal() {
     const btnClose = document.getElementById('btnCloseQuickLocModal');
     const btnCancel = document.getElementById('btnCancelQuickLocModal');
     const btnRetryGps = document.getElementById('btnRetryBrowserGps');
+    const btnCopyOrigin = document.getElementById('btnCopyQuickLocOrigin');
+    const btnModalPing = document.getElementById('btnModalPingPhoneGps');
+    const btnModalUseHome = document.getElementById('btnModalUseHomeOrigin');
     if (!modal || !form || form.dataset.wired === 'true') return;
     form.dataset.wired = 'true';
 
@@ -7084,6 +7914,28 @@ function initQuickLocationModal() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && !modal.hidden) closeModal();
     });
+
+    if (btnCopyOrigin) {
+        btnCopyOrigin.addEventListener('click', async () => {
+            const copied = await copyTextToClipboard(window.location.origin);
+            showToast(copied ? 'ok' : 'info', copied
+                ? `Copied ${window.location.origin} for chrome://flags`
+                : `Copy manually: ${window.location.origin}`);
+        });
+    }
+
+    if (btnModalPing) {
+        btnModalPing.addEventListener('click', () => {
+            const bannerEl = document.getElementById('quickLocationBanner');
+            triggerPingPhoneForGps(btnModalPing, bannerEl);
+        });
+    }
+
+    if (btnModalUseHome) {
+        btnModalUseHome.addEventListener('click', () => {
+            triggerClearCurrentGpsOrigin(btnModalUseHome, closeModal);
+        });
+    }
 
     if (btnRetryGps) {
         btnRetryGps.addEventListener('click', () => {
@@ -7107,7 +7959,7 @@ function initQuickLocationModal() {
                     if (bannerEl) {
                         bannerEl.className = 'inline-status-banner is-error';
                         bannerEl.textContent = /secure origin/i.test(err?.message || '')
-                            ? `Still blocked on ${window.location.origin}. Use 1-Tap Presets or paste a Google Maps link above, or enable the insecure-origin flag.`
+                            ? `Still blocked on ${window.location.origin}. Use 1-Tap Presets, Ping Phone, or paste a Google Maps link / address above, or enable the insecure-origin flag.`
                             : (err?.message || 'Could not read GPS.');
                         bannerEl.hidden = false;
                     }
@@ -7127,7 +7979,7 @@ function initQuickLocationModal() {
         if (!raw) {
             if (bannerEl) {
                 bannerEl.className = 'inline-status-banner is-error';
-                bannerEl.textContent = 'Paste coordinates (e.g. 25.4437, -100.9938) or a Google Maps link first.';
+                bannerEl.textContent = 'Paste a street address, coordinates (e.g. 25.4437, -100.9938), or a Google Maps link first.';
                 bannerEl.hidden = false;
             }
             return;
@@ -7135,12 +7987,16 @@ function initQuickLocationModal() {
 
         runWithButtonLock(btnApply, async () => {
             try {
+                const isUrlOrCoords = /^https?:\/\//i.test(raw) || Boolean(extractCoordsFromMapsUrlClient(raw));
+                const bodyPayload = isUrlOrCoords
+                    ? { target, mapsUrl: raw, label: target === 'home' ? 'Mi Casa' : 'Google Maps / Manual', source: 'manual' }
+                    : { target, address: raw, query: raw, label: raw.slice(0, 80), source: 'address_geocode' };
                 const resData = await submitMutationRequest({
                     url: '/api/planner/location',
                     method: 'POST',
                     scopeKey: `planner-quick-loc:${target}`,
                     signature: `${target}:${raw}:${Date.now()}`,
-                    buildBody: () => ({ target, mapsUrl: raw, label: 'Google Maps / Manual', source: 'manual' }),
+                    buildBody: () => bodyPayload,
                     parseJson: true
                 });
                 if (resData?.planner) {
@@ -7149,7 +8005,9 @@ function initQuickLocationModal() {
                 }
                 if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
                 closeModal();
-                showToast('ok', 'Location applied & traffic routes recalculated!');
+                showToast('ok', resData?.geocodedDisplayName
+                    ? `Found "${raw}" & recalculated commute!`
+                    : 'Location applied & traffic routes recalculated!');
             } catch (err) {
                 if (bannerEl) {
                     bannerEl.className = 'inline-status-banner is-error';
@@ -7390,6 +8248,148 @@ function initAcademicPlannerHandlers() {
             triggerSmartGpsCapture(target);
         });
     });
+
+    // Home Location live Google Maps URL parsing + Save & Geocode button + Verify link
+    const homeMapsInput = document.getElementById('homeLocationMapsUrl');
+    const homeLatInput = document.getElementById('homeLocationLat');
+    const homeLngInput = document.getElementById('homeLocationLng');
+    if (homeMapsInput) {
+        const tryExtractHomeUrl = () => {
+            const extracted = extractCoordsFromMapsUrlClient(homeMapsInput.value);
+            if (extracted) {
+                if (homeLatInput) homeLatInput.value = extracted.lat.toFixed(6);
+                if (homeLngInput) homeLngInput.value = extracted.lng.toFixed(6);
+                updateHomeLocationVerifyUI();
+            }
+        };
+        homeMapsInput.addEventListener('input', tryExtractHomeUrl);
+        homeMapsInput.addEventListener('change', tryExtractHomeUrl);
+    }
+    [homeLatInput, homeLngInput, document.getElementById('homeLocationAddress'), document.getElementById('homeLocationLabel')].forEach(el => {
+        if (el) el.addEventListener('input', updateHomeLocationVerifyUI);
+    });
+
+    const btnSaveHome = document.getElementById('btnSaveHomeLocation');
+    if (btnSaveHome) {
+        btnSaveHome.addEventListener('click', () => {
+            const label = String(document.getElementById('homeLocationLabel')?.value || 'Mi Casa').trim() || 'Mi Casa';
+            const address = String(document.getElementById('homeLocationAddress')?.value || '').trim();
+            const mapsUrl = String(homeMapsInput?.value || '').trim();
+            const rawLat = String(homeLatInput?.value || '').trim();
+            const rawLng = String(homeLngInput?.value || '').trim();
+            const lat = rawLat !== '' ? Number(rawLat) : null;
+            const lng = rawLng !== '' ? Number(rawLng) : null;
+            const hasPair = lat !== null && lng !== null && isValidNonZeroCoordPair(lat, lng);
+
+            if (!hasPair && !mapsUrl && !address) {
+                setPlannerBanner('err', 'Enter your Saltillo street address, paste a Google Maps link, or enter valid Home coordinates first.');
+                showToast('err', 'Enter a Home address, Maps link, or coordinates.');
+                return;
+            }
+
+            runWithButtonLock(btnSaveHome, async () => {
+                try {
+                    const body = { target: 'home', label, address, mapsUrl };
+                    if (hasPair) {
+                        body.lat = lat;
+                        body.lng = lng;
+                    } else if (address && !mapsUrl) {
+                        body.query = address;
+                    }
+                    const resData = await submitMutationRequest({
+                        url: '/api/planner/location',
+                        method: 'POST',
+                        scopeKey: 'planner-save-home',
+                        signature: `${label}:${address}:${mapsUrl}:${rawLat}:${rawLng}`,
+                        buildBody: () => body,
+                        parseJson: true
+                    });
+                    if (resData?.planner) {
+                        academicPlannerState = resData.planner;
+                        renderPlannerResidenciasAndWorkUI();
+                    }
+                    if (resData?.commutePreview) renderLiveCommuteCards(resData.commutePreview);
+                    const msg = resData?.geocodedDisplayName
+                        ? `Home located (${resData.geocodedDisplayName}) & routes recalculated!`
+                        : (resData?.message || 'Home location saved & verified!');
+                    setPlannerBanner('ok', msg);
+                    showToast('ok', msg);
+                } catch (err) {
+                    setPlannerBanner('err', err.message || 'Could not save or geocode Home location.');
+                    showToast('err', err.message || 'Could not locate Home address.');
+                }
+            }, { loadingText: 'Locating...' });
+        });
+    }
+
+    document.getElementById('btnPingPhoneGps')?.addEventListener('click', (e) => {
+        triggerPingPhoneForGps(e.currentTarget, document.getElementById('plannerStatusBanner'));
+    });
+
+    document.getElementById('btnClearCurrentGps')?.addEventListener('click', (e) => {
+        triggerClearCurrentGpsOrigin(e.currentTarget);
+    });
+
+    const btnLoadWebhook = document.getElementById('btnLoadPhoneWebhook');
+    const btnRotateWebhook = document.getElementById('btnRotatePhoneWebhook');
+    const btnCopyWebhook = document.getElementById('btnCopyPhoneWebhook');
+    const webhookBox = document.getElementById('phoneWebhookCredentialsBox');
+    const webhookUrlCode = document.getElementById('phoneWebhookUrlCode');
+
+    const renderPhoneWebhookPayload = (data) => {
+        if (webhookUrlCode && data?.webhookPostUrl) {
+            webhookUrlCode.textContent = data.webhookPostUrl;
+        }
+        if (webhookBox) webhookBox.hidden = false;
+    };
+
+    if (btnLoadWebhook) {
+        btnLoadWebhook.addEventListener('click', () => {
+            runWithButtonLock(btnLoadWebhook, async () => {
+                try {
+                    const res = await fetch('/api/planner/phone-gps-token', { cache: 'no-store' });
+                    if (!res.ok) throw new Error(await res.text() || 'Could not load phone GPS webhook.');
+                    const data = await res.json();
+                    renderPhoneWebhookPayload(data);
+                    showToast('ok', 'Phone HTTP webhook URL ready.');
+                } catch (err) {
+                    showToast('err', err.message);
+                }
+            }, { loadingText: 'Loading...' });
+        });
+    }
+
+    if (btnRotateWebhook) {
+        btnRotateWebhook.addEventListener('click', () => {
+            runWithButtonLock(btnRotateWebhook, async () => {
+                try {
+                    const data = await submitMutationRequest({
+                        url: '/api/planner/phone-gps-token/rotate',
+                        method: 'POST',
+                        scopeKey: 'planner-rotate-phone-webhook',
+                        signature: String(Date.now()),
+                        buildBody: () => ({}),
+                        parseJson: true
+                    });
+                    renderPhoneWebhookPayload(data);
+                    showToast('ok', data?.message || 'Phone webhook token rotated.');
+                } catch (err) {
+                    showToast('err', err.message || 'Could not rotate token.');
+                }
+            }, { loadingText: 'Rotating...' });
+        });
+    }
+
+    if (btnCopyWebhook && webhookUrlCode) {
+        btnCopyWebhook.addEventListener('click', async () => {
+            const urlText = String(webhookUrlCode.textContent || '').trim();
+            if (!urlText) return;
+            const copied = await copyTextToClipboard(urlText);
+            showToast(copied ? 'ok' : 'info', copied
+                ? 'Signed Phone GPS Webhook URL copied!'
+                : 'Long-press the URL box to copy.');
+        });
+    }
 
     const btnSaveAll = document.getElementById('btnSaveAllPlanner');
     if (btnSaveAll) {
@@ -7882,6 +8882,8 @@ function initKeyboardShortcuts() {
     bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
     // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
     bindEnterToButton('crisisMotivo', 'btnSaveCrisis', { ctrlOrCmd: true });
+    // Sleep desvelo note textarea -> Ctrl+Enter saves sleep log
+    bindEnterToButton('sleepMotivoDesvelo', 'btn-save-sleep', { ctrlOrCmd: true });
 
     // Catalog search filter -> Enter selects first visible matching song in catalog
     const filterSearchEl = document.getElementById('musicFilterSearch');

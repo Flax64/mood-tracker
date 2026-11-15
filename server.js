@@ -261,6 +261,19 @@ function inicializarTablasSeguridad() {
             INDEX idx_rec_estado (usuario_id, estado),
             FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
         )`,
+        `CREATE TABLE IF NOT EXISTS RegistrosSleep (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            fecha DATE NOT NULL,
+            horas DECIMAL(4, 2) NOT NULL,
+            calidad VARCHAR(20) NOT NULL,
+            hora_dormir VARCHAR(5) NULL DEFAULT NULL,
+            hora_despertar VARCHAR(5) NULL DEFAULT NULL,
+            es_desvelo TINYINT(1) NOT NULL DEFAULT 0,
+            tipo_registro VARCHAR(30) NOT NULL DEFAULT 'normal',
+            motivo_desvelo VARCHAR(500) NULL DEFAULT NULL,
+            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_sleep_fecha (fecha)
+        )`,
         `CREATE TABLE IF NOT EXISTS RegistrosCrisis (
             id INT AUTO_INCREMENT PRIMARY KEY,
             fecha DATE NOT NULL,
@@ -377,6 +390,46 @@ function inicializarTablasSeguridad() {
             }
         });
     });
+
+    const sleepCols = [
+        {
+            name: 'hora_dormir',
+            sql: 'ALTER TABLE RegistrosSleep ADD COLUMN hora_dormir VARCHAR(5) NULL DEFAULT NULL AFTER calidad'
+        },
+        {
+            name: 'hora_despertar',
+            sql: 'ALTER TABLE RegistrosSleep ADD COLUMN hora_despertar VARCHAR(5) NULL DEFAULT NULL AFTER hora_dormir'
+        },
+        {
+            name: 'es_desvelo',
+            sql: 'ALTER TABLE RegistrosSleep ADD COLUMN es_desvelo TINYINT(1) NOT NULL DEFAULT 0 AFTER hora_despertar'
+        },
+        {
+            name: 'tipo_registro',
+            sql: "ALTER TABLE RegistrosSleep ADD COLUMN tipo_registro VARCHAR(30) NOT NULL DEFAULT 'normal' AFTER es_desvelo"
+        },
+        {
+            name: 'motivo_desvelo',
+            sql: 'ALTER TABLE RegistrosSleep ADD COLUMN motivo_desvelo VARCHAR(500) NULL DEFAULT NULL AFTER tipo_registro'
+        }
+    ];
+    const ejecutarMigracionSleepSecuencial = (idx = 0) => {
+        if (idx >= sleepCols.length) return;
+        const col = sleepCols[idx];
+        db.query('SHOW COLUMNS FROM RegistrosSleep LIKE ?', [col.name], (errCol, cols) => {
+            if (!errCol && Array.isArray(cols) && cols.length === 0) {
+                db.query(col.sql, (errAlt) => {
+                    if (errAlt) {
+                        console.error(`Error migrando columna ${col.name} en RegistrosSleep:`, errAlt.message);
+                    }
+                    ejecutarMigracionSleepSecuencial(idx + 1);
+                });
+            } else {
+                ejecutarMigracionSleepSecuencial(idx + 1);
+            }
+        });
+    };
+    ejecutarMigracionSleepSecuencial(0);
     db.query("SHOW COLUMNS FROM Usuarios LIKE 'estado'", (errCol, cols) => {
         if (!errCol && Array.isArray(cols) && cols.length === 0) {
             db.query(
@@ -1577,8 +1630,18 @@ app.delete('/api/auth/medicos/:id', apiWriteLimiter.middleware, requireAdmin, pr
 // ==========================================
 const MOMENTOS_VALIDOS = new Set(['Madrugada', 'Morning', 'Noon', 'Afternoon', 'Night']);
 const CALIDADES_SUENO_VALIDAS = new Set(['Good', 'Regular', 'Bad']);
+const SLEEP_TIPOS_VALIDOS = new Set(['normal', 'desvelo_tarde', 'desvelo_total']);
 const FECHA_ISO_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
+const HORA_24H_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function isLateBedtimeHHMM(hhmm = '') {
+    if (!HORA_24H_REGEX.test(hhmm)) return false;
+    const [h, m] = hhmm.split(':').map(Number);
+    const totalMin = h * 60 + m;
+    // 01:00 to 05:59 counts as late-night bedtime ("madrugada / desvelo")
+    return totalMin >= 60 && totalMin < 360;
+}
 
 // Guardar el estado de ánimo (SOLO ADMIN)
 app.post('/api/insert-mood', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), (req, res) => {
@@ -1632,28 +1695,195 @@ app.post('/api/insert-mood', apiWriteLimiter.middleware, requireAdmin, requireNo
     });
 });
 
-// Dar de alta un nuevo registro de sueño (SOLO ADMIN)
+// Dar de alta un nuevo registro de sueño o desvelo (SOLO ADMIN)
 app.post('/api/insert-sleep', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), (req, res) => {
-    const { fecha, horas, calidad } = req.body;
-    const horasNum = Number(horas);
+    const fecha = String(req.body.fecha || '').trim();
+    const rawHoraDormir = String(req.body.horaDormir ?? req.body.hora_dormir ?? '').trim();
+    const rawHoraDespertar = String(req.body.horaDespertar ?? req.body.hora_despertar ?? '').trim();
+    const rawTipo = String(req.body.tipoRegistro ?? req.body.tipo_registro ?? 'normal').trim();
+    const rawMotivo = String(req.body.motivoDesvelo ?? req.body.motivo_desvelo ?? '').trim();
+    const hasExplicitDesvelo = req.body.esDesvelo !== undefined || req.body.es_desvelo !== undefined;
+    const rawEsDesvelo = Boolean(req.body.esDesvelo ?? req.body.es_desvelo ?? false);
+    const rawCalidad = String(req.body.calidad || (rawTipo === 'desvelo_total' ? 'Bad' : '')).trim();
+    const rawHoras = req.body.horas;
 
     if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
         return res.status(400).send('Invalid date (expected YYYY-MM-DD).');
     }
-    if (!Number.isFinite(horasNum) || horasNum <= 0 || horasNum > 24) {
-        return res.status(400).send('Sleep hours must be a number between 0.1 and 24.');
+    if (!SLEEP_TIPOS_VALIDOS.has(rawTipo)) {
+        return res.status(400).send('Invalid sleep entry type.');
     }
-    if (!calidad || !CALIDADES_SUENO_VALIDAS.has(calidad)) {
+    if (rawHoraDormir && !HORA_24H_REGEX.test(rawHoraDormir)) {
+        return res.status(400).send('Invalid bedtime format (expected HH:MM).');
+    }
+    if (rawHoraDespertar && !HORA_24H_REGEX.test(rawHoraDespertar)) {
+        return res.status(400).send('Invalid wake-up time format (expected HH:MM).');
+    }
+    if (rawMotivo.length > 500) {
+        return res.status(400).send('Desvelo reason note cannot exceed 500 characters.');
+    }
+    if (!rawCalidad || !CALIDADES_SUENO_VALIDAS.has(rawCalidad)) {
         return res.status(400).send('Invalid sleep quality.');
     }
 
-    const sql = 'INSERT INTO RegistrosSleep (fecha, horas, calidad) VALUES (?, ?, ?)';
-    db.query(sql, [fecha, horasNum, calidad], (err) => {
+    const lateAuto = rawHoraDormir ? isLateBedtimeHHMM(rawHoraDormir) : false;
+    let tipoRegistro = rawTipo;
+    let esDesvelo = rawTipo !== 'normal' || rawEsDesvelo || (lateAuto && (!hasExplicitDesvelo || rawEsDesvelo));
+    if (tipoRegistro === 'normal' && esDesvelo) {
+        tipoRegistro = 'desvelo_tarde';
+    }
+
+    const isAllNighter = tipoRegistro === 'desvelo_total';
+    const isPendingWakeup = tipoRegistro === 'desvelo_tarde' && Boolean(rawHoraDormir) && !rawHoraDespertar && (rawHoras === undefined || rawHoras === '' || Number(rawHoras) === 0);
+
+    let horasNum = rawHoras === undefined || rawHoras === '' ? 0 : Number(rawHoras);
+    if (isAllNighter) {
+        if (!Number.isFinite(horasNum) || horasNum < 0 || horasNum > 24) {
+            return res.status(400).send('Sleep hours must be between 0 and 24 for an all-nighter.');
+        }
+        horasNum = 0;
+        esDesvelo = true;
+    } else if (isPendingWakeup) {
+        horasNum = 0;
+        esDesvelo = true;
+    } else if (!Number.isFinite(horasNum) || horasNum <= 0 || horasNum > 24) {
+        return res.status(400).send('Sleep hours must be a number between 0.1 and 24.');
+    }
+
+    const sql = `
+        INSERT INTO RegistrosSleep
+            (fecha, horas, calidad, hora_dormir, hora_despertar, es_desvelo, tipo_registro, motivo_desvelo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const params = [
+        fecha,
+        horasNum,
+        rawCalidad,
+        rawHoraDormir || null,
+        rawHoraDespertar || null,
+        esDesvelo ? 1 : 0,
+        tipoRegistro,
+        rawMotivo || null
+    ];
+
+    db.query(sql, params, (err) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Error saving sleep record.');
         }
-        res.send('Sleep record saved successfully.');
+        if (isAllNighter) {
+            return res.send('All-nighter / desvelo log saved successfully (0 hrs · visible to psychiatrist).');
+        }
+        if (isPendingWakeup) {
+            return res.send(`Late bedtime (${rawHoraDormir}) saved! Complete your wake-up time when you get up.`);
+        }
+        if (esDesvelo) {
+            return res.send('Sleep & desvelo record saved successfully (visible to psychiatrist).');
+        }
+        return res.send('Sleep record saved successfully.');
+    });
+});
+
+// Completar hora de despertar o actualizar registro de sueño (SOLO ADMIN)
+app.patch('/api/update-sleep/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, (req, res) => {
+    const id = parsePositiveInt(req.params.id);
+    if (!id) {
+        return res.status(400).send('Invalid sleep record ID.');
+    }
+
+    db.query(
+        'SELECT id, fecha, horas, calidad, hora_dormir, hora_despertar, es_desvelo, tipo_registro, motivo_desvelo FROM RegistrosSleep WHERE id = ? LIMIT 1',
+        [id],
+        (errFind, rows) => {
+            if (errFind) {
+                console.error(errFind);
+                return res.status(500).send('Database query error.');
+            }
+            if (!Array.isArray(rows) || rows.length === 0) {
+                return res.status(404).send('Sleep record not found.');
+            }
+
+            const existing = rows[0];
+            const horaDormir = req.body.horaDormir !== undefined || req.body.hora_dormir !== undefined
+                ? String(req.body.horaDormir ?? req.body.hora_dormir ?? '').trim()
+                : String(existing.hora_dormir || '').trim();
+            const horaDespertar = req.body.horaDespertar !== undefined || req.body.hora_despertar !== undefined
+                ? String(req.body.horaDespertar ?? req.body.hora_despertar ?? '').trim()
+                : String(existing.hora_despertar || '').trim();
+            const calidad = String(req.body.calidad ?? existing.calidad ?? 'Regular').trim();
+            const tipoRegistro = String(req.body.tipoRegistro ?? req.body.tipo_registro ?? existing.tipo_registro ?? 'normal').trim();
+            const motivoRaw = req.body.motivoDesvelo !== undefined || req.body.motivo_desvelo !== undefined
+                ? String(req.body.motivoDesvelo ?? req.body.motivo_desvelo ?? '').trim()
+                : String(existing.motivo_desvelo || '').trim();
+            const horasNum = Number(req.body.horas ?? existing.horas ?? 0);
+
+            if (horaDormir && !HORA_24H_REGEX.test(horaDormir)) {
+                return res.status(400).send('Invalid bedtime format (expected HH:MM).');
+            }
+            if (horaDespertar && !HORA_24H_REGEX.test(horaDespertar)) {
+                return res.status(400).send('Invalid wake-up time format (expected HH:MM).');
+            }
+            if (!CALIDADES_SUENO_VALIDAS.has(calidad) || !SLEEP_TIPOS_VALIDOS.has(tipoRegistro)) {
+                return res.status(400).send('Invalid sleep quality or entry type.');
+            }
+            if (motivoRaw.length > 500) {
+                return res.status(400).send('Desvelo reason note cannot exceed 500 characters.');
+            }
+            if (!Number.isFinite(horasNum) || horasNum <= 0 || horasNum > 24) {
+                if (tipoRegistro !== 'desvelo_total') {
+                    return res.status(400).send('Sleep hours must be a number between 0.1 and 24.');
+                }
+            }
+
+            const esDesveloFlag = req.body.esDesvelo !== undefined || req.body.es_desvelo !== undefined
+                ? Boolean(req.body.esDesvelo ?? req.body.es_desvelo)
+                : Boolean(Number(existing.es_desvelo) === 1 || tipoRegistro !== 'normal' || isLateBedtimeHHMM(horaDormir));
+            const finalTipo = tipoRegistro === 'normal' && esDesveloFlag ? 'desvelo_tarde' : tipoRegistro;
+
+            const sqlUpdate = `
+                UPDATE RegistrosSleep
+                SET hora_dormir = ?, hora_despertar = ?, horas = ?, calidad = ?, es_desvelo = ?, tipo_registro = ?, motivo_desvelo = ?
+                WHERE id = ?
+            `;
+            db.query(
+                sqlUpdate,
+                [
+                    horaDormir || null,
+                    horaDespertar || null,
+                    tipoRegistro === 'desvelo_total' ? 0 : horasNum,
+                    calidad,
+                    esDesveloFlag ? 1 : 0,
+                    finalTipo,
+                    motivoRaw || null,
+                    id
+                ],
+                (errUpd) => {
+                    if (errUpd) {
+                        console.error(errUpd);
+                        return res.status(500).send('Error updating sleep record.');
+                    }
+                    res.json({ ok: true, id, message: 'Sleep session updated successfully.' });
+                }
+            );
+        }
+    );
+});
+
+// Eliminar un registro de sueño (SOLO ADMIN)
+app.delete('/api/delete-sleep/:id', apiWriteLimiter.middleware, requireAdmin, (req, res) => {
+    const id = parsePositiveInt(req.params.id);
+    if (!id) {
+        return res.status(400).send('Invalid sleep record ID.');
+    }
+    db.query('DELETE FROM RegistrosSleep WHERE id = ?', [id], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error deleting sleep record.');
+        }
+        if (!result || Number(result.affectedRows) === 0) {
+            return res.status(404).send('Sleep record not found.');
+        }
+        res.json({ ok: true, id, message: 'Sleep record removed.' });
     });
 });
 
@@ -1675,14 +1905,19 @@ app.get('/api/get-moods', apiReadLimiter.middleware, requireAuth, (req, res) => 
     });
 });
 
-// Consultar horas de sueño (PERMITIDO A ADMIN Y PSIQUIATRA)
+// Consultar horas de sueño y desvelos (PERMITIDO A ADMIN Y PSIQUIATRA)
 app.get('/api/get-sleep', apiReadLimiter.middleware, requireAuth, (req, res) => {
     const { begin, end } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
         return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
     }
 
-    const sql = 'SELECT fecha, horas, calidad FROM RegistrosSleep WHERE fecha BETWEEN ? AND ?';
+    const sql = `
+        SELECT id, fecha, horas, calidad, hora_dormir, hora_despertar, es_desvelo, tipo_registro, motivo_desvelo, fecha_registro
+        FROM RegistrosSleep
+        WHERE fecha BETWEEN ? AND ?
+        ORDER BY fecha ASC, id ASC
+    `;
 
     db.query(sql, [begin, end], (err, result) => {
         if (err) {
@@ -1706,7 +1941,6 @@ const CRISIS_TIPOS_VALIDOS = new Set([
     'Insomnio / Agitación',
     'Otro'
 ]);
-const HORA_24H_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, (req, res) => {
     const fecha = String(req.body.fecha || '').trim();
@@ -2372,24 +2606,53 @@ function resolveItsClassroom(rawRoom = '') {
     });
 }
 
+function isValidNonZeroCoords(lat, lng) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+    // Evitar "Null Island" (0, 0) generado por inputs vacíos o errores de mapa
+    if (Math.abs(lat) < 0.001 && Math.abs(lng) < 0.001) return false;
+    return true;
+}
+
 function parseCoordinatesFromInput(input = {}) {
     if (!input || typeof input !== 'object') return null;
-    let lat = input.lat !== undefined && input.lat !== null && input.lat !== '' ? Number(input.lat) : NaN;
-    let lng = input.lng !== undefined && input.lng !== null && input.lng !== '' ? Number(input.lng) : NaN;
+    const rawLat = input.lat !== undefined && input.lat !== null && input.lat !== '' ? input.lat : input.latitude;
+    const rawLng = input.lng !== undefined && input.lng !== null && input.lng !== '' ? input.lng : input.longitude;
+    let lat = rawLat !== undefined && rawLat !== null && rawLat !== '' ? Number(rawLat) : NaN;
+    let lng = rawLng !== undefined && rawLng !== null && rawLng !== '' ? Number(rawLng) : NaN;
 
-    if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && typeof input.mapsUrl === 'string' && input.mapsUrl.trim()) {
-        const rawUrl = input.mapsUrl.trim();
-        const atMatch = rawUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
-                        rawUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ||
-                        rawUrl.match(/[?&](?:q|ll|destination|origin)=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/) ||
-                        rawUrl.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
-        if (atMatch) {
-            lat = Number(atMatch[1]);
-            lng = Number(atMatch[2]);
+    if (!isValidNonZeroCoords(lat, lng)) {
+        lat = NaN;
+        lng = NaN;
+    }
+
+    const urlOrText = [input.mapsUrl, input.url, input.coords, input.query, input.input]
+        .find(v => typeof v === 'string' && v.trim());
+
+    if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && urlOrText) {
+        const rawUrl = urlOrText.trim();
+        let decodedUrl = rawUrl;
+        try {
+            decodedUrl = decodeURIComponent(rawUrl);
+        } catch (_) {
+            decodedUrl = rawUrl;
+        }
+        const candidateStr = `${rawUrl}\n${decodedUrl}`;
+        const pinMatch = candidateStr.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/) ||
+                         candidateStr.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/) ||
+                         candidateStr.match(/[?&](?:q|query|ll|center|destination|origin)=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i) ||
+                         candidateStr.match(/(?:^|[\s:/=])(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+        if (pinMatch) {
+            const pLat = Number(pinMatch[1]);
+            const pLng = Number(pinMatch[2]);
+            if (isValidNonZeroCoords(pLat, pLng)) {
+                lat = pLat;
+                lng = pLng;
+            }
         }
     }
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    if (!isValidNonZeroCoords(lat, lng)) {
         return null;
     }
     return {
@@ -2428,10 +2691,10 @@ function getSaltilloTrafficFactor(minutesOfDay, weekday = 1) {
 }
 
 function buildGoogleMapsDirectionsUrl(originCoords, destCoords, mode = 'driving') {
-    if (!destCoords || !Number.isFinite(destCoords.lat) || !Number.isFinite(destCoords.lng)) return '';
+    if (!destCoords || !isValidNonZeroCoords(Number(destCoords.lat), Number(destCoords.lng))) return '';
     const destParam = `${destCoords.lat},${destCoords.lng}`;
     const travelMode = mode === 'walking' ? 'walking' : 'driving';
-    if (originCoords && Number.isFinite(originCoords.lat) && Number.isFinite(originCoords.lng)) {
+    if (originCoords && isValidNonZeroCoords(Number(originCoords.lat), Number(originCoords.lng))) {
         const origParam = `${originCoords.lat},${originCoords.lng}`;
         return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origParam)}&destination=${encodeURIComponent(destParam)}&travelmode=${travelMode}`;
     }
@@ -2449,7 +2712,7 @@ function estimateCommuteDetails({
     nearLeadMinutes = 10,
     parkingBufferMinutes = 8
 }) {
-    if (!destCoords || !Number.isFinite(destCoords.lat) || !Number.isFinite(destCoords.lng)) {
+    if (!destCoords || !isValidNonZeroCoords(Number(destCoords.lat), Number(destCoords.lng))) {
         return {
             hasOrigin: false,
             isNear: !isFirstOfDay,
@@ -2463,7 +2726,7 @@ function estimateCommuteDetails({
         };
     }
 
-    if (!originCoords || !Number.isFinite(originCoords.lat) || !Number.isFinite(originCoords.lng)) {
+    if (!originCoords || !isValidNonZeroCoords(Number(originCoords.lat), Number(originCoords.lng))) {
         const fallbackLead = isFirstOfDay ? Math.max(30, minFarLeadMinutes) : nearLeadMinutes;
         return {
             hasOrigin: false,
@@ -2714,6 +2977,10 @@ function sanitizeLocationObject(rawLoc = {}, fallback = {}) {
         base.lat = null;
         base.lng = null;
     }
+    if (!isValidNonZeroCoords(Number(base.lat), Number(base.lng))) {
+        base.lat = null;
+        base.lng = null;
+    }
     return base;
 }
 
@@ -2757,6 +3024,9 @@ function sanitizeAcademicPlanner(rawPlanner = {}, basePlanner = getDefaultAcadem
                 source: String(src.locations?.current?.source || prev.locations?.current?.source || 'none').slice(0, 30)
             }
         },
+        phoneGpsNonce: typeof src.phoneGpsNonce === 'string' && /^[a-f0-9]{16,64}$/i.test(src.phoneGpsNonce.trim())
+            ? src.phoneGpsNonce.trim()
+            : (typeof prev.phoneGpsNonce === 'string' && /^[a-f0-9]{16,64}$/i.test(prev.phoneGpsNonce.trim()) ? prev.phoneGpsNonce.trim() : ''),
         semesters: [],
         vacations: [],
         residencias: {},
@@ -2767,6 +3037,11 @@ function sanitizeAcademicPlanner(rawPlanner = {}, basePlanner = getDefaultAcadem
     if (currCoords) {
         out.locations.current.lat = currCoords.lat;
         out.locations.current.lng = currCoords.lng;
+    } else {
+        out.locations.current.lat = null;
+        out.locations.current.lng = null;
+        out.locations.current.updatedAt = null;
+        out.locations.current.source = 'none';
     }
 
     const rawSemesters = Array.isArray(src.semesters) ? src.semesters : (Array.isArray(prev.semesters) ? prev.semesters : def.semesters);
@@ -3284,21 +3559,45 @@ function computeCandidateReminders({
         }
     }
 
-    // 2. Sleep Tracker morning reminder (with Postpone/Snooze support)
-    if (settings.sleepReminderEnabled && sleepLogsToday.length === 0) {
+    // 2. Sleep Tracker morning reminder (with Postpone/Snooze + Pending Wake-up support)
+    if (settings.sleepReminderEnabled) {
         const sleepStartMin = hhmmToMinutes(settings.sleepReminderTime);
+        const hasCompletedOrAllNighter = sleepLogsToday.some(r =>
+            Number(r.horas) > 0 ||
+            Boolean(r.hora_despertar) ||
+            r.tipo_registro === 'desvelo_total' ||
+            (r.id && r.horas === undefined && r.tipo_registro === undefined)
+        );
+        const pendingBedtimeRow = !hasCompletedOrAllNighter
+            ? sleepLogsToday.find(r => r.hora_dormir && !r.hora_despertar)
+            : null;
+
         if (minutesOfDay >= sleepStartMin && minutesOfDay < 14 * 60) {
-            candidates.push({
-                key: `sleep:${dateStr}`,
-                type: 'sleep',
-                refId: null,
-                title: 'Morning Sleep Log',
-                message: 'Remember to log last night’s bedtime, wake-up time, and rest quality. You can snooze if needed.',
-                targetView: 'sueno',
-                targetDate: dateStr,
-                canSnooze: true,
-                canComplete: false
-            });
+            if (pendingBedtimeRow) {
+                candidates.push({
+                    key: `sleep-wakeup:${dateStr}`,
+                    type: 'sleep',
+                    refId: pendingBedtimeRow.id || null,
+                    title: 'Finish Morning Sleep Log',
+                    message: `You logged bedtime at ${pendingBedtimeRow.hora_dormir} (Desvelo). Tap to record when you woke up.`,
+                    targetView: 'sueno',
+                    targetDate: dateStr,
+                    canSnooze: true,
+                    canComplete: false
+                });
+            } else if (sleepLogsToday.length === 0) {
+                candidates.push({
+                    key: `sleep:${dateStr}`,
+                    type: 'sleep',
+                    refId: null,
+                    title: 'Morning Sleep Log',
+                    message: 'Remember to log last night’s bedtime, wake-up time, and rest quality. You can snooze if needed.',
+                    targetView: 'sueno',
+                    targetDate: dateStr,
+                    canSnooze: true,
+                    canComplete: false
+                });
+            }
         }
     }
 
@@ -3633,6 +3932,13 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
         if (reminder.targetBlock) params.set('rBlock', String(reminder.targetBlock));
         if (reminder.targetTab) params.set('rTab', String(reminder.targetTab));
         if (reminder.refId) params.set('rRef', String(reminder.refId));
+        if (reminder.extraQuery && typeof reminder.extraQuery === 'object') {
+            for (const [k, v] of Object.entries(reminder.extraQuery)) {
+                if (v !== undefined && v !== null && String(v) !== '') {
+                    params.set(String(k), String(v));
+                }
+            }
+        }
         if (Array.from(params.keys()).length > 0 && reminder.targetView) {
             params.set('rView', String(reminder.targetView));
         }
@@ -3742,7 +4048,7 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
 
     const [moodRows, sleepRows, agendaRows, weekAgendaRows, stateRows] = await Promise.all([
         dbQueryAsync('SELECT momento_dia FROM RegistrosMood WHERE fecha = ?', [localNow.dateStr]),
-        dbQueryAsync('SELECT id FROM RegistrosSleep WHERE fecha = ? LIMIT 1', [localNow.dateStr]),
+        dbQueryAsync('SELECT id, horas, hora_dormir, hora_despertar, tipo_registro FROM RegistrosSleep WHERE fecha = ?', [localNow.dateStr]),
         dbQueryAsync(
             `SELECT id, TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
                     COALESCE(tipo, 'evento') AS tipo,
@@ -3942,9 +4248,21 @@ app.post('/api/settings/test-notification', apiWriteLimiter.middleware, requireA
     }
 });
 
+function sanitizePlannerForClient(planner = {}) {
+    if (!planner || typeof planner !== 'object') return planner;
+    const { phoneGpsNonce, ...rest } = planner;
+    return {
+        ...rest,
+        hasPhoneWebhook: Boolean(phoneGpsNonce)
+    };
+}
+
 function buildLiveCommutePreview(planner, localNow) {
     const originInfo = resolveUserOriginCoords(planner, true);
     const originCoords = originInfo.coords;
+    const currCoords = parseCoordinatesFromInput(planner?.locations?.current || {});
+    const homeCoords = parseCoordinatesFromInput(planner?.locations?.home || {});
+    const originKind = currCoords ? 'current' : (homeCoords ? 'home' : 'none');
     const campuses = {};
     const commutes = [];
     for (const [key, campus] of Object.entries(ITS_CAMPUS_DIRECTORY)) {
@@ -3980,6 +4298,10 @@ function buildLiveCommutePreview(planner, localNow) {
 
     return {
         originSource: originInfo.sourceLabel,
+        originKind,
+        originUpdatedAt: currCoords ? (planner?.locations?.current?.updatedAt || null) : null,
+        originTechnicalSource: currCoords ? (planner?.locations?.current?.source || 'gps') : (homeCoords ? 'home' : 'none'),
+        homeConfigured: Boolean(homeCoords),
         originCoords,
         campuses,
         commutes,
@@ -4018,7 +4340,7 @@ app.get('/api/planner', apiReadLimiter.middleware, requireAdmin, async (req, res
         const planner = sanitizeAcademicPlanner(settings.academicPlanner);
         const localNow = getLocalNowParts(settings.timezone);
         res.json({
-            planner,
+            planner: sanitizePlannerForClient(planner),
             campusDirectory: ITS_CAMPUS_DIRECTORY,
             mindboxPreset: getItsMindboxPresetCourses(),
             activeVacation: isDateInVacation(localNow.dateStr, planner.vacations),
@@ -4035,6 +4357,35 @@ app.put('/api/planner', apiWriteLimiter.middleware, requireAdmin, requireNonEmpt
         const current = await loadUserSettings(req.user.id);
         const incomingPlanner = req.body.planner !== undefined ? req.body.planner : req.body;
         const nextPlanner = sanitizeAcademicPlanner(incomingPlanner, current.academicPlanner);
+
+        for (const locKey of ['home', 'university']) {
+            const locObj = nextPlanner.locations?.[locKey];
+            if (locObj && locObj.mapsUrl && !parseCoordinatesFromInput({ lat: locObj.lat, lng: locObj.lng })) {
+                const expanded = await resolveGoogleMapsShortLinkIfNeeded(locObj.mapsUrl);
+                if (expanded && expanded !== locObj.mapsUrl) {
+                    locObj.mapsUrl = expanded.slice(0, 500);
+                }
+                const resolvedCoords = parseCoordinatesFromInput({ mapsUrl: locObj.mapsUrl });
+                if (resolvedCoords) {
+                    locObj.lat = resolvedCoords.lat;
+                    locObj.lng = resolvedCoords.lng;
+                }
+            }
+        }
+        for (const extraLoc of [nextPlanner.residencias?.location, nextPlanner.work?.location]) {
+            if (extraLoc && extraLoc.mapsUrl && !parseCoordinatesFromInput({ lat: extraLoc.lat, lng: extraLoc.lng })) {
+                const expanded = await resolveGoogleMapsShortLinkIfNeeded(extraLoc.mapsUrl);
+                if (expanded && expanded !== extraLoc.mapsUrl) {
+                    extraLoc.mapsUrl = expanded.slice(0, 500);
+                }
+                const resolvedCoords = parseCoordinatesFromInput({ mapsUrl: extraLoc.mapsUrl });
+                if (resolvedCoords) {
+                    extraLoc.lat = resolvedCoords.lat;
+                    extraLoc.lng = resolvedCoords.lng;
+                }
+            }
+        }
+
         const nextSettings = {
             ...current,
             academicPlanner: nextPlanner
@@ -4043,7 +4394,7 @@ app.put('/api/planner', apiWriteLimiter.middleware, requireAdmin, requireNonEmpt
         const localNow = getLocalNowParts(nextSettings.timezone);
         res.json({
             message: 'Academic, Residencias & Work schedule saved.',
-            planner: nextPlanner,
+            planner: sanitizePlannerForClient(nextPlanner),
             activeVacation: isDateInVacation(localNow.dateStr, nextPlanner.vacations),
             commutePreview: buildLiveCommutePreview(nextPlanner, localNow)
         });
@@ -4058,18 +4409,51 @@ async function resolveGoogleMapsShortLinkIfNeeded(rawUrl = '') {
     if (!clean || !/^https?:\/\//i.test(clean)) return clean;
     try {
         let currentUrl = new URL(clean);
-        for (let hop = 0; hop < 3; hop++) {
+        for (let hop = 0; hop < 4; hop++) {
             const host = currentUrl.hostname.toLowerCase();
             if (!['maps.app.goo.gl', 'goo.gl'].includes(host) || currentUrl.protocol !== 'https:') {
                 return currentUrl.toString();
             }
-            const resp = await fetch(currentUrl.toString(), {
+            const headResp = await fetch(currentUrl.toString(), {
                 method: 'HEAD',
                 redirect: 'manual',
-                signal: AbortSignal.timeout(4000)
+                signal: AbortSignal.timeout(4500)
             });
-            const loc = resp.headers.get('location');
-            if (!loc) return currentUrl.toString();
+            let loc = headResp.headers.get('location');
+            if (!loc) {
+                const getResp = await fetch(currentUrl.toString(), {
+                    method: 'GET',
+                    redirect: 'manual',
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; PersonalDailyHub/1.0)',
+                        Accept: 'text/html,application/xhtml+xml'
+                    },
+                    signal: AbortSignal.timeout(4500)
+                });
+                loc = getResp.headers.get('location');
+                if (!loc) {
+                    const htmlSnippet = (await getResp.text()).slice(0, 65536);
+                    const metaRefreshMatch = htmlSnippet.match(/content=["'][^"']*url=([^"'\s>]+)/i);
+                    const canonicalMatch = htmlSnippet.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)/i);
+                    const bodyUrlCandidate = (metaRefreshMatch && metaRefreshMatch[1]) || (canonicalMatch && canonicalMatch[1]) || '';
+                    if (bodyUrlCandidate) {
+                        const decodedCandidate = bodyUrlCandidate.replace(/&amp;/g, '&');
+                        const nextFromBody = new URL(decodedCandidate, currentUrl);
+                        if (nextFromBody.protocol === 'https:') {
+                            currentUrl = nextFromBody;
+                            if (parseCoordinatesFromInput({ mapsUrl: currentUrl.toString() })) {
+                                return currentUrl.toString();
+                            }
+                            continue;
+                        }
+                    }
+                    const directCoordsFromHtml = parseCoordinatesFromInput({ mapsUrl: htmlSnippet });
+                    if (directCoordsFromHtml) {
+                        return `https://www.google.com/maps/search/?api=1&query=${directCoordsFromHtml.lat},${directCoordsFromHtml.lng}`;
+                    }
+                    return currentUrl.toString();
+                }
+            }
             const nextUrl = new URL(loc, currentUrl);
             if (nextUrl.protocol !== 'https:') return clean;
             currentUrl = nextUrl;
@@ -4083,39 +4467,184 @@ async function resolveGoogleMapsShortLinkIfNeeded(rawUrl = '') {
     }
 }
 
+async function geocodeAddressWithNominatim(rawAddress = '') {
+    const clean = String(rawAddress || '').trim().slice(0, 220);
+    if (!clean || clean.length < 4 || /^https?:\/\//i.test(clean)) return null;
+    if (/^\s*-?\d+(?:\.\d+)?\s*[,\s]\s*-?\d+(?:\.\d+)?\s*$/.test(clean)) return null;
+
+    const tryQuery = async (queryText) => {
+        const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&countrycodes=mx&q=${encodeURIComponent(queryText)}`;
+        const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'User-Agent': 'PersonalDailyHub/1.0 (self-hosted academic planner)',
+                Accept: 'application/json'
+            },
+            signal: AbortSignal.timeout(4500)
+        });
+        if (!resp.ok) return null;
+        const list = await resp.json();
+        if (!Array.isArray(list)) return null;
+        for (const item of list) {
+            const lat = Number(item?.lat);
+            const lng = Number(item?.lon);
+            if (isValidNonZeroCoords(lat, lng)) {
+                return {
+                    lat: Number(lat.toFixed(6)),
+                    lng: Number(lng.toFixed(6)),
+                    displayName: String(item.display_name || clean).slice(0, 200),
+                    source: 'nominatim'
+                };
+            }
+        }
+        return null;
+    };
+
+    try {
+        const hasRegionHint = /\b(saltillo|coahuila|mexico|méxico|ramos|arteaga)\b/i.test(clean);
+        const primaryQuery = hasRegionHint ? clean : `${clean}, Saltillo, Coahuila, México`;
+        const hit = await tryQuery(primaryQuery);
+        if (hit) return hit;
+        if (!hasRegionHint && clean.includes(',')) {
+            return await tryQuery(clean);
+        }
+        return null;
+    } catch (_err) {
+        return null;
+    }
+}
+
+function ensureUserPhoneGpsNonce(planner) {
+    const existing = typeof planner?.phoneGpsNonce === 'string' && /^[a-f0-9]{16,64}$/i.test(planner.phoneGpsNonce.trim())
+        ? planner.phoneGpsNonce.trim()
+        : '';
+    if (existing) {
+        return { nonce: existing, changed: false };
+    }
+    const fresh = crypto.randomBytes(16).toString('hex');
+    planner.phoneGpsNonce = fresh;
+    return { nonce: fresh, changed: true };
+}
+
+function signPhoneGpsToken({ userId, email = 'phone@dailyhub.local', nonce }) {
+    return signMfaChallenge({
+        userId: Number(userId),
+        email: String(email || 'phone@dailyhub.local'),
+        purpose: 'phone_gps_webhook',
+        nonce: String(nonce || ''),
+        exp: Date.now() + 365 * 24 * 60 * 60 * 1000
+    });
+}
+
+function verifyPhoneGpsToken(token) {
+    const parsed = verifyMfaChallenge(token);
+    if (!parsed || parsed.purpose !== 'phone_gps_webhook' || !parsed.nonce || !Number.isInteger(Number(parsed.userId))) {
+        return null;
+    }
+    return parsed;
+}
+
 app.post('/api/planner/location', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
     try {
         const current = await loadUserSettings(req.user.id);
         const planner = sanitizeAcademicPlanner(current.academicPlanner);
         const target = String(req.body.target || 'current').trim();
-        let coords = parseCoordinatesFromInput(req.body);
-        if (!coords && typeof req.body.mapsUrl === 'string' && req.body.mapsUrl.trim()) {
-            const expandedUrl = await resolveGoogleMapsShortLinkIfNeeded(req.body.mapsUrl);
+
+        if (target === 'clear_current') {
+            planner.locations.current = {
+                label: 'Ubicación actual',
+                lat: null,
+                lng: null,
+                updatedAt: null,
+                source: 'none'
+            };
+            const nextSettings = { ...current, academicPlanner: planner };
+            await saveUserSettings(req.user.id, nextSettings);
+            const localNow = getLocalNowParts(nextSettings.timezone);
+            const preview = buildLiveCommutePreview(planner, localNow);
+            return res.json({
+                message: 'Live GPS cleared. Commutes now use your Saved Home as origin.',
+                planner: sanitizePlannerForClient(planner),
+                commutePreview: preview,
+                commutes: preview.commutes
+            });
+        }
+
+        const rawUrlInput = String(req.body.mapsUrl || req.body.url || '').trim();
+        const rawTextInput = String(req.body.query || req.body.input || rawUrlInput || '').trim();
+        let expandedUrl = rawUrlInput;
+        let coords = parseCoordinatesFromInput({
+            ...req.body,
+            mapsUrl: rawUrlInput || rawTextInput
+        });
+        if (!coords && rawUrlInput && /^https?:\/\//i.test(rawUrlInput)) {
+            expandedUrl = await resolveGoogleMapsShortLinkIfNeeded(rawUrlInput);
             coords = parseCoordinatesFromInput({ ...req.body, mapsUrl: expandedUrl });
         }
+
+        let geocodedMeta = null;
         if (!coords) {
-            return res.status(400).send('Valid latitude/longitude or a Google Maps link with coordinates is required.');
+            const addrCandidate = String(
+                req.body.address ||
+                (!/^https?:\/\//i.test(rawTextInput) ? rawTextInput : '') ||
+                ''
+            ).trim();
+            if (addrCandidate) {
+                geocodedMeta = await geocodeAddressWithNominatim(addrCandidate);
+                if (geocodedMeta) {
+                    coords = { lat: geocodedMeta.lat, lng: geocodedMeta.lng };
+                }
+            }
         }
+
+        if (!coords) {
+            return res.status(400).send('Valid non-zero latitude/longitude, a Google Maps link with coordinates, or a street address (e.g. Margarita Maza de Juárez 924, Saltillo) is required.');
+        }
+
+        const resolvedMapsUrl = expandedUrl && /^https?:\/\//i.test(expandedUrl)
+            ? expandedUrl.slice(0, 500)
+            : `https://www.google.com/maps?q=${coords.lat},${coords.lng}`;
 
         const customLabel = typeof req.body.label === 'string' && req.body.label.trim()
             ? req.body.label.trim().slice(0, 80)
             : '';
 
         if (target === 'home') {
-            planner.locations.home = sanitizeLocationObject({ ...planner.locations.home, ...req.body, ...coords }, planner.locations.home);
+            planner.locations.home = sanitizeLocationObject({
+                ...planner.locations.home,
+                ...req.body,
+                address: req.body.address || (geocodedMeta ? rawTextInput : planner.locations.home.address),
+                mapsUrl: req.body.mapsUrl ? resolvedMapsUrl : (planner.locations.home.mapsUrl || resolvedMapsUrl),
+                ...coords
+            }, planner.locations.home);
         } else if (target === 'university') {
-            planner.locations.university = sanitizeLocationObject({ ...planner.locations.university, ...req.body, ...coords }, planner.locations.university);
+            planner.locations.university = sanitizeLocationObject({
+                ...planner.locations.university,
+                ...req.body,
+                mapsUrl: req.body.mapsUrl ? resolvedMapsUrl : (planner.locations.university.mapsUrl || resolvedMapsUrl),
+                ...coords
+            }, planner.locations.university);
         } else if (target === 'residencias') {
-            planner.residencias.location = sanitizeLocationObject({ ...planner.residencias.location, ...req.body, ...coords }, planner.residencias.location);
+            planner.residencias.location = sanitizeLocationObject({
+                ...planner.residencias.location,
+                ...req.body,
+                mapsUrl: req.body.mapsUrl ? resolvedMapsUrl : (planner.residencias.location.mapsUrl || resolvedMapsUrl),
+                ...coords
+            }, planner.residencias.location);
         } else if (target === 'work') {
-            planner.work.location = sanitizeLocationObject({ ...planner.work.location, ...req.body, ...coords }, planner.work.location);
+            planner.work.location = sanitizeLocationObject({
+                ...planner.work.location,
+                ...req.body,
+                mapsUrl: req.body.mapsUrl ? resolvedMapsUrl : (planner.work.location.mapsUrl || resolvedMapsUrl),
+                ...coords
+            }, planner.work.location);
         } else {
             planner.locations.current = {
-                label: customLabel || 'Ubicación GPS actual',
+                label: customLabel || (geocodedMeta ? rawTextInput.slice(0, 80) : 'Ubicación GPS actual'),
                 lat: coords.lat,
                 lng: coords.lng,
                 updatedAt: new Date().toISOString(),
-                source: String(req.body.source || 'gps').slice(0, 30)
+                source: String(req.body.source || (geocodedMeta ? 'address_geocode' : 'gps')).slice(0, 30)
             };
         }
 
@@ -4124,14 +4653,181 @@ app.post('/api/planner/location', apiWriteLimiter.middleware, requireAdmin, requ
         const localNow = getLocalNowParts(nextSettings.timezone);
         const preview = buildLiveCommutePreview(planner, localNow);
         res.json({
-            message: 'Location updated and routes recalculated.',
-            planner,
+            message: target === 'home'
+                ? 'Home location saved & coordinates verified.'
+                : 'Location updated and routes recalculated.',
+            resolvedCoords: coords,
+            geocodedDisplayName: geocodedMeta?.displayName || null,
+            planner: sanitizePlannerForClient(planner),
             commutePreview: preview,
             commutes: preview.commutes
         });
     } catch (err) {
         console.error(err);
         res.status(500).send('Error updating location.');
+    }
+});
+
+app.get('/api/planner/phone-gps-token', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const current = await loadUserSettings(req.user.id);
+        const planner = sanitizeAcademicPlanner(current.academicPlanner);
+        const { nonce, changed } = ensureUserPhoneGpsNonce(planner);
+        if (changed) {
+            await saveUserSettings(req.user.id, { ...current, academicPlanner: planner });
+        }
+        const token = signPhoneGpsToken({ userId: req.user.id, email: req.user.email, nonce });
+        const baseUrl = buildPublicBaseUrlForUser(current, req);
+        const webhookPostUrl = `${baseUrl}/api/planner/phone-location?token=${encodeURIComponent(token)}`;
+        const webhookGetExampleUrl = `${webhookPostUrl}&lat={lat}&lng={lng}`;
+        res.json({
+            token,
+            baseUrl,
+            webhookPostUrl,
+            webhookGetExampleUrl,
+            macroDroidJson: '{"lat":[lv=lat],"lng":[lv=lng],"source":"macrodroid_gps","label":"Teléfono GPS (HTTP)"}',
+            currentLocation: planner.locations.current
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error generating phone GPS webhook token.');
+    }
+});
+
+app.post('/api/planner/phone-gps-token/rotate', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const current = await loadUserSettings(req.user.id);
+        const planner = sanitizeAcademicPlanner(current.academicPlanner);
+        const nonce = crypto.randomBytes(16).toString('hex');
+        planner.phoneGpsNonce = nonce;
+        await saveUserSettings(req.user.id, { ...current, academicPlanner: planner });
+
+        const token = signPhoneGpsToken({ userId: req.user.id, email: req.user.email, nonce });
+        const baseUrl = buildPublicBaseUrlForUser(current, req);
+        const webhookPostUrl = `${baseUrl}/api/planner/phone-location?token=${encodeURIComponent(token)}`;
+        const webhookGetExampleUrl = `${webhookPostUrl}&lat={lat}&lng={lng}`;
+        res.json({
+            message: 'Phone GPS webhook token rotated. Previous token revoked.',
+            token,
+            baseUrl,
+            webhookPostUrl,
+            webhookGetExampleUrl,
+            macroDroidJson: '{"lat":[lv=lat],"lng":[lv=lng],"source":"macrodroid_gps","label":"Teléfono GPS (HTTP)"}'
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error rotating phone GPS webhook token.');
+    }
+});
+
+async function handlePhoneLocationWebhook(req, res) {
+    try {
+        const bearerMatch = String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
+        const token = String(
+            req.query?.token ||
+            req.body?.token ||
+            req.headers['x-phone-gps-token'] ||
+            (bearerMatch ? bearerMatch[1] : '') ||
+            ''
+        ).trim();
+
+        if (!token) {
+            return res.status(401).send('Signed phone GPS token is required.');
+        }
+
+        const parsed = verifyPhoneGpsToken(token);
+        if (!parsed) {
+            return res.status(401).send('Invalid or expired phone GPS token.');
+        }
+
+        const settings = await loadUserSettings(parsed.userId);
+        const planner = sanitizeAcademicPlanner(settings.academicPlanner);
+        if (!planner.phoneGpsNonce || !safeCompareStrings(String(parsed.nonce), String(planner.phoneGpsNonce))) {
+            return res.status(401).send('Phone GPS webhook token has been revoked or rotated.');
+        }
+
+        const payload = {
+            ...(req.query || {}),
+            ...(req.body && typeof req.body === 'object' ? req.body : {})
+        };
+        let coords = parseCoordinatesFromInput(payload);
+        if (!coords && typeof payload.mapsUrl === 'string' && payload.mapsUrl.trim()) {
+            const expanded = await resolveGoogleMapsShortLinkIfNeeded(payload.mapsUrl);
+            coords = parseCoordinatesFromInput({ ...payload, mapsUrl: expanded });
+        }
+        if (!coords) {
+            return res.status(400).send('Valid non-zero lat and lng parameters are required (0, 0 is rejected).');
+        }
+
+        const customLabel = typeof payload.label === 'string' && payload.label.trim()
+            ? payload.label.trim().slice(0, 80)
+            : 'Teléfono GPS (HTTP Webhook)';
+        const customSource = typeof payload.source === 'string' && payload.source.trim()
+            ? payload.source.trim().slice(0, 30)
+            : 'phone_webhook';
+
+        planner.locations.current = {
+            label: customLabel,
+            lat: coords.lat,
+            lng: coords.lng,
+            updatedAt: new Date().toISOString(),
+            source: customSource
+        };
+
+        const nextSettings = { ...settings, academicPlanner: planner };
+        await saveUserSettings(parsed.userId, nextSettings);
+        const localNow = getLocalNowParts(nextSettings.timezone);
+        const preview = buildLiveCommutePreview(planner, localNow);
+
+        res.json({
+            ok: true,
+            message: 'Phone GPS location updated over HTTP webhook.',
+            location: planner.locations.current,
+            commutePreview: preview,
+            commutes: preview.commutes
+        });
+    } catch (err) {
+        console.error('[PHONE_GPS_WEBHOOK_ERROR]', err);
+        res.status(500).send('Error processing phone GPS webhook.');
+    }
+}
+
+app.get('/api/planner/phone-location', apiWriteLimiter.middleware, handlePhoneLocationWebhook);
+app.post('/api/planner/phone-location', apiWriteLimiter.middleware, handlePhoneLocationWebhook);
+
+app.post('/api/planner/request-phone-gps', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 2500 }), async (req, res) => {
+    try {
+        const settings = await loadUserSettings(req.user.id);
+        if (!settings.phoneNotificationsEnabled || !settings.ntfyTopic) {
+            return res.status(400).send('Configure Phone Notifications (ntfy topic) in Settings first so Daily Hub can ping your phone.');
+        }
+        const baseUrl = buildPublicBaseUrlForUser(settings, req);
+        if (!baseUrl) {
+            return res.status(400).send('Public Server URL could not be determined. Set it in Settings first.');
+        }
+
+        await sendPhonePushViaNtfy({
+            settings,
+            reminder: {
+                key: `capture-gps:${Date.now()}`,
+                type: 'class',
+                title: '📍 Send Your Phone GPS to Daily Hub',
+                message: 'Tap to capture your OPPO A79 location (or paste a Maps link) and update campus commute times.',
+                targetView: 'horario',
+                targetTab: 'locations',
+                extraQuery: { captureGps: '1' },
+                canSnooze: false
+            },
+            baseUrl,
+            userId: req.user.id
+        });
+
+        res.json({
+            message: 'GPS request sent to your phone via ntfy! Tap the notification on your phone to send its location.'
+        });
+    } catch (err) {
+        console.error('[REQUEST_PHONE_GPS_ERROR]', err.message);
+        res.status(502).send(err.message || 'Could not reach ntfy push relay.');
     }
 });
 

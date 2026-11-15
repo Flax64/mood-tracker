@@ -14,7 +14,13 @@ CREATE TABLE IF NOT EXISTS RegistrosSleep (
     fecha DATE NOT NULL,
     horas DECIMAL(4, 2) NOT NULL,
     calidad VARCHAR(20) NOT NULL,
-    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    hora_dormir VARCHAR(5) NULL DEFAULT NULL,
+    hora_despertar VARCHAR(5) NULL DEFAULT NULL,
+    es_desvelo TINYINT(1) NOT NULL DEFAULT 0,
+    tipo_registro VARCHAR(30) NOT NULL DEFAULT 'normal',
+    motivo_desvelo VARCHAR(500) NULL DEFAULT NULL,
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_sleep_fecha (fecha)
 );
 
 CREATE TABLE IF NOT EXISTS RegistrosCrisis (
