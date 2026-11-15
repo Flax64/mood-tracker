@@ -125,6 +125,10 @@ El sistema se divide en cinco capas desacopladas:
 - `POST /api/auth/forgot-password` genera token temporal guardado con hash en `CodigosSeguridad` (`tipo='reset'`) y envía enlace con `getResetBaseUrl(req)` usando `APP_BASE_URL` (o `EC2_HOST:PORT` en despliegue).
 - Soporta separar la cuenta receptora (`ADMIN_EMAIL`) de la cuenta emisora SMTP (`SMTP_USER`, cuenta Gmail dedicada para envío) + Contraseña de Aplicación de Google (`SMTP_PASS`).
 
+### 3.5 Geolocalización de Casa, Protección Anti-Null-Island y Webhook GPS en HTTP
+- **Saneamiento estricto `(0, 0)` ("Null Island"):** `isValidNonZeroCoords` + `parseCoordinatesFromInput` + `sanitizeLocationObject` + `buildGoogleMapsDirectionsUrl` rechazan coordenadas `(0, 0)` o incompletas para evitar enlaces erróneos tipo `/maps/dir/0.0/...`, decodifican `%2C`, priorizan pines exactos `!3d...!4d...` sobre el centro de vista `@lat,lng`, resuelven links cortos (`maps.app.goo.gl` / `goo.gl` por HTTPS estricto `HEAD` + fallback `GET`) y geocodifican direcciones de calle en Saltillo vía OpenStreetMap Nominatim (`geocodeAddressWithNominatim`).
+- **Captura de GPS móvil sobre HTTP sin dominio:** además del soporte `chrome://flags/#unsafely-treat-insecure-origin-as-secure` y el ping interactivo vía `ntfy` (`POST /api/planner/request-phone-gps` con deep-link `/?captureGps=1`), el servidor expone `GET/POST /api/planner/phone-location?token=...` protegido con firma HMAC-SHA256 + `phoneGpsNonce` rotativo por usuario (`GET /api/planner/phone-gps-token` y `POST /api/planner/phone-gps-token/rotate`, sin exponer nunca el nonce en `/api/planner`).
+
 ---
 
 ## 4. Sincronización Cifrada hacia Word (`sincronitation/sincronizador.py`)

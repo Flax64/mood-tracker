@@ -189,16 +189,58 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('INSERT INTO RegistrosSleep')) {
-                    sleepInserts.push({ id: sleepInserts.length + 1, fecha: params[0], horas: params[1], calidad: params[2] });
-                    return finish(null, { insertId: sleepInserts.length });
+                    const row = {
+                        id: sleepInserts.length + 1,
+                        fecha: params[0],
+                        horas: params[1],
+                        calidad: params[2],
+                        hora_dormir: params[3] || null,
+                        hora_despertar: params[4] || null,
+                        es_desvelo: params[5] ?? 0,
+                        tipo_registro: params[6] || 'normal',
+                        motivo_desvelo: params[7] || null,
+                        fecha_registro: '2026-11-15 09:00:00'
+                    };
+                    sleepInserts.push(row);
+                    return finish(null, { insertId: row.id });
                 }
 
-                if (normalized.startsWith('SELECT id FROM RegistrosSleep WHERE fecha = ?')) {
+                if (normalized.includes('FROM RegistrosSleep WHERE id = ?')) {
+                    const targetId = Number(params[0]);
+                    return finish(null, sleepInserts.filter((s) => s.id === targetId));
+                }
+
+                if (normalized.startsWith('UPDATE RegistrosSleep SET')) {
+                    const targetId = Number(params[7]);
+                    const row = sleepInserts.find((s) => s.id === targetId);
+                    if (!row) return finish(null, { affectedRows: 0 });
+                    row.hora_dormir = params[0];
+                    row.hora_despertar = params[1];
+                    row.horas = params[2];
+                    row.calidad = params[3];
+                    row.es_desvelo = params[4];
+                    row.tipo_registro = params[5];
+                    row.motivo_desvelo = params[6];
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('DELETE FROM RegistrosSleep WHERE id = ?')) {
+                    const idx = sleepInserts.findIndex((s) => s.id === Number(params[0]));
+                    if (idx === -1) return finish(null, { affectedRows: 0 });
+                    sleepInserts.splice(idx, 1);
+                    return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.includes('FROM RegistrosSleep WHERE fecha = ?')) {
                     const existing = sleepInserts.filter((s) => s.fecha === params[0]);
                     return finish(null, existing);
                 }
 
                 if (normalized.includes('FROM RegistrosSleep')) {
+                    if (params.length === 2) {
+                        const [begin, end] = params;
+                        return finish(null, sleepInserts.filter((s) => s.fecha >= begin && s.fecha <= end));
+                    }
                     return finish(null, sleepInserts);
                 }
 
@@ -2314,6 +2356,303 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(updatedSong.album_titulo, 'STRATEGY (14th Mini Album)');
         assert.strictEqual(updatedSong.album_anio, 2025);
         assert.ok(updatedSong.artists.some((a) => a.nombre === 'TWICE Official'));
+    });
+
+    it('registra desvelos, dormir a las 3 AM y trasnoches (0 hrs) y los muestra en modo solo lectura al psiquiatra', async () => {
+        // 1. Dormir a las 03:00 AM auto-detecta es_desvelo=1 y tipo_registro='desvelo_tarde'
+        const lateSleepRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-16',
+                horaDormir: '03:00',
+                horaDespertar: '08:30',
+                horas: 5.5,
+                calidad: 'Regular',
+                motivoDesvelo: 'Me dormí a las 3 de la mañana terminando un proyecto'
+            }
+        });
+        assert.strictEqual(lateSleepRes.status, 200);
+
+        // 2. Desvelo en curso (03:00 AM sin despertar aún) + PATCH al despertar
+        const pendingBedRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-17',
+                horaDormir: '03:00',
+                horaDespertar: '',
+                horas: 0,
+                calidad: 'Regular',
+                tipoRegistro: 'desvelo_tarde'
+            }
+        });
+        assert.strictEqual(pendingBedRes.status, 200);
+
+        // 3. Desvelo total (0 hrs sin dormir)
+        const allNighterRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-sleep',
+            headers: { Cookie: adminCookie },
+            body: {
+                fecha: '2026-11-18',
+                horaDormir: '03:00',
+                horas: 0,
+                calidad: 'Bad',
+                tipoRegistro: 'desvelo_total',
+                motivoDesvelo: 'Insomnio agudo, pasé la noche en vela'
+            }
+        });
+        assert.strictEqual(allNighterRes.status, 200);
+
+        // 4. El psiquiatra consulta GET /api/get-sleep y ve todos los campos de desvelo en solo lectura
+        const psychReadRes = await request({
+            port,
+            reqPath: '/api/get-sleep?begin=2026-11-16&end=2026-11-18',
+            headers: { Cookie: medicoCookie }
+        });
+        assert.strictEqual(psychReadRes.status, 200);
+        const rows = JSON.parse(psychReadRes.body);
+        const rowLate = rows.find((r) => r.fecha === '2026-11-16');
+        const rowPending = rows.find((r) => r.fecha === '2026-11-17');
+        const rowTotal = rows.find((r) => r.fecha === '2026-11-18');
+        assert.ok(rowLate && rowPending && rowTotal);
+        assert.strictEqual(rowLate.hora_dormir, '03:00');
+        assert.strictEqual(rowLate.hora_despertar, '08:30');
+        assert.strictEqual(Number(rowLate.es_desvelo), 1);
+        assert.strictEqual(rowLate.tipo_registro, 'desvelo_tarde');
+        assert.strictEqual(rowTotal.tipo_registro, 'desvelo_total');
+        assert.strictEqual(Number(rowTotal.horas), 0);
+        assert.match(rowTotal.motivo_desvelo, /Insomnio/i);
+
+        // 5. Psiquiatra recibe 403 al intentar actualizar o eliminar sueño
+        const psychPatch = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/update-sleep/${rowPending.id}`,
+            headers: { Cookie: medicoCookie },
+            body: { horaDespertar: '09:00', horas: 6, calidad: 'Good' }
+        });
+        assert.strictEqual(psychPatch.status, 403);
+
+        const psychDel = await request({
+            port,
+            method: 'DELETE',
+            reqPath: `/api/delete-sleep/${rowPending.id}`,
+            headers: { Cookie: medicoCookie }
+        });
+        assert.strictEqual(psychDel.status, 403);
+
+        // 6. Admin completa hora de despertar del registro de las 3:00 AM y puede eliminar un registro
+        const adminPatch = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/update-sleep/${rowPending.id}`,
+            headers: { Cookie: adminCookie },
+            body: {
+                horaDespertar: '09:00',
+                horas: 6,
+                calidad: 'Good',
+                motivoDesvelo: 'Desperté a las 9 AM tras dormirme a las 3 AM'
+            }
+        });
+        assert.strictEqual(adminPatch.status, 200);
+
+        const psychAfterPatch = await request({
+            port,
+            reqPath: '/api/get-sleep?begin=2026-11-17&end=2026-11-17',
+            headers: { Cookie: medicoCookie }
+        });
+        const updatedRow = JSON.parse(psychAfterPatch.body)[0];
+        assert.strictEqual(updatedRow.hora_despertar, '09:00');
+        assert.strictEqual(Number(updatedRow.horas), 6);
+        assert.strictEqual(Number(updatedRow.es_desvelo), 1);
+
+        const adminDel = await request({
+            port,
+            method: 'DELETE',
+            reqPath: `/api/delete-sleep/${rowPending.id}`,
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(adminDel.status, 200);
+    });
+
+    it('rechaza coordenadas Null Island (0,0), soporta Casa/direcciones y webhook GPS HTTP del teléfono con token rotativo', async () => {
+        // 1. Null Island (0,0) debe rechazarse con 400 en /api/planner/location
+        for (const badBody of [
+            { target: 'home', lat: 0, lng: 0 },
+            { target: 'current', mapsUrl: '0.000000, 0.000000' },
+            { target: 'current', mapsUrl: 'https://www.google.com/maps?q=0,0' }
+        ]) {
+            const badRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/planner/location',
+                headers: { Cookie: adminCookie },
+                body: badBody
+            });
+            assert.strictEqual(badRes.status, 400, `Debe rechazar coordenadas inválidas (0,0): ${JSON.stringify(badBody)}`);
+        }
+
+        // 2. PUT /api/planner sanea lat=0,lng=0 heredados a null y nunca genera origin=0,0 en Maps
+        const plannerBase = JSON.parse((await request({ port, reqPath: '/api/planner', headers: { Cookie: adminCookie } })).body).planner;
+        plannerBase.locations.home = {
+            label: 'Mi Casa',
+            address: 'Margarita Maza de Juárez 924, Saltillo',
+            mapsUrl: '',
+            lat: 0,
+            lng: 0
+        };
+        plannerBase.locations.current = {
+            label: 'Ubicación actual',
+            lat: 0,
+            lng: 0,
+            updatedAt: null,
+            source: 'gps'
+        };
+        const sanitizedPut = await request({
+            port,
+            method: 'PUT',
+            reqPath: '/api/planner',
+            headers: { Cookie: adminCookie },
+            body: { planner: plannerBase }
+        });
+        assert.strictEqual(sanitizedPut.status, 200);
+        const putData = JSON.parse(sanitizedPut.body);
+        assert.strictEqual(putData.planner.locations.home.lat, null);
+        assert.strictEqual(putData.planner.locations.home.lng, null);
+        assert.strictEqual(putData.planner.locations.current.lat, null);
+        assert.strictEqual(putData.planner.locations.current.lng, null);
+        for (const c of putData.commutePreview.commutes) {
+            assert.ok(!c.mapsDirectionsUrl.includes('origin=0'), `No debe generar origin=0,0 en Maps: ${c.mapsDirectionsUrl}`);
+        }
+
+        // 3. Prioridad exacta !3d!4d sobre @ viewport al guardar Casa y decodificación de %2C
+        const saveHomeRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/location',
+            headers: { Cookie: adminCookie },
+            body: {
+                target: 'home',
+                label: 'Mi Casa Saltillo',
+                address: 'Margarita Maza de Juárez 924, Saltillo',
+                mapsUrl: 'https://www.google.com/maps/place/Casa/@25.440000,-101.010000,15z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d25.431683!4d-100.992006?entry=ttu'
+            }
+        });
+        assert.strictEqual(saveHomeRes.status, 200);
+        const savedHomeBody = JSON.parse(saveHomeRes.body);
+        assert.strictEqual(savedHomeBody.planner.locations.home.lat, 25.431683);
+        assert.strictEqual(savedHomeBody.planner.locations.home.lng, -100.992006);
+        assert.strictEqual(savedHomeBody.planner.locations.home.label, 'Mi Casa Saltillo');
+
+        // Clear current GPS -> origen vuelve a Casa guardada
+        const clearRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/location',
+            headers: { Cookie: adminCookie },
+            body: { target: 'clear_current' }
+        });
+        assert.strictEqual(clearRes.status, 200);
+        const clearBody = JSON.parse(clearRes.body);
+        assert.strictEqual(clearBody.commutePreview.originKind, 'home');
+        assert.strictEqual(clearBody.commutePreview.originCoords.lat, 25.431683);
+        assert.strictEqual(clearBody.commutePreview.originSource, 'Mi Casa Saltillo');
+
+        // %2C encoded Maps query URL
+        const encodedUrlRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/location',
+            headers: { Cookie: adminCookie },
+            body: { target: 'current', mapsUrl: 'https://www.google.com/maps?q=25.432100%2C-100.991234', label: 'Encoded Link' }
+        });
+        assert.strictEqual(encodedUrlRes.status, 200);
+        assert.strictEqual(JSON.parse(encodedUrlRes.body).planner.locations.current.lat, 25.4321);
+
+        // 4. Phone GPS HTTP Webhook: RBAC, token secreto (no expuesto en /api/planner), GET/POST y rotación
+        const psychTokenRes = await request({ port, reqPath: '/api/planner/phone-gps-token', headers: { Cookie: medicoCookie } });
+        assert.strictEqual(psychTokenRes.status, 403);
+
+        const plannerCheckRes = await request({ port, reqPath: '/api/planner', headers: { Cookie: adminCookie } });
+        const plannerCheckBody = JSON.parse(plannerCheckRes.body);
+        assert.strictEqual(plannerCheckBody.planner.phoneGpsNonce, undefined, 'No debe exponer el nonce raw al cliente');
+
+        const tokenRes = await request({ port, reqPath: '/api/planner/phone-gps-token', headers: { Cookie: adminCookie } });
+        assert.strictEqual(tokenRes.status, 200);
+        const tokenBody = JSON.parse(tokenRes.body);
+        assert.ok(tokenBody.token && tokenBody.webhookPostUrl.includes('/api/planner/phone-location?token='));
+
+        const badPhoneZero = await request({
+            port,
+            method: 'GET',
+            reqPath: `/api/planner/phone-location?token=${encodeURIComponent(tokenBody.token)}&lat=0&lng=0`
+        });
+        assert.strictEqual(badPhoneZero.status, 400);
+
+        const okPhoneGet = await request({
+            port,
+            method: 'GET',
+            reqPath: `/api/planner/phone-location?token=${encodeURIComponent(tokenBody.token)}&lat=25.439123&lng=-100.995456`
+        });
+        assert.strictEqual(okPhoneGet.status, 200);
+        const phoneGetBody = JSON.parse(okPhoneGet.body);
+        assert.strictEqual(phoneGetBody.ok, true);
+        assert.strictEqual(phoneGetBody.location.lat, 25.439123);
+        assert.strictEqual(phoneGetBody.location.lng, -100.995456);
+        assert.strictEqual(phoneGetBody.commutePreview.originKind, 'current');
+
+        const okPhonePost = await request({
+            port,
+            method: 'POST',
+            reqPath: `/api/planner/phone-location?token=${encodeURIComponent(tokenBody.token)}`,
+            body: { lat: 25.441234, lng: -100.994321, label: 'OPPO A79 GPS', source: 'macrodroid_gps' }
+        });
+        assert.strictEqual(okPhonePost.status, 200);
+        assert.strictEqual(JSON.parse(okPhonePost.body).location.source, 'macrodroid_gps');
+
+        // Rotación revoca token anterior
+        const rotateRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/phone-gps-token/rotate',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(rotateRes.status, 200);
+        const rotateBody = JSON.parse(rotateRes.body);
+        assert.notStrictEqual(rotateBody.token, tokenBody.token);
+
+        const revokedAttempt = await request({
+            port,
+            method: 'POST',
+            reqPath: `/api/planner/phone-location?token=${encodeURIComponent(tokenBody.token)}`,
+            body: { lat: 25.441, lng: -100.994 }
+        });
+        assert.strictEqual(revokedAttempt.status, 401);
+
+        const newTokenAttempt = await request({
+            port,
+            method: 'POST',
+            reqPath: `/api/planner/phone-location?token=${encodeURIComponent(rotateBody.token)}`,
+            body: { lat: 25.442, lng: -100.993 }
+        });
+        assert.strictEqual(newTokenAttempt.status, 200);
+
+        // Ping sin ntfy configurado debe responder 400 claro
+        const pingNoNtfyRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/planner/request-phone-gps',
+            headers: { Cookie: adminCookie },
+            body: {}
+        });
+        assert.strictEqual(pingNoNtfyRes.status, 400);
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {

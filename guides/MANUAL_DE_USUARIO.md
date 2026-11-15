@@ -8,7 +8,7 @@
 - [2. Home y Recordatorios Inteligentes](#2-home-y-recordatorios-inteligentes)
 - [3. Mood Tracker (Estado de Ánimo)](#3-mood-tracker-estado-de-ánimo)
 - [4. Bitácora de Crisis (Registro Clínico en Español)](#4-bitácora-de-crisis-registro-clínico-en-español)
-- [5. Sleep Tracker (Horas y Calidad de Sueño)](#5-sleep-tracker-horas-y-calidad-de-sueño)
+- [5. Sleep & Desvelo Tracker (Horas, Madrugadas y Desvelos)](#5-sleep--desvelo-tracker-horas-madrugadas-y-desvelos)
 - [6. Journal Notes y Llave E2EE Local](#6-journal-notes-y-llave-e2ee-local)
 - [7. Estudio de Idiomas (English · 한국어 · K-Pop), IA Gemini y Música](#7-estudio-de-idiomas-english--한국어--k-pop-ia-gemini-y-música)
   - [7.1 Cómo configurar la IA de Google Gemini paso a paso](#71-cómo-configurar-la-ia-de-google-gemini-paso-a-paso)
@@ -33,7 +33,7 @@
 2. **Psiquiatra / Psicóloga (`Psychiatrist Mode - Read-Only`)**:
    - Si creas una cuenta médica desde **`🩺 Psychiatrist Access`**, tu especialista inicia sesión con su propio correo y contraseña asignada.
    - Al entrar, el sistema bloquea la barra de edición y la redirige directamente a **`📈 Weekly Summary`** en **modo solo lectura**:
-     - Puede ver tu **matriz semanal de Mood**, tu **resumen semanal de Sueño (hrs/min)** y tu **Bitácora de Crisis en español (`⚠️ Crisis & Episode Log`)**.
+     - Puede ver tu **matriz semanal de Mood**, tu **resumen semanal de Sueño y Desvelos (hrs/min, dormir tarde como 3:00 AM, noches sin dormir y motivo)** y tu **Bitácora de Crisis en español (`⚠️ Crisis & Episode Log`)**.
      - **Nunca** puede ver tu Diario Privado, Notas de Idiomas, Agenda Personal ni configuración, ni modificar o borrar ningún dato (el servidor responde `403 Forbidden`).
 
 ---
@@ -83,16 +83,21 @@ Accede desde **`⚠️ Crisis Log`** en el menú lateral o desde la tarjeta en *
 
 ---
 
-## 5. Sleep Tracker (Horas y Calidad de Sueño)
+## 5. Sleep & Desvelo Tracker (Horas, Madrugadas y Desvelos)
 
-Accede desde **`🌙 Sleep Tracker`**. Todas las duraciones se muestran en formato normal de horas y minutos (ejemplo: `7 hrs 15 min` o `7h 15m`):
+Accede desde **`🌙 Sleep Tracker`**. Todas las duraciones se muestran en formato normal de horas y minutos (ejemplo: `5 hrs 30 min` o `5h 30m`) y horarios legibles (`3:00 AM`). Tienes **3 modos** para registrar con precisión tanto descanso normal como desvelos:
 
-| Campo | Qué ingresar |
+| Campo / Opción | Qué ingresar y cómo funciona |
 | --- | --- |
-| **Fell asleep at** | Hora exacta a la que te dormiste (por ejemplo `11:30 PM`). |
-| **Woke up at** | Hora en la que despertaste (si dormiste después de medianoche y despertaste al día siguiente, el cálculo cruza el día automáticamente). |
-| **Sleep Quality** | Selecciona la tarjeta visual: `🟢 Good`, `🟡 Fair` o `🔴 Bad`. |
-| **Sleep Date** | Fecha a la que pertenece ese descanso (recomendado: la fecha al despertar). Si dormiste de forma intermitente o tomaste siestas el mismo día, los intervalos se suman automáticamente. |
+| **Entry Type** | `🌙 Sleep Session` (sueño habitual), `🦉 Desvelo / Late Bedtime` (dormirse tarde, ej. 3:00 AM), o `⚡ All-Nighter / No Sleep (0 hrs)` (noche en vela sin dormir). |
+| **Date of rest / wake-up** | Fecha del descanso (puedes usar los botones rápidos **`Yesterday`** / **`Today`**). Si dormiste de forma intermitente el mismo día, los intervalos se suman automáticamente. |
+| **Fell asleep at** *(Use current time)* | Hora exacta a la que te dormiste (ej. `03:00 AM`). Si capturas una hora de madrugada (**`01:00 AM – 05:59 AM`**), el sistema detecta y activa **automáticamente** el indicador **`🦉 Desvelo`**. También se guarda borrador local automático si presionas *Use current time* a las 3 AM antes de dormir. |
+| **Going to sleep just now** | Casilla opcional al registrar un desvelo en vivo (ej. son las 3:00 AM y apenas vas a dormir): guarda tu hora de dormir inmediatamente en la base de datos y al despertar te aparecerá el botón **`⏰ Complete Wake-Up Now`** en *Today's Sleep Summary*. |
+| **Woke up at** *(Use current time)* | Hora en la que despertaste (se omite si eliges *All-Nighter* o *Going to sleep just now*). |
+| **Sleep Quality** | Selecciona la tarjeta visual: `🟢 Restorative`, `🟡 Fair / Light` o `🔴 Poor / Heavy`. |
+| **Motivo / Nota del desvelo** *(opcional)* | Nota clínica breve (en español o inglés, máx. 500 caracteres) explicando el motivo del desvelo (ej. *"Me dormí a las 3:00 AM por insomnio / ansiedad / proyecto escolar"*). |
+
+- Todo lo que marques como **Desvelo** (dormirse de madrugada como a las 3:00 AM, pasar la noche en vela con `0 hrs`, horario `Bed → Wake` y motivo) **se muestra automáticamente a tu psiquiatra/psicóloga** dentro de **`📈 Weekly Summary`**.
 
 ---
 
@@ -231,10 +236,16 @@ Accede desde **`🎓 ITS, Residencias & Work`**. Permite planificar tu carrera e
    - Registra tu empresa, proyecto, asesor interno/externo, horario, avance de las 500 horas y ubicación para alertas de traslado.
 4. **Horario Laboral (Tab `💼 Work (Full / Part-Time)`)**:
    - Registra si trabajas tiempo completo (`Tiempo Completo`) o medio tiempo (`Medio Tiempo`), horario, modalidad y ubicación para integrar notificaciones de salida.
-5. **Ubicaciones, GPS Inteligente y Tráfico en Carro (Tab `📍 Maps, GPS & Traffic Alerts` / botón `📍 Update My GPS`)**:
-   - Guarda la ubicación exacta del **ITS**, tu **Casa**, **Residencias** y **Trabajo**.
-   - Al tocar **`📍 Update My GPS`** (o **`Refresh GPS`**), si entras por HTTPS/`localhost` captura tu GPS directo; si entras por `http://TU_IP:3000` (donde Chrome/Edge bloquean el GPS nativo por seguridad de origen), se abre el **Asistente de Ubicación Rápida** donde puedes elegir con 1 clic **`🏠 Saved Home`**, **`💻 ITS Boillot`**, **`🎓 ITS Principal`**, **`⚙️ ITS Miravalle`**, pegar un enlace compartido de Google Maps (incluidos links cortos `maps.app.goo.gl/...`) o habilitar el flag `edge://flags/#unsafely-treat-insecure-origin-as-secure` / `chrome://flags/#unsafely-treat-insecure-origin-as-secure` si prefieres desbloquear el GPS nativo en HTTP.
-   - Con base en tu posición actual:
+5. **Ubicaciones (Casa), GPS del Teléfono en HTTP y Tráfico en Carro (Tab `📍 Maps, GPS & Traffic Alerts` / botón `📍 Update My GPS`)**:
+   - **Configurar tu Casa (`🏠 Home / Base Location`)**:
+     - Puedes ingresar una **etiqueta** (`Home Label`, ej. `Mi Casa`), tu **dirección de calle en Saltillo** (ej. `Margarita Maza de Juárez 924, Saltillo, Coah.`), pegar un **enlace de Google Maps** (`maps.app.goo.gl/...`, `google.com/maps/...` o con `@` / `!3d!4d`) o escribir latitud/longitud directamente.
+     - Pulsa **`💾 Save & 🔍 Find Home Location`**: si pegaste un link o dirección sin coordenadas manuales, el servidor extrae el pin exacto (o geocodifica tu calle en Saltillo) y habilita el botón **`🗺️ Verify Home in Maps`** para comprobar el punto en el mapa. *(Nunca genera coordenadas `0.000000, 0.000000`.)*
+     - Si antes habías capturado un GPS temporal y quieres volver a calcular tus rutas desde tu Casa guardada, pulsa **`🏠 Use Saved Home`**.
+   - **Actualizar ubicación desde tu teléfono (OPPO A79) usando `http://TU_IP:3000` sin dominio**:
+     - **Opción A — Botón rápido en tu celular + Chrome Flag (1 sola vez):** en Chrome de tu OPPO A79 abre `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, agrega `http://TU_IP:3000` (usa el botón **`📋 Copy`** dentro del modal `Update My GPS`), cámbialo a **Enabled** y reinicia Chrome. Desde entonces, al tocar **`📍 Update My GPS`** en tu teléfono tomará tu **GPS real con 1 toque** aun en HTTP.
+     - **Opción B — Botón `📲 Ping Phone GPS (ntfy)` desde la PC:** envía una notificación a tu celular; al tocarla se abre directo el asistente de ubicación en tu OPPO A79 para capturar su GPS (o pegar el enlace de tu punto azul en Google Maps / dirección).
+     - **Opción C — Webhook Automático HTTP para Android (`🔑 Show Phone HTTP Webhook`):** genera una URL HTTP firmada con HMAC (`GET` o `POST` a `/api/planner/phone-location?token=...`, revocable con **`🔄 Rotate Token`**) para apps como **MacroDroid**, **Automate** o **Tasker** en Android, enviando latitud/longitud real del teléfono en segundo plano sin necesitar HTTPS ni dominio.
+   - Con base en tu posición actual o Casa:
      - Si estás **lejos** (en casa u otra zona de Saltillo) → te notifica al menos **30 minutos antes + tiempo estimado de traslado en carro** antes de tu primera clase o turno.
      - Si estás **cerca o ya dentro del ITS** → te notifica **10 minutos antes** para trasladarte entre salones.
 
@@ -244,7 +255,7 @@ Accede desde **`🎓 ITS, Residencias & Work`**. Permite planificar tu carrera e
 
 - **`📈 Weekly Summary`**:
   - Muestra la matriz de colores del **Mood** por día y los 5 bloques del día.
-  - Muestra tarjetas diarias de **Sueño** con duración total en horas y minutos (`7h 30m`) y desglose si hubo siestas o sueño fraccionado.
+  - Muestra tarjetas diarias de **Sueño y Desvelos** con duración total en horas y minutos (`5h 30m` o `0h 00m`), indicador especial **`🦉 3:00 AM`** / **`⚡ Desvelo total`** cuando hubo desvelo o trasnoche, y la lista detallada **`🦉 Bedtimes, Desvelos & Late-Night Details`** con hora exacta de dormir/despertar, calidad y motivo opcional (**visible en solo lectura para tu psiquiatra/psicóloga**).
   - Muestra la lista completa de **`⚠️ Crisis & Episode Log`** de esa semana con fecha, hora, tipo, intensidad (`1/5`–`5/5`) y motivo en español. **Tanto tú como tu psiquiatra/psicóloga** pueden revisarla aquí.
 - **`🩺 Psychiatrist Access`** *(Solo Admin)*:
   - Llena `Doctor's name`, `Doctor's email address` y `Assigned password` (mín. 8 caracteres con letras y números) y guarda para generar el acceso de solo lectura.
@@ -288,5 +299,6 @@ Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes 
 | **Pregunta al Tutor IA (`langAiQuestion`)** | `Enter` | Envía la pregunta a Gemini / Local Engine (`Shift + Enter` agrega salto de línea). |
 | **Caja de Letra de Canción (`musicStudyLyrics`)** | `Ctrl + Enter` | Ejecuta **`✨ Explain Lyrics & Romanize (AI)`** al instante. |
 | **Motivo en Bitácora de Crisis (`crisisMotivo`)** | `Ctrl + Enter` | Guarda directamente el registro de crisis con su fecha, hora y motivo en español. |
+| **Motivo de Desvelo (`sleepMotivoDesvelo`)** | `Ctrl + Enter` | Guarda directamente el registro de sueño / desvelo. |
 | **Modal de Ubicación / Link de Maps (`quickLocationInput`)** | `Enter` | Aplica el enlace de Google Maps o coordenadas y recalcula las rutas al instante. |
 | **Formulario de Vacaciones (`vacName`)** | `Enter` | Envía el formulario para añadir el periodo vacacional cuando ya elegiste fechas. |

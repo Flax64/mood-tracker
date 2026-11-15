@@ -182,6 +182,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`), `Falta tabla ${table}`);
         }
         assert.match(sql, /estado\s+ENUM\('activo',\s*'inactivo',\s*'suspendido'\)/);
+        assert.match(sql, /hora_dormir\s+VARCHAR\(5\)/);
+        assert.match(sql, /es_desvelo\s+TINYINT\(1\)/);
+        assert.match(sql, /tipo_registro\s+VARCHAR\(30\)/);
+        assert.match(sql, /motivo_desvelo\s+VARCHAR\(500\)/);
         assert.match(sql, /tipo\s+ENUM\('registro',\s*'reset',\s*'mfa'\)/);
         assert.match(sql, /tipo\s+ENUM\('evento',\s*'tarea'\)/);
         assert.match(sql, /categoria\s+ENUM\('universidad',\s*'personal'\)/);
@@ -252,7 +256,18 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="resumenCrisisList"',
             'id="musicRepertoireNavigator"',
             'id="musicEntityEditModal"',
-            'id="quickLocationModal"'
+            'id="quickLocationModal"',
+            'id="homeLocationLabel"',
+            'id="btnSaveHomeLocation"',
+            'id="homeLocationVerifyLink"',
+            'id="btnPingPhoneGps"',
+            'id="btnClearCurrentGps"',
+            'id="btnLoadPhoneWebhook"',
+            'id="btnModalPingPhoneGps"',
+            'id="sleepModePills"',
+            'id="sleepEsDesvelo"',
+            'id="sleepStillAwake"',
+            'id="resumenSleepDetailsList"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
         }
@@ -272,7 +287,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.tunnel-pill',
             '.lang-ai-panel',
             '.btn-mini-edit',
-            '.quick-loc-presets'
+            '.quick-loc-presets',
+            '.phone-webhook-box',
+            '.sleep-desvelo-badge',
+            '.sleep-mode-pill'
         ]) {
             assert.ok(styleCss.includes(requiredClass), `public/style.css debe definir ${requiredClass}`);
         }
