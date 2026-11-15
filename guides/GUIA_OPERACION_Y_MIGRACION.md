@@ -435,3 +435,7 @@ Además de usar los botones **🔍 Inspect Live Wire Packet** y **⚡ Benchmark 
    - Intercambio efímero **X25519**, cifra/descifra de **>190 KB** ida y vuelta sin texto plano en el cable.
    - Rechazo inmediato (`400 TRANSPORT_MAC_INVALID`) si un atacante altera un solo carácter de `ct`.
    - Bloqueo (`409 TRANSPORT_REPLAY`) si se reenvía un paquete capturado anteriormente.
+
+### 11.3 Repertorio Musical en IA, Memoria Persistente y Bitácora de Crisis
+- **`RegistrosCrisis` y migración:** se crea automáticamente al iniciar `server.js` mediante `inicializarTablasSeguridad()` e igualmente está declarada en `init.sql` (13 tablas totales), garantizando migración sin pérdida de datos en nuevas instancias EC2.
+- **Memoria Persistente (`languageMemory`) + Repertorio (`MusicaCanciones`):** el endpoint `POST /api/language/analyze` consulta en tiempo real tu catálogo de canciones registradas y tu memoria léxica almacenada en `ConfiguracionUsuario`, de modo que el Tutor IA reconoce artistas, álbumes y canciones de tu repertorio automáticamente al migrar de servidor o restaurar respaldos.

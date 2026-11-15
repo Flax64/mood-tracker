@@ -65,6 +65,7 @@ El sistema se divide en cinco capas desacopladas:
 | :--- | :--- | :--- |
 | `RegistrosMood` | Estados de ánimo por franja horaria | `UNIQUE(fecha, momento_dia)` (`Madrugada`, `Morning`, `Noon`, `Afternoon`, `Night`) |
 | `RegistrosSleep` | Horas y calidad de sueño diario | `horas DECIMAL(4,2)`, `calidad` (`Good`, `Regular`, `Bad`) |
+| `RegistrosCrisis` | Bitácora clínica de crisis emocionales en español | `fecha DATE`, `hora VARCHAR(5)`, `tipo_crisis`, `intensidad TINYINT (1-5)`, `motivo VARCHAR(1000)`, índice `idx_crisis_fecha` (visible solo lectura a `psiquiatra`) |
 | `RegistrosAgenda` | Eventos y tareas divididos en `universidad` / `personal` | `bloque` (`manana`, `cole`, `tarde`, `noche`), `tipo` (`evento`, `tarea`), `categoria` (`universidad`, `personal`), `estado` (`todo`, `in_progress`, `done`), `recordatorio_min`, índices `idx_agenda_fecha` y `idx_agenda_categoria_estado` |
 | `Usuarios` | Cuentas registradas y su rol | `email UNIQUE`, `password_hash` (`bcryptjs` 12 rondas), `rol ENUM('admin','psiquiatra')`, `estado ENUM('activo','inactivo','suspendido')` |
 | `SesionesAuth` | Sesiones activas del sistema | `token_hash CHAR(64) UNIQUE` (SHA-256), `expira_en`, índice `idx_sesion_expira`, `ON DELETE CASCADE` |
@@ -97,7 +98,7 @@ El sistema se divide en cinco capas desacopladas:
   - Clave secreta personal (`ADMIN_SECRET`, `WORD_PASSWORD` o `JOURNAL_SECRET_KEY`), comparada en tiempo constante mediante `safeCompareStrings()` (`crypto.timingSafeEqual` sobre SHA-256).
 - **Middleware `requireAuth`:** valida cookie `mt_session` y vigencia en `SesionesAuth`.
 - **Middleware `requireAdmin`:** exige `req.user.rol === 'admin'`; si un `psiquiatra` intenta escribir ánimo, dormir, leer/editar agenda o enviar notas a Word, responde HTTP `403`.
-- El psiquiatra solo puede consultar en solo lectura `/api/get-moods` y `/api/get-sleep`.
+- El psiquiatra solo puede consultar en solo lectura `/api/get-moods`, `/api/get-sleep` y `/api/get-crisis` (mientras que crear o eliminar crisis en `/api/insert-crisis` y `/api/delete-crisis/:id` está bloqueado con `403`).
 
 ### 3.3 Cabeceras HTTP, Validación, Rate Limiting y Protección Anti-Duplicados
 - `app.disable('x-powered-by')` para no exponer el framework.

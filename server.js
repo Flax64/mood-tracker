@@ -260,6 +260,16 @@ function inicializarTablasSeguridad() {
             UNIQUE KEY uniq_usuario_clave (usuario_id, clave_unica),
             INDEX idx_rec_estado (usuario_id, estado),
             FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
+        )`,
+        `CREATE TABLE IF NOT EXISTS RegistrosCrisis (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            fecha DATE NOT NULL,
+            hora VARCHAR(5) NOT NULL,
+            tipo_crisis VARCHAR(40) NOT NULL,
+            intensidad TINYINT NOT NULL DEFAULT 3,
+            motivo VARCHAR(1000) NOT NULL,
+            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_crisis_fecha (fecha, hora)
         )`
     ];
     tablasSql.forEach(sql => {
@@ -1680,6 +1690,100 @@ app.get('/api/get-sleep', apiReadLimiter.middleware, requireAuth, (req, res) => 
             return res.status(500).send('Database query error.');
         }
         res.json(result);
+    });
+});
+
+// =======================================================
+// REGISTRO DE CRISIS (SOLO ADMIN ESCRIBE; PSIQUIATRA SOLO LECTURA)
+// =======================================================
+const CRISIS_TIPOS_VALIDOS = new Set([
+    'Estrés',
+    'Ira / Rabia',
+    'Ansiedad',
+    'Pánico',
+    'Llanto / Sobrecarga',
+    'Bloqueo / Saturación',
+    'Insomnio / Agitación',
+    'Otro'
+]);
+const HORA_24H_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, (req, res) => {
+    const fecha = String(req.body.fecha || '').trim();
+    const hora = String(req.body.hora || '').trim();
+    const tipoCrisis = String(req.body.tipoCrisis || req.body.tipo_crisis || '').trim();
+    const intensidadNum = Number(req.body.intensidad ?? 3);
+    const motivo = String(req.body.motivo || '').trim();
+
+    if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
+        return res.status(400).send('Fecha inválida (formato esperado YYYY-MM-DD).');
+    }
+    if (!hora || !HORA_24H_REGEX.test(hora)) {
+        return res.status(400).send('Hora inválida (formato HH:MM 24h).');
+    }
+    if (!CRISIS_TIPOS_VALIDOS.has(tipoCrisis)) {
+        return res.status(400).send('Tipo de crisis inválido.');
+    }
+    if (!Number.isInteger(intensidadNum) || intensidadNum < 1 || intensidadNum > 5) {
+        return res.status(400).send('La intensidad debe ser un entero entre 1 y 5.');
+    }
+    if (!motivo || motivo.length > 1000) {
+        return res.status(400).send('Escribe el motivo o detonante de la crisis (máx. 1000 caracteres).');
+    }
+
+    const sql = 'INSERT INTO RegistrosCrisis (fecha, hora, tipo_crisis, intensidad, motivo) VALUES (?, ?, ?, ?, ?)';
+    db.query(sql, [fecha, hora, tipoCrisis, intensidadNum, motivo], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error saving crisis record.');
+        }
+        res.json({
+            ok: true,
+            id: result?.insertId || null,
+            fecha,
+            hora,
+            tipo_crisis: tipoCrisis,
+            intensidad: intensidadNum,
+            motivo
+        });
+    });
+});
+
+// Consultar crisis registradas (PERMITIDO A ADMIN Y PSIQUIATRA EN MODO SOLO LECTURA)
+app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) => {
+    const { begin, end } = req.query;
+    if ((begin || end) && (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end))) {
+        return res.status(400).send('Parameters begin and end must both be YYYY-MM-DD.');
+    }
+
+    const sql = begin && end
+        ? 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, hora DESC, id DESC'
+        : 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis ORDER BY fecha DESC, hora DESC, id DESC LIMIT 50';
+    const params = begin && end ? [begin, end] : [];
+
+    db.query(sql, params, (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Database query error.');
+        }
+        res.json(Array.isArray(result) ? result : []);
+    });
+});
+
+app.delete('/api/delete-crisis/:id', apiWriteLimiter.middleware, requireAdmin, (req, res) => {
+    const id = parsePositiveInt(req.params.id);
+    if (!id) {
+        return res.status(400).send('Invalid crisis record ID.');
+    }
+    db.query('DELETE FROM RegistrosCrisis WHERE id = ?', [id], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Error deleting crisis record.');
+        }
+        if (!result || result.affectedRows === 0) {
+            return res.status(404).send('Crisis record not found.');
+        }
+        res.json({ ok: true, id });
     });
 });
 
@@ -5063,6 +5167,52 @@ app.post('/api/language/romanize', apiReadLimiter.middleware, requireAdmin, requ
     });
 });
 
+async function loadUserRepertoireForAi(uid) {
+    try {
+        const [songs, songArtists] = await Promise.all([
+            dbQueryAsync(
+                `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
+                        al.anio AS album_anio, c.titulo, c.numero_pista, c.idioma,
+                        c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
+                        c.enfoque_corto, c.word_sincronizado, c.ultimo_estudio_en,
+                        c.creado_en, c.actualizado_en
+                 FROM MusicaCanciones c
+                 LEFT JOIN MusicaAlbumes al ON al.id = c.album_id
+                 WHERE c.usuario_id = ?
+                 ORDER BY c.actualizado_en DESC, c.id DESC`,
+                [uid]
+            ),
+            dbQueryAsync(
+                `SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre
+                 FROM MusicaCancionArtistas mca
+                 INNER JOIN MusicaCanciones c ON c.id = mca.cancion_id
+                 INNER JOIN MusicaArtistas ma ON ma.id = mca.artista_id
+                 WHERE c.usuario_id = ?
+                 ORDER BY mca.orden ASC, ma.nombre ASC`,
+                [uid]
+            )
+        ]);
+        const artistsBySong = new Map();
+        for (const link of songArtists || []) {
+            if (!artistsBySong.has(link.cancion_id)) artistsBySong.set(link.cancion_id, []);
+            artistsBySong.get(link.cancion_id).push(link.nombre);
+        }
+        return (songs || []).slice(0, 60).map((s) => ({
+            id: s.id,
+            titulo: s.titulo,
+            album: s.album_titulo || '',
+            albumTipo: s.album_tipo || '',
+            anio: s.album_anio || null,
+            idioma: s.idioma || '',
+            estado: s.estado_estudio || 'to_study',
+            enfoque: s.enfoque_corto || '',
+            artistas: artistsBySong.get(s.id) || []
+        }));
+    } catch (_) {
+        return [];
+    }
+}
+
 app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
     try {
         const text = String(req.body.text || '').trim();
@@ -5074,7 +5224,10 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
             return res.status(400).send('Lyrics text cannot exceed 10,000 characters.');
         }
 
-        const settings = await loadUserSettings(req.user.id);
+        const [settings, repertoire] = await Promise.all([
+            loadUserSettings(req.user.id),
+            loadUserRepertoireForAi(req.user.id)
+        ]);
         const currentMemory = sanitizeLanguageMemory(settings.languageMemory);
         const mode = ['auto', 'gemini', 'offline'].includes(String(req.body.mode || 'auto').toLowerCase())
             ? String(req.body.mode || 'auto').toLowerCase()
@@ -5094,7 +5247,8 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 language,
                 songTitle,
                 artistName,
-                learningMemory: currentMemory
+                learningMemory: currentMemory,
+                repertoire
             });
         } else {
             result = await analyzeWithGemini({
@@ -5105,12 +5259,14 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 language,
                 songTitle,
                 artistName,
-                learningMemory: currentMemory
+                learningMemory: currentMemory,
+                repertoire
             });
         }
 
         // Persist newly learned terms, grammar notes, and studied songs into user's AI memory bank
         if (req.body.remember !== false) {
+            const matchedFirst = Array.isArray(result.matchedRepertoireSongs) && result.matchedRepertoireSongs[0];
             const termsToRemember = [
                 ...(Array.isArray(result.vocabulary) ? result.vocabulary.slice(0, 8) : []),
                 ...(result.wordNoteDraft && result.wordNoteDraft.word
@@ -5125,10 +5281,10 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
             settings.languageMemory = mergeLanguageMemory(currentMemory, {
                 terms: termsToRemember,
                 grammarNotes: Array.isArray(result.culturalAndGrammarNotes)
-                    ? result.culturalAndGrammarNotes.filter((n) => !String(n).startsWith('🧠 Memory Recall:')).slice(0, 3)
+                    ? result.culturalAndGrammarNotes.filter((n) => !String(n).startsWith('🧠 Memory Recall:') && !String(n).startsWith('🎵 Repertoire Match:')).slice(0, 3)
                     : [],
-                songTitle,
-                artistName,
+                songTitle: songTitle || (matchedFirst ? matchedFirst.titulo : ''),
+                artistName: artistName || (matchedFirst && matchedFirst.artistas ? matchedFirst.artistas.join(', ') : ''),
                 language: result.language || language
             });
             await saveUserSettings(req.user.id, settings);
