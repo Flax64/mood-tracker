@@ -2551,7 +2551,7 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
     }
 
     const sql = resolvedEstado === null
-        ? "UPDATE RegistrosAgenda SET completada = NOT completada, estado = CASE WHEN completada = 1 THEN 'todo' ELSE 'done' END WHERE id = ?"
+        ? "UPDATE RegistrosAgenda SET estado = CASE WHEN completada = 1 THEN 'todo' ELSE 'done' END, completada = NOT completada WHERE id = ?"
         : 'UPDATE RegistrosAgenda SET estado = ?, completada = ? WHERE id = ?';
     const params = resolvedEstado === null ? [id] : [resolvedEstado, resolvedCompletada, id];
 
@@ -2563,10 +2563,23 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
         if (result.affectedRows === 0) {
             return res.status(404).send('Activity not found.');
         }
-        if (resolvedEstado === 'done') {
-            db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
+        if (resolvedEstado !== null) {
+            if (resolvedEstado === 'done') {
+                db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
+            }
+            return res.json({ message: 'Status updated.', id, completada: resolvedCompletada, estado: resolvedEstado });
         }
-        res.json({ message: 'Status updated.', id, completada: resolvedCompletada, estado: resolvedEstado });
+        db.query('SELECT completada, estado FROM RegistrosAgenda WHERE id = ? LIMIT 1', [id], (selErr, rows) => {
+            if (selErr || !Array.isArray(rows) || rows.length === 0) {
+                return res.json({ message: 'Status updated.', id, completada: resolvedCompletada, estado: resolvedEstado });
+            }
+            const toggledCompletada = rows[0].completada ? 1 : 0;
+            const toggledEstado = rows[0].estado || (toggledCompletada === 1 ? 'done' : 'todo');
+            if (toggledEstado === 'done') {
+                db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
+            }
+            res.json({ message: 'Status updated.', id, completada: toggledCompletada, estado: toggledEstado });
+        });
     });
 });
 

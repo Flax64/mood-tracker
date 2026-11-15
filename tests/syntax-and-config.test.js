@@ -719,4 +719,24 @@ describe('Versionado Automático SemVer 2.0.0 e Historial de Despliegues', () =>
         assert.ok(styleCss.includes('.ver-badge') && styleCss.includes('.version-history-list'));
         assert.ok(frontendJs.includes('cargarVersionInfo') && frontendJs.includes('initVersionHistoryHandlers'));
     });
+
+    it('verifica integridad lógica de DOM IDs en frontend.js y ausencia de llaves duplicadas en public/i18n.js', () => {
+        const indexHtml = readText('public/index.html');
+        const frontendJs = readText('public/frontend.js');
+        assert.ok(indexHtml.includes('id="englishForm"'));
+        assert.ok(!frontendJs.includes('englishPracticeForm'), 'frontend.js no debe referenciar #englishPracticeForm inexistente');
+        assert.ok(frontendJs.includes("getElementById('englishForm')?.scrollIntoView"));
+
+        const i18nSrc = readText('public/i18n.js');
+        const m = i18nSrc.match(/(?:const|var|let)\s+PAIRS\s*=\s*(\[[\s\S]*?\r?\n\s*\]);/);
+        assert.ok(m, 'No se pudo localizar PAIRS en public/i18n.js');
+        const pairs = vm.runInNewContext(`(${m[1]})`, Object.create(null));
+        const seen = new Map();
+        const duplicates = [];
+        for (const [en] of pairs) {
+            seen.set(en, (seen.get(en) || 0) + 1);
+            if (seen.get(en) === 2) duplicates.push(en);
+        }
+        assert.deepEqual(duplicates, [], `Llaves EN duplicadas en public/i18n.js: ${duplicates.join(', ')}`);
+    });
 });

@@ -330,13 +330,19 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: 1 });
                 }
 
-                if (normalized.startsWith('UPDATE RegistrosAgenda SET completada = NOT completada')) {
+                if (normalized.startsWith('UPDATE RegistrosAgenda SET estado = CASE WHEN completada = 1')) {
                     const id = Number(params[0]);
                     const item = agendaInserts.find((a) => a.id === id);
                     if (!item) return finish(null, { affectedRows: 0 });
+                    item.estado = item.completada ? 'todo' : 'done';
                     item.completada = item.completada ? 0 : 1;
-                    item.estado = item.completada ? 'done' : 'todo';
                     return finish(null, { affectedRows: 1 });
+                }
+
+                if (normalized.startsWith('SELECT completada, estado FROM RegistrosAgenda WHERE id = ?')) {
+                    const id = Number(params[0]);
+                    const item = agendaInserts.find((a) => a.id === id);
+                    return finish(null, item ? [{ completada: item.completada, estado: item.estado }] : []);
                 }
 
                 if (normalized.startsWith('DELETE FROM RegistrosAgenda WHERE id = ?')) {
@@ -1435,6 +1441,28 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(toDone.status, 200);
         assert.strictEqual(JSON.parse(toDone.body).estado, 'done');
         assert.strictEqual(JSON.parse(toDone.body).completada, 1);
+
+        const toggleEmptyToTodo = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/toggle-agenda/${taskId}`,
+            headers: { Cookie: adminCookie },
+            body: {}
+        });
+        assert.strictEqual(toggleEmptyToTodo.status, 200);
+        assert.strictEqual(JSON.parse(toggleEmptyToTodo.body).estado, 'todo');
+        assert.strictEqual(JSON.parse(toggleEmptyToTodo.body).completada, 0);
+
+        const toggleEmptyBackDone = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/toggle-agenda/${taskId}`,
+            headers: { Cookie: adminCookie },
+            body: {}
+        });
+        assert.strictEqual(toggleEmptyBackDone.status, 200);
+        assert.strictEqual(JSON.parse(toggleEmptyBackDone.body).estado, 'done');
+        assert.strictEqual(JSON.parse(toggleEmptyBackDone.body).completada, 1);
 
         const weekRead = await request({
             port,

@@ -3923,7 +3923,7 @@ function applyTranslationToVocabularyForm(translation, { switchToEnglish = true 
     setIf('engSpanish', draft.meaning || translation.spanishMeaning || translation.translatedText || '');
     setIf('engVocabExample', draft.example || firstExText || '');
     setIf('engVocabNotes', draft.notes || translation.explanationEs || '');
-    document.getElementById('englishPracticeForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    document.getElementById('englishForm')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     showToast('ok', 'Copied translation into Glossary Study Form!');
 }
 
