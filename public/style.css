@@ -7603,7 +7603,7 @@ body {
 }
 
 /* =========================================================================
-   FIX DE SCROLL FLUIDO (SIN TRAMPAS DE SCROLL EN MÓVIL/PC) Y CARPETAS VISUALES
+   CARPETAS VISUALES ESTILO WINDOWS 11 + SCROLL FLUIDO + CERO RECORTES
    ========================================================================= */
 .music-catalog-container,
 .music-lyrics-viewer-card,
@@ -7614,57 +7614,151 @@ body {
     touch-action: pan-y !important;
 }
 
-.music-artist-group {
-    border: 1px solid rgba(56, 189, 248, 0.22);
-    border-radius: 12px;
-    background: rgba(15, 23, 42, 0.78);
-    margin-bottom: 12px;
-    overflow: hidden;
+#musicRepertoireNavigator {
+    display: none !important;
 }
 
-.music-artist-header.is-folder-toggle,
-.music-album-header.is-folder-toggle {
+.win-folders-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px;
+    padding: 8px 2px;
+}
+
+.win-folder-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 10px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.2);
     cursor: pointer;
     user-select: none;
-    transition: background-color 0.18s ease;
+    text-align: center;
+    transition: transform 0.14s ease, border-color 0.14s ease, background-color 0.14s ease;
 }
 
-.music-artist-header.is-folder-toggle:hover,
-.music-album-header.is-folder-toggle:hover {
-    background: rgba(30, 41, 59, 0.92);
+.win-folder-tile:hover {
+    background: rgba(30, 41, 59, 0.95);
+    border-color: rgba(250, 204, 21, 0.65);
+    transform: translateY(-2px);
 }
 
-.folder-chevron-badge {
-    display: inline-flex;
+.win-folder-tile.is-open {
+    background: rgba(30, 58, 138, 0.42);
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+
+.win-folder-graphic {
+    position: relative;
+    width: 112px;
+    height: 82px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+
+.win-folder-back {
+    position: absolute;
+    inset: 8px 0 0 0;
+    background: linear-gradient(180deg, #eab308 0%, #ca8a04 100%);
+    border-radius: 0 8px 8px 8px;
+}
+
+.win-folder-back::before {
+    content: "";
+    position: absolute;
+    top: -8px;
+    left: 0;
+    width: 44px;
+    height: 9px;
+    background: #eab308;
+    border-radius: 6px 6px 0 0;
+}
+
+.win-folder-thumb {
+    position: absolute;
+    top: 12px;
+    left: 8px;
+    width: calc(100% - 16px);
+    height: calc(100% - 22px);
+    object-fit: cover;
+    border-radius: 5px;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    z-index: 1;
+}
+
+.win-folder-front {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 34px;
+    background: linear-gradient(180deg, #fde047 0%, #facc15 100%);
+    border-radius: 6px 6px 8px 8px;
+    box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.28);
+    z-index: 2;
+    transition: height 0.16s ease, transform 0.16s ease;
+}
+
+.win-folder-tile.is-open .win-folder-front {
+    height: 25px;
+    transform: perspective(180px) rotateX(-18deg);
+}
+
+.win-folder-title {
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #f8fafc;
+    line-height: 1.28;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    width: 100%;
+}
+
+.win-folder-sub {
+    font-size: 0.76rem;
+    color: #94a3b8;
+    margin-top: 3px;
+}
+
+.win-folder-expanded-panel {
+    margin: 10px 0 14px 0;
+    padding: 14px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+}
+
+.win-folder-expanded-head {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    background: rgba(56, 189, 248, 0.14);
-    color: #38bdf8;
-    font-size: 0.8rem;
-    margin-right: 8px;
-    transition: transform 0.2s ease;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
-.is-open > .music-artist-header .folder-chevron-badge,
-.is-open > .music-album-header .folder-chevron-badge {
-    transform: rotate(90deg);
+.music-song-row {
+    height: auto !important;
+    overflow: visible !important;
 }
 
-.music-artist-albums-wrap,
-.music-album-songs-wrap {
-    display: none;
-    padding: 8px 12px 12px;
+.music-song-main {
+    overflow: visible !important;
 }
 
-.music-artist-group.is-open > .music-artist-albums-wrap,
-.music-album-block.is-open > .music-album-songs-wrap {
-    display: block;
+.music-song-thumb {
+    width: 64px !important;
+    height: 48px !important;
+    object-fit: cover !important;
+    flex-shrink: 0;
 }
 
-/* Visor de letra en solo lectura, completo sin cortes y dividido por idiomas */
 .lyrics-readonly-full-view {
     display: flex;
     flex-direction: column;
@@ -7673,7 +7767,7 @@ body {
 }
 
 .lyrics-lang-section {
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid rgba(148, 163, 184, 0.24);
     border-radius: 10px;
     background: #0b1120;
     padding: 14px 16px;
