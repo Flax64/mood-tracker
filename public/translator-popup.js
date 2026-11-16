@@ -56,7 +56,7 @@
                 if (notice) notice.hidden = true;
                 if (badge && payload && payload.user) {
                     badge.textContent = payload.user.rol === 'admin'
-                        ? popupTr('Connected · Gemini + 0-RAM', 'Conectado · Gemini + 0-RAM')
+                        ? popupTr('Connected · Gemini + Instant', 'Conectado · Gemini + Local')
                         : popupTr('Admin account required', 'Se requiere cuenta Admin');
                     if (payload.user.rol !== 'admin' && notice) notice.hidden = false;
                 }

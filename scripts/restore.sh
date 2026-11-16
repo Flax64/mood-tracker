@@ -53,6 +53,9 @@ RCLONE_CONF_PATH="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 unset RCLONE_BACKUP_DIR RCLONE_REMOTE RCLONE_CONF_B64
 
 mkdir -p "$RUTA_LOCAL"
+chmod 700 "$RUTA_LOCAL" 2>/dev/null || true
+chmod 700 "$(dirname "$RCLONE_CONF_PATH")" 2>/dev/null || true
+chmod 600 "$RCLONE_CONF_PATH" 2>/dev/null || true
 
 DOCKER_CMD="docker"
 if ! docker info >/dev/null 2>&1; then

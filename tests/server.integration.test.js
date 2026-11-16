@@ -58,6 +58,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
     const musicAlbums = [];
     const musicSongs = [];
     const musicSongArtists = [];
+    const studyLessons = [];
 
     const testHash = bcrypt.hashSync('ClavePrueba2026!', 4);
     const users = [
@@ -77,7 +78,9 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         process.env.SMTP_USER = 'smtp@example.com';
         process.env.SMTP_PASS = 'abcdefghijklmnop';
         process.env.DISABLE_REMINDER_SCHEDULER = 'true';
-        process.env.RATE_LIMIT_WRITE_MAX = '200';
+        process.env.RATE_LIMIT_WRITE_MAX = '250';
+        process.env.RATE_LIMIT_READ_MAX = '400';
+        process.env.RATE_LIMIT_API_MAX = '1000';
 
         const mockDb = {
             query(sql, paramsOrCb, maybeCb) {
@@ -693,6 +696,90 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: song ? 1 : 0 });
                 }
 
+                if (normalized.startsWith('SELECT id, album_id, numero_pista FROM MusicaCanciones WHERE id = ? AND usuario_id = ?')) {
+                    const [songId, uid] = params;
+                    const match = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    return finish(null, match ? [{ id: match.id, album_id: match.album_id, numero_pista: match.numero_pista }] : []);
+                }
+
+                if (normalized.startsWith('UPDATE MusicaCanciones SET numero_pista = COALESCE')) {
+                    const [trackNum, songId, uid] = params;
+                    const song = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
+                    if (song && !song.numero_pista) song.numero_pista = trackNum;
+                    return finish(null, { affectedRows: song ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('UPDATE MusicaAlbumes SET anio = COALESCE')) {
+                    const [anio, albumId, uid] = params;
+                    const alb = musicAlbums.find((a) => a.id === Number(albumId) && a.usuario_id === Number(uid));
+                    if (alb && !alb.anio) alb.anio = anio;
+                    return finish(null, { affectedRows: alb ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('UPDATE MusicaAlbumes SET fecha_lanzamiento = COALESCE')) {
+                    const [fecha, albumId, uid] = params;
+                    const alb = musicAlbums.find((a) => a.id === Number(albumId) && a.usuario_id === Number(uid));
+                    if (alb && !alb.fecha_lanzamiento) alb.fecha_lanzamiento = fecha;
+                    return finish(null, { affectedRows: alb ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('SELECT id, codigo_leccion, idioma, nombre_practica, orden_secuencia, completada, word_leido_en, completada_en FROM EstudioLecciones')) {
+                    const uid = Number(params[0]);
+                    return finish(null, studyLessons.filter((l) => l.usuario_id === uid).sort((a, b) => a.orden_secuencia - b.orden_secuencia));
+                }
+
+                if (normalized.startsWith('INSERT IGNORE INTO EstudioLecciones')) {
+                    const uid = Number(params[0]);
+                    if (!studyLessons.some((l) => l.usuario_id === uid)) {
+                        const defs = [
+                            ['en', 'EN-01', 'EN · Bloque A1: Fonética y 10 palabras activas (EN -> ES)', 1],
+                            ['en', 'EN-02', 'EN · Bloque A2: Modal Verbs & Idioms en contexto (EN -> ES)', 2],
+                            ['en', 'EN-03', 'EN · Bloque A3: Desglose de canción + pronunciación', 3],
+                            ['ko', 'KO-01', 'KO · Block B1: Hangul Phonics & Core Vocab (KO -> EN)', 4],
+                            ['ko', 'KO-02', 'KO · Block B2: Everyday Patterns & Particles (KO -> EN)', 5],
+                            ['ko', 'KO-03', 'KO · Block B3: K-Pop Mixed Verses & Rapid Practice', 6]
+                        ];
+                        defs.forEach(([idioma, codigo, nombre, orden]) => {
+                            studyLessons.push({
+                                id: studyLessons.length + 1,
+                                usuario_id: uid,
+                                idioma,
+                                codigo_leccion: codigo,
+                                nombre_practica: nombre,
+                                orden_secuencia: orden,
+                                completada: 0,
+                                word_leido_en: null,
+                                completada_en: null
+                            });
+                        });
+                    }
+                    return finish(null, { affectedRows: studyLessons.length });
+                }
+
+                if (normalized.startsWith('SELECT id, codigo_leccion, idioma, nombre_practica, orden_secuencia, completada, word_leido_en FROM EstudioLecciones')) {
+                    const uid = Number(params[0]);
+                    const targetId = Number(params[1]);
+                    return finish(null, studyLessons.filter((l) => l.usuario_id === uid && (!targetId || l.id === targetId)).sort((a, b) => a.orden_secuencia - b.orden_secuencia));
+                }
+
+                if (normalized.startsWith('UPDATE EstudioLecciones SET word_leido_en = COALESCE')) {
+                    const [ts, id, uid] = params;
+                    const row = studyLessons.find((l) => l.id === Number(id) && l.usuario_id === Number(uid));
+                    if (row && !row.word_leido_en) row.word_leido_en = ts;
+                    return finish(null, { affectedRows: row ? 1 : 0 });
+                }
+
+                if (normalized.startsWith('UPDATE EstudioLecciones SET completada = 1')) {
+                    const [tsRead, tsDone, id, uid] = params;
+                    const row = studyLessons.find((l) => l.id === Number(id) && l.usuario_id === Number(uid));
+                    if (row) {
+                        row.completada = 1;
+                        if (!row.word_leido_en) row.word_leido_en = tsRead;
+                        row.completada_en = tsDone;
+                    }
+                    return finish(null, { affectedRows: row ? 1 : 0 });
+                }
+
                 if (normalized.startsWith('DELETE FROM MusicaCanciones WHERE id = ? AND usuario_id = ?')) {
                     const [songId, uid] = params;
                     const idx = musicSongs.findIndex((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
@@ -788,7 +875,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(res.headers['x-content-type-options'], 'nosniff');
         assert.strictEqual(res.headers['x-frame-options'], 'DENY');
         assert.strictEqual(res.headers['referrer-policy'], 'strict-origin-when-cross-origin');
-        assert.strictEqual(res.headers['permissions-policy'], 'geolocation=(self), microphone=(), camera=()');
+        assert.strictEqual(res.headers['permissions-policy'], 'geolocation=(self), microphone=(self), camera=()');
         assert.strictEqual(res.headers['cross-origin-opener-policy'], 'same-origin');
         assert.strictEqual(res.headers['cross-origin-resource-policy'], 'same-origin');
         assert.strictEqual(res.headers['x-permitted-cross-domain-policies'], 'none');
@@ -3729,6 +3816,200 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         } finally {
             global.fetch = origFetch;
         }
+    });
+
+    it('valida Fases 1-5 E2E: TecNM Saltillo, Crisis 250c, Lecciones Secuenciales, Gemini Activo, 503 PC Offline y Drive 2 aislado', async () => {
+        // 1. TecNM Saltillo coordenadas exactas en /api/planner
+        const plannerRes = await request({
+            port,
+            reqPath: '/api/planner',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(plannerRes.status, 200);
+        const dir = JSON.parse(plannerRes.body).campusDirectory;
+        assert.strictEqual(dir.principal.lat, 25.4414);
+        assert.strictEqual(dir.principal.lng, -100.9922);
+        assert.strictEqual(dir.boillot.lat, 25.4385);
+        assert.strictEqual(dir.boillot.lng, -100.9940);
+        assert.strictEqual(dir.miravalle.lat, 25.4194);
+        assert.strictEqual(dir.miravalle.lng, -101.0232);
+
+        // 2. Crisis > 250 chars rechazado y Otro requiere detalle/motivo; motivo vacío permitido cuando tipo != Otro
+        const longCrisis = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-crisis',
+            headers: { Cookie: adminCookie },
+            body: { fecha: '2026-11-16', hora: '10:00', tipoCrisis: 'Estrés', intensidad: 3, motivo: 'x'.repeat(251) }
+        });
+        assert.strictEqual(longCrisis.status, 400);
+
+        const quickCrisis = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-crisis',
+            headers: { Cookie: adminCookie },
+            body: { fecha: '2026-11-16', hora: '10:05', tipoCrisis: 'Ansiedad', intensidad: 2, motivo: '', allowOptionalMotivo: true }
+        });
+        assert.strictEqual(quickCrisis.status, 200);
+
+        // 3. Modelos Gemini activos solamente + Toggle aprendizaje secuencial + Word inactivity + Contrato ligero
+        const prevEnvGemini = process.env.GEMINI_API_KEY;
+        delete process.env.GEMINI_API_KEY;
+        await request({
+            port,
+            method: 'PUT',
+            reqPath: '/api/settings',
+            headers: { Cookie: adminCookie },
+            body: { clearGeminiApiKey: true, geminiMode: 'fast' }
+        });
+        try {
+            const regRes = await request({
+                port,
+                reqPath: '/api/language/registry',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(regRes.status, 200);
+            const regBody = JSON.parse(regRes.body);
+            assert.deepStrictEqual(regBody.geminiModels, [], 'Sin API key activa no debe listar modelos ficticios');
+        } finally {
+            if (prevEnvGemini !== undefined) process.env.GEMINI_API_KEY = prevEnvGemini;
+        }
+
+        const toggleRes = await request({
+            port,
+            method: 'PATCH',
+            reqPath: '/api/language/learning-toggle',
+            headers: { Cookie: adminCookie },
+            body: { active: true, topic: 'Práctica diaria 15 min' }
+        });
+        assert.strictEqual(toggleRes.status, 200);
+        assert.strictEqual(JSON.parse(toggleRes.body).languageLearningActive, true);
+
+        const lessonsRes = await request({
+            port,
+            reqPath: '/api/language/lessons',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(lessonsRes.status, 200);
+        const lessonsJson = JSON.parse(lessonsRes.body);
+        assert.ok(Array.isArray(lessonsJson.lessons) && lessonsJson.lessons.length >= 6);
+        assert.strictEqual(lessonsJson.lessons[0].lesson_name, lessonsJson.lessons[0].nombre);
+        assert.strictEqual(typeof lessonsJson.lessons[0].completed, 'boolean');
+        assert.strictEqual(lessonsJson.lessons[1].locked, true, 'La 2da lección permanece bloqueada hasta completar la 1ra');
+
+        // Intentar completar sin leer Word bloquea por inactividad / falta de lectura en Word
+        const firstLessonId = lessonsJson.lessons[0].id;
+        const blockedComplete = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/language/lessons/${firstLessonId}/complete`,
+            headers: { Cookie: adminCookie },
+            body: { wordReadConfirmed: false }
+        });
+        assert.strictEqual(blockedComplete.status, 409);
+
+        const actRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/word-activity',
+            headers: { Cookie: adminCookie },
+            body: { action: 'word_review_test' }
+        });
+        assert.strictEqual(actRes.status, 200);
+
+        const unlockedComplete = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/language/lessons/${firstLessonId}/complete`,
+            headers: { Cookie: adminCookie },
+            body: { wordReadConfirmed: true }
+        });
+        assert.strictEqual(unlockedComplete.status, 200);
+
+        const lessonsAfter = JSON.parse((await request({ port, reqPath: '/api/language/lessons', headers: { Cookie: adminCookie } })).body);
+        assert.strictEqual(lessonsAfter.lessons[0].completed, true);
+        assert.strictEqual(lessonsAfter.lessons[1].locked, false);
+
+        // 4. Puente Drive 2 aislado rechaza Journal (403) y acepta sync-metadata en canción existente
+        const signPcBridge = (method, reqPath, encryptedBlob = '') => {
+            const secret = process.env.JOURNAL_SECRET_KEY || process.env.ADMIN_SECRET;
+            const cleanPath = reqPath.split('?')[0];
+            const ts = String(Math.floor(Date.now() / 1000));
+            const bodyHash = crypto.createHash('sha256').update(encryptedBlob, 'utf8').digest('hex');
+            const canonical = `${method.toUpperCase()}:${cleanPath}:${ts}:${bodyHash}`;
+            const sig = crypto.createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
+            return { 'X-PC-Timestamp': ts, 'X-PC-Signature': sig };
+        };
+        const badDriveJournal = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/pc-word-drive-sync',
+            headers: signPcBridge('POST', '/api/english/music/pc-word-drive-sync', 'abc'),
+            body: { target: 'journal', encryptedDocxB64: 'abc' }
+        });
+        assert.strictEqual(badDriveJournal.status, 403);
+
+        // Sin STUDY_RCLONE_CONF_B64, el Word debe enrutar al Drive principal ya configurado (RCLONE_REMOTE/RCLONE_BACKUP_DIR)
+        const prevStudyRemote = process.env.STUDY_RCLONE_REMOTE;
+        const prevStudyConf = process.env.STUDY_RCLONE_CONF_B64;
+        const prevRcloneConf = process.env.RCLONE_CONFIG;
+        delete process.env.STUDY_RCLONE_REMOTE;
+        delete process.env.STUDY_RCLONE_CONF_B64;
+        process.env.RCLONE_CONFIG = '/tmp/nonexistent_rclone_test_cfg.conf';
+        try {
+            const fakeDocxB64 = Buffer.concat([Buffer.from('PK\x03\x04'), Buffer.alloc(80, 0x41)]).toString('base64');
+            const envelopeB64 = Buffer.from(JSON.stringify({ filename: 'English_Learning_Notebook.docx', docxB64: fakeDocxB64 }), 'utf8').toString('base64');
+            const driveFallbackRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/pc-word-drive-sync',
+                headers: signPcBridge('POST', '/api/english/music/pc-word-drive-sync', envelopeB64),
+                body: { encryptedResult: envelopeB64 }
+            });
+            assert.strictEqual(driveFallbackRes.status, 200);
+            const driveJson = JSON.parse(driveFallbackRes.body);
+            assert.strictEqual(driveJson.remoteTarget, 'gdrive:RespaldosApp/NotasIdiomas/English_Learning_Notebook.docx');
+        } finally {
+            if (prevStudyRemote !== undefined) process.env.STUDY_RCLONE_REMOTE = prevStudyRemote;
+            if (prevStudyConf !== undefined) process.env.STUDY_RCLONE_CONF_B64 = prevStudyConf;
+            if (prevRcloneConf === undefined) delete process.env.RCLONE_CONFIG;
+            else process.env.RCLONE_CONFIG = prevRcloneConf;
+        }
+
+        // Agenda > 1 mes consulta transparencia hacia Drive RAM sin error ni inserción a BD
+        const oldAgendaRes = await request({
+            port,
+            reqPath: '/api/get-agenda?begin=2025-01-01&end=2025-01-07',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(oldAgendaRes.status, 200);
+        assert.ok(Array.isArray(JSON.parse(oldAgendaRes.body)));
+
+        const songForMeta = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/songs',
+            headers: { Cookie: adminCookie },
+            body: {
+                titulo: 'LOVE, MAYBE',
+                mainArtist: 'BABYMONSTER',
+                albumTitle: 'DRIP',
+                albumType: 'album',
+                albumYear: '2024'
+            }
+        });
+        assert.strictEqual(songForMeta.status, 201);
+        const metaSongId = JSON.parse(songForMeta.body).songId;
+        const syncMetaRes = await request({
+            port,
+            method: 'POST',
+            reqPath: `/api/english/music/songs/${metaSongId}/sync-metadata`,
+            headers: { Cookie: adminCookie },
+            body: { releaseDate: '2024-11-01', releaseYear: 2024, trackNumber: 6 }
+        });
+        assert.strictEqual(syncMetaRes.status, 200);
+        assert.strictEqual(JSON.parse(syncMetaRes.body).releaseDate, '2024-11-01');
     });
 
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {

@@ -55,13 +55,13 @@
                 },
                 {
                     icon: '📈',
-                    titleEn: 'Clinician Calendar & 6m Drive RAM',
-                    titleEs: 'Calendario Médico e Historial Drive RAM',
-                    flowEn: ['1. Jump to any day/week in Calendar', '2. MySQL keeps 1 month (30 days) local', '3. Tap Drive (RAM) for 3, 6 or 12 months'],
-                    flowEs: ['1. Usa el Calendario por día o semana', '2. MySQL local conserva 1 mes (30 días)', '3. Pulsa ☁️ Drive (RAM) para ver 3, 6 o 12 meses'],
+                    titleEn: 'Clinician Visual Calendar & History',
+                    titleEs: 'Calendario Médico Visual e Historial',
+                    flowEn: ['1. Pick exact day or Mon–Sun / Sun–Sat week', '2. Recent 30 days load immediately', '3. Load 3, 6 or 12 months from cloud backup'],
+                    flowEs: ['1. Elige un día exacto o semana Lun–Dom / Dom–Sáb', '2. El último mes carga al instante', '3. Consulta 3, 6 o 12 meses desde tu respaldo'],
                     targetView: 'resumen',
-                    tagEn: 'Zero disk bloat on EC2',
-                    tagEs: 'Sin llenar disco en EC2'
+                    tagEn: 'Visual week range without combobox',
+                    tagEs: 'Calendario interactivo visual'
                 },
                 {
                     icon: '🩺',
@@ -165,40 +165,40 @@
         },
         {
             id: 'security_pc',
-            badgeEn: 'Security, Wire X25519 & PC',
-            badgeEs: 'Seguridad, Túnel X25519 y PC',
+            badgeEn: 'Privacy, Security & PC Sync',
+            badgeEs: 'Privacidad, Seguridad y PC',
             icon: '🔐',
             color: '#f59e0b',
             cards: [
                 {
                     icon: '🛡️',
-                    titleEn: 'Double Encryption Shield',
-                    titleEs: 'Doble Capa de Cifrado',
-                    flowEn: ['1. Transport: X25519 + AES-256-CTR', '2. Vault E2EE: Browser -> PC Word key', '3. EC2 RAM holds queue if PC offline'],
-                    flowEs: ['1. Red HTTP: X25519 + AES-256-CTR', '2. E2EE: Llave de 32 chars (solo tuya)', '3. Cola segura en RAM EC2 si PC apagada'],
+                    titleEn: 'End-to-End Privacy Shield',
+                    titleEs: 'Doble Capa de Cifrado Privado',
+                    flowEn: ['1. Private encrypted transport', '2. Personal 32-char lock -> Word only', '3. Safe sync queue when PC wakes up'],
+                    flowEs: ['1. Conexión cifrada de extremo a extremo', '2. Llave personal de 32 caracteres para tus notas', '3. Sincronización segura automática al encender tu PC'],
                     targetView: 'settings',
-                    tagEn: 'Check live packets in Settings',
-                    tagEs: 'Inspecciona paquetes en Ajustes'
+                    tagEn: 'Check live protection in Settings',
+                    tagEs: 'Consulta tu seguridad en Configuración'
                 },
                 {
                     icon: '⚙️',
-                    titleEn: 'PC Python Sync & Paths',
-                    titleEs: 'Python en PC y Rutas Word',
-                    flowEn: ['1. Auto-reads EC2_HOST + YT_DLP_PATH', '2. Auto-reads WORD_FILE_PATH from GitHub', '3. DPAPI Windows Startup -> no password prompt'],
-                    flowEs: ['1. Lee EC2_HOST + YT_DLP_PATH de GitHub', '2. Lee rutas Word si mueves archivos', '3. Autoinicio DPAPI sin pedir clave al prender'],
+                    titleEn: 'PC Companion & Automatic Word Sync',
+                    titleEs: 'Sincronización Automática con Word en PC',
+                    flowEn: ['1. Connects via environment variables (no hardcoded IPs)', '2. Organizes Language Word automatically', '3. Auto-starts cleanly on Windows login'],
+                    flowEs: ['1. Se conecta de forma segura sin configuraciones manuales', '2. Ordena tu cuaderno de idiomas por bloques en Word', '3. Inicia automático al encender Windows sin pedir clave'],
                     targetView: 'settings',
-                    tagEn: 'English .docx auto-creates if missing',
-                    tagEs: 'Crea Word de idiomas si no existe'
+                    tagEn: 'Auto-creates notebook if missing',
+                    tagEs: 'Crea cuaderno de idiomas si no existe'
                 },
                 {
                     icon: '📱',
-                    titleEn: 'Single-Tab Guard, ntfy & Drive Sync',
-                    titleEs: 'Pestaña Única, ntfy y NotasIdiomas',
-                    flowEn: ['1. 1 active tab + ntfy "Open App" reuses it', '2. Persistent Snooze 15m/30m & max 3 sessions', '3. Auto-backups English Word -> gdrive:NotasIdiomas'],
-                    flowEs: ['1. 1 pestaña activa + "Open App" ntfy la reutiliza', '2. Snooze 15m/30m persistente y máx. 3 sesiones', '3. Respalda Word Idiomas en gdrive:NotasIdiomas'],
+                    titleEn: 'Single-Tab Guard, Alerts & Dual Drive',
+                    titleEs: 'Pestaña Única, Alertas y Doble Respaldo',
+                    flowEn: ['1. 1 active tab + notification reuses it', '2. Snooze 15m/30m reminders', '3. Dual Drive: Clinical DB vs Study Word only'],
+                    flowEs: ['1. 1 pestaña activa reutilizable desde avisos', '2. Recordatorios posponibles 15m/30m', '3. Drive 1 (Clínico) separado de Drive 2 (Cuaderno Idiomas)'],
                     targetView: 'settings',
-                    tagEn: 'BroadcastChannel + Always Dark EN/ES',
-                    tagEs: 'BroadcastChannel + Oscuro EN/ES'
+                    tagEn: 'Dark Mode EN/ES · Dual Drive isolated',
+                    tagEs: 'Modo Oscuro EN/ES · Drives independientes'
                 },
                 {
                     icon: '🏷️',
@@ -233,26 +233,26 @@
         var steps = [
             {
                 icon: '🌐',
-                title: tr('1. Browser / Phone', '1. Navegador / Celular'),
-                sub: tr('UI Dark + EN/ES · E2EE 32-char lock', 'Oscuro + EN/ES · Cifrado E2EE 32 chars')
+                title: tr('1. Phone / Browser', '1. Celular / Navegador'),
+                sub: tr('Dark UI + EN/ES · Private 32-char lock', 'Oscuro + EN/ES · Protección privada 32 chars')
             },
             {
                 arrow: true,
-                label: 'X25519 + AES'
+                label: tr('Encrypted', 'Cifrado')
             },
             {
                 icon: '☁️',
-                title: tr('2. EC2 + MySQL + Gemini', '2. EC2 + MySQL + Gemini'),
-                sub: tr('Metadata, Mood, Sleep & encrypted RAM queue', 'Metadatos, Ánimo, Sueño y cola RAM cifrada')
+                title: tr('2. Cloud Hub + Gemini', '2. Nube Privada + Gemini'),
+                sub: tr('Mood, Sleep, Agenda & smart tutor', 'Ánimo, Sueño, Agenda y tutor inteligente')
             },
             {
                 arrow: true,
-                label: 'E2EE Pull'
+                label: tr('Private Sync', 'Sync Seguro')
             },
             {
                 icon: '💻',
-                title: tr('3. PC Python Sync', '3. Python Local en PC'),
-                sub: tr('Auto yt-dlp + creates/updates Word (.docx)', 'Ejecuta yt-dlp + crea/actualiza tus Word (.docx)')
+                title: tr('3. PC Companion', '3. Tu Computadora'),
+                sub: tr('Auto lyrics extraction & organized Word notebook', 'Extrae letras y organiza tu cuaderno Word')
             }
         ];
 
@@ -416,14 +416,14 @@
         bottomGrid.appendChild(keysCard);
 
         var pyCard = el('div', 'vg-mini-panel');
-        pyCard.appendChild(el('h4', '', tr('🐍 Local PC Python & Word Facts', '🐍 Python Local y Archivos Word')));
+        pyCard.appendChild(el('h4', '', tr('📄 Private Word & Backup Facts', '📄 Cuaderno Word y Respaldos')));
         var pyUl = el('ul', 'vg-facts-list');
         [
-            tr('English_Learning_Notebook.docx auto-creates on PC & backs up to gdrive:NotasIdiomas.', 'English_Learning_Notebook.docx se crea solo en tu PC y se respalda en gdrive:NotasIdiomas.'),
-            tr('Journal Word stays strictly local with WORD_PASSWORD (never uploaded to Drive).', 'Tu Diario Word permanece solo local con WORD_PASSWORD (jamás se sube a Drive).'),
-            tr('Single active browser tab (BroadcastChannel) + max 3 sessions in DB; ntfy Open App reuses open tab.', '1 pestaña activa (BroadcastChannel) + máx. 3 sesiones en BD; ntfy Open App reutiliza tu pestaña.'),
-            tr('Local MySQL keeps 30 days; older history loads in RAM from Drive on demand.', 'MySQL local conserva 30 días; el historial antiguo se carga en RAM desde Drive.'),
-            tr('Full quick guide: see guides/MANUAL_DE_USUARIO.md in repo.', 'Manual completo: consulta guides/MANUAL_DE_USUARIO.md en el repositorio.')
+            tr('Your Language Notebook stays synced automatically whenever updated on your computer.', 'Tu Cuaderno de Idiomas se sincroniza automáticamente cada vez que cambia en tu computadora.'),
+            tr('Personal Journal stays strictly private on your computer.', 'Tu Diario Personal permanece estrictamente privado en tu computadora.'),
+            tr('Single active tab prevents duplicates when opening notifications on mobile.', 'Una sola pestaña activa evita duplicados al abrir notificaciones en celular.'),
+            tr('Recent 30 days load immediately; older dates may take a moment longer to load.', 'Los últimos 30 días cargan al instante; fechas anteriores pueden tardar un poco más en cargar.'),
+            tr('Visual Interactive Guide — tap any card above to open its tool directly.', 'Guía Visual Interactiva — toca cualquier tarjeta arriba para ir directo a esa función.')
         ].forEach(function (txt) {
             pyUl.appendChild(el('li', '', txt));
         });

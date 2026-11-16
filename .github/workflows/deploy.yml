@@ -126,13 +126,17 @@ jobs:
           SECRET_RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE }}
           SECRET_RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR }}
           RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
+          SECRET_STUDY_RCLONE_REMOTE: ${{ vars.STUDY_RCLONE_REMOTE || secrets.STUDY_RCLONE_REMOTE }}
+          SECRET_STUDY_RCLONE_DIR: ${{ vars.STUDY_RCLONE_DIR || secrets.STUDY_RCLONE_DIR }}
+          STUDY_RCLONE_CONF_B64: ${{ secrets.STUDY_RCLONE_CONF_B64 }}
+          SECRET_SITE_ADDRESS: ${{ vars.SITE_ADDRESS || secrets.SITE_ADDRESS }}
           SECRET_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SECRET_YT_DLP_PATH: ${{ vars.YT_DLP_PATH || secrets.YT_DLP_PATH }}
         with:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
+          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_SITE_ADDRESS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
           script: |
             set -euo pipefail
 
@@ -166,13 +170,13 @@ jobs:
             fi
             free -h | grep -iE 'mem|swap' || true
 
-            # 1. Instalar dependencias base (incluyendo cron y openssl) si es una instancia nueva
-            if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+            # 1. Instalar dependencias base (incluyendo cron, python3 y openssl) si es una instancia nueva
+            if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
               if command -v apt-get >/dev/null 2>&1; then
                 sudo apt-get update -y
-                sudo apt-get install -y git curl ca-certificates rclone unzip cron openssl
+                sudo apt-get install -y git curl ca-certificates rclone unzip cron openssl python3
               elif command -v dnf >/dev/null 2>&1; then
-                sudo dnf install -y git curl unzip cronie openssl
+                sudo dnf install -y git curl unzip cronie openssl python3
                 if ! command -v rclone >/dev/null 2>&1; then
                   curl -fsSL https://rclone.org/install.sh | sudo bash
                 fi
@@ -247,15 +251,18 @@ jobs:
             FINAL_DB_NAME="${SECRET_DB_NAME:-${OLD_DB_NAME:-MoodTrackerLocal}}"
             FINAL_PORT="${SECRET_PORT:-${OLD_PORT:-3000}}"
             FINAL_TZ="${SECRET_TZ:-${OLD_TZ:-America/Monterrey}}"
-            FINAL_ADMIN_EMAIL="${SECRET_ADMIN_EMAIL:-${OLD_ADMIN_EMAIL:-flavio.flax1234@gmail.com}}"
+            FINAL_ADMIN_EMAIL="${SECRET_ADMIN_EMAIL:-${OLD_ADMIN_EMAIL:-}}"
             FINAL_ADMIN_SECRET="${SECRET_ADMIN_SECRET:-${OLD_ADMIN_SECRET:-}}"
             FINAL_WORD_PASSWORD="${SECRET_WORD_PASSWORD:-${OLD_WORD_PASSWORD:-}}"
             FINAL_JOURNAL_SECRET_KEY="${SECRET_JOURNAL_SECRET_KEY:-${OLD_JOURNAL_SECRET_KEY:-}}"
             FINAL_SMTP_USER="${SECRET_SMTP_USER:-${OLD_SMTP_USER:-$FINAL_ADMIN_EMAIL}}"
             FINAL_SMTP_PASS="${SECRET_SMTP_PASS:-${OLD_SMTP_PASS:-}}"
             FINAL_APP_BASE_URL="${SECRET_APP_BASE_URL:-http://${DEPLOY_EC2_HOST}:${FINAL_PORT}}"
+            FINAL_SITE_ADDRESS="${SECRET_SITE_ADDRESS:-${OLD_SITE_ADDRESS:-:80}}"
             FINAL_RCLONE_REMOTE="${SECRET_RCLONE_REMOTE:-${OLD_RCLONE_REMOTE:-gdrive}}"
             FINAL_RCLONE_BACKUP_DIR="${SECRET_RCLONE_BACKUP_DIR:-${OLD_RCLONE_BACKUP_DIR:-RespaldosApp}}"
+            FINAL_STUDY_RCLONE_REMOTE="${SECRET_STUDY_RCLONE_REMOTE:-${OLD_STUDY_RCLONE_REMOTE:-}}"
+            FINAL_STUDY_RCLONE_DIR="${SECRET_STUDY_RCLONE_DIR:-${OLD_STUDY_RCLONE_DIR:-NotasIdiomas}}"
             FINAL_GEMINI_API_KEY="${SECRET_GEMINI_API_KEY:-${OLD_GEMINI_API_KEY:-}}"
             FINAL_YT_DLP_PATH="${SECRET_YT_DLP_PATH:-${OLD_YT_DLP_PATH:-}}"
 
@@ -280,19 +287,32 @@ jobs:
               printf 'SMTP_USER=%s\n' "$FINAL_SMTP_USER"
               printf 'SMTP_PASS=%s\n' "$FINAL_SMTP_PASS"
               printf 'APP_BASE_URL=%s\n' "$FINAL_APP_BASE_URL"
+              printf 'SITE_ADDRESS=%s\n' "$FINAL_SITE_ADDRESS"
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
+              printf 'STUDY_RCLONE_REMOTE=%s\n' "$FINAL_STUDY_RCLONE_REMOTE"
+              printf 'STUDY_RCLONE_DIR=%s\n' "$FINAL_STUDY_RCLONE_DIR"
+              printf 'RCLONE_CONF_B64=%s\n' "$(printf '%s' "${RCLONE_CONF_B64:-}" | tr -d ' \n\r')"
+              printf 'STUDY_RCLONE_CONF_B64=%s\n' "$(printf '%s' "${STUDY_RCLONE_CONF_B64:-}" | tr -d ' \n\r')"
               printf 'GEMINI_API_KEY=%s\n' "$FINAL_GEMINI_API_KEY"
               printf 'YT_DLP_PATH=%s\n' "$FINAL_YT_DLP_PATH"
             } > "$DEPLOY_ENV_FILE"
 
-            # 4. Configurar rclone automáticamente si se proporcionó RCLONE_CONF_B64
-            if [ -n "${RCLONE_CONF_B64:-}" ]; then
+            # 4. Configurar rclone automáticamente (Drive 1 Clínico + Drive 2 Estudio opcional) con permisos 700/600
+            if [ -n "${RCLONE_CONF_B64:-}" ] || [ -n "${STUDY_RCLONE_CONF_B64:-}" ]; then
               mkdir -p "$HOME/.config/rclone"
-              printf '%s' "$RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d > "$HOME/.config/rclone/rclone.conf"
+              chmod 700 "$HOME/.config/rclone"
+              : > "$HOME/.config/rclone/rclone.conf"
+              if [ -n "${RCLONE_CONF_B64:-}" ]; then
+                printf '%s\n' "$RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d >> "$HOME/.config/rclone/rclone.conf"
+              fi
+              if [ -n "${STUDY_RCLONE_CONF_B64:-}" ]; then
+                printf '\n' >> "$HOME/.config/rclone/rclone.conf"
+                printf '%s\n' "$STUDY_RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d >> "$HOME/.config/rclone/rclone.conf"
+              fi
               chmod 600 "$HOME/.config/rclone/rclone.conf"
             fi
-            unset RCLONE_CONF_B64
+            unset RCLONE_CONF_B64 STUDY_RCLONE_CONF_B64
 
             chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh
 
@@ -319,6 +339,7 @@ jobs:
             fi
 
             mkdir -p "$HOME/projects/respaldos"
+            chmod 700 "$HOME/projects/respaldos"
             {
               printf 'DB_CONTAINER=%s\n' 'mood_db'
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"

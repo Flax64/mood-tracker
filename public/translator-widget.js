@@ -231,8 +231,8 @@
         const engBadge = document.createElement('span');
         engBadge.className = 'lang-ai-badge';
         engBadge.textContent = data.engine === 'gemini'
-            ? `🤖 Gemini (${data.model || 'gemini-2.5-flash'})`
-            : tr('⚡ Instant Local Dictionary (0 MB RAM)', '⚡ Diccionario Local Instantáneo (0 MB RAM)');
+            ? `🤖 Gemini (${data.model || 'gemini'})`
+            : tr('⚡ Instant Local Dictionary', '⚡ Diccionario Local Instantáneo');
 
         headRow.append(dirBadge, engBadge);
         resultBox.appendChild(headRow);

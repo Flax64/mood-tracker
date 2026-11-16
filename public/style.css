@@ -2367,24 +2367,36 @@ select,
         display: flex;
         align-items: center;
         justify-content: space-between;
-        position: sticky;
+        position: fixed;
         top: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        box-sizing: border-box;
         height: 56px;
-        padding: 0 14px;
+        padding: 0 12px;
         background-color: var(--sidebar-bg);
         color: #ffffff;
-        z-index: 900;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+        z-index: 980;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .mobile-topbar-left {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
     }
 
     .icon-btn {
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.14);
         color: #fff;
-        width: 42px;
-        height: 42px;
+        width: 40px;
+        height: 40px;
         border-radius: 10px;
-        font-size: 1.3rem;
+        font-size: 1.2rem;
         cursor: pointer;
         display: inline-flex;
         align-items: center;
@@ -2393,7 +2405,13 @@ select,
 
     .mobile-topbar-title {
         font-weight: 700;
-        font-size: 1.05rem;
+        font-size: 1rem;
+        text-align: center;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0 6px;
     }
 
     .moment-pill {
@@ -2424,7 +2442,7 @@ select,
 
     .main-content {
         margin-left: 0;
-        padding: 16px 12px 32px;
+        padding: 72px 12px 32px;
     }
 }
 
@@ -3066,7 +3084,7 @@ select,
 :root[data-theme="dark"] .translator-context-input,
 :root[data-theme="dark"] #sleepHours,
 :root[data-theme="dark"] .hour-picker,
-:root[data-theme="dark"] #semanaSeleccionada {
+:root[data-theme="dark"] #resumenCalendarioDia {
     background-color: #0f172a;
     color: #f1f5f9;
     border-color: #334155;
@@ -8053,5 +8071,182 @@ textarea:focus,
         justify-content: center;
         padding: 8px 6px;
         margin: 0;
+    }
+}
+
+/* =========================================================================
+   FASE 1 & 2: UNIFICACIÓN GLOBAL, CARPETAS MUSICALES, ACOPLADO Y LANDSCAPE
+   ========================================================================= */
+.card,
+.music-panel-card,
+.view-header-card,
+.lang-ai-panel,
+.lang-translator-panel,
+.music-lyrics-viewer-card {
+    border-radius: 14px;
+    border-color: rgba(148, 163, 184, 0.2);
+}
+
+button,
+.btn-submit,
+.btn-primary,
+.btn-secondary,
+.btn-small,
+.agenda-chip-btn,
+.select-input,
+select,
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="url"],
+input[type="date"],
+input[type="time"],
+input[type="email"],
+input[type="password"] {
+    border-radius: 10px;
+}
+
+.music-release-bucket {
+    margin-top: 12px;
+}
+
+.music-release-bucket-title {
+    margin: 10px 0 8px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #93c5fd;
+    letter-spacing: 0.01em;
+}
+
+.music-lyrics-docked-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.95fr);
+    gap: 14px;
+    align-items: start;
+    margin-top: 10px;
+}
+
+.music-docked-translator {
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    border-radius: 12px;
+    background: #0f172a;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: sticky;
+    top: 70px;
+}
+
+.music-docked-translator-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.music-docked-translator-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.music-docked-translator-controls .select-input {
+    flex: 1 1 auto;
+}
+
+.music-embed-blocked-banner {
+    margin-top: 10px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.music-embed-fallback-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.resumen-visual-week-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.resumen-visual-week-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.resumen-visual-day-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: #0f172a;
+    color: #e2e8f0;
+    cursor: pointer;
+    font-size: 0.78rem;
+}
+
+.resumen-visual-day-pill.is-selected {
+    border-color: #60a5fa;
+    background: rgba(59, 130, 246, 0.22);
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.resumen-visual-day-pill.is-today {
+    box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.5);
+}
+
+@media (max-width: 900px) {
+    .music-lyrics-docked-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .music-docked-translator {
+        position: static;
+    }
+
+    .resumen-visual-week-days {
+        grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    }
+}
+
+/* Optimización OPPO A79 en horizontal (landscape) estudiando canción: ocultar cajas de prompt y maximizar letra */
+@media (max-height: 540px) and (orientation: landscape) {
+    .app-shell.mobile-landscape-song-study #languageAiPanel,
+    .app-shell.mobile-landscape-song-study #sequentialStudyPanel,
+    .app-shell.mobile-landscape-song-study #englishForm,
+    .app-shell.mobile-landscape-song-study .music-yt-finder-card,
+    .app-shell.mobile-landscape-song-study .music-privacy-callout,
+    .app-shell.mobile-landscape-song-study #musicSongForm,
+    .app-shell.mobile-landscape-song-study #musicWordNotesForm,
+    .app-shell.mobile-landscape-song-study #englishRecentBox {
+        display: none !important;
+    }
+
+    .app-shell.mobile-landscape-song-study .main-content {
+        padding-top: 62px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }

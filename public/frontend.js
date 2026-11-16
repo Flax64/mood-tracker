@@ -79,10 +79,10 @@ function updateTransportStatusBadges() {
 
     if (!clientTransportTunnel) {
         if (authPill) {
-            authPill.textContent = tUi('⚠️ Wire: Plain HTTP fallback', '⚠️ Wire: HTTP plano (respaldo)');
+            authPill.textContent = tUi('🔓 Standard Connection', '🔓 Conexión Estándar');
             authPill.classList.add('is-pending');
         }
-        setSidebarBadge('⚠️', tUi('Wire: Standard HTTP', 'Wire: HTTP estándar'));
+        setSidebarBadge('🔓', tUi('Privacidad: Estándar', 'Privacidad: Estándar'));
         return;
     }
 
@@ -92,28 +92,28 @@ function updateTransportStatusBadges() {
 
     if (diag.ready && diag.kid) {
         if (authPill) {
-            authPill.textContent = `🔐 Wire: AES-256-CTR (${diag.kid.slice(0, 8)}…)`;
+            authPill.textContent = tUi('🔐 Private Session Active', '🔐 Sesión Privada Activa');
             authPill.classList.remove('is-pending');
         }
         if (mobilePill) {
-            mobilePill.textContent = '🔐 E2E';
+            mobilePill.textContent = tUi('🔐 Seguro', '🔐 Seguro');
             mobilePill.classList.remove('is-pending');
         }
-        setSidebarBadge('🔐', `Wire: X25519+AES (${diag.kid.slice(0, 8)}…)`);
-        if (diagKid) diagKid.textContent = `${diag.kid} (${diag.metrics.lastHandshakeMs} ms X25519)`;
+        setSidebarBadge('🔐', tUi('Cifrado: Activo', 'Cifrado: Activo'));
+        if (diagKid) diagKid.textContent = `${diag.kid.slice(0, 12)}… (${diag.metrics.lastHandshakeMs} ms)`;
         if (diagStats) {
             diagStats.textContent = tUi(
-                `${totalReqs} encrypted msgs · ${formatCompactBytes(totalBytes)} on wire`,
-                `${totalReqs} mensajes cifrados · ${formatCompactBytes(totalBytes)} en red`
+                `${totalReqs} protected msgs · ${formatCompactBytes(totalBytes)}`,
+                `${totalReqs} mensajes protegidos · ${formatCompactBytes(totalBytes)}`
             );
         }
     } else {
         if (authPill) {
-            authPill.textContent = tUi('🔐 Wire Tunnel: Establishing X25519...', '🔐 Túnel Wire: Estableciendo X25519...');
+            authPill.textContent = tUi('🔐 Securing Connection...', '🔐 Protegiendo Conexión...');
             authPill.classList.add('is-pending');
         }
-        setSidebarBadge('🔐', tUi('Wire: Connecting...', 'Wire: Conectando...'));
-        if (diagKid) diagKid.textContent = tUi('Pending X25519 handshake...', 'Esperando handshake X25519...');
+        setSidebarBadge('🔐', tUi('Cifrado: Conectando...', 'Cifrado: Conectando...'));
+        if (diagKid) diagKid.textContent = tUi('Establishing private key...', 'Preparando sesión segura...');
     }
 }
 
@@ -1336,8 +1336,7 @@ function showView(viewName, updateHash = true, options = {}) {
             cargarCatalogoMusical();
         }
     } else if (targetView === 'resumen') {
-        const selectSemana = document.getElementById('semanaSeleccionada');
-        if (selectSemana) selectSemana.dispatchEvent(new Event('change'));
+        if (typeof cargarResumenSemanalActual === 'function') cargarResumenSemanalActual();
     } else if (targetView === 'agenda') {
         cargarAgendaSemana();
     } else if (targetView === 'horario') {
@@ -1351,6 +1350,9 @@ function showView(viewName, updateHash = true, options = {}) {
             window.DailyHubVisualGuide.mount('visualGuideAppHost', { standalone: false });
         }
     }
+    if (typeof updateMobileLandscapeSongStudyClass === 'function') {
+        updateMobileLandscapeSongStudyClass();
+    }
     if (currentUser && currentUser.rol === 'admin') {
         cargarRecordatoriosActivos();
     }
@@ -1358,6 +1360,26 @@ function showView(viewName, updateHash = true, options = {}) {
         setTimeout(initResponsiveTextareas, 30);
     }
 }
+
+function updateMobileLandscapeSongStudyClass() {
+    const shell = document.getElementById('appShell');
+    if (!shell) return;
+    const isEnglishActive = Boolean(document.getElementById('view-english')?.classList.contains('active'));
+    const viewerCard = document.getElementById('musicLyricsViewerCard');
+    const isStudyingSong = Boolean(musicState?.selectedSongId || (viewerCard && !viewerCard.hidden));
+    const isLandscapePhone = Boolean(
+        window.matchMedia &&
+        window.matchMedia('(orientation: landscape)').matches &&
+        window.innerHeight <= 540
+    );
+    shell.classList.toggle('mobile-landscape-song-study', isEnglishActive && isStudyingSong && isLandscapePhone);
+}
+
+window.addEventListener('orientationchange', () => setTimeout(updateMobileLandscapeSongStudyClass, 80));
+window.addEventListener('resize', () => {
+    clearTimeout(window.__pdhLandscapeTimer);
+    window.__pdhLandscapeTimer = setTimeout(updateMobileLandscapeSongStudyClass, 120);
+}, { passive: true });
 
 if (typeof window !== 'undefined') {
     window.DailyHubNavigateView = (viewName) => showView(viewName, true);
@@ -1932,279 +1954,258 @@ if (formRegistro) {
 }
 
 // ==========================================
-// WEEKLY SUMMARY LOGIC (MOOD & SLEEP TABLE)
+// WEEKLY SUMMARY LOGIC (INTERACTIVE VISUAL CALENDAR PICKER)
 // ==========================================
-const selectSemana = document.getElementById('semanaSeleccionada');
+const resumenCalendarState = {
+    anchorDate: new Date(),
+    weekStartDay: 0, // 0 = Domingo a Sábado, 1 = Lunes a Domingo
+    exactDayIso: '' // Si el doctor pulsa un día exacto, filtra ese día; '' = semana completa
+};
 
-if (selectSemana) {
-    // 1. Populate Sunday-to-Saturday weeks
-    const now = new Date();
-    const domingoActual = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+function getResumenWeekWindow(dateObj, weekStartDay = 0) {
+    const base = dateObj instanceof Date && !Number.isNaN(dateObj.getTime()) ? new Date(dateObj) : new Date();
+    base.setHours(0, 0, 0, 0);
+    const jsDay = base.getDay();
+    const diff = weekStartDay === 1 ? ((jsDay + 6) % 7) : jsDay;
+    const start = new Date(base);
+    start.setDate(base.getDate() - diff);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
 
-    for (let i = -5; i <= 5; i++) {
-        const dom = new Date(domingoActual);
-        dom.setDate(dom.getDate() + (i * 7));
-        const sab = new Date(dom);
-        sab.setDate(sab.getDate() + 6);
-
-        const domStr = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
-        const sabStr = `${sab.getFullYear()}-${String(sab.getMonth() + 1).padStart(2, '0')}-${String(sab.getDate()).padStart(2, '0')}`;
-
-        const opcMes = { day: 'numeric', month: 'short' };
-        const textoVisual = `${dom.toLocaleDateString(tLocale(), opcMes)} - ${sab.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
-
-        const option = document.createElement('option');
-        option.value = `${domStr}|${sabStr}`;
-        option.dataset.weekRange = `${domStr}|${sabStr}`;
-        option.textContent = `${tUi('Week', 'Semana')}: ${textoVisual}`;
-
-        if (i === 0) option.selected = true;
-
-        selectSemana.appendChild(option);
+    const todayIso = formatLocalDate(new Date());
+    const dayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const days = [];
+    for (let i = 0; i < 7; i += 1) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        const iso = formatLocalDate(d);
+        days.push({
+            iso,
+            dateObj: d,
+            dayNameEn: dayNamesEn[d.getDay()],
+            dayNum: d.getDate(),
+            isToday: iso === todayIso
+        });
     }
+    return {
+        start,
+        end,
+        beginIso: formatLocalDate(start),
+        endIso: formatLocalDate(end),
+        days
+    };
+}
 
-    const calDiaInput = document.getElementById('resumenCalendarioDia');
+function renderResumenVisualWeekStrip() {
+    const stripEl = document.getElementById('resumenVisualWeekDays');
     const badgeRango = document.getElementById('resumenRangoVisualBadge');
-    const btnPrevWk = document.getElementById('btnResumenPrevWeek');
-    const btnTodayWk = document.getElementById('btnResumenTodayWeek');
-    const btnNextWk = document.getElementById('btnResumenNextWeek');
+    const toggleBtn = document.getElementById('btnResumenWeekStartToggle');
+    const allDaysBtn = document.getElementById('btnResumenWeekAllDays');
+    const calDiaInput = document.getElementById('resumenCalendarioDia');
+    if (!stripEl) return;
 
-    function seleccionarSemanaPorFechaCalendario(dateObj) {
-        if (!dateObj || Number.isNaN(dateObj.getTime())) return;
-        const dom = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate() - dateObj.getDay());
-        const sab = new Date(dom);
-        sab.setDate(dom.getDate() + 6);
-
-        const domStr = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
-        const sabStr = `${sab.getFullYear()}-${String(sab.getMonth() + 1).padStart(2, '0')}-${String(sab.getDate()).padStart(2, '0')}`;
-        const valKey = `${domStr}|${sabStr}`;
-
-        let existingOpt = Array.from(selectSemana.options).find(o => o.value === valKey);
-        if (!existingOpt) {
-            const textoVisual = `${dom.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' })} - ${sab.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
-            existingOpt = document.createElement('option');
-            existingOpt.value = valKey;
-            existingOpt.dataset.weekRange = valKey;
-            existingOpt.textContent = `${tUi('Week', 'Semana')}: ${textoVisual}`;
-            selectSemana.prepend(existingOpt);
+    const win = getResumenWeekWindow(resumenCalendarState.anchorDate, resumenCalendarState.weekStartDay);
+    if (calDiaInput && !calDiaInput.matches(':focus')) {
+        calDiaInput.value = resumenCalendarState.exactDayIso || formatLocalDate(resumenCalendarState.anchorDate);
+    }
+    if (toggleBtn) {
+        toggleBtn.textContent = resumenCalendarState.weekStartDay === 1
+            ? tUi('📆 Range: Mon–Sun', '📆 Rango: Lun–Dom')
+            : tUi('📆 Range: Sun–Sat', '📆 Rango: Dom–Sáb');
+    }
+    if (badgeRango) {
+        if (resumenCalendarState.exactDayIso) {
+            const p = resumenCalendarState.exactDayIso.split('-').map(Number);
+            const dt = new Date(p[0], p[1] - 1, p[2]);
+            badgeRango.textContent = tUi(
+                `Day: ${dt.toLocaleDateString(tLocale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}`,
+                `Día: ${dt.toLocaleDateString(tLocale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}`
+            );
+        } else {
+            const txtStart = win.start.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' });
+            const txtEnd = win.end.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' });
+            badgeRango.textContent = `${tUi('Week', 'Semana')}: ${txtStart} - ${txtEnd}`;
         }
-        selectSemana.value = valKey;
-        if (calDiaInput) {
-            calDiaInput.value = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-        }
-        if (badgeRango) {
-            badgeRango.textContent = existingOpt.textContent;
-        }
-        selectSemana.dispatchEvent(new Event('change'));
+    }
+    if (allDaysBtn) {
+        allDaysBtn.hidden = !resumenCalendarState.exactDayIso;
     }
 
-    if (calDiaInput) {
-        calDiaInput.value = formatLocalDate(now);
-        calDiaInput.addEventListener('change', () => {
-            if (!calDiaInput.value) return;
-            const [yy, mm, dd] = calDiaInput.value.split('-').map(Number);
-            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd));
+    stripEl.replaceChildren();
+    win.days.forEach(d => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isSel = resumenCalendarState.exactDayIso === d.iso;
+        btn.className = `resumen-visual-day-pill${isSel ? ' is-selected' : ''}${d.isToday ? ' is-today' : ''}`;
+        const shortName = window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function'
+            ? window.DailyHubI18n.agendaDayName(d.dayNameEn, true)
+            : d.dayNameEn.slice(0, 3);
+        const top = document.createElement('span');
+        top.textContent = shortName;
+        const bottom = document.createElement('strong');
+        bottom.textContent = String(d.dayNum);
+        btn.append(top, bottom);
+        btn.title = tUi(
+            `Filter records for exact day ${d.iso} (click again for full week)`,
+            `Ver solo el día exacto ${d.iso} (clic otra vez para ver toda la semana)`
+        );
+        btn.addEventListener('click', () => {
+            resumenCalendarState.exactDayIso = (resumenCalendarState.exactDayIso === d.iso) ? '' : d.iso;
+            cargarResumenSemanalActual();
         });
-    }
-    if (btnPrevWk) {
-        btnPrevWk.addEventListener('click', () => {
-            const [bStr] = (selectSemana.value || '').split('|');
-            const [yy, mm, dd] = (bStr || formatLocalDate(now)).split('-').map(Number);
-            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd - 7));
-        });
-    }
-    if (btnNextWk) {
-        btnNextWk.addEventListener('click', () => {
-            const [bStr] = (selectSemana.value || '').split('|');
-            const [yy, mm, dd] = (bStr || formatLocalDate(now)).split('-').map(Number);
-            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd + 7));
-        });
-    }
-    if (btnTodayWk) {
-        btnTodayWk.addEventListener('click', () => {
-            seleccionarSemanaPorFechaCalendario(new Date());
-        });
-    }
-    const btnDriveRam = document.getElementById('btnLoadDriveMonthsRam');
-    const selDriveMonths = document.getElementById('resumenDriveMonthsSelect');
-    const boxDriveHistory = document.getElementById('resumenDriveHistoryBox');
-    const hintDriveStatus = document.getElementById('resumenDriveStatusHint');
+        stripEl.appendChild(btn);
+    });
 
-    if (btnDriveRam && boxDriveHistory) {
-        btnDriveRam.addEventListener('click', () => {
-            const months = Number(selDriveMonths?.value || 6);
-            runWithButtonLock(btnDriveRam, async () => {
-                try {
-                    const res = await fetch(`/api/archive/drive-range?months=${months}`, { cache: 'no-store' });
-                    if (!res.ok) throw new Error(await res.text() || 'No se pudo consultar el historial en Drive.');
-                    const data = await res.json();
-
-                    if (hintDriveStatus) {
-                        hintDriveStatus.textContent = `✅ Extraídos en RAM temporal (${data.begin} → ${data.end}): ${data.counts.moods} estados de ánimo · ${data.counts.sleeps} registros de sueño · ${data.counts.crises} episodios de crisis (0 KB guardados en disco local).`;
-                    }
-
-                    boxDriveHistory.hidden = false;
-                    boxDriveHistory.replaceChildren();
-
-                    const summaryHead = document.createElement('div');
-                    summaryHead.className = 'ai-summary-box';
-                    summaryHead.textContent = `☁️ Historial Temporal desde Google Drive (Últimos ${months} meses: ${data.begin} a ${data.end}) — Ánimo: ${data.counts.moods} · Sueño: ${data.counts.sleeps} · Crisis: ${data.counts.crises}`;
-                    boxDriveHistory.appendChild(summaryHead);
-
-                    // Generar botones rápidos para las semanas con actividad en esos 6 meses
-                    const weekSet = new Set();
-                    [...(data.moods || []), ...(data.sleeps || []), ...(data.crises || [])].forEach(r => {
-                        const f = String(r.fecha || '').slice(0, 10);
-                        if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
-                            const [yy, mm, dd] = f.split('-').map(Number);
-                            const dt = new Date(yy, mm - 1, dd);
-                            const dom = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() - dt.getDay());
-                            const domIso = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
-                            weekSet.add(domIso);
-                        }
-                    });
-
-                    const sortedWeeks = Array.from(weekSet).sort().reverse().slice(0, 26);
-                    if (sortedWeeks.length > 0) {
-                        const weeksBar = document.createElement('div');
-                        weeksBar.style.display = 'flex';
-                        weeksBar.style.flexWrap = 'wrap';
-                        weeksBar.style.gap = '6px';
-                        weeksBar.style.marginTop = '8px';
-
-                        sortedWeeks.forEach(domIso => {
-                            const [yy, mm, dd] = domIso.split('-').map(Number);
-                            const btnWk = document.createElement('button');
-                            btnWk.type = 'button';
-                            btnWk.className = 'btn-secondary btn-small';
-                            btnWk.textContent = `📅 Semana ${domIso}`;
-                            btnWk.title = 'Cargar esta semana histórica desde Google Drive en la tabla de arriba';
-                            btnWk.addEventListener('click', () => {
-                                seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd));
-                            });
-                            weeksBar.appendChild(btnWk);
-                        });
-                        boxDriveHistory.appendChild(weeksBar);
-                    }
-                } catch (err) {
-                    showToast('err', err.message || 'Error consultando Google Drive.');
-                }
-            }, { loadingText: 'Extrayendo de Drive en RAM...' });
-        });
-    }
-
-    // 2. Fetch week data when changed
-    selectSemana.addEventListener('change', () => {
-        const [begin, end] = selectSemana.value.split('|');
-        const reqToken = resumenTracker.begin();
-        const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
-
-        const resumenBanner = document.getElementById('resumenLoadingBanner');
-        if (resumenBanner) {
-            resumenBanner.replaceChildren(createLoadingBanner(tUi('Loading weekly data...', 'Cargando datos semanales...'), 'sm'));
-            resumenBanner.hidden = false;
-        }
-        let pendingRequests = 3;
-        const markOneSettled = () => {
-            if (!resumenTracker.isCurrent(reqToken.seq)) return;
-            pendingRequests -= 1;
-            if (pendingRequests <= 0 && resumenBanner) {
-                resumenBanner.hidden = true;
-                resumenBanner.innerHTML = '';
+    const moodTable = document.querySelector('#view-resumen .mood-table');
+    if (moodTable) {
+        const orderDays = win.days.map(d => d.dayNameEn);
+        const headRow = moodTable.querySelector('thead tr');
+        if (headRow) {
+            const firstTh = headRow.querySelector('th:first-child');
+            const dayThs = Array.from(headRow.querySelectorAll('th')).slice(1);
+            const thByName = new Map(dayThs.map(th => [String(th.getAttribute('data-day-col') || th.textContent || '').trim(), th]));
+            if (dayThs.length === 7 && orderDays.every(name => thByName.has(name))) {
+                headRow.replaceChildren(firstTh, ...orderDays.map(name => {
+                    const th = thByName.get(name);
+                    th.setAttribute('data-day-col', name);
+                    return th;
+                }));
             }
-        };
-
-        document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
-        const diasSemana = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-        fetch(`/api/get-moods?begin=${begin}&end=${end}`, fetchOpts)
-            .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load moods')))
-            .then(registros => {
-                if (!resumenTracker.isCurrent(reqToken.seq)) return;
-                document.querySelectorAll('.mood-cell').forEach(celda => celda.innerHTML = '');
-                registros.forEach(registro => {
-                    const fechaObj = new Date(registro.fecha);
-                    const nombreDia = diasSemana[fechaObj.getUTCDay()];
-                    const celda = document.querySelector(`.mood-cell[data-day="${nombreDia}"][data-time="${registro.momento_dia}"]`);
-
-                    if (celda) {
-                        const hex = String(registro.color_hex || '').toUpperCase();
-                        const rawMood = MOOD_COLOR_LABELS[hex] || '';
-                        const moodName = rawMood && window.DailyHubI18n && typeof window.DailyHubI18n.moodLabel === 'function'
-                            ? window.DailyHubI18n.moodLabel(rawMood)
-                            : (rawMood || tUi('Logged Mood', 'Ánimo registrado'));
-                        const dayLoc = window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function'
-                            ? window.DailyHubI18n.agendaDayName(nombreDia, false)
-                            : nombreDia;
-                        const momentLoc = window.DailyHubI18n && typeof window.DailyHubI18n.momentLabel === 'function'
-                            ? window.DailyHubI18n.momentLabel(registro.momento_dia)
-                            : (registro.momento_dia === 'Madrugada' ? 'Late Night' : registro.momento_dia);
-                        const dot = document.createElement('span');
-                        dot.className = 'color-dot';
-                        dot.style.backgroundColor = registro.color_hex;
-                        dot.title = `${dayLoc} (${momentLoc}): ${moodName}`;
-                        dot.setAttribute('aria-label', dot.title);
-                        celda.replaceChildren(dot);
-                    }
-                });
-            })
-            .catch(error => {
-                if (!isAbortError(error)) console.error('Error loading moods:', error);
-            })
-            .finally(markOneSettled);
-
-        const sleepGrid = document.getElementById('sleepGrid');
-        const sleepDetailsList = document.getElementById('resumenSleepDetailsList');
-        const sleepResumenCount = document.getElementById('resumenSleepCount');
-        sleepGrid.replaceChildren(createLoadingBanner(tUi('Loading sleep logs...', 'Cargando registros de sueño...'), 'sm'));
-        if (sleepDetailsList) {
-            sleepDetailsList.replaceChildren(createLoadingBanner(tUi('Loading sleep & desvelo details...', 'Cargando detalles de sueño y desvelos...'), 'sm'));
         }
+        moodTable.querySelectorAll('tbody tr').forEach(tr => {
+            const lblCell = tr.querySelector('td.row-label');
+            const dayCells = Array.from(tr.querySelectorAll('td.mood-cell'));
+            const byDay = new Map(dayCells.map(td => [td.getAttribute('data-day'), td]));
+            if (lblCell && dayCells.length === 7 && orderDays.every(name => byDay.has(name))) {
+                tr.replaceChildren(lblCell, ...orderDays.map(name => byDay.get(name)));
+            }
+        });
+    }
+}
 
-        const diasNombres = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(d => (
-            window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function'
-                ? window.DailyHubI18n.agendaDayName(d, true)
-                : d.slice(0, 3)
+function cargarResumenSemanalActual() {
+    const stripEl = document.getElementById('resumenVisualWeekDays');
+    const sleepGrid = document.getElementById('sleepGrid');
+    if (!stripEl && !sleepGrid) return;
+
+    renderResumenVisualWeekStrip();
+    const win = getResumenWeekWindow(resumenCalendarState.anchorDate, resumenCalendarState.weekStartDay);
+    const begin = resumenCalendarState.exactDayIso || win.beginIso;
+    const end = resumenCalendarState.exactDayIso || win.endIso;
+    const reqToken = resumenTracker.begin();
+    const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
+
+    const beginMs = Date.parse(`${begin}T00:00:00Z`);
+    const isHistoricalRange = Number.isFinite(beginMs) && (Date.now() - beginMs) > (28 * 24 * 60 * 60 * 1000);
+    const resumenBanner = document.getElementById('resumenLoadingBanner');
+    if (resumenBanner) {
+        resumenBanner.replaceChildren(createLoadingBanner(
+            isHistoricalRange
+                ? tUi('Loading records from over 1 month ago (may take a moment longer)...', 'Cargando registros anteriores a 1 mes (puede tardar un poco más)...')
+                : tUi('Loading weekly data...', 'Cargando datos semanales...'),
+            'sm'
         ));
-        const sumatoriaSueno = {
-            Sunday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
-            Monday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
-            Tuesday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
-            Wednesday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
-            Thursday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
-            Friday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
-            Saturday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 }
-        };
+        resumenBanner.hidden = false;
+    }
+    let pendingRequests = 3;
+    const markOneSettled = () => {
+        if (!resumenTracker.isCurrent(reqToken.seq)) return;
+        pendingRequests -= 1;
+        if (pendingRequests <= 0 && resumenBanner) {
+            resumenBanner.hidden = true;
+            resumenBanner.innerHTML = '';
+        }
+    };
 
-        fetch(`/api/get-sleep?begin=${begin}&end=${end}`, fetchOpts)
-            .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load sleep logs')))
-            .then(registros => {
-                if (!resumenTracker.isCurrent(reqToken.seq)) return;
-                sleepGrid.innerHTML = '';
-                const list = Array.isArray(registros) ? registros : [];
+    document.querySelectorAll('.mood-cell').forEach(celda => { celda.innerHTML = ''; });
+    const diasSemanaEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const orderedDayNames = win.days.map(d => d.dayNameEn);
 
-                list.forEach(registro => {
-                    const dayIdx = parseIsoDateToDayIndex(registro.fecha);
-                    if (dayIdx < 0 || dayIdx > 6) return;
-                    const nombreDia = diasSemana[dayIdx];
+    fetch(`/api/get-moods?begin=${begin}&end=${end}`, fetchOpts)
+        .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load moods')))
+        .then(registros => {
+            if (!resumenTracker.isCurrent(reqToken.seq)) return;
+            document.querySelectorAll('.mood-cell').forEach(celda => { celda.innerHTML = ''; });
+            registros.forEach(registro => {
+                const fechaObj = new Date(registro.fecha);
+                const nombreDia = diasSemanaEn[fechaObj.getUTCDay()];
+                const celda = document.querySelector(`.mood-cell[data-day="${nombreDia}"][data-time="${registro.momento_dia}"]`);
 
-                    const horasRegistro = parseFloat(registro.horas) || 0;
-                    const isDesvelo = Number(registro.es_desvelo) === 1 || (registro.tipo_registro && registro.tipo_registro !== 'normal');
-                    const isTotal = registro.tipo_registro === 'desvelo_total';
-                    const isPending = registro.tipo_registro === 'desvelo_tarde' && registro.hora_dormir && !registro.hora_despertar && horasRegistro === 0;
+                if (celda) {
+                    const hex = String(registro.color_hex || '').toUpperCase();
+                    const rawMood = MOOD_COLOR_LABELS[hex] || '';
+                    const moodName = rawMood && window.DailyHubI18n && typeof window.DailyHubI18n.moodLabel === 'function'
+                        ? window.DailyHubI18n.moodLabel(rawMood)
+                        : (rawMood || tUi('Logged Mood', 'Ánimo registrado'));
+                    const dayLoc = window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function'
+                        ? window.DailyHubI18n.agendaDayName(nombreDia, false)
+                        : nombreDia;
+                    const momentLoc = window.DailyHubI18n && typeof window.DailyHubI18n.momentLabel === 'function'
+                        ? window.DailyHubI18n.momentLabel(registro.momento_dia)
+                        : (registro.momento_dia === 'Madrugada' ? 'Late Night' : registro.momento_dia);
+                    const dot = document.createElement('span');
+                    dot.className = 'color-dot';
+                    dot.style.backgroundColor = registro.color_hex;
+                    dot.title = `${dayLoc} (${momentLoc}): ${moodName}`;
+                    dot.setAttribute('aria-label', dot.title);
+                    celda.replaceChildren(dot);
+                }
+            });
+        })
+        .catch(error => {
+            if (!isAbortError(error)) console.error('Error loading moods:', error);
+        })
+        .finally(markOneSettled);
 
-                    sumatoriaSueno[nombreDia].horas += horasRegistro;
-                    sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
-                    sumatoriaSueno[nombreDia].sesiones.push(horasRegistro);
-                    if (isDesvelo) sumatoriaSueno[nombreDia].desvelos += 1;
-                    if (isTotal) sumatoriaSueno[nombreDia].totalAllNighters += 1;
-                    if (isPending) sumatoriaSueno[nombreDia].pendingCount += 1;
-                    if (isDesvelo && registro.hora_dormir) {
-                        sumatoriaSueno[nombreDia].lateBedtimes.push(formatClockTime12h(registro.hora_dormir));
-                    }
-                });
+    const sleepDetailsList = document.getElementById('resumenSleepDetailsList');
+    const sleepResumenCount = document.getElementById('resumenSleepCount');
+    if (sleepGrid) {
+        sleepGrid.replaceChildren(createLoadingBanner(tUi('Loading sleep logs...', 'Cargando registros de sueño...'), 'sm'));
+    }
+    if (sleepDetailsList) {
+        sleepDetailsList.replaceChildren(createLoadingBanner(tUi('Loading sleep & desvelo details...', 'Cargando detalles de sueño y desvelos...'), 'sm'));
+    }
 
-                diasSemana.forEach((dia, index) => {
+    const sumatoriaSueno = {
+        Sunday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+        Monday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+        Tuesday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+        Wednesday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+        Thursday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+        Friday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 },
+        Saturday: { horas: 0, calidades: [], sesiones: [], desvelos: 0, totalAllNighters: 0, lateBedtimes: [], pendingCount: 0 }
+    };
+
+    fetch(`/api/get-sleep?begin=${begin}&end=${end}`, fetchOpts)
+        .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load sleep logs')))
+        .then(registros => {
+            if (!resumenTracker.isCurrent(reqToken.seq)) return;
+            if (sleepGrid) sleepGrid.innerHTML = '';
+            const list = Array.isArray(registros) ? registros : [];
+
+            list.forEach(registro => {
+                const dayIdx = parseIsoDateToDayIndex(registro.fecha);
+                if (dayIdx < 0 || dayIdx > 6) return;
+                const nombreDia = diasSemanaEn[dayIdx];
+
+                const horasRegistro = parseFloat(registro.horas) || 0;
+                const isDesvelo = Number(registro.es_desvelo) === 1 || (registro.tipo_registro && registro.tipo_registro !== 'normal');
+                const isTotal = registro.tipo_registro === 'desvelo_total';
+                const isPending = registro.tipo_registro === 'desvelo_tarde' && registro.hora_dormir && !registro.hora_despertar && horasRegistro === 0;
+
+                sumatoriaSueno[nombreDia].horas += horasRegistro;
+                sumatoriaSueno[nombreDia].calidades.push(registro.calidad);
+                sumatoriaSueno[nombreDia].sesiones.push(horasRegistro);
+                if (isDesvelo) sumatoriaSueno[nombreDia].desvelos += 1;
+                if (isTotal) sumatoriaSueno[nombreDia].totalAllNighters += 1;
+                if (isPending) sumatoriaSueno[nombreDia].pendingCount += 1;
+                if (isDesvelo && registro.hora_dormir) {
+                    sumatoriaSueno[nombreDia].lateBedtimes.push(formatClockTime12h(registro.hora_dormir));
+                }
+            });
+
+            if (sleepGrid) {
+                orderedDayNames.forEach(dia => {
                     const datosDia = sumatoriaSueno[dia];
                     const cantidadSesiones = datosDia.sesiones.length;
                     let emoji = '➖';
@@ -2260,7 +2261,9 @@ if (selectSemana) {
 
                     const dayEl = document.createElement('div');
                     dayEl.className = 'day-name';
-                    dayEl.textContent = diasNombres[index];
+                    dayEl.textContent = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function')
+                        ? window.DailyHubI18n.agendaDayName(dia, true)
+                        : dia.slice(0, 3);
 
                     const hrsEl = document.createElement('div');
                     hrsEl.className = 'sleep-hours';
@@ -2290,54 +2293,117 @@ if (selectSemana) {
 
                     sleepGrid.appendChild(card);
                 });
+            }
 
-                if (sleepResumenCount) {
-                    const totalDesvelos = list.filter(r => Number(r.es_desvelo) === 1 || (r.tipo_registro && r.tipo_registro !== 'normal')).length;
-                    const sessLbl = list.length === 1 ? tUi('session', 'sesión') : tUi('sessions', 'sesiones');
-                    const desvLbl = totalDesvelos === 1 ? tUi('late night', 'desvelo') : tUi('late nights', 'desvelos');
-                    sleepResumenCount.textContent = list.length === 0
-                        ? tUi('No sleep records this week', 'Sin registros de sueño esta semana')
-                        : `${list.length} ${sessLbl}${totalDesvelos > 0 ? ` · 🦉 ${totalDesvelos} ${desvLbl}` : ''}`;
+            if (sleepResumenCount) {
+                const totalDesvelos = list.filter(r => Number(r.es_desvelo) === 1 || (r.tipo_registro && r.tipo_registro !== 'normal')).length;
+                const sessLbl = list.length === 1 ? tUi('session', 'sesión') : tUi('sessions', 'sesiones');
+                const desvLbl = totalDesvelos === 1 ? tUi('late night', 'desvelo') : tUi('late nights', 'desvelos');
+                sleepResumenCount.textContent = list.length === 0
+                    ? tUi('No sleep records in this range', 'Sin registros de sueño en este rango')
+                    : `${list.length} ${sessLbl}${totalDesvelos > 0 ? ` · 🦉 ${totalDesvelos} ${desvLbl}` : ''}`;
+            }
+            if (typeof renderSleepDetailCards === 'function') {
+                renderSleepDetailCards(sleepDetailsList, list);
+            }
+        })
+        .catch(error => {
+            if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq)) {
+                console.error('Error loading sleep logs:', error);
+                if (sleepGrid) sleepGrid.innerHTML = `<p class="muted-text">${tUi('Could not load sleep logs.', 'No se pudieron cargar los registros de sueño.')}</p>`;
+                if (sleepDetailsList) {
+                    sleepDetailsList.innerHTML = `<p class="muted-text">${tUi('Could not load sleep & desvelo details.', 'No se pudieron cargar los detalles de sueño y desvelos.')}</p>`;
                 }
-                if (typeof renderSleepDetailCards === 'function') {
-                    renderSleepDetailCards(sleepDetailsList, list);
-                }
-            })
-            .catch(error => {
-                if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq)) {
-                    console.error('Error loading sleep logs:', error);
-                    sleepGrid.innerHTML = `<p class="muted-text">${tUi('Could not load sleep logs.', 'No se pudieron cargar los registros de sueño.')}</p>`;
-                    if (sleepDetailsList) {
-                        sleepDetailsList.innerHTML = `<p class="muted-text">${tUi('Could not load sleep & desvelo details.', 'No se pudieron cargar los detalles de sueño y desvelos.')}</p>`;
-                    }
-                }
-            })
-            .finally(markOneSettled);
+            }
+        })
+        .finally(markOneSettled);
 
-        const crisisResumenList = document.getElementById('resumenCrisisList');
-        const crisisResumenCount = document.getElementById('resumenCrisisCount');
-        if (crisisResumenList) {
-            crisisResumenList.replaceChildren(createLoadingBanner(tUi('Loading crisis logs...', 'Cargando registros de crisis...'), 'sm'));
-        }
-        fetch(`/api/get-crisis?begin=${begin}&end=${end}`, fetchOpts)
-            .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load crisis logs')))
-            .then(registros => {
-                if (!resumenTracker.isCurrent(reqToken.seq)) return;
-                if (crisisResumenCount) {
-                    const len = Array.isArray(registros) ? registros.length : 0;
-                    crisisResumenCount.textContent = len === 0 ? 'No crises recorded this week' : `${len} episode${len === 1 ? '' : 's'}`;
-                }
-                renderCrisisCards(crisisResumenList, registros, { allowDelete: false });
-            })
-            .catch(error => {
-                if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq) && crisisResumenList) {
-                    console.error('Error loading crisis logs:', error);
-                    crisisResumenList.innerHTML = '<p class="muted-text">Could not load crisis logs for this week.</p>';
-                }
-            })
-            .finally(markOneSettled);
-    });
+    const crisisResumenList = document.getElementById('resumenCrisisList');
+    const crisisResumenCount = document.getElementById('resumenCrisisCount');
+    if (crisisResumenList) {
+        crisisResumenList.replaceChildren(createLoadingBanner(tUi('Loading crisis logs...', 'Cargando registros de crisis...'), 'sm'));
+    }
+    fetch(`/api/get-crisis?begin=${begin}&end=${end}`, fetchOpts)
+        .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to load crisis logs')))
+        .then(registros => {
+            if (!resumenTracker.isCurrent(reqToken.seq)) return;
+            if (crisisResumenCount) {
+                const len = Array.isArray(registros) ? registros.length : 0;
+                crisisResumenCount.textContent = len === 0
+                    ? tUi('No crises recorded in this range', 'Sin episodios registrados en este rango')
+                    : `${len} ${len === 1 ? tUi('episode', 'episodio') : tUi('episodes', 'episodios')}`;
+            }
+            renderCrisisCards(crisisResumenList, registros, { allowDelete: false });
+        })
+        .catch(error => {
+            if (!isAbortError(error) && resumenTracker.isCurrent(reqToken.seq) && crisisResumenList) {
+                console.error('Error loading crisis logs:', error);
+                crisisResumenList.innerHTML = `<p class="muted-text">${tUi('Could not load crisis logs for this range.', 'No se pudieron cargar los registros de crisis.')}</p>`;
+            }
+        })
+        .finally(markOneSettled);
 }
+
+(function initResumenVisualCalendar() {
+    const calDiaInput = document.getElementById('resumenCalendarioDia');
+    const btnPrevWk = document.getElementById('btnResumenPrevWeek');
+    const btnTodayWk = document.getElementById('btnResumenTodayWeek');
+    const btnNextWk = document.getElementById('btnResumenNextWeek');
+    const btnToggleStart = document.getElementById('btnResumenWeekStartToggle');
+    const btnAllDays = document.getElementById('btnResumenWeekAllDays');
+
+    if (!calDiaInput && !document.getElementById('resumenVisualWeekDays')) return;
+
+    function seleccionarSemanaPorFechaCalendario(dateObj, { exactDay = false } = {}) {
+        if (!dateObj || Number.isNaN(dateObj.getTime())) return;
+        resumenCalendarState.anchorDate = new Date(dateObj);
+        resumenCalendarState.exactDayIso = exactDay ? formatLocalDate(dateObj) : '';
+        cargarResumenSemanalActual();
+    }
+
+    if (calDiaInput) {
+        calDiaInput.value = formatLocalDate(resumenCalendarState.anchorDate);
+        calDiaInput.addEventListener('change', () => {
+            if (!calDiaInput.value) return;
+            const [yy, mm, dd] = calDiaInput.value.split('-').map(Number);
+            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd), { exactDay: false });
+        });
+    }
+    if (btnPrevWk) {
+        btnPrevWk.addEventListener('click', () => {
+            const d = new Date(resumenCalendarState.anchorDate);
+            d.setDate(d.getDate() - 7);
+            seleccionarSemanaPorFechaCalendario(d, { exactDay: false });
+        });
+    }
+    if (btnNextWk) {
+        btnNextWk.addEventListener('click', () => {
+            const d = new Date(resumenCalendarState.anchorDate);
+            d.setDate(d.getDate() + 7);
+            seleccionarSemanaPorFechaCalendario(d, { exactDay: false });
+        });
+    }
+    if (btnTodayWk) {
+        btnTodayWk.addEventListener('click', () => {
+            seleccionarSemanaPorFechaCalendario(new Date(), { exactDay: false });
+        });
+    }
+    if (btnToggleStart) {
+        btnToggleStart.addEventListener('click', () => {
+            resumenCalendarState.weekStartDay = resumenCalendarState.weekStartDay === 1 ? 0 : 1;
+            resumenCalendarState.exactDayIso = '';
+            cargarResumenSemanalActual();
+        });
+    }
+    if (btnAllDays) {
+        btnAllDays.addEventListener('click', () => {
+            resumenCalendarState.exactDayIso = '';
+            cargarResumenSemanalActual();
+        });
+    }
+
+    renderResumenVisualWeekStrip();
+})();
 
 // ==========================================
 // SLEEP & DESVELO TRACKER FORM LOGIC
@@ -3893,7 +3959,7 @@ function initLanguageAiStudio() {
         }
         const lyrics = (studyLyricsEl?.value || '').trim();
         if (!lyrics) {
-            showToast('err', 'Extrae o pega primero la letra de la canción (arriba en Letra yt-dlp o en Lyrics Breakdown).');
+            showToast('err', tUi('Extract or load the song lyrics first above.', 'Extrae o carga primero la letra de la canción arriba.'));
             (viewerLyricsEl && !viewerLyricsEl.closest('[hidden]') ? viewerLyricsEl : studyLyricsEl)?.focus();
             return;
         }
@@ -3990,9 +4056,11 @@ function initLanguageAiStudio() {
                         album_title: selected.album_titulo || '',
                         album_type: RELEASE_TYPE_LABELS[selected.album_tipo] || selected.album_tipo || '',
                         release_year: selected.album_anio ? String(selected.album_anio) : '',
+                        release_date: selected.album_fecha_lanzamiento || '',
                         track_number: selected.numero_pista || null,
                         yt_music_url: selected.yt_music_url || '',
                         focus_summary: selected.enfoque_corto || '',
+                        stanzas: Array.isArray(data.stanzas) ? data.stanzas : [],
                         lyrics_study: breakdownText,
                         vocabulary_list: vocabText,
                         pronunciation_notes: romNotes,
@@ -4011,6 +4079,7 @@ function initLanguageAiStudio() {
                         release_year: val('musicAlbumYear'),
                         yt_music_url: val('musicSongYtUrl'),
                         focus_summary: val('musicFocusSummary'),
+                        stanzas: Array.isArray(data.stanzas) ? data.stanzas : [],
                         lyrics_study: breakdownText,
                         vocabulary_list: vocabText,
                         pronunciation_notes: romNotes,
@@ -4186,23 +4255,24 @@ function initLanguageAiStudio() {
     document.getElementById('btnToggleStudyCourse')?.addEventListener('click', async (ev) => {
         const btn = ev.currentTarget;
         runWithButtonLock(btn, async () => {
-            const nextState = !(currentSettings && currentSettings.englishReminderEnabled);
+            const currentActive = Boolean(currentSettings && (currentSettings.languageLearningActive ?? currentSettings.englishReminderEnabled));
+            const nextState = !currentActive;
             const res = await submitMutationRequest({
-                url: '/api/settings',
-                method: 'PUT',
+                url: '/api/language/learning-toggle',
+                method: 'PATCH',
                 scopeKey: 'toggle-study-course',
                 signature: String(Date.now()),
                 buildBody: () => ({
-                    englishReminderEnabled: nextState,
-                    englishReminderTopic: 'Dedica 15 minutos a tu lección activa de Inglés / Coreano en Word'
+                    active: nextState,
+                    topic: 'Dedica 10 a 15 minutos a tu lección activa de Inglés / Coreano en tu cuaderno Word'
                 }),
                 parseJson: true
             });
             if (res?.settings) aplicarSettingsEnEstado(res.settings);
             await cargarLeccionesSecuencialesUI();
             showToast('ok', nextState
-                ? 'Curso de idiomas activado (recordatorios de 15 min encendidos).'
-                : 'Curso de idiomas en pausa.');
+                ? tUi('Language course started (10–15 min practice reminders active).', 'Curso de idiomas activado (avisos de práctica de 10–15 min encendidos).')
+                : tUi('Language course paused (progress saved safely).', 'Curso de idiomas en pausa (tu progreso queda guardado).'));
         });
     });
 
@@ -4264,29 +4334,71 @@ function initLanguageAiStudio() {
         rec.start();
     });
 
-    // Poblar selector de modelos en Ajustes SOLO con los modelos disponibles en GEMINI_API_KEY
+    const populateActiveGeminiModelsSelect = (modelsList, selectedId = '') => {
+        const modelSel = document.getElementById('setGeminiModel');
+        const modelsHint = document.getElementById('settingsGeminiModelsHint');
+        if (!modelSel) return;
+        const activeModels = Array.isArray(modelsList) ? modelsList.filter(m => m && m.id) : [];
+        modelSel.replaceChildren();
+        if (!activeModels.length) {
+            const emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.textContent = tUi(
+                'No active Gemini models loaded yet — save or test your key above',
+                'Sin modelos activos cargados — ingresa y prueba tu clave arriba'
+            );
+            modelSel.appendChild(emptyOpt);
+            if (modelsHint) {
+                modelsHint.textContent = tUi(
+                    'Only verified active models for your API key appear here.',
+                    'Aquí solo se mostrarán los modelos activos y verificados con tu clave.'
+                );
+            }
+            return;
+        }
+
+        const fastModels = activeModels.filter(m => String(m.mode || '').toLowerCase() !== 'reasoning');
+        const reasoningModels = activeModels.filter(m => String(m.mode || '').toLowerCase() === 'reasoning');
+        const appendOptGroup = (label, items) => {
+            if (!items.length) return;
+            const grp = document.createElement('optgroup');
+            grp.label = label;
+            items.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.label || m.id;
+                grp.appendChild(opt);
+            });
+            modelSel.appendChild(grp);
+        };
+        appendOptGroup(tUi('⚡ Fast Mode (Instant Consultations)', '⚡ Modo Rápido (Consultas y traducciones)'), fastModels);
+        appendOptGroup(tUi('🧠 Detailed Reasoning Mode (Songs & Lessons)', '🧠 Modo Detallado (Canciones y lecciones)'), reasoningModels);
+        const customOpt = document.createElement('option');
+        customOpt.value = '__custom__';
+        customOpt.textContent = tUi('Custom active model ID', 'ID de modelo personalizado');
+        modelSel.appendChild(customOpt);
+
+        const targetVal = selectedId || currentSettings?.geminiModel || activeModels[0].id;
+        if (Array.from(modelSel.options).some(o => o.value === targetVal)) {
+            modelSel.value = targetVal;
+        } else if (activeModels[0]) {
+            modelSel.value = activeModels[0].id;
+        }
+        if (modelsHint) {
+            modelsHint.textContent = tUi(
+                `${activeModels.length} active Gemini model(s) verified for your key.`,
+                `${activeModels.length} modelo(s) Gemini activo(s) verificado(s) para tu clave.`
+            );
+        }
+    };
+    window.__populateActiveGeminiModelsSelect = populateActiveGeminiModelsSelect;
+
+    // Poblar selector de modelos en Ajustes SOLO con los modelos activos disponibles para GEMINI_API_KEY
     fetch('/api/language/registry', { cache: 'no-store' })
         .then(r => (r.ok ? r.json() : null))
         .then(reg => {
             if (!reg) return;
-            const modelSel = document.getElementById('setGeminiModel');
-            if (modelSel && Array.isArray(reg.geminiModels) && reg.geminiModels.length) {
-                const currentVal = reg.activeGeminiModel || modelSel.value || 'gemini-2.5-flash';
-                modelSel.replaceChildren();
-                reg.geminiModels.forEach(m => {
-                    const opt = document.createElement('option');
-                    opt.value = m.id;
-                    opt.textContent = m.label || m.id;
-                    modelSel.appendChild(opt);
-                });
-                const customOpt = document.createElement('option');
-                customOpt.value = '__custom__';
-                customOpt.textContent = 'Custom Model ID (enter below)';
-                modelSel.appendChild(customOpt);
-                if (Array.from(modelSel.options).some(o => o.value === currentVal)) {
-                    modelSel.value = currentVal;
-                }
-            }
+            populateActiveGeminiModelsSelect(reg.geminiModels || [], reg.activeGeminiModel || '');
         })
         .catch(() => { });
 
@@ -4628,7 +4740,7 @@ const musicState = {
     editingSongId: null,
     embedOpen: false,
     embedHost: 'youtube',
-    embedMode: 'ytdlp',
+    embedMode: 'iframe',
     ytdlpStatus: null,
     embeddableByVideoId: {},
     navArtistId: null,
@@ -4822,13 +4934,8 @@ function getCancionSeleccionada() {
     return musicState.songs.find(s => Number(s.id) === Number(musicState.selectedSongId)) || null;
 }
 
-function getDefaultEmbedModeForSong(song) {
-    if (!song) return 'iframe';
-    if (musicState.ytdlpStatus && musicState.ytdlpStatus.available) return 'ytdlp';
-    const knownBlocked = song.yt_video_id && musicState.embeddableByVideoId[song.yt_video_id] === false;
-    const isRemoteHttp = window.location.protocol === 'http:' &&
-        !['localhost', '127.0.0.1'].includes(window.location.hostname);
-    return (knownBlocked || isRemoteHttp) ? 'ytdlp' : 'iframe';
+function getDefaultEmbedModeForSong() {
+    return 'iframe';
 }
 
 function actualizarBadgePuentePc() {
@@ -4836,16 +4943,13 @@ function actualizarBadgePuentePc() {
     if (!pcBadge) return;
     const stat = musicState.ytdlpStatus;
     if (stat && stat.pcOnline) {
-        pcBadge.textContent = tUi('🟢 PC online · Word sync', '🟢 PC en línea · Sync Word');
+        pcBadge.textContent = tUi('🟢 PC online · Ready', '🟢 Computadora en línea · Lista');
         pcBadge.className = 'badge-pill badge-pill-ok';
     } else if (stat) {
-        const queued = Number(stat.pendingEnglishQueueCount || 0);
-        pcBadge.textContent = queued > 0
-            ? tUi(`☁️ PC offline · ${queued} in EC2 RAM`, `☁️ PC desconectada · ${queued} en RAM EC2`)
-            : tUi('☁️ PC offline · EC2 RAM queue', '☁️ PC desconectada · Cola RAM EC2');
+        pcBadge.textContent = tUi('⚪ PC offline', '⚪ Computadora apagada');
         pcBadge.className = 'badge-pill badge-pill-subtle';
     } else {
-        pcBadge.textContent = tUi('⚪ Checking PC...', '⚪ Verificando PC...');
+        pcBadge.textContent = tUi('⚪ Checking PC...', '⚪ Verificando computadora...');
         pcBadge.className = 'badge-pill badge-pill-subtle';
     }
 }
@@ -4936,7 +5040,7 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
     try {
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), 2500) : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 3000) : null;
         const liveStatusRes = await fetch('/api/english/music/ytdlp-status', {
             cache: 'no-store',
             signal: controller ? controller.signal : undefined
@@ -4955,29 +5059,16 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
     if (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline === false) {
         const offlineMsg = tUi(
-            '⚠️ Your PC is currently offline (sincronizador.py is not connected). Lyrics extraction is blocked in real time to avoid saturating the server queue.',
-            '⚠️ Tu PC está apagada o desconectada en este momento (sincronizador.py no está activo). Se bloqueó la extracción en tiempo real para no saturar la cola del servidor.'
+            'Your computer is currently turned off or asleep. Turn it on briefly to automatically read your Word notebook or extract missing lyrics without restrictions.',
+            'Tu computadora está apagada o en reposo en este momento. Enciéndela un momento para consultar tu Word y extraer automáticamente esta letra sin bloqueos.'
         );
         if (hintEl) hintEl.textContent = offlineMsg;
-        if (!silent) showToast('err', offlineMsg);
+        if (!silent) showToast('info', offlineMsg);
         return false;
     }
 
     const llaveTexto = silent ? obtenerLlaveE2EE() : await solicitarLlaveE2EEAsync();
     if (!llaveTexto) return false;
-
-    const wordEntryBase = {
-        category: 'music',
-        language: song.idioma || 'English',
-        song_title: song.titulo,
-        artists_display: formatSongArtistsSummary(song),
-        album_title: song.album_titulo || '',
-        album_type: RELEASE_TYPE_LABELS[song.album_tipo] || song.album_tipo || '',
-        release_year: song.album_anio ? String(song.album_anio) : '',
-        track_number: song.numero_pista || null,
-        yt_music_url: song.yt_music_url || song.youtube_url || '',
-        focus_summary: song.enfoque_corto || ''
-    };
 
     const markWordSyncedLocal = () => {
         song.word_sincronizado = 1;
@@ -4987,14 +5078,18 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
         }, { timeoutMs: 8000 }).catch(() => { });
+        resilientFetchJson('/api/language/word-activity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'music_lyrics_loaded', songId: song.id })
+        }, { timeoutMs: 6000 }).catch(() => { });
     };
 
-    // 1. Intentar primero vía puente cifrado E2EE hacia tu PC (Word -> yt-dlp local -> Word)
     try {
         if (hintEl) {
             hintEl.textContent = tUi(
-                '🔐 Querying your PC via E2EE encrypted tunnel (RAM)...',
-                '🔐 Consultando tu PC por túnel cifrado E2EE (RAM)...'
+                'Checking your Word notebook and preparing lyrics... Please wait a moment.',
+                'Buscando la letra en tu cuaderno Word y fuentes de estudio... Espera un momento por favor.'
             );
         }
         const jobPayload = {
@@ -5018,7 +5113,7 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
             method: 'POST',
             buildBody: () => ({
                 encryptedRequest: encriptarTextoE2EE(JSON.stringify(jobPayload), llaveTexto),
-                timeoutMs: 40000
+                timeoutMs: 120000
             }),
             parseJson: true,
             timeoutMs: 12000
@@ -5026,13 +5121,18 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
         if (createResp && createResp.jobId) {
             let jobResult = null;
-            const maxPolls = createResp.pcOnline ? 2 : 1;
+            const maxPolls = 6; // Hasta 120s paciente para evitar fallos falsos mientras extrae subtítulos
             for (let attempt = 0; attempt < maxPolls; attempt++) {
-                const waitMs = createResp.pcOnline ? 18000 : 3500;
+                if (hintEl && attempt > 0) {
+                    hintEl.textContent = tUi(
+                        `Extracting and organizing lyrics cleanly (${attempt * 20}s)... Almost ready.`,
+                        `Extrayendo y validando la letra automáticamente (${attempt * 20}s)... Casi lista.`
+                    );
+                }
                 const pollResp = await resilientFetchJson(
-                    `/api/english/music/pc-jobs/${encodeURIComponent(createResp.jobId)}?waitMs=${waitMs}`,
+                    `/api/english/music/pc-jobs/${encodeURIComponent(createResp.jobId)}?waitMs=20000`,
                     { method: 'GET' },
-                    { timeoutMs: waitMs + 5000 }
+                    { timeoutMs: 25000 }
                 );
                 if (pollResp.ok && pollResp.data) {
                     if ((pollResp.data.status === 'completed' || pollResp.data.status === 'done') && pollResp.data.encryptedResult) {
@@ -5055,101 +5155,52 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                         lyrics: jobResult.lyrics,
                         source: jobResult.source || 'word-pc'
                     };
+                    if (jobResult.metadata && typeof jobResult.metadata === 'object') {
+                        resilientFetchJson(`/api/english/music/songs/${song.id}/sync-metadata`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(jobResult.metadata)
+                        }, { timeoutMs: 8000 }).catch(() => { });
+                    }
                     actualizarPanelLetraCancion(song, { forceSyncText: true });
-                    if (jobResult.wordSaved) markWordSyncedLocal();
+                    if (jobResult.wordSaved || jobResult.source === 'word-pc') markWordSyncedLocal();
                     if (hintEl) {
                         hintEl.textContent = jobResult.source === 'word-pc'
-                            ? tUi('✅ Lyrics loaded directly from your PC Word file (E2EE · 0 KB in DB).', '✅ Letra cargada directamente desde tu Word PC (E2EE · 0 KB en BD).')
-                            : tUi(`✅ Extracted on your PC (${jobResult.source || 'yt-dlp'}) and filed in Word under Album/Track.`, `✅ Extraída en tu PC (${jobResult.source || 'yt-dlp'}) y organizada en tu Word bajo Álbum/Pista.`);
+                            ? tUi('✅ Lyrics loaded directly from your Word notebook.', '✅ Letra cargada directamente desde tu cuaderno Word.')
+                            : tUi('✅ Lyrics extracted automatically and organized inside your Word notebook.', '✅ Letra extraída automáticamente y guardada en tu cuaderno Word.');
                     }
                     if (!silent) {
                         showToast('ok', jobResult.source === 'word-pc'
-                            ? tUi('Lyrics loaded from PC Word!', '¡Letra cargada desde Word PC!')
-                            : tUi('Lyrics extracted with yt-dlp on your PC and saved to Word!', '¡Letra extraída con yt-dlp en tu PC y guardada en Word!'));
+                            ? tUi('Lyrics loaded from your Word notebook!', '¡Letra cargada desde tu cuaderno Word!')
+                            : tUi('Lyrics extracted and saved to your Word notebook!', '¡Letra extraída y guardada en tu cuaderno Word!'));
                     }
                     return true;
                 }
                 if (jobResult.error && !silent) {
-                    const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
-                    const helperBox = document.getElementById('musicYtdlpHelperBox');
-                    if (ytdlpCmdEl && jobResult.suggestedCommand) ytdlpCmdEl.textContent = jobResult.suggestedCommand;
-                    if (helperBox && jobResult.reason === 'YTDLP_NOT_FOUND') helperBox.hidden = false;
-                    const errTxt = tServer(jobResult.error);
-                    if (hintEl) hintEl.textContent = `⚠️ ${errTxt}`;
+                    const errTxt = tUi(
+                        'Automatic subtitles could not be extracted for this specific video. You can paste a verse below or check if the link has closed captions.',
+                        'Este video no expuso subtítulos automáticos descargables. Puedes pegar una estrofa abajo o probar otro enlace oficial del mismo tema.'
+                    );
+                    if (hintEl) hintEl.textContent = `ℹ️ ${errTxt}`;
                     showToast('info', errTxt);
                     return false;
                 }
-            } else if (musicState.ytdlpStatus && !createResp.pcOnline) {
-                musicState.ytdlpStatus.pcOnline = false;
-                actualizarBadgePuentePc();
+            } else {
+                const timeoutMsg = tUi(
+                    'Your computer took longer than expected to respond. Make sure it stays awake and click "Extract Lyrics" once more.',
+                    'Tu computadora tardó un poco más en responder. Verifica que siga encendida e intenta pulsar "Extraer letra" nuevamente.'
+                );
+                if (hintEl) hintEl.textContent = timeoutMsg;
+                if (!silent) showToast('info', timeoutMsg);
+                return false;
             }
         }
     } catch (pcErr) {
-        if (!silent && hintEl) {
-            hintEl.textContent = tUi(
-                `☁️ PC did not respond (${pcErr.message || 'offline'}), trying temporary RAM extraction...`,
-                `☁️ PC no respondió (${pcErr.message || 'offline'}), probando extracción temporal en RAM...`
-            );
-        }
-    }
-
-    if (silent) return false;
-
-    // 2. Fallback sin BD: extraer en RAM de instancia y encolar E2EE en RAM para Word cuando vuelva la PC
-    try {
-        const data = await submitMutationRequest({
-            url: `/api/english/music/songs/${encodeURIComponent(song.id)}/lyrics/extract`,
-            method: 'POST',
-            buildBody: () => ({}),
-            parseJson: true,
-            timeoutMs: 32000
-        });
-        if (data && data.ok && data.lyrics) {
-            musicState.sessionLyricsBySongId[song.id] = {
-                lyrics: data.lyrics,
-                source: `${data.source || 'yt-dlp'} (RAM)`
-            };
-            actualizarPanelLetraCancion(song, { forceSyncText: true });
-
-            const wordEntry = { ...wordEntryBase, lyrics_study: data.lyrics };
-            await submitMutationRequest({
-                url: '/api/send-english',
-                method: 'POST',
-                scopeKey: 'english:music-lyrics-ram',
-                signature: `lyrics-ram:${song.id}`,
-                buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(wordEntry), llaveTexto) })
-            }).catch(() => { });
-            markWordSyncedLocal();
-
-            if (hintEl) {
-                hintEl.textContent = tUi(
-                    `✅ Extracted into RAM (${data.source || 'yt-dlp'} · 0 KB in DB) and queued E2EE in EC2 RAM for your PC Word.`,
-                    `✅ Extraída en RAM (${data.source || 'yt-dlp'} · 0 KB en BD) y encolada cifrada E2EE en RAM EC2 para tu Word PC.`
-                );
-            }
-            showToast('ok', tUi(
-                'Lyrics loaded in RAM and queued E2EE for your PC Word!',
-                '¡Letra cargada en RAM y encolada E2EE para tu Word PC!'
-            ));
-            return true;
-        }
-
-        const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
-        const helperBox = document.getElementById('musicYtdlpHelperBox');
-        if (ytdlpCmdEl && data?.suggestedCommand) ytdlpCmdEl.textContent = data.suggestedCommand;
-        if (helperBox && (data?.reason === 'bot_check' || data?.ytdlpAvailable === false)) helperBox.hidden = false;
-        const fallbackErr = tServer(data?.error) || tUi(
-            'PC is offline and no automatic CC subtitles are available. Paste lyrics manually or start sincronizador.py.',
-            'PC offline y sin subtítulos CC automáticos disponibles. Pega la letra manual o enciende sincronizador.py.'
-        );
-        if (hintEl) {
-            hintEl.textContent = `⚠️ ${fallbackErr}`;
-        }
-        showToast('info', tServer(data?.error) || tUi('This video did not expose automatic CC subtitles.', 'Este video no expuso subtítulos CC automáticos.'));
-    } catch (err) {
-        const msgErr = tServer(err.message) || tUi('Error extracting lyrics.', 'Error extrayendo letra.');
-        if (hintEl) hintEl.textContent = `⚠️ ${msgErr}`;
-        showToast('err', msgErr);
+        const msgErr = pcErr?.status === 503
+            ? tUi('Your computer is turned off right now, so automatic extraction was paused.', 'Tu computadora está apagada ahora, así que se pausó la extracción automática.')
+            : (tServer(pcErr?.message) || tUi('Could not complete extraction right now.', 'No se pudo completar la extracción en este momento.'));
+        if (!silent && hintEl) hintEl.textContent = `ℹ️ ${msgErr}`;
+        if (!silent) showToast('info', msgErr);
     }
     return false;
 }
@@ -5294,6 +5345,9 @@ function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
             ? sections
             : sections.filter(s => s.code === 'full' || s.code === 'es' || (!sections.some(x => x.code === 'full') && s.code !== 'mix'));
         if (!listToRender.length) listToRender = sections;
+    } else if (filterLang === 'en_ko') {
+        const mixed = sections.filter(s => s.code === 'full' || s.code === 'en' || s.code === 'ko');
+        listToRender = mixed.length ? mixed : sections;
     } else {
         const matching = sections.filter(s => s.code === filterLang);
         listToRender = matching.length ? matching : sections.filter(s => s.code === 'full');
@@ -5353,8 +5407,9 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         viewer.value = '';
         viewer.dataset.loadedSongId = '';
         renderReadonlyLyricsByLanguage('', 'all');
-        if (badge) badge.textContent = tUi('PC Word Only', 'Solo en Word PC');
+        if (badge) badge.textContent = tUi('Cuaderno Word', 'Cuaderno Word');
         renderMusicLyricsAlbumPlaylist(null);
+        if (typeof updateMobileLandscapeSongStudyClass === 'function') updateMobileLandscapeSongStudyClass();
         return;
     }
 
@@ -5374,11 +5429,11 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     if (badge) {
         if (savedLyrics.trim()) {
             const lineCount = savedLyrics.split(/\r?\n/).filter(l => l.trim()).length;
-            badge.textContent = tUi(`${lineCount} lines · Read-Only`, `${lineCount} líneas · Solo lectura`);
+            badge.textContent = tUi(`${lineCount} lines · Study Mode`, `${lineCount} líneas · Modo Estudio`);
         } else {
             badge.textContent = song.word_sincronizado
-                ? tUi('In PC Word (click Extract Lyrics)', 'En Word PC (pulsa Extraer Letra)')
-                : tUi('PC Word Only', 'Solo en Word PC');
+                ? tUi('Saved in Word (click Extract)', 'Guardada en Word (pulsa Extraer)')
+                : tUi('Cuaderno Word', 'Cuaderno Word');
         }
     }
 
@@ -5389,58 +5444,156 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     if (extractBtn) extractBtn.disabled = !hasVideoId;
 
     if (hint && !savedLyrics.trim()) {
-        hint.textContent = 'Letra en modo solo lectura completa y dividida por idiomas (selecciona cualquier frase con el mouse o dedo para traducirla).';
+        hint.textContent = 'Selecciona cualquier verso o frase para traducirlo en el panel acoplado o analiza la canción por estrofas.';
     }
+    if (typeof updateMobileLandscapeSongStudyClass === 'function') updateMobileLandscapeSongStudyClass();
 }
 
-function buildMusicEmbedToolbar({ song, targetPlayback, isYtdlpActive, isNoCookie }) {
+function buildMusicEmbedFallbackBanner(song, targetPlayback, reasonMsg) {
+    const box = document.createElement('div');
+    box.className = 'music-embed-blocked-banner';
+    const msgP = document.createElement('p');
+    msgP.style.margin = '0';
+    msgP.textContent = reasonMsg || tUi(
+        'This video cannot be played embedded because of owner copyright settings. Choose where to play it safely:',
+        'El propietario restringió la reproducción incrustada en esta miniventana por derechos de autor. Ábrelo de forma oficial aquí:'
+    );
+
+    const actions = document.createElement('div');
+    actions.className = 'music-embed-fallback-actions';
+
+    const ytUrl = buildClientStandardYouTubeUrl({
+        videoId: song.yt_video_id,
+        ytMusicUrl: song.yt_music_url,
+        youtubeUrl: song.youtube_url
+    }) || targetPlayback?.url || 'https://www.youtube.com/';
+
+    const aYt = document.createElement('a');
+    aYt.className = 'btn-primary btn-small';
+    aYt.href = ytUrl;
+    aYt.target = '_blank';
+    aYt.rel = 'noopener noreferrer';
+    aYt.textContent = tUi('▶️ Open on YouTube', '▶️ Abrir en YouTube');
+    aYt.title = tUi('Open the official video directly on YouTube', 'Abrir directamente el video oficial en YouTube');
+
+    const ytmUrl = buildClientYtMusicUrl({
+        videoId: song.yt_video_id,
+        ytMusicUrl: song.yt_music_url
+    }) || ytUrl;
+
+    const aYtm = document.createElement('a');
+    aYtm.className = 'btn-secondary btn-small';
+    aYtm.href = ytmUrl;
+    aYtm.target = '_blank';
+    aYtm.rel = 'noopener noreferrer';
+    aYtm.textContent = tUi('🎵 Open in YouTube Music', '🎵 Abrir en YouTube Music');
+    aYtm.title = tUi('Open directly in YouTube Music app or tab', 'Abrir directamente en YouTube Music');
+
+    const btnPc = document.createElement('button');
+    btnPc.type = 'button';
+    btnPc.className = 'btn-secondary btn-small';
+    btnPc.textContent = tUi('💻 Play on PC', '💻 Reproducir en PC');
+    btnPc.title = tUi('Send playback command to your connected PC browser', 'Abrir la reproducción directamente en tu computadora conectada');
+    btnPc.addEventListener('click', () => {
+        runWithButtonLock(btnPc, async () => {
+            const llaveTexto = await solicitarLlaveE2EEAsync();
+            if (!llaveTexto) return;
+            try {
+                const jobPayload = {
+                    action: 'play_on_pc',
+                    songId: song.id,
+                    videoId: song.yt_video_id || '',
+                    ytMusicUrl: ytmUrl,
+                    youtubeUrl: ytUrl,
+                    songTitle: song.titulo || ''
+                };
+                await submitMutationRequest({
+                    url: '/api/english/music/pc-jobs',
+                    method: 'POST',
+                    buildBody: () => ({
+                        encryptedRequest: encriptarTextoE2EE(JSON.stringify(jobPayload), llaveTexto),
+                        timeoutMs: 15000
+                    }),
+                    parseJson: true,
+                    timeoutMs: 10000
+                });
+                showToast('ok', tUi('Opening song in your PC browser!', '¡Abriendo la canción en el navegador de tu computadora!'));
+            } catch (err) {
+                showToast('info', err?.status === 503
+                    ? tUi('Your computer is turned off right now.', 'Tu computadora está apagada en este momento.')
+                    : (err?.message || tUi('Could not open on PC.', 'No se pudo abrir en tu PC.')));
+            }
+        });
+    });
+
+    actions.append(aYt, aYtm, btnPc);
+    box.append(msgP, actions);
+    return box;
+}
+
+if (typeof window !== 'undefined' && !window.__pdhYtEmbedErrorListenerAttached) {
+    window.__pdhYtEmbedErrorListenerAttached = true;
+    window.addEventListener('message', (event) => {
+        const origin = String(event.origin || '');
+        if (!/^https:\/\/(www\.)?youtube(-nocookie)?\.com$/i.test(origin)) return;
+        let payload = null;
+        try {
+            payload = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        } catch (_) {
+            return;
+        }
+        if (!payload || typeof payload !== 'object') return;
+        const isYtError = payload.event === 'onError' ||
+            (payload.info && typeof payload.info === 'object' && payload.info.playerState === -1 && Number(payload.info.errorCode || 0) > 0);
+        const errCode = payload.event === 'onError' ? Number(payload.info) : Number(payload.info?.errorCode || 0);
+        if (!isYtError || ![2, 5, 100, 101, 150].includes(errCode)) return;
+        const song = getCancionSeleccionada();
+        if (!song) return;
+        if (song.yt_video_id) {
+            musicState.embeddableByVideoId[song.yt_video_id] = false;
+        }
+        const embedBox = document.getElementById('musicEmbedPlayerBox');
+        if (embedBox && !embedBox.hidden && !embedBox.querySelector('.music-embed-blocked-banner')) {
+            const targetPlayback = getSongTargetPlaybackInfo(song);
+            embedBox.appendChild(buildMusicEmbedFallbackBanner(
+                song,
+                targetPlayback,
+                tUi(
+                    'Playback inside this mini-window was blocked by YouTube copyright rules. Open it using one of the official options below:',
+                    'La reproducción en esta miniventana fue restringida por derechos de autor en YouTube. Ábrela con estas opciones oficiales:'
+                )
+            ));
+        }
+    });
+}
+
+function buildMusicEmbedToolbar({ song, targetPlayback, isNoCookie }) {
     const toolbar = document.createElement('div');
     toolbar.className = 'music-embed-toolbar';
-
-    const btnToggleMode = document.createElement('button');
-    btnToggleMode.type = 'button';
-    btnToggleMode.className = isYtdlpActive ? 'btn-secondary btn-small' : 'btn-primary btn-small';
-    btnToggleMode.textContent = isYtdlpActive
-        ? '▶️ Probar YouTube iframe'
-        : '🎧 Reproducir en App (yt-dlp · sin bloqueo)';
-    btnToggleMode.addEventListener('click', () => {
-        musicState.embedMode = isYtdlpActive ? 'iframe' : 'ytdlp';
-        actualizarBarraCancionEstudio();
-    });
 
     const btnPopup = document.createElement('button');
     btnPopup.type = 'button';
     btnPopup.className = 'btn-secondary btn-small';
-    btnPopup.textContent = '📺 Ventana flotante (sin bloqueo)';
+    btnPopup.textContent = tUi('📺 Floating Window', '📺 Ventana flotante');
+    btnPopup.title = tUi('Open the official player in a compact floating window', 'Abrir el reproductor oficial en una ventana pequeña');
     btnPopup.addEventListener('click', () => {
         const popUrl = targetPlayback.url || `https://www.youtube.com/watch?v=${encodeURIComponent(song.yt_video_id)}`;
         window.open(popUrl, 'ytStudyFloatingPlayer', 'width=540,height=380,resizable=yes,scrollbars=yes');
     });
 
-    toolbar.append(btnToggleMode, btnPopup);
+    const btnSwitchHost = document.createElement('button');
+    btnSwitchHost.type = 'button';
+    btnSwitchHost.className = 'btn-secondary btn-small';
+    btnSwitchHost.textContent = isNoCookie
+        ? tUi('🔄 Try alternative player', '🔄 Probar reproductor alternativo')
+        : tUi('🔄 Privacy Player Mode', '🔄 Probar modo sin cookies');
+    btnSwitchHost.title = tUi('Switch official YouTube player mode if loading stalls on mobile', 'Alternar modo del reproductor oficial de YouTube');
+    btnSwitchHost.addEventListener('click', () => {
+        musicState.embedHost = isNoCookie ? 'youtube' : 'nocookie';
+        actualizarBarraCancionEstudio();
+    });
 
-    if (!isYtdlpActive) {
-        const btnSwitchHost = document.createElement('button');
-        btnSwitchHost.type = 'button';
-        btnSwitchHost.className = 'btn-secondary btn-small';
-        btnSwitchHost.textContent = isNoCookie ? '🔄 Usar youtube.com' : '🔄 Probar nocookie';
-        btnSwitchHost.addEventListener('click', () => {
-            musicState.embedHost = isNoCookie ? 'youtube' : 'nocookie';
-            actualizarBarraCancionEstudio();
-        });
-        toolbar.appendChild(btnSwitchHost);
-    }
-
-    if (targetPlayback.url) {
-        const extLink = document.createElement('a');
-        extLink.className = 'btn-secondary btn-small';
-        extLink.href = targetPlayback.url;
-        extLink.target = '_blank';
-        extLink.rel = 'noopener noreferrer';
-        extLink.textContent = `↗ ${targetPlayback.fullLabel}`;
-        toolbar.appendChild(extLink);
-    }
-
+    toolbar.append(btnPopup, btnSwitchHost);
     return toolbar;
 }
 
@@ -5504,90 +5657,69 @@ function actualizarBarraCancionEstudio() {
     }
 
     if (embedBox) {
-        if (musicState.embedOpen && validVideoId) {
-            const isYtdlpActive = musicState.embedMode === 'ytdlp';
+        const listParamMatch = String(song.yt_music_url || song.youtube_url || '').match(/[?&]list=([A-Za-z0-9_-]{10,80})/);
+        const listId = listParamMatch ? listParamMatch[1] : '';
+        if (musicState.embedOpen && (validVideoId || listId)) {
             const isNoCookie = musicState.embedHost === 'nocookie';
-            const toolbar = buildMusicEmbedToolbar({ song, targetPlayback, isYtdlpActive, isNoCookie });
-
-            const note = document.createElement('div');
-            const knownBlocked = musicState.embeddableByVideoId[song.yt_video_id] === false;
-
-            if (isYtdlpActive) {
-                const videoEl = document.createElement('video');
-                videoEl.className = 'music-html5-player';
-                videoEl.controls = true;
-                videoEl.playsInline = true;
-                videoEl.preload = 'metadata';
-                videoEl.poster = song.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(song.yt_video_id)}/hqdefault.jpg`;
-                videoEl.src = `/api/english/music/songs/${encodeURIComponent(song.id)}/media`;
-
-                note.className = musicState.ytdlpStatus && musicState.ytdlpStatus.available === false
-                    ? 'music-embed-fallback-note is-warning'
-                    : 'music-embed-fallback-note';
-                note.textContent = musicState.ytdlpStatus && musicState.ytdlpStatus.available === false
-                    ? tUi(
-                        '⚠️ yt-dlp is unavailable on this server: try "▶️ Try YouTube iframe" or "📺 Floating Window (unblocked)".',
-                        '⚠️ yt-dlp no está disponible en este servidor: prueba "▶️ Probar YouTube iframe" o "📺 Ventana flotante (sin bloqueo)".'
-                    )
-                    : tUi(
-                        '🎧 Direct yt-dlp player active inside the app (bypasses YouTube/label iframe blocks).',
-                        '🎧 Reproductor directo yt-dlp activo dentro de la app (evita bloqueos de iframe de YouTube/sellos).'
-                    );
-
-                videoEl.addEventListener('canplay', () => {
-                    note.className = 'music-embed-fallback-note';
-                    note.textContent = tUi(
-                        '🎧 Direct yt-dlp stream ready inside the app (seekable playback without iframe restrictions).',
-                        '🎧 Stream directo yt-dlp listo dentro de la app (seek/progreso compatible sin bloqueo de iframe).'
-                    );
-                }, { once: true });
-
-                videoEl.addEventListener('error', async () => {
-                    let msg = tUi(
-                        'Direct yt-dlp player could not start streaming right now.',
-                        'El reproductor directo yt-dlp no pudo iniciar el stream en este momento.'
-                    );
-                    try {
-                        const probe = await fetch(`/api/english/music/songs/${encodeURIComponent(song.id)}/media`, {
-                            headers: { Range: 'bytes=0-1' }
-                        });
-                        if (!probe.ok) {
-                            const errJson = await probe.json().catch(() => null);
-                            if (errJson && errJson.error) msg = tServer(errJson.error);
-                        }
-                    } catch (_) { }
-                    note.className = 'music-embed-fallback-note is-warning';
-                    note.textContent = tUi(
-                        `⚠️ ${msg} -> Use "📺 Floating Window (unblocked)" or "▶️ Try YouTube iframe".`,
-                        `⚠️ ${msg} -> Usa "📺 Ventana flotante (sin bloqueo)" o "▶️ Probar YouTube iframe".`
-                    );
-                }, { once: true });
-
-                embedBox.replaceChildren(videoEl, toolbar, note);
-                embedBox.hidden = false;
-                return;
-            }
+            const toolbar = buildMusicEmbedToolbar({ song, targetPlayback, isNoCookie });
 
             const hostDomain = isNoCookie ? 'www.youtube-nocookie.com' : 'www.youtube.com';
             const iframe = document.createElement('iframe');
-            iframe.src = `https://${hostDomain}/embed/${encodeURIComponent(song.yt_video_id)}?rel=0&playsinline=1`;
-            iframe.title = `${song.titulo} - ${tUi('Audio / Video Study Player', 'Reproductor Audio / Video')}`;
+            const originParam = `&origin=${encodeURIComponent(window.location.origin)}`;
+            iframe.src = validVideoId
+                ? `https://${hostDomain}/embed/${encodeURIComponent(song.yt_video_id)}?rel=0&playsinline=1&enablejsapi=1${listId ? `&list=${encodeURIComponent(listId)}` : ''}${originParam}`
+                : `https://${hostDomain}/embed/videoseries?list=${encodeURIComponent(listId)}&rel=0&playsinline=1&enablejsapi=1${originParam}`;
+            iframe.title = `${song.titulo} - ${tUi('Official Study Player', 'Reproductor Oficial de Estudio')}`;
             iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
-            iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+            iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
             iframe.allowFullscreen = true;
 
-            note.className = knownBlocked ? 'music-embed-fallback-note is-warning' : 'music-embed-fallback-note';
-            note.textContent = knownBlocked
-                ? tUi(
-                    '⚠️ The owner channel/label restricted embedding. Use "🎧 Play in App (yt-dlp · no block)" or "📺 Floating Window (unblocked)".',
-                    '⚠️ El sello/canal dueño restringió el iframe. Usa "🎧 Reproducir en App (yt-dlp · sin bloqueo)" o "📺 Ventana flotante (sin bloqueo)".'
+            const knownBlocked = song.yt_video_id && musicState.embeddableByVideoId[song.yt_video_id] === false;
+            const fallbackNode = knownBlocked
+                ? buildMusicEmbedFallbackBanner(
+                    song,
+                    targetPlayback,
+                    tUi(
+                        'The copyright owner restricted embedding inside this mini-window. Play it directly using one of these official options:',
+                        'El propietario restringió la reproducción incrustada en esta miniventana por derechos de autor. Ábrelo desde aquí:'
+                    )
                 )
-                : tUi(
-                    '💡 If "This video is unavailable" appears, click "🎧 Play in App (yt-dlp · no block)" or "📺 Floating Window (unblocked)".',
-                    '💡 Si aparece "Este video no está disponible", presiona "🎧 Reproducir en App (yt-dlp · sin bloqueo)" o "📺 Ventana flotante (sin bloqueo)".'
-                );
+                : (() => {
+                    const row = document.createElement('div');
+                    row.className = 'music-embed-fallback-actions';
+                    row.style.marginTop = '8px';
+                    const smallHint = document.createElement('small');
+                    smallHint.className = 'muted-text';
+                    smallHint.style.width = '100%';
+                    smallHint.textContent = tUi(
+                        'Official YouTube player · If copyright blocks playback on your phone, tap an option below:',
+                        'Reproductor oficial de YouTube · Si algún sello bloquea la reproducción en esta ventana, usa una opción rápida:'
+                    );
+                    const ytBtn = document.createElement('a');
+                    ytBtn.className = 'btn-secondary btn-small';
+                    ytBtn.href = buildClientStandardYouTubeUrl({ videoId: song.yt_video_id, ytMusicUrl: song.yt_music_url, youtubeUrl: song.youtube_url }) || 'https://www.youtube.com/';
+                    ytBtn.target = '_blank';
+                    ytBtn.rel = 'noopener noreferrer';
+                    ytBtn.textContent = tUi('▶️ Open on YouTube', '▶️ Abrir en YouTube');
+                    const ytmBtn = document.createElement('a');
+                    ytmBtn.className = 'btn-secondary btn-small';
+                    ytmBtn.href = buildClientYtMusicUrl({ videoId: song.yt_video_id, ytMusicUrl: song.yt_music_url }) || ytBtn.href;
+                    ytmBtn.target = '_blank';
+                    ytmBtn.rel = 'noopener noreferrer';
+                    ytmBtn.textContent = tUi('🎵 Open in YouTube Music', '🎵 Abrir en YouTube Music');
+                    const pcBtn = document.createElement('button');
+                    pcBtn.type = 'button';
+                    pcBtn.className = 'btn-secondary btn-small';
+                    pcBtn.textContent = tUi('💻 Play on PC', '💻 Reproducir en PC');
+                    pcBtn.addEventListener('click', () => {
+                        const blockedBox = buildMusicEmbedFallbackBanner(song, targetPlayback);
+                        blockedBox.querySelector('button')?.click();
+                    });
+                    row.append(smallHint, ytBtn, ytmBtn, pcBtn);
+                    return row;
+                })();
 
-            embedBox.replaceChildren(iframe, toolbar, note);
+            embedBox.replaceChildren(iframe, toolbar, fallbackNode);
             embedBox.hidden = false;
         } else {
             embedBox.hidden = true;
@@ -6014,10 +6146,58 @@ function renderMusicCatalog() {
     if (!container) return;
 
     const search = (document.getElementById('musicFilterSearch')?.value || '').trim().toLowerCase();
+    const sortMode = (document.getElementById('musicFilterSort')?.value || 'alpha').trim();
     const artistFilter = (document.getElementById('musicFilterArtist')?.value || '').trim();
     const releaseFilter = (document.getElementById('musicFilterReleaseType')?.value || '').trim().toLowerCase();
     const langFilter = (document.getElementById('musicFilterLanguage')?.value || '').trim().toLowerCase();
     const statusFilter = (document.getElementById('musicFilterStatus')?.value || '').trim().toLowerCase();
+
+    const releaseSortStamp = (item) => {
+        const rawDate = String(item?.fecha_lanzamiento || item?.album_fecha_lanzamiento || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(rawDate)) return rawDate.slice(0, 10);
+        const yr = Number(item?.anio || item?.album_anio || 0);
+        return yr > 0 ? `${String(yr).padStart(4, '0')}-01-01` : '';
+    };
+
+    const compareReleases = (a, b) => {
+        if (a.titulo === 'Standalone Singles & Tracks') return 1;
+        if (b.titulo === 'Standalone Singles & Tracks') return -1;
+        const da = releaseSortStamp(a);
+        const db = releaseSortStamp(b);
+        if (sortMode === 'release_desc') {
+            if (da !== db) return db.localeCompare(da);
+            return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+        }
+        if (sortMode === 'release_asc') {
+            if (da !== db) return (da || '9999-99-99').localeCompare(db || '9999-99-99');
+            return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+        }
+        return String(a.titulo || '').localeCompare(String(b.titulo || '')) || db.localeCompare(da);
+    };
+
+    const compareTracks = (a, b) => {
+        const sa = a.song || a;
+        const sb = b.song || b;
+        if (sortMode === 'release_desc' || sortMode === 'release_asc') {
+            const da = releaseSortStamp(sa);
+            const db = releaseSortStamp(sb);
+            if (da !== db) {
+                return sortMode === 'release_desc'
+                    ? db.localeCompare(da)
+                    : (da || '9999-99-99').localeCompare(db || '9999-99-99');
+            }
+        } else {
+            const nameCmp = String(sa.titulo || '').localeCompare(String(sb.titulo || ''));
+            const ta = sa.numero_pista || 9999;
+            const tb = sb.numero_pista || 9999;
+            if (ta !== tb) return ta - tb;
+            if (nameCmp !== 0) return nameCmp;
+        }
+        const ta = sa.numero_pista || 9999;
+        const tb = sb.numero_pista || 9999;
+        if (ta !== tb) return ta - tb;
+        return String(sa.titulo || '').localeCompare(String(sb.titulo || ''));
+    };
 
     const matchesLang = (songLangRaw) => {
         if (!langFilter) return true;
@@ -6040,6 +6220,8 @@ function renderMusicCatalog() {
             const haystack = [
                 song.titulo,
                 song.album_titulo,
+                song.album_anio ? String(song.album_anio) : '',
+                song.album_fecha_lanzamiento,
                 song.enfoque_corto,
                 ...(song.artists || []).map(a => a.nombre)
             ].filter(Boolean).join(' ').toLowerCase();
@@ -6077,6 +6259,7 @@ function renderMusicCatalog() {
                     titulo: song.album_titulo || 'Standalone Singles & Tracks',
                     tipo: song.album_titulo ? (song.album_tipo || 'album') : 'single',
                     anio: song.album_anio || null,
+                    fecha_lanzamiento: song.album_fecha_lanzamiento || null,
                     songs: []
                 });
             }
@@ -6091,7 +6274,13 @@ function renderMusicCatalog() {
             if (artistFilter && String(aid) !== String(artistFilter)) return;
             if (releaseFilter && String(al.tipo_lanzamiento || 'album').toLowerCase() !== releaseFilter) return;
             if (search) {
-                const hay = [al.titulo, aname, al.notas_cortas].filter(Boolean).join(' ').toLowerCase();
+                const hay = [
+                    al.titulo,
+                    aname,
+                    al.anio ? String(al.anio) : '',
+                    al.fecha_lanzamiento,
+                    al.notas_cortas
+                ].filter(Boolean).join(' ').toLowerCase();
                 if (!hay.includes(search)) return;
             }
             const bucket = ensureArtistBucket(aid, aname);
@@ -6103,6 +6292,7 @@ function renderMusicCatalog() {
                     titulo: al.titulo,
                     tipo: al.tipo_lanzamiento || 'album',
                     anio: al.anio || null,
+                    fecha_lanzamiento: al.fecha_lanzamiento || null,
                     songs: []
                 });
             }
@@ -6130,6 +6320,8 @@ function renderMusicCatalog() {
                     const el = document.getElementById(fid);
                     if (el) el.value = '';
                 });
+                const sortEl = document.getElementById('musicFilterSort');
+                if (sortEl) sortEl.value = 'alpha';
                 renderMusicCatalog();
             });
             wrap.appendChild(resetBtn);
@@ -6141,10 +6333,7 @@ function renderMusicCatalog() {
     const sortedArtists = Array.from(artistBuckets.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
     const isFilteringActive = Boolean(search || artistFilter || releaseFilter || langFilter || statusFilter);
     const fragment = document.createDocumentFragment();
-
-    if (musicState.openArtistFolders.size === 0 && sortedArtists.length > 0) {
-        musicState.openArtistFolders.add(String(sortedArtists[0].id || sortedArtists[0].nombre));
-    }
+    // Carga perezosa (Lazy Loading): por defecto NO abre artistas automáticamente al iniciar para ahorrar memoria en móvil.
 
     const createWinFolderTile = ({ title, subtitle, thumbUrl, isOpen, onClick }) => {
         const tile = document.createElement('div');
@@ -6264,16 +6453,27 @@ function renderMusicCatalog() {
         head.append(hTitle, headActions);
         artistSection.appendChild(head);
 
-        const sortedAlbums = Array.from(artistGroup.albums.values()).sort((a, b) => {
-            if (a.titulo === 'Standalone Singles & Tracks') return 1;
-            if (b.titulo === 'Standalone Singles & Tracks') return -1;
-            return (b.anio || 0) - (a.anio || 0) || a.titulo.localeCompare(b.titulo);
-        });
+        const sortedAlbums = Array.from(artistGroup.albums.values()).sort(compareReleases);
 
-        const albumsGrid = document.createElement('div');
-        albumsGrid.className = 'win-folders-grid';
+        const releaseGroupDefs = [
+            {
+                key: 'albums',
+                heading: '💿 Álbumes',
+                match: al => al.tipo === 'album'
+            },
+            {
+                key: 'mini',
+                heading: '📀 Mini Álbumes y EPs',
+                match: al => al.tipo === 'mini_album' || al.tipo === 'ep'
+            },
+            {
+                key: 'singles',
+                heading: '🎵 Sencillos y Otras Pistas',
+                match: al => !['album', 'mini_album', 'ep'].includes(String(al.tipo || '').toLowerCase())
+            }
+        ];
 
-        sortedAlbums.forEach(album => {
+        const renderReleaseFolderTile = (album) => {
             const albumFolderKey = `${artistFolderKey}::${album.albumId || album.titulo}`;
             const isAlbumOpen = isFilteringActive || musicState.openAlbumFolders.has(albumFolderKey);
             const displayAlbTitle = album.titulo === 'Standalone Singles & Tracks'
@@ -6281,9 +6481,12 @@ function renderMusicCatalog() {
                 : album.titulo;
             const firstThumb = album.songs.map(x => x.song).find(s => s.thumbnail_url)?.thumbnail_url || '';
             const relTypeLabel = RELEASE_TYPE_LABELS[album.tipo] || album.tipo || 'Album';
+            const dateTag = album.fecha_lanzamiento
+                ? String(album.fecha_lanzamiento).slice(0, 10)
+                : (album.anio ? String(album.anio) : '');
 
-            const albTile = createWinFolderTile({
-                title: album.anio ? `${displayAlbTitle} (${album.anio})` : displayAlbTitle,
+            return createWinFolderTile({
+                title: dateTag ? `${displayAlbTitle} (${dateTag})` : displayAlbTitle,
                 subtitle: `${relTypeLabel} · ${album.songs.length} pista(s)`,
                 thumbUrl: firstThumb,
                 isOpen: isAlbumOpen,
@@ -6296,9 +6499,22 @@ function renderMusicCatalog() {
                     renderMusicCatalog();
                 }
             });
-            albumsGrid.appendChild(albTile);
+        };
+
+        releaseGroupDefs.forEach(groupDef => {
+            const groupAlbums = sortedAlbums.filter(groupDef.match);
+            if (!groupAlbums.length) return;
+            const bucketWrap = document.createElement('div');
+            bucketWrap.className = 'music-release-bucket';
+            const bucketTitle = document.createElement('div');
+            bucketTitle.className = 'music-release-bucket-title';
+            bucketTitle.textContent = groupDef.heading;
+            const bucketGrid = document.createElement('div');
+            bucketGrid.className = 'win-folders-grid';
+            groupAlbums.forEach(album => bucketGrid.appendChild(renderReleaseFolderTile(album)));
+            bucketWrap.append(bucketTitle, bucketGrid);
+            artistSection.appendChild(bucketWrap);
         });
-        artistSection.appendChild(albumsGrid);
 
         sortedAlbums.forEach(album => {
             const albumFolderKey = `${artistFolderKey}::${album.albumId || album.titulo}`;
@@ -6316,7 +6532,10 @@ function renderMusicCatalog() {
             albHead.className = 'win-folder-expanded-head';
             const albTitleStrong = document.createElement('strong');
             protectUserNode(albTitleStrong);
-            albTitleStrong.textContent = `💿 ${album.anio ? `${displayAlbTitle} (${album.anio})` : displayAlbTitle}`;
+            const dateLabel = album.fecha_lanzamiento
+                ? String(album.fecha_lanzamiento).slice(0, 10)
+                : (album.anio ? String(album.anio) : '');
+            albTitleStrong.textContent = `💿 ${dateLabel ? `${displayAlbTitle} (${dateLabel})` : displayAlbTitle}`;
 
             const albActions = document.createElement('div');
             albActions.className = 'music-artist-head-actions';
@@ -6370,12 +6589,7 @@ function renderMusicCatalog() {
                 songList.appendChild(emptyP);
             }
 
-            album.songs.sort((a, b) => {
-                const ta = a.song.numero_pista || 9999;
-                const tb = b.song.numero_pista || 9999;
-                if (ta !== tb) return ta - tb;
-                return a.song.titulo.localeCompare(b.song.titulo);
-            });
+            album.songs.sort(compareTracks);
 
             album.songs.forEach(({ song, artistRole }) => {
                 const row = document.createElement('div');
@@ -6828,63 +7042,14 @@ if (englishMusicStudioRoot) {
         btnMusicExtractLyrics.addEventListener('click', ev => {
             const song = getCancionSeleccionada();
             if (!song) {
-                showToast('err', 'Selecciona primero una canción del catálogo ("Study -> Word").');
+                showToast('err', tUi('Select a song from the catalog first.', 'Selecciona primero una canción del catálogo.'));
                 return;
             }
             const alreadyLoaded = Boolean((songLyricsViewerEl?.value || '').trim());
             const forceExtract = Boolean(ev.shiftKey || alreadyLoaded);
             runWithButtonLock(btnMusicExtractLyrics, async () => {
                 await solicitarOExtraerLetraViaPc(song, { silent: false, forceExtract });
-            }, { loadingText: 'Consultando PC...' });
-        });
-    }
-
-    if (btnMusicSaveLyrics) {
-        btnMusicSaveLyrics.addEventListener('click', () => {
-            const song = getCancionSeleccionada();
-            if (!song || !songLyricsViewerEl) {
-                showToast('err', 'Selecciona primero una canción del catálogo.');
-                return;
-            }
-            const nextLyrics = songLyricsViewerEl.value.trim();
-            if (!nextLyrics) {
-                delete musicState.sessionLyricsBySongId[song.id];
-                actualizarPanelLetraCancion(song, { forceSyncText: true });
-                showToast('info', 'Visor en sesión limpiado (0 KB en BD; Word intacto).');
-                return;
-            }
-            runWithButtonLock(btnMusicSaveLyrics, async () => {
-                try {
-                    const saved = await guardarLetraYNotasEnWordPc(song, {
-                        lyricsStudy: nextLyrics,
-                        scopeKey: 'english:music-lyrics-save'
-                    });
-                    if (!saved) return;
-                    showToast('ok', musicState.ytdlpStatus?.pcOnline
-                        ? 'Letra cifrada E2EE y enviada al instante a tu Word PC!'
-                        : 'Letra cifrada E2EE en RAM EC2; se guardará en Word en cuanto conectes tu PC.');
-                } catch (err) {
-                    showToast('err', err.message || 'No se pudo cifrar/enviar la letra al túnel RAM.');
-                }
-            }, { loadingText: 'Cifrando E2EE...' });
-        });
-    }
-
-    if (songLyricsViewerEl) {
-        let lyricsAutoSaveTimer = null;
-        songLyricsViewerEl.addEventListener('input', () => {
-            clearTimeout(lyricsAutoSaveTimer);
-            const song = getCancionSeleccionada();
-            const text = songLyricsViewerEl.value.trim();
-            if (!song || !text || (musicState.ytdlpStatus && musicState.ytdlpStatus.pcOnline === false)) return;
-            lyricsAutoSaveTimer = setTimeout(() => {
-                if (obtenerLlaveE2EE()) {
-                    guardarLetraYNotasEnWordPc(song, {
-                        lyricsStudy: text,
-                        scopeKey: 'english:music-lyrics-autosave'
-                    }).catch(() => { });
-                }
-            }, 1800);
+            }, { loadingText: tUi('Searching lyrics...', 'Buscando letra...') });
         });
     }
 
@@ -6899,7 +7064,7 @@ if (englishMusicStudioRoot) {
         btnMusicCopyLyricsToStudy.addEventListener('click', () => {
             const raw = (songLyricsViewerEl?.value || '').trim();
             if (!raw) {
-                showToast('err', 'Primero extrae o pega la letra arriba.');
+                showToast('err', tUi('Extract or load the song lyrics first.', 'Primero extrae o carga la letra arriba.'));
                 songLyricsViewerEl?.focus();
                 return;
             }
@@ -6909,10 +7074,76 @@ if (englishMusicStudioRoot) {
                 studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
                 studyLyricsEl.focus();
                 studyLyricsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                showToast('ok', 'Letra copiada a Breakdown / IA. Ahora puedes explicar/romanizar o guardar a Word.');
+                showToast('ok', tUi('Lyrics ready for stanza analysis.', 'Letra lista para analizar por estrofas.'));
             }
         });
     }
+
+    const runMusicDockedTranslation = async (textOverride = null) => {
+        const dockedInput = document.getElementById('musicDockedTransInput');
+        const dockedResult = document.getElementById('musicDockedTransResult');
+        const dockedDir = document.getElementById('musicDockedTransDir');
+        const dockedBtn = document.getElementById('btnMusicDockedTranslateRun');
+        if (!dockedInput || !dockedResult) return;
+        const txt = String(textOverride !== null ? textOverride : dockedInput.value || '').trim();
+        if (!txt) {
+            showToast('info', tUi('Select a lyric line or type a phrase to translate.', 'Selecciona un verso de la letra o escribe una frase para traducir.'));
+            dockedInput.focus();
+            return;
+        }
+        dockedInput.value = txt.slice(0, 1500);
+        const selSong = getCancionSeleccionada();
+        const runAction = async () => {
+            dockedResult.hidden = false;
+            dockedResult.replaceChildren(createLoadingBanner(tUi('Translating...', 'Traduciendo...'), 'sm'));
+            const resp = await resilientFetchJson('/api/language/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: dockedInput.value,
+                    direction: dockedDir?.value || 'auto',
+                    context: selSong ? `${formatSongArtistsSummary(selSong)} - ${selSong.titulo}` : ''
+                })
+            }, { timeoutMs: 20000 });
+            if (resp.ok && resp.data) {
+                dockedResult.replaceChildren();
+                const mainP = document.createElement('div');
+                mainP.style.fontWeight = '700';
+                mainP.textContent = resp.data.translatedText || '';
+                dockedResult.appendChild(mainP);
+                if (resp.data.romanization) {
+                    const romP = document.createElement('div');
+                    romP.className = 'muted-text';
+                    romP.style.fontSize = '0.85rem';
+                    romP.textContent = `🔤 ${resp.data.romanization}`;
+                    dockedResult.appendChild(romP);
+                }
+                if (resp.data.explanationEs) {
+                    const expP = document.createElement('p');
+                    expP.style.margin = '6px 0 0';
+                    expP.textContent = resp.data.explanationEs;
+                    dockedResult.appendChild(expP);
+                }
+            } else {
+                dockedResult.textContent = resp.errorMessage || tUi('Could not translate right now.', 'No se pudo traducir en este momento.');
+            }
+        };
+        if (dockedBtn) {
+            await runWithButtonLock(dockedBtn, runAction, { loadingText: '...' });
+        } else {
+            await runAction();
+        }
+    };
+
+    document.getElementById('btnMusicDockedTranslateRun')?.addEventListener('click', () => {
+        runMusicDockedTranslation();
+    });
+    document.getElementById('btnMusicOpenFloatingTranslator')?.addEventListener('click', () => {
+        const txt = String(document.getElementById('musicDockedTransInput')?.value || '').trim();
+        if (typeof openFloatingTranslator === 'function') {
+            openFloatingTranslator({ text: txt, toggle: false });
+        }
+    });
 
     if (btnMusicTranslateLyricsSel) {
         btnMusicTranslateLyricsSel.addEventListener('click', () => {
@@ -6922,7 +7153,9 @@ if (englishMusicStudioRoot) {
             } else if (window.getSelection) {
                 selectedText = String(window.getSelection().toString() || '').trim();
             }
-            if (typeof openFloatingTranslator === 'function') {
+            if (document.getElementById('musicDockedTransInput')) {
+                runMusicDockedTranslation(selectedText);
+            } else if (typeof openFloatingTranslator === 'function') {
                 openFloatingTranslator({ text: selectedText, toggle: false });
             }
         });
@@ -7032,98 +7265,36 @@ if (englishMusicStudioRoot) {
         });
     }
 
-    const btnImportLyricsFile = document.getElementById('btnMusicImportLyricsFile');
-    const lyricsFileInput = document.getElementById('musicLyricsFileInput');
     const btnCleanTimestamps = document.getElementById('btnMusicCleanTimestamps');
-    const btnToggleYtdlpHint = document.getElementById('btnMusicToggleYtdlpHint');
-    const ytdlpHelperBox = document.getElementById('musicYtdlpHelperBox');
-    const btnCopyYtdlpCmd = document.getElementById('btnMusicCopyYtdlpCmd');
-
-    if (btnImportLyricsFile && lyricsFileInput) {
-        btnImportLyricsFile.addEventListener('click', () => {
-            lyricsFileInput.value = '';
-            lyricsFileInput.click();
-        });
-        lyricsFileInput.addEventListener('change', async () => {
-            const file = lyricsFileInput.files && lyricsFileInput.files[0];
-            if (!file) return;
-            try {
-                const rawText = await file.text();
-                const cleaned = cleanCaptionTextToLyricsClient(rawText);
-                const lyricsEl = document.getElementById('musicStudyLyrics');
-                if (!cleaned) {
-                    showToast('err', 'The selected subtitle/lyrics file was empty after cleaning.');
-                    return;
-                }
-                if (lyricsEl) {
-                    lyricsEl.value = cleaned.slice(0, 12000);
-                    lyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                    lyricsEl.focus();
-                }
-                showToast('ok', `Imported ${cleaned.split('\n').length} lyric lines cleanly (E2EE local only).`);
-            } catch (err) {
-                showToast('err', 'Could not read file: ' + err.message);
-            }
-        });
-    }
 
     if (btnCleanTimestamps) {
         btnCleanTimestamps.addEventListener('click', () => {
             const lyricsEl = document.getElementById('musicStudyLyrics');
             const raw = lyricsEl ? lyricsEl.value : '';
             if (!raw.trim()) {
-                showToast('err', 'Paste subtitles or lyrics first.');
+                showToast('err', tUi('Paste or load lyrics first.', 'Pega o carga primero la letra.'));
                 return;
             }
             const cleaned = cleanCaptionTextToLyricsClient(raw);
             if (lyricsEl && cleaned) {
                 lyricsEl.value = cleaned.slice(0, 12000);
                 lyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                showToast('ok', `Cleaned timestamps (${cleaned.split('\n').length} lines ready).`);
+                showToast('ok', tUi(`Cleaned timestamps (${cleaned.split('\n').length} lines ready).`, `Texto limpiado (${cleaned.split('\n').length} líneas listas).`));
             }
         });
     }
 
-    if (btnToggleYtdlpHint && ytdlpHelperBox) {
-        btnToggleYtdlpHint.addEventListener('click', () => {
-            ytdlpHelperBox.hidden = !ytdlpHelperBox.hidden;
-            const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
-            if (!ytdlpHelperBox.hidden && ytdlpCmdEl) {
-                ytdlpCmdEl.textContent = getYtdlpCommandForSong(getCancionSeleccionada());
-            }
-        });
-    }
-
-    if (btnCopyYtdlpCmd) {
-        btnCopyYtdlpCmd.addEventListener('click', async () => {
-            const ytdlpCmdEl = document.getElementById('musicYtdlpCommandCode');
-            const cmdText = (ytdlpCmdEl && ytdlpCmdEl.textContent) || '';
-            if (!cmdText) return;
-            try {
-                if (navigator.clipboard && window.isSecureContext) {
-                    await navigator.clipboard.writeText(cmdText);
-                } else {
-                    const tmp = document.createElement('textarea');
-                    tmp.value = cmdText;
-                    tmp.setAttribute('readonly', '');
-                    tmp.style.position = 'fixed';
-                    tmp.style.opacity = '0';
-                    document.body.appendChild(tmp);
-                    tmp.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(tmp);
-                }
-                showToast('ok', 'yt-dlp command copied! Run it in your PC PowerShell.');
-            } catch (_err) {
-                showToast('err', 'Copy failed — select the command text manually.');
-            }
-        });
-    }
-
-    ['musicFilterSearch', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterLanguage', 'musicFilterStatus'].forEach(fid => {
+    let musicFilterDebounceTimer = null;
+    ['musicFilterSearch', 'musicFilterSort', 'musicFilterArtist', 'musicFilterReleaseType', 'musicFilterLanguage', 'musicFilterStatus'].forEach(fid => {
         const el = document.getElementById(fid);
-        if (el) {
-            el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', renderMusicCatalog);
+        if (!el) return;
+        if (el.tagName === 'INPUT') {
+            el.addEventListener('input', () => {
+                clearTimeout(musicFilterDebounceTimer);
+                musicFilterDebounceTimer = setTimeout(renderMusicCatalog, 120);
+            });
+        } else {
+            el.addEventListener('change', renderMusicCatalog);
         }
     });
 
@@ -7621,7 +7792,7 @@ function crearElementoActividad(item) {
 
     const statusSelect = document.createElement('select');
     statusSelect.className = `jira-status-select status-${estado}`;
-    statusSelect.setAttribute('aria-label', tUi('Workflow status (Jira)', 'Estado del flujo (Jira)'));
+    statusSelect.setAttribute('aria-label', tUi('Activity status', 'Estado de avance'));
     [
         { value: 'todo', label: tUi('To Do', 'Por hacer') },
         { value: 'in_progress', label: tUi('In Progress', 'En progreso') },
@@ -7722,7 +7893,7 @@ function renderAgendaBoard() {
                 `${doneCount} Done · ${inProgCount} In Progress · ${todoCount} To Do (${uniCount} University · ${perCount} Personal)`,
                 `${doneCount} Completadas · ${inProgCount} En progreso · ${todoCount} Por hacer (${uniCount} Universidad · ${perCount} Personal)`
             )
-            : tUi('Organize University & Personal events and Jira-style tasks', 'Organiza eventos de Universidad/Personal y tareas estilo Jira');
+            : tUi('Organize University & Personal events and recurring tasks', 'Organiza eventos de Universidad/Personal y tareas');
     }
 
     if (btnToggleWeekend) {
@@ -7918,9 +8089,16 @@ function cargarAgendaSemana() {
         weekStats.textContent = tUi('Loading activities...', 'Cargando actividades...');
     }
 
+    const beginMs = Date.parse(`${begin}T00:00:00Z`);
+    const isHistoricalRange = Number.isFinite(beginMs) && (Date.now() - beginMs) > (28 * 24 * 60 * 60 * 1000);
     const loadingBanner = document.getElementById('agendaLoadingBanner');
     if (loadingBanner) {
-        loadingBanner.replaceChildren(createLoadingBanner(tUi('Loading agenda...', 'Cargando agenda...'), 'sm'));
+        loadingBanner.replaceChildren(createLoadingBanner(
+            isHistoricalRange
+                ? tUi('Loading older agenda records (may take a moment longer)...', 'Cargando agenda de fechas anteriores (puede tardar un poco más)...')
+                : tUi('Loading agenda...', 'Cargando agenda...'),
+            'sm'
+        ));
         loadingBanner.hidden = false;
     }
 
@@ -9510,28 +9688,29 @@ function populateSettingsForm(settings = {}) {
     setVal('setYoutubePlatformMode', getYouTubePlatformMode());
     setVal('setTimezone', settings.timezone || 'America/Monterrey');
     setCheck('setShowWeekend', settings.agendaShowWeekend !== false);
-    setCheck('setDriveStudySyncEnabled', settings.studyDriveSyncEnabled !== false);
-    setVal('setDriveStudyDir', settings.studyDriveFolder || 'NotasIdiomas');
 
     // Multilingual & Gemini AI preferences
     const prefLang = ['en', 'ko', 'en_ko'].includes(settings.preferredStudyLanguage)
         ? settings.preferredStudyLanguage
         : 'en_ko';
     setVal('setPreferredStudyLang', prefLang);
-    const activeModel = String(settings.geminiModel || 'gemini-2.5-flash');
+    setVal('setGeminiMode', settings.geminiMode === 'reasoning' ? 'reasoning' : 'fast');
+    const activeModel = String(settings.geminiModel || '');
     const modelSel = document.getElementById('setGeminiModel');
     const customGroup = document.getElementById('setGeminiCustomModelGroup');
     const customInput = document.getElementById('setGeminiCustomModel');
-    if (modelSel) {
+    if (modelSel && activeModel) {
         const hasPreset = Array.from(modelSel.options).some(opt => opt.value === activeModel && opt.value !== '__custom__');
         if (hasPreset) {
             modelSel.value = activeModel;
             if (customGroup) customGroup.hidden = true;
-        } else {
+        } else if (Array.from(modelSel.options).some(opt => opt.value === '__custom__')) {
             modelSel.value = '__custom__';
             if (customGroup) customGroup.hidden = false;
             if (customInput) customInput.value = activeModel;
         }
+    } else if (modelSel && customGroup) {
+        customGroup.hidden = true;
     }
     const apiKeyEl = document.getElementById('setGeminiApiKey');
     if (apiKeyEl) {
@@ -9556,8 +9735,9 @@ function collectSettingsFormPayload() {
     const modelSelVal = document.getElementById('setGeminiModel')?.value || 'gemini-2.5-flash';
     const customModelVal = String(document.getElementById('setGeminiCustomModel')?.value || '').trim();
     const resolvedGeminiModel = modelSelVal === '__custom__'
-        ? (customModelVal || 'gemini-2.5-flash')
+        ? customModelVal
         : modelSelVal;
+    const resolvedGeminiMode = document.getElementById('setGeminiMode')?.value === 'reasoning' ? 'reasoning' : 'fast';
 
     const apiKeyInput = document.getElementById('setGeminiApiKey');
     const typedGeminiKey = String(apiKeyInput?.value || '').trim();
@@ -9592,15 +9772,15 @@ function collectSettingsFormPayload() {
         englishReminderTopic: String(document.getElementById('setEnglishTopic')?.value || '').trim(),
 
         preferredStudyLanguage: document.getElementById('setPreferredStudyLang')?.value || 'en_ko',
+        geminiMode: resolvedGeminiMode,
         geminiModel: resolvedGeminiModel,
+        ...(resolvedGeminiMode === 'reasoning' ? { geminiModelReasoning: resolvedGeminiModel } : { geminiModelFast: resolvedGeminiModel }),
 
         defaultAgendaCategory: document.getElementById('setDefaultCat')?.value || 'all',
         defaultAgendaLayout: document.getElementById('setDefaultLayout')?.value || 'auto',
         youtubePlatformMode: document.getElementById('setYoutubePlatformMode')?.value || 'auto',
         timezone: String(document.getElementById('setTimezone')?.value || 'America/Monterrey').trim(),
-        agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked),
-        studyDriveSyncEnabled: Boolean(document.getElementById('setDriveStudySyncEnabled')?.checked),
-        studyDriveFolder: String(document.getElementById('setDriveStudyDir')?.value || 'NotasIdiomas').trim()
+        agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked)
     };
 
     if (pendingClearGeminiKey) {
@@ -9923,13 +10103,22 @@ function initSettingsHandlers() {
 
                 if (diag.ok) {
                     const activeModel = diag.suggestedModel || diag.model || requestedModel;
+                    if (typeof window.__populateActiveGeminiModelsSelect === 'function') {
+                        try {
+                            const regResp = await fetch('/api/language/registry?refresh=1', { cache: 'no-store' });
+                            if (regResp.ok) {
+                                const regData = await regResp.json();
+                                window.__populateActiveGeminiModelsSelect(regData.geminiModels || [], activeModel);
+                            }
+                        } catch (_) { }
+                    }
                     const modelChanged = activeModel && activeModel !== requestedModel;
                     if (modelChanged && modelSel) {
                         const presetMatch = Array.from(modelSel.options).some(opt => opt.value === activeModel);
                         if (presetMatch) {
                             modelSel.value = activeModel;
                             if (customGroup) customGroup.hidden = true;
-                        } else {
+                        } else if (Array.from(modelSel.options).some(opt => opt.value === '__custom__')) {
                             modelSel.value = '__custom__';
                             if (customModelInput) customModelInput.value = activeModel;
                             if (customGroup) customGroup.hidden = false;
@@ -9974,8 +10163,8 @@ function initSettingsHandlers() {
                 await clientTransportTunnel.establishSession(rawBrowserFetch, true);
                 updateTransportStatusBadges();
                 const diag = clientTransportTunnel.getDiagnostics();
-                showToast('ok', `Rotated ephemeral X25519 keys -> new session ${diag.kid.slice(0, 8)}…`);
-            }, { loadingText: 'Rotating X25519...' });
+                showToast('ok', tUi('Private session key renewed cleanly.', 'Llave de sesión privada renovada correctamente.'));
+            }, { loadingText: tUi('Renewing...', 'Renovando...') });
         });
     }
 
@@ -9986,20 +10175,26 @@ function initSettingsHandlers() {
             transportResultBox.hidden = false;
             transportResultBox.replaceChildren();
             const heading = document.createElement('strong');
-            heading.textContent = '🔍 Live Wire Packet Capture (What HTTP / tcpdump / Wireshark sees on port 3000):';
+            heading.textContent = tUi(
+                '🔍 Encrypted Transmission Verification (Everything travels protected):',
+                '🔍 Verificación de Transmisión Cifrada (Tu información viaja protegida):'
+            );
             transportResultBox.appendChild(heading);
 
             if (!lastCapturedWirePacket) {
                 const p = document.createElement('p');
                 p.className = 'muted-text';
-                p.textContent = 'No encrypted packet captured yet—click "Benchmark Large Payloads" or save any form.';
+                p.textContent = tUi(
+                    'No encrypted packet captured yet — save any form or run a speed check first.',
+                    'Aún no se captura actividad reciente — guarda cualquier formulario o ejecuta la prueba de velocidad.'
+                );
                 transportResultBox.appendChild(p);
                 return;
             }
 
             const meta = document.createElement('p');
             meta.className = 'muted-text';
-            meta.textContent = `${lastCapturedWirePacket.direction} · ${lastCapturedWirePacket.endpoint} · ${lastCapturedWirePacket.capturedAt}`;
+            meta.textContent = `${lastCapturedWirePacket.direction} · ${lastCapturedWirePacket.capturedAt}`;
             const pre = document.createElement('pre');
             pre.className = 'transport-wire-preview';
             pre.textContent = JSON.stringify(lastCapturedWirePacket.wireEnvelope, null, 2);
@@ -10011,7 +10206,7 @@ function initSettingsHandlers() {
     if (btnBenchTransport && transportResultBox) {
         btnBenchTransport.addEventListener('click', () => {
             if (!clientTransportTunnel) {
-                showToast('err', 'Transport crypto tunnel is inactive.');
+                showToast('err', 'Encrypted session is inactive.');
                 return;
             }
             runWithButtonLock(btnBenchTransport, async () => {
@@ -10020,7 +10215,7 @@ function initSettingsHandlers() {
                     const results = [];
                     for (const kb of sizesKb) {
                         const targetBytes = kb * 1024;
-                        const samplePayload = 'K-POP/EN-TRANSPORT-BENCHMARK-'.repeat(Math.ceil(targetBytes / 29)).slice(0, targetBytes);
+                        const samplePayload = 'STUDY-PRIVACY-CHECK-'.repeat(Math.ceil(targetBytes / 20)).slice(0, targetBytes);
                         const tStart = performance.now();
                         const res = await fetch('/api/transport/benchmark', {
                             method: 'POST',
@@ -10041,18 +10236,23 @@ function initSettingsHandlers() {
                             encryptedIn: data.encryptedIn
                         });
                     }
-                    const diagNow = clientTransportTunnel.getDiagnostics();
                     updateTransportStatusBadges();
 
                     transportResultBox.hidden = false;
                     transportResultBox.replaceChildren();
                     const title = document.createElement('strong');
-                    title.textContent = `⚡ Hybrid Throughput Benchmark (X25519 Handshake: ${diagNow.metrics.lastHandshakeMs} ms -> Bulk AES-256-CTR + HMAC-SHA256):`;
+                    title.textContent = tUi(
+                        '⚡ Privacy Speed Verification Results:',
+                        '⚡ Resultados de Velocidad de Protección:'
+                    );
                     transportResultBox.appendChild(title);
 
                     const explain = document.createElement('p');
                     explain.className = 'muted-text';
-                    explain.textContent = 'Asymmetric ECDH (X25519) runs ONLY once at session start; bulk large payloads use symmetric AES-256-CTR + HMAC-SHA256 in constant memory with O(N) speed.';
+                    explain.textContent = tUi(
+                        'Verified end-to-end encryption latency across small and large notes.',
+                        'Se verificó la velocidad de cifrado de extremo a extremo para notas cortas y extensas.'
+                    );
                     transportResultBox.appendChild(explain);
 
                     results.forEach(r => {
@@ -10060,7 +10260,7 @@ function initSettingsHandlers() {
                         const throughputMBs = r.clientEncryptMs > 0
                             ? ((r.payloadBytes / (1024 * 1024)) / (r.clientEncryptMs / 1000)).toFixed(2)
                             : '∞';
-                        line.textContent = `• ${r.kb} KB (${r.payloadBytes.toLocaleString()} B): Verified Encrypted=${r.encryptedIn} | Client AES-CTR=${r.clientEncryptMs} ms (~${throughputMBs} MB/s) | Server OpenSSL Decrypt=${r.serverDecryptMs ?? '--'} ms | Total RTT=${r.rttMs} ms | SHA256=${r.sha256Prefix}…`;
+                        line.textContent = `• ${r.kb} KB: Verified=${r.encryptedIn} | ${r.clientEncryptMs} ms (~${throughputMBs} MB/s) | RTT=${r.rttMs} ms`;
                         transportResultBox.appendChild(line);
                     });
                 } catch (err) {
@@ -10977,8 +11177,8 @@ function renderPlannerResidenciasAndWorkUI() {
     setVal('homeLocationMapsUrl', locs.home?.mapsUrl || '');
     setVal('homeLocationLat', hasHomePair ? homeLat : '');
     setVal('homeLocationLng', hasHomePair ? homeLng : '');
-    setVal('uniLocationLat', locs.university?.lat ?? 25.443706);
-    setVal('uniLocationLng', locs.university?.lng ?? -100.993845);
+    setVal('uniLocationLat', locs.university?.lat ?? 25.4414);
+    setVal('uniLocationLng', locs.university?.lng ?? -100.9922);
     updateHomeLocationVerifyUI();
 }
 
@@ -11071,13 +11271,13 @@ function collectPlannerStateFromDOM() {
             lng: homeCoords.lng
         },
         university: {
-            label: 'Instituto Tecnológico de Saltillo (Blvd. V. Carranza #2400)',
-            address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo',
+            label: 'TecNM Saltillo — Campus Principal (Blvd. V. Carranza #2400)',
+            address: 'Blvd. Venustiano Carranza #2400, Col. Tecnológico, Saltillo, Coahuila',
             mapsUrl: (uniCoords.lat !== null && uniCoords.lng !== null)
                 ? `https://www.google.com/maps?q=${uniCoords.lat},${uniCoords.lng}`
-                : 'https://www.google.com/maps?q=25.443706,-100.993845',
-            lat: uniCoords.lat ?? 25.443706,
-            lng: uniCoords.lng ?? -100.993845
+                : 'https://www.google.com/maps?q=25.4414,-100.9922',
+            lat: uniCoords.lat ?? 25.4414,
+            lng: uniCoords.lng ?? -100.9922
         }
     };
 
@@ -11298,9 +11498,9 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
         btnUseHome.hidden = target !== 'current' || !hasValidHome;
     }
     presets.push(
-        { label: '💻 ITS Blvd / Boillot · Sistemas R/S (CTO-004)', lat: 25.443650, lng: -100.989150 },
-        { label: '🎓 ITS Principal (CTO-002)', lat: 25.444780, lng: -100.992420 },
-        { label: '⚙️ ITS Miravalle · N/Labs (CTO-003)', lat: 25.444920, lng: -100.990850 }
+        { label: '🎓 Campus Principal — Blvd. V. Carranza #2400', lat: 25.4414, lng: -100.9922 },
+        { label: '💻 Campus Blvd (Glorieta) — V. Carranza / Av. Universidad', lat: 25.4385, lng: -100.9940 },
+        { label: '⚙️ Campus Miravalle — Blvd. Vito Alessio Robles', lat: 25.4194, lng: -101.0232 }
     );
     const resLoc = academicPlannerState?.residencias?.location;
     if (resLoc && isValidNonZeroCoordPair(Number(resLoc.lat), Number(resLoc.lng))) {
@@ -11469,7 +11669,7 @@ function initQuickLocationModal() {
         if (!raw) {
             if (bannerEl) {
                 bannerEl.className = 'inline-status-banner is-error';
-                bannerEl.textContent = 'Paste a street address, coordinates (e.g. 25.4437, -100.9938), or a Google Maps link first.';
+                bannerEl.textContent = 'Paste a street address, coordinates (e.g. 25.4414, -100.9922), or a Google Maps link first.';
                 bannerEl.hidden = false;
             }
             return;
@@ -12331,22 +12531,8 @@ function refreshDynamicLanguageViews() {
             : tUi('Owner (Admin)', 'Propietario (Admin)');
     }
 
-    const selectSemana = document.getElementById('semanaSeleccionada');
-    if (selectSemana) {
-        Array.from(selectSemana.options).forEach(opt => {
-            const val = opt.dataset.weekRange || opt.value;
-            const [s1, s2] = String(val || '').split('|');
-            if (s1 && s2) {
-                const p1 = s1.split('-').map(Number);
-                const p2 = s2.split('-').map(Number);
-                if (p1.length === 3 && p2.length === 3) {
-                    const d1 = new Date(p1[0], p1[1] - 1, p1[2]);
-                    const d2 = new Date(p2[0], p2[1] - 1, p2[2]);
-                    const textoVisual = `${d1.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' })} - ${d2.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
-                    opt.textContent = `${tUi('Week', 'Semana')}: ${textoVisual}`;
-                }
-            }
-        });
+    if (typeof renderResumenVisualWeekStrip === 'function') {
+        renderResumenVisualWeekStrip();
     }
 
     if (activeViewEl) {

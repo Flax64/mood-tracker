@@ -252,7 +252,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'README.md',
             'guides/MANUAL_DE_USUARIO.md',
             'guides/GUIA_TECNICA_ARQUITECTURA.md',
-            'guides/GUIA_OPERACION_Y_MIGRACION.md'
+            'guides/GUIA_OPERACION_Y_MIGRACION.md',
+            'guides/GUIA_COMANDOS.md',
+            'guides/GUIA_TECNICA.md',
+            'guides/GUIA_MIGRACION.md'
         ]) {
             const top = readText(docPath).slice(0, 1200);
             assert.match(top, /## .*[ÍI]ndice/i, `${docPath} debe incluir un índice al inicio`);
@@ -260,6 +263,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
 
         const indexHtml = readText('public/index.html');
         for (const requiredId of [
+            'id="btnMobileHome"',
             'id="reminderTray"',
             'id="agendaCategoryFilters"',
             'id="agendaTypeFilters"',
@@ -273,11 +277,13 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="setEnglishEnabled"',
             'id="setMoodLateNight"',
             'id="setYoutubePlatformMode"',
+            'id="setGeminiMode"',
             'data-english-cat="music"',
             'id="englishMusicStudio"',
             'id="ytPlatformBar"',
             'id="ytPlatformModeGroup"',
             'id="musicSongForm"',
+            'id="musicFilterSort"',
             'id="musicCatalogContainer"',
             'id="musicWordNotesForm"',
             'id="btnMusicSearchYt"',
@@ -287,6 +293,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="moodTodayChecklist"',
             'id="sleepTodaySummary"',
             'id="studyLanguageSelectorBar"',
+            'id="btnToggleStudyCourse"',
+            'id="btnStartMicPronunciation"',
             'id="languageAiPanel"',
             'id="btnAskLangAi"',
             'id="btnMusicAiExplainLyrics"',
@@ -296,7 +304,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="view-crisis"',
             'id="crisisForm"',
             'id="resumenCrisisList"',
-            'id="musicRepertoireNavigator"',
+            'id="resumenCalendarioDia"',
+            'id="btnResumenWeekStartToggle"',
+            'id="resumenVisualWeekDays"',
+            'id="btnResumenWeekAllDays"',
             'id="musicEntityEditModal"',
             'id="musicAlbumCreateModal"',
             'id="btnMusicNewAlbum"',
@@ -315,11 +326,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="sleepEsDesvelo"',
             'id="sleepStillAwake"',
             'id="resumenSleepDetailsList"',
-            'id="btnMusicImportLyricsFile"',
-            'id="musicLyricsFileInput"',
             'id="btnMusicCleanTimestamps"',
-            'id="btnMusicToggleYtdlpHint"',
-            'id="musicYtdlpHelperBox"',
             'id="btnTestGeminiConnection"',
             'id="settingsGeminiTestResult"',
             'id="btnFloatingTranslatorFab"',
@@ -336,8 +343,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="musicLyricsMetaBadge"',
             'id="musicPcBridgeBadge"',
             'id="musicLyricsAlbumPlaylistBox"',
+            'id="musicDockedTranslatorPane"',
+            'id="musicDockedTransInput"',
+            'id="btnMusicDockedTranslateRun"',
             'id="btnMusicExtractLyrics"',
-            'id="btnMusicSaveLyrics"',
             'id="btnMusicCopyLyricsToStudy"',
             'id="btnMusicTranslateLyricsSel"',
             'id="musicSongLyricsViewer"',
@@ -346,6 +355,15 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="chkAutoSyncQuickAiToWord"'
         ]) {
             assert.ok(indexHtml.includes(requiredId), `public/index.html debe incluir ${requiredId}`);
+        }
+        for (const removedId of [
+            'id="semanaSeleccionada"',
+            'id="musicRepertoireNavigator"',
+            'id="btnMusicSaveLyrics"',
+            'id="btnMusicToggleYtdlpHint"',
+            'id="musicYtdlpHelperBox"'
+        ]) {
+            assert.equal(indexHtml.includes(removedId), false, `public/index.html debe retirar el elemento obsoleto ${removedId}`);
         }
         assert.equal(
             indexHtml.includes('id="languageTranslatorPanel"'),
@@ -362,7 +380,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         const dockerfileText = readText('Dockerfile');
         assert.ok(dockerfileText.includes('COPY lib ./lib'), 'Dockerfile debe copiar carpeta lib/');
         assert.match(dockerfileText, /python3/);
-        assert.match(dockerfileText, /\/usr\/local\/bin\/yt-dlp/);
+        assert.match(dockerfileText, /\brclone\b/);
 
         const serverJs = readText('server.js');
         assert.match(serverJs, /media-src 'self'/);
@@ -428,7 +446,14 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
         }
 
-        for (const guidePath of ['guides/MANUAL_DE_USUARIO.md', 'guides/GUIA_TECNICA_ARQUITECTURA.md', 'guides/GUIA_OPERACION_Y_MIGRACION.md']) {
+        for (const guidePath of [
+            'guides/MANUAL_DE_USUARIO.md',
+            'guides/GUIA_TECNICA_ARQUITECTURA.md',
+            'guides/GUIA_OPERACION_Y_MIGRACION.md',
+            'guides/GUIA_COMANDOS.md',
+            'guides/GUIA_TECNICA.md',
+            'guides/GUIA_MIGRACION.md'
+        ]) {
             const guide = readText(guidePath);
             assert.equal(guide.includes('file:///'), false, `${guidePath} no debe contener enlaces locales file:///`);
             assert.equal(guide.includes('docs-privados'), false, `${guidePath} no debe referenciar docs-privados`);
@@ -738,5 +763,66 @@ describe('Versionado Automático SemVer 2.0.0 e Historial de Despliegues', () =>
             if (seen.get(en) === 2) duplicates.push(en);
         }
         assert.deepEqual(duplicates, [], `Llaves EN duplicadas en public/i18n.js: ${duplicates.join(', ')}`);
+    });
+});
+
+describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, Campus y Word Bloque A/B', () => {
+    it('elimina credenciales, rutas locales y repositorios hardcodeados (Cloud Agnostic)', () => {
+        for (const file of ['.env.example', 'docker-compose.yml', '.github/workflows/deploy.yml', 'server.js', 'sincronitation/sincronizador.py', 'sincronitation/yt_lyrics_helper.py']) {
+            if (file.startsWith('sincronitation/') && !fs.existsSync(path.join(ROOT, file))) {
+                continue;
+            }
+            const text = readText(file);
+            assert.equal(/flavio\.flax1234@gmail\.com/i.test(text), false, `${file} no debe hardcodear correo personal`);
+            assert.equal(/C:\\\\Users\\\\flavi|C:\\Users\\flavi/i.test(text), false, `${file} no debe hardcodear rutas locales Windows de usuario`);
+        }
+
+        const caddyfile = readText('Caddyfile');
+        assert.match(caddyfile, /reverse_proxy\s+app:/);
+        assert.match(caddyfile, /tls internal/);
+
+        const compose = readText('docker-compose.yml');
+        assert.match(compose, /caddy:2-alpine/);
+        assert.match(compose, /STUDY_RCLONE_REMOTE/);
+        assert.match(compose, /STUDY_RCLONE_CONF_B64/);
+    });
+
+    it('verifica coordenadas oficiales TecNM Saltillo, responsividad OPPO A79, Dual Drive y Guías nuevas', () => {
+        const indexHtml = readText('public/index.html');
+        const styleCss = readText('public/style.css');
+        const frontendJs = readText('public/frontend.js');
+        const serverJs = readText('server.js');
+
+        assert.match(serverJs, /25\.4414/);
+        assert.match(serverJs, /-100\.9922/);
+        assert.match(serverJs, /25\.4385/);
+        assert.match(serverJs, /-100\.994/);
+        assert.match(serverJs, /25\.4194/);
+        assert.match(serverJs, /-101\.0232/);
+
+        assert.match(styleCss, /position:\s*fixed/);
+        assert.match(styleCss, /orientation:\s*landscape/);
+        assert.match(styleCss, /mobile-landscape-song-study/);
+
+        assert.equal(indexHtml.includes('id="semanaSeleccionada"'), false);
+        assert.equal(indexHtml.includes('id="btnLoadDriveMonthsRam"'), false, 'La UI no debe exponer botones manuales de Google Drive al usuario');
+        assert.equal(indexHtml.includes('id="resumenDriveMonthsSelect"'), false, 'La UI no debe exponer selector manual de Drive al usuario');
+        assert.equal(indexHtml.includes('id="setDriveStudySyncEnabled"'), false, 'La sincronización Drive debe ser automática, no configurable en UI');
+        assert.equal(indexHtml.includes('id="setDriveStudyDir"'), false, 'La carpeta Drive no debe quedar expuesta en Configuración UI');
+        assert.equal(frontendJs.includes('/lyrics/extract'), false, 'frontend no debe caer en extracción bloqueada de EC2');
+        assert.equal(frontendJs.includes('/media'), false, 'frontend debe usar embeds oficiales y nunca descargar audio/video al servidor');
+        assert.ok(frontendJs.includes('play_on_pc') && frontendJs.includes('onError'));
+
+        const backupSh = readText('scripts/backup.sh');
+        assert.match(backupSh, /ARCHIVE_READY/, 'backup.sh debe verificar respaldo histórico antes de purgar registros > 30 días');
+        assert.match(backupSh, /historico_sql\/respaldo_/, 'backup.sh debe conservar instantáneas mensuales SQL completas en Drive');
+
+        const cmdGuide = readText('guides/GUIA_COMANDOS.md');
+        const techGuide = readText('guides/GUIA_TECNICA.md');
+        const migGuide = readText('guides/GUIA_MIGRACION.md');
+        assert.match(cmdGuide, /\| Parámetro/);
+        assert.match(techGuide, /Gratuito/i);
+        assert.match(techGuide, /Pago/i);
+        assert.match(migGuide, /Google Cloud Platform|GCP/i);
     });
 });
