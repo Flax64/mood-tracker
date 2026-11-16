@@ -1,8 +1,34 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.9.1",
-  "updatedAt": "2026-11-16T13:39:29.719Z",
+  "currentVersion": "1.10.0",
+  "updatedAt": "2026-11-16T22:13:25.787Z",
   "releases": [
+    {
+      "version": "1.10.0",
+      "tag": "v1.10.0",
+      "bumpType": "minor",
+      "previousVersion": "1.9.1",
+      "releasedAt": "2026-11-16T22:13:25.787Z",
+      "commitSha": "55a0dbc",
+      "trigger": "push",
+      "summary": "feat: integral refactor for mobile UX, music explorer, Word-first lyrics, language studio, Caddy HTTPS, and transparent 1-month Drive RAM archive",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat: integral refactor for mobile UX, music explorer, Word-first lyrics, language studio, Caddy HTTPS, and transparent 1-month Drive RAM archive (e7275a6)"
+        ],
+        "fixes": [
+          "fix: test corregido (5d4ef9c)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.9.1",
       "tag": "v1.9.1",
