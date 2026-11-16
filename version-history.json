@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.7.1",
-  "updatedAt": "2026-11-16T13:08:00.627Z",
+  "currentVersion": "1.8.0",
+  "updatedAt": "2026-11-16T13:15:32.563Z",
   "releases": [
+    {
+      "version": "1.8.0",
+      "tag": "v1.8.0",
+      "bumpType": "minor",
+      "previousVersion": "1.7.1",
+      "releasedAt": "2026-11-16T13:15:32.563Z",
+      "commitSha": "1fe94aa",
+      "trigger": "push",
+      "summary": "feat(session): single-tab guard & ntfy tab reuse",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(session): single-tab guard & ntfy tab reuse (5ae94a5)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.7.1",
       "tag": "v1.7.1",
