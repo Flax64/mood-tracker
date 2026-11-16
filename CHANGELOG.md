@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.2**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.3**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.10.3] - 2026-11-16 (PATCH) · `2ff44ac`
+**fix: verify Study Word upload size on Google Drive via rclone lsjson**
+
+### 🐛 Bug Fixes / Correcciones
+- fix: verify Study Word upload size on Google Drive via rclone lsjson (63a2af2)
 
 ## [v1.10.2] - 2026-11-16 (PATCH) · `2a44971`
 **fix: respect [hidden] attribute on music lyrics textarea and allow vertical scroll**
