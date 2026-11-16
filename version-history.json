@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.7.0",
+  "updatedAt": "2026-11-16T13:02:26.010Z",
   "releases": [
+    {
+      "version": "1.7.0",
+      "tag": "v1.7.0",
+      "bumpType": "minor",
+      "previousVersion": "1.6.0",
+      "releasedAt": "2026-11-16T13:02:26.010Z",
+      "commitSha": "682c4e4",
+      "trigger": "push",
+      "summary": "feat(drive): sync language Word to backup Drive",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(drive): sync language Word to backup Drive (5706611)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",
