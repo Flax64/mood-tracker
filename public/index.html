@@ -1365,7 +1365,7 @@
                                     </select>
                                 </div>
 
-                                <div id="musicRepertoireNavigator" class="music-repertoire-nav" aria-label="Interactive Artist, Album and Song Selector">
+                                <div id="musicRepertoireNavigator" class="music-repertoire-nav" hidden aria-label="Interactive Artist, Album and Song Selector">
                                     <div class="rep-col">
                                         <div class="rep-col-head">🎤 Artists</div>
                                         <div id="repArtistList" class="rep-list" role="listbox" aria-label="Artists"></div>
@@ -1404,45 +1404,51 @@
                             <section id="musicLyricsViewerCard" class="music-lyrics-viewer-card" hidden>
                                 <div class="music-lyrics-viewer-head">
                                     <div class="music-lyrics-viewer-title-wrap">
-                                        <h4>📄 Letra en Word PC (E2EE · 0 KB en BD)</h4>
+                                        <h4>📄 Letra en Word PC (Solo Lectura · Completa por Idiomas)</h4>
                                         <span id="musicLyricsMetaBadge" class="badge-pill">Solo en Word PC</span>
                                         <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle">⚪ Verificando PC...</span>
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
                                         <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
-                                            title="Elige en qué idioma ver la pista de la letra (Español, Inglés o Mixto Inglés-Coreano)">
-                                            <option value="all">🌐 Pista: Completa (Mixto EN/KR/ES)</option>
-                                            <option value="en">🇺🇸 Solo Inglés</option>
-                                            <option value="ko">🇰🇷 Solo Coreano + Inglés</option>
-                                            <option value="es">🇪🇸 Solo Español</option>
+                                            title="Filtra o muestra la letra completa dividida por cada idioma detectado">
+                                            <option value="all">🌐 Todos los Idiomas (Dividido por bloques)</option>
+                                            <option value="en">🇺🇸 Solo Inglés (EN)</option>
+                                            <option value="ko">🇰🇷 Solo Coreano (KO + Romanización)</option>
+                                            <option value="es">🇪🇸 Solo Español (ES)</option>
                                         </select>
                                         <button type="button" class="btn-primary btn-small" id="btnMusicExtractLyrics"
-                                            title="Carga la letra desde tu documento Word o la extrae automáticamente y la guarda en Word">
+                                            title="Carga la letra guardada en tu Word o la extrae automáticamente desde tu PC">
                                             📄 Extraer Letra
                                         </button>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicSaveLyrics" hidden
-                                            title="La letra se guarda automáticamente en tu documento Word">
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicSaveLyrics" hidden>
                                             📝 Guardar letra a Word (PC)
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy"
-                                            title="Pasa esta letra al analizador de IA para desglosarla por estrofas">
+                                            title="Envía la letra completa al analizador de IA de abajo para desglosarla por estrofas">
                                             ✨ Analizar Estrofas con IA
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateLyricsSel"
-                                            title="Abre el traductor rápido al lado de la letra sin perder visibilidad">
+                                            title="Selecciona cualquier frase de la letra con el mouse o dedo y ábrela en el Traductor Rápido">
                                             🌐 Traductor Rápido
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateFullLyricsEs"
-                                            title="Traduce toda la canción al español con IA y la guarda automáticamente en tu Word">
+                                            title="Traduce la letra completa al español con IA y agrega el bloque [ES] automáticamente">
                                             🇪🇸 Traducir Canción a Español
                                         </button>
                                     </div>
                                 </div>
                                 <div id="musicLyricsAlbumPlaylistBox" class="music-album-tracklist-box" hidden></div>
-                                <textarea id="musicSongLyricsViewer" class="music-lyrics-textarea" rows="8" maxlength="50000" data-no-i18n="true"
-                                    placeholder="Presiona '🎙️ Cargar / Extraer letra (PC yt-dlp)' para pedirle a tu PC (vía túnel cifrado E2EE) que lea tu Word o ejecute yt-dlp automáticamente..."></textarea>
+
+                                <!-- Visor de Solo Lectura Completo y Dividido por Idiomas (Sin cortes ni scroll atrapado) -->
+                                <div id="musicLyricsReadonlyBlocks" class="lyrics-readonly-full-view" data-no-i18n="true"></div>
+
+                                <!-- Textarea en solo lectura sincronizado para compatibilidad interna -->
+                                <textarea id="musicSongLyricsViewer" class="music-lyrics-textarea" rows="4" maxlength="50000"
+                                    readonly spellcheck="false" data-no-i18n="true" hidden
+                                    placeholder="Presiona '📄 Extraer Letra' para cargar la letra completa en modo solo lectura..."></textarea>
+
                                 <div class="music-lyrics-viewer-foot">
-                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Las letras nunca se guardan en MySQL ni disco de EC2: viven organizadas por álbum/pista en tu Word PC y viajan cifradas E2EE por RAM.</span>
+                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Modo solo lectura: selecciona cualquier verso para traducirlo con el Traductor Rápido o pulsa "Analizar Estrofas con IA".</span>
                                 </div>
                             </section>
 
