@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.6.0",
+  "updatedAt": "2026-11-16T12:45:55.135Z",
   "releases": [
+    {
+      "version": "1.6.0",
+      "tag": "v1.6.0",
+      "bumpType": "minor",
+      "previousVersion": "1.5.0",
+      "releasedAt": "2026-11-16T12:45:55.135Z",
+      "commitSha": "3c33d8d",
+      "trigger": "push",
+      "summary": "feat(hub): Win11 folders, lyrics UI & Drive RAM",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(hub): Win11 folders, lyrics UI & Drive RAM (62deced)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",
