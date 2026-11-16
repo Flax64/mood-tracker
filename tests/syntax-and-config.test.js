@@ -817,6 +817,7 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         const backupSh = readText('scripts/backup.sh');
         assert.match(backupSh, /ARCHIVE_READY/, 'backup.sh debe verificar respaldo histórico antes de purgar registros > 30 días');
         assert.match(backupSh, /historico_sql\/respaldo_/, 'backup.sh debe conservar instantáneas mensuales SQL completas en Drive');
+        assert.match(serverJs, /buildSafeRcloneExecEnv/, 'server.js debe limpiar variables RCLONE_* al invocar rclone CLI');
 
         const cmdGuide = readText('guides/GUIA_COMANDOS.md');
         const techGuide = readText('guides/GUIA_TECNICA.md');

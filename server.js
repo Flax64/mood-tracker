@@ -2038,6 +2038,17 @@ function resolveRcloneConfigPath({ preferStudy = false } = {}) {
     return { confPath: defaultConf, cleanup: false, usingStudyConfig: false };
 }
 
+function buildSafeRcloneExecEnv() {
+    // Evita que rclone interprete RCLONE_BACKUP_DIR / RCLONE_REMOTE como flags CLI (--backup-dir)
+    const cleanEnv = { ...process.env };
+    for (const k of Object.keys(cleanEnv)) {
+        if (k.startsWith('RCLONE_') || k.startsWith('STUDY_RCLONE_')) {
+            delete cleanEnv[k];
+        }
+    }
+    return cleanEnv;
+}
+
 function loadDriveHistoricalArchiveInRam() {
     return new Promise((resolve) => {
         const now = Date.now();
@@ -2058,7 +2069,7 @@ function loadDriveHistoricalArchiveInRam() {
         execFile(
             'rclone',
             ['--config', rcloneConf, 'cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
-            { encoding: 'buffer', timeout: 22000, maxBuffer: 32 * 1024 * 1024 },
+            { encoding: 'buffer', timeout: 22000, maxBuffer: 32 * 1024 * 1024, env: buildSafeRcloneExecEnv() },
             (err, stdoutBuf) => {
                 if (cleanupConf) {
                     try {
@@ -7107,6 +7118,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
         }
 
         const { execFile } = require('node:child_process');
+        const rcloneExecEnv = buildSafeRcloneExecEnv();
         const remoteTarget = `${remoteName}:${folderName}/English_Learning_Notebook.docx`;
         const localSha256 = crypto.createHash('sha256').update(docxBuffer).digest('hex');
 
@@ -7114,7 +7126,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             execFile(
                 'rclone',
                 ['--config', rcloneConf, 'copyto', '--retries', '2', tmpDocxPath, remoteTarget],
-                { timeout: 30000 },
+                { timeout: 30000, env: rcloneExecEnv },
                 (err, _stdout, stderr) => {
                     if (err) {
                         return reject(new Error(String(stderr || err.message || 'rclone copyto failed').trim()));
@@ -7132,7 +7144,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
                 execFile(
                     'rclone',
                     ['--config', rcloneConf, 'lsjson', remoteTarget],
-                    { timeout: 15000 },
+                    { timeout: 15000, env: rcloneExecEnv },
                     (err, stdout, stderr) => {
                         if (err) return reject(new Error(String(stderr || err.message).trim()));
                         resolve(stdout);
