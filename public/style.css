@@ -7833,14 +7833,14 @@ body {
 /* =========================================================================
    DISEÑO UNIFICADO Y RESPONSIVO PARA TODAS LAS CAJAS DE TEXTO (TEXTAREA)
    ========================================================================= */
-textarea,
-.english-textarea,
-.music-lyrics-textarea,
-.translator-extension-textarea,
-#journalText,
-#sleepMotivoDesvelo,
-#agendaDescripcion,
-#crisisMotivo {
+textarea:not([hidden]),
+.english-textarea:not([hidden]),
+.music-lyrics-textarea:not([hidden]),
+.translator-extension-textarea:not([hidden]),
+#journalText:not([hidden]),
+#sleepMotivoDesvelo:not([hidden]),
+#agendaDescripcion:not([hidden]),
+#crisisMotivo:not([hidden]) {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
@@ -7857,10 +7857,15 @@ textarea,
     line-height: 1.65 !important;
     resize: vertical;
     overflow-x: hidden !important;
-    overflow-y: hidden;
+    overflow-y: auto;
     word-break: break-word;
     overflow-wrap: anywhere;
     transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+textarea[hidden],
+.music-lyrics-textarea[hidden] {
+    display: none !important;
 }
 
 #journalText {
