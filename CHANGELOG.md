@@ -1,11 +1,20 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.8.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.9.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.9.0] - 2026-11-16 (MINOR) · `3fab9d0`
+**feat(session): single-tab guard & ntfy tab reuse**
+
+### ✨ Features / Nuevas Funciones
+- feat(session): single-tab guard & ntfy tab reuse (5ae94a5)
+
+### 🐛 Bug Fixes / Correcciones
+- fix(ai,ui): robust Gemini JSON parser and fix sidebar footer overlap (3fab9d0)
 
 ## [v1.8.0] - 2026-11-16 (MINOR) · `1fe94aa`
 **feat(session): single-tab guard & ntfy tab reuse**
