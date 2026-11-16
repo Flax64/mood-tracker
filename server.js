@@ -1988,6 +1988,9 @@ const CRISIS_TIPOS_VALIDOS = new Set([
     'Llanto / Sobrecarga',
     'Bloqueo / Saturación',
     'Insomnio / Agitación',
+    'Tristeza / Desánimo',
+    'Frustración / Impotencia',
+    'Agotamiento Mental',
     'Otro'
 ]);
 
@@ -1996,7 +1999,9 @@ app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, require
     const hora = String(req.body.hora || '').trim();
     const tipoCrisis = String(req.body.tipoCrisis || req.body.tipo_crisis || '').trim();
     const intensidadNum = Number(req.body.intensidad ?? 3);
-    const motivo = String(req.body.motivo || '').trim();
+    const detalleOtro = String(req.body.detalleOtro || '').trim().slice(0, 80);
+    const rawMotivo = String(req.body.motivo || '').trim();
+    const allowOptional = Boolean(req.body.allowOptionalMotivo);
 
     if (!fecha || !FECHA_ISO_REGEX.test(fecha)) {
         return res.status(400).send('Fecha inválida (formato esperado YYYY-MM-DD).');
@@ -2010,12 +2015,21 @@ app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, require
     if (!Number.isInteger(intensidadNum) || intensidadNum < 1 || intensidadNum > 5) {
         return res.status(400).send('La intensidad debe ser un entero entre 1 y 5.');
     }
-    if (!motivo || motivo.length > 1000) {
-        return res.status(400).send('Escribe el motivo o detonante de la crisis (máx. 1000 caracteres).');
+
+    let motivoFinal = rawMotivo;
+    if (tipoCrisis === 'Otro' && detalleOtro) {
+        motivoFinal = rawMotivo ? `[${detalleOtro}] ${rawMotivo}` : `Emoción / episodio: ${detalleOtro}`;
+    } else if (!motivoFinal && allowOptional) {
+        motivoFinal = `Episodio de ${tipoCrisis} (sin descripción adicional).`;
+    }
+
+    const maxAllowedChars = allowOptional ? 250 : 1000;
+    if (!motivoFinal || motivoFinal.length > maxAllowedChars) {
+        return res.status(400).send(`Escribe el motivo o detonante de la crisis (máx. ${maxAllowedChars} caracteres).`);
     }
 
     const sql = 'INSERT INTO RegistrosCrisis (fecha, hora, tipo_crisis, intensidad, motivo) VALUES (?, ?, ?, ?, ?)';
-    db.query(sql, [fecha, hora, tipoCrisis, intensidadNum, motivo], (err, result) => {
+    db.query(sql, [fecha, hora, tipoCrisis, intensidadNum, motivoFinal], (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Error saving crisis record.');
@@ -2027,7 +2041,7 @@ app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, require
             hora,
             tipo_crisis: tipoCrisis,
             intensidad: intensidadNum,
-            motivo
+            motivo: motivoFinal
         });
     });
 });
@@ -2422,8 +2436,14 @@ function validarDatosAgenda(body = {}) {
     if (materiaNombre && materiaNombre.length > 120) {
         return 'Class name cannot exceed 120 characters.';
     }
-    if (recordatorioMin !== null && (!Number.isInteger(recordatorioMin) || recordatorioMin < -1 || recordatorioMin > 180)) {
-        return 'Reminder lead minutes must be -1 (disabled) or between 0 and 180.';
+    const MARGENES_AMPLIOS_TAREA_LARGA = new Set([360, 720, 1440, 2880, 4320, 10080]);
+    if (
+        recordatorioMin !== null &&
+        (!Number.isInteger(recordatorioMin) ||
+            recordatorioMin < -1 ||
+            (recordatorioMin > 180 && !MARGENES_AMPLIOS_TAREA_LARGA.has(recordatorioMin)))
+    ) {
+        return 'Reminder lead minutes must be -1 (disabled), between 0 and 180, or a long-project preset (360..10080).';
     }
     return null;
 }
@@ -2464,6 +2484,21 @@ app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) =
 });
 
 app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 15000 }), async (req, res) => {
+    const subcategoria = String(req.body.subcategoria || 'normal').trim().toLowerCase();
+    if (subcategoria === 'leccion_idiomas') {
+        req.body.categoria = 'personal';
+        req.body.tipo = 'tarea';
+        if (req.body.recordatorio_min === undefined || req.body.recordatorio_min === null || req.body.recordatorio_min === '') {
+            req.body.recordatorio_min = 15;
+        }
+    } else if (subcategoria === 'tarea_larga') {
+        req.body.categoria = 'universidad';
+        req.body.tipo = 'tarea';
+        if (req.body.recordatorio_min === undefined || req.body.recordatorio_min === null || req.body.recordatorio_min === '') {
+            req.body.recordatorio_min = 1440;
+        }
+    }
+
     const errorValidacion = validarDatosAgenda(req.body);
     if (errorValidacion) {
         return res.status(400).send(errorValidacion);
@@ -2484,32 +2519,55 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
         const bloque = req.body.bloque && BLOQUES_VALIDOS.has(req.body.bloque)
             ? req.body.bloque
             : inferAgendaBlockFromTimeServer(hora, categoria);
-        const actividad = composeAgendaActividad(req.body);
+        let actividad = composeAgendaActividad(req.body);
+        if (subcategoria === 'tarea_larga' && !actividad.startsWith('[Proyecto/Tarea Larga]')) {
+            actividad = `[Proyecto/Tarea Larga] ${actividad}`.slice(0, 255);
+        } else if (subcategoria === 'leccion_idiomas' && !actividad.startsWith('[Lección de Idiomas]')) {
+            actividad = `[Lección de Idiomas] ${actividad}`.slice(0, 255);
+        }
+
         const { titulo, descripcion } = splitAgendaTitleAndDescription(actividad, req.body.titulo, req.body.descripcion);
         const horaNormalizada = hora.slice(0, 5);
         const completada = estado === 'done' ? 1 : 0;
+
+        const repetirCadaDias = Math.max(0, Math.min(30, Number.parseInt(req.body.repetir_cada_dias, 10) || 0));
+        const repetirVeces = repetirCadaDias > 0
+            ? Math.max(1, Math.min(12, Number.parseInt(req.body.repetir_veces, 10) || 1))
+            : 1;
 
         const sql = `
             INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min, materia_id, materia_nombre)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        const result = await dbQueryAsync(sql, [
-            fecha,
-            bloque,
-            horaNormalizada,
-            actividad,
-            tipo,
-            categoria,
-            estado,
-            completada,
-            recordatorioMin,
-            courseLink.materia_id,
-            courseLink.materia_nombre
-        ]);
+
+        let firstInsertId = null;
+        const [y, m, d] = fecha.split('-').map(Number);
+        for (let occ = 0; occ < repetirVeces; occ += 1) {
+            const occDateObj = new Date(Date.UTC(y, m - 1, d + (occ * repetirCadaDias)));
+            const occFecha = occDateObj.toISOString().slice(0, 10);
+            const result = await dbQueryAsync(sql, [
+                occFecha,
+                bloque,
+                horaNormalizada,
+                actividad,
+                tipo,
+                categoria,
+                estado,
+                completada,
+                recordatorioMin,
+                courseLink.materia_id,
+                courseLink.materia_nombre
+            ]);
+            if (occ === 0) firstInsertId = result.insertId;
+        }
+
         res.status(201).json({
-            message: 'Activity saved successfully.',
+            message: repetirVeces > 1
+                ? `Activity saved and repeated ${repetirVeces} times (every ${repetirCadaDias} days).`
+                : 'Activity saved successfully.',
+            repeatedCount: repetirVeces,
             item: {
-                id: result.insertId,
+                id: firstInsertId,
                 fecha,
                 bloque,
                 hora: horaNormalizada,
@@ -2701,27 +2759,27 @@ const ITS_CAMPUS_DIRECTORY = {
         id: 'principal',
         name: 'ITS Campus Principal',
         plano: 'CTO-002',
-        address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo, Coah.',
-        lat: 25.443706,
-        lng: -100.993845,
+        address: 'Blvd. Venustiano Carranza #2400 esq. Av. Universidad, Col. Tecnológico, Saltillo, Coah.',
+        lat: 25.444780,
+        lng: -100.992420,
         buildings: 'Aulas A-3..A-24 (Piso 1), B-2..B-21 (Piso 2), C-2..C-13 (Piso 3), CR-01..CR-15, AM-1..AM-5, TM1..TM3, LAC-L2A, SM1, LF1, SJMM'
     },
     miravalle: {
         id: 'miravalle',
         name: 'ITS Campus Miravalle',
         plano: 'CTO-003',
-        address: 'Calle Miravalle y Calle Reynosa (Puente Peatonal 37), Saltillo, Coah.',
-        lat: 25.445350,
-        lng: -100.991200,
+        address: 'Blvd. Venustiano Carranza y Calle Reynosa (Puente Peatonal ITS · Aulas N y Labs), Saltillo, Coah.',
+        lat: 25.444920,
+        lng: -100.990850,
         buildings: 'Aulas N-1..N-42 (Edif. 60-65), LMA, LE2..LE4, PLC, LM1..LM2, LEL, LIN, LS1..LS5, LC1..LC3, AP1'
     },
     boillot: {
         id: 'boillot',
-        name: 'ITS Campus Boillot (Sistemas y Mecatrónica)',
+        name: 'ITS Campus Blvd / Boillot (Sistemas y Mecatrónica)',
         plano: 'CTO-004',
-        address: 'Blvd. Saltillo, Calle Reynosa y Cuatrociénegas, Saltillo, Coah.',
-        lat: 25.443950,
-        lng: -100.989650,
+        address: 'Blvd. Saltillo esq. Calle Reynosa y Cuatrociénegas (Edif. 78 Sistemas y 79 Mecatrónica), Saltillo, Coah.',
+        lat: 25.443650,
+        lng: -100.989150,
         buildings: 'Edif. 78 Sistemas (Aulas R-1..R-14), Edif. 79 Mecatrónica (S-13..S-20, LC3, CLO), Edif. 80 Ed. Distancia (ED1..ED4), Edif. 81 Vinculación (AV1..AV2)'
     }
 };
@@ -3120,10 +3178,10 @@ function getDefaultAcademicPlanner() {
             },
             university: {
                 label: 'Instituto Tecnológico de Saltillo (Blvd. V. Carranza #2400)',
-                address: 'Blvd. V. Carranza #2400, Col. Tecnológico, Saltillo',
-                mapsUrl: 'https://www.google.com/maps?q=25.443706,-100.993845',
-                lat: 25.443706,
-                lng: -100.993845
+                address: 'Blvd. Venustiano Carranza #2400 esq. Av. Universidad, Col. Tecnológico, Saltillo',
+                mapsUrl: 'https://www.google.com/maps?q=25.444780,-100.992420',
+                lat: 25.444780,
+                lng: -100.992420
             },
             current: {
                 label: 'Ubicación actual',
