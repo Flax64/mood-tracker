@@ -143,7 +143,15 @@ SELECT 'sleep', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha
 UNION ALL
 SELECT 'crisis', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'hora', hora, 'tipo_crisis', tipo_crisis, 'intensidad', intensidad, 'motivo', motivo) FROM RegistrosCrisis
 UNION ALL
-SELECT 'agenda', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'bloque', bloque, 'hora', TIME_FORMAT(hora, '%H:%i'), 'actividad', actividad, 'tipo', tipo, 'categoria', categoria, 'materia_id', materia_id, 'materia_nombre', materia_nombre, 'estado', estado, 'completada', completada, 'recordatorio_min', recordatorio_min) FROM RegistrosAgenda;
+SELECT 'agenda', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'bloque', bloque, 'hora', TIME_FORMAT(hora, '%H:%i'), 'actividad', actividad, 'tipo', tipo, 'categoria', categoria, 'materia_id', materia_id, 'materia_nombre', materia_nombre, 'estado', estado, 'completada', completada, 'recordatorio_min', recordatorio_min) FROM RegistrosAgenda
+UNION ALL
+SELECT 'music_artists', id, '', JSON_OBJECT('id', id, 'usuario_id', usuario_id, 'nombre', nombre, 'tipo_artista', tipo_artista, 'notas_cortas', notas_cortas) FROM MusicaArtistas
+UNION ALL
+SELECT 'music_albums', id, '', JSON_OBJECT('id', id, 'usuario_id', usuario_id, 'artista_principal_id', artista_principal_id, 'titulo', titulo, 'tipo_lanzamiento', tipo_lanzamiento, 'anio', anio, 'notas_cortas', notas_cortas) FROM MusicaAlbumes
+UNION ALL
+SELECT 'music_songs', id, '', JSON_OBJECT('id', id, 'usuario_id', usuario_id, 'album_id', album_id, 'titulo', titulo, 'numero_pista', numero_pista, 'idioma', idioma, 'yt_music_url', yt_music_url, 'yt_video_id', yt_video_id, 'thumbnail_url', thumbnail_url, 'estado_estudio', estado_estudio, 'enfoque_corto', enfoque_corto, 'word_sincronizado', word_sincronizado) FROM MusicaCanciones
+UNION ALL
+SELECT 'music_song_artists', CONCAT(cancion_id, '_', artista_id), '', JSON_OBJECT('cancion_id', cancion_id, 'artista_id', artista_id, 'rol', rol, 'orden', orden) FROM MusicaCancionArtistas;
 "
 
 ARCHIVE_READY=0
@@ -155,7 +163,7 @@ if run_mysql_query "$EXPORT_SQL" > "$CURRENT_TSV"; then
 import gzip, json, os, sys
 
 prev_gz, curr_tsv, out_gz = sys.argv[1:4]
-store = {"mood": {}, "sleep": {}, "crisis": {}, "agenda": {}}
+store = {"mood": {}, "sleep": {}, "crisis": {}, "agenda": {}, "music_artists": {}, "music_albums": {}, "music_songs": {}, "music_song_artists": {}}
 
 if os.path.exists(prev_gz) and os.path.getsize(prev_gz) > 0:
     try:

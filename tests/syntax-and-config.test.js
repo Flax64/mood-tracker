@@ -233,6 +233,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(sql, /categoria\s+ENUM\('universidad',\s*'personal'\)/);
         assert.match(sql, /estado\s+ENUM\('todo',\s*'in_progress',\s*'done'\)/);
         assert.match(sql, /tipo_lanzamiento\s+ENUM\('album',\s*'mini_album',\s*'ep',\s*'single',\s*'ost',\s*'collab_single'\)/);
+        assert.match(sql, /fecha_lanzamiento\s+DATE\s+NULL/i);
     });
 
     it('reemplaza el arcoíris, expone controles de Settings/Jira/Recordatorios/Música y agrega índices a las guías', () => {
