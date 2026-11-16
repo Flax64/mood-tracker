@@ -1936,27 +1936,128 @@ app.delete('/api/delete-sleep/:id', apiWriteLimiter.middleware, requireAdmin, (r
     });
 });
 
-// Consultar estados de ánimo (PERMITIDO A ADMIN Y PSIQUIATRA)
+// =========================================================================
+// EXTRACTOR TEMPORAL EN MEMORIA RAM DESDE GOOGLE DRIVE (ZERO-DISK BLOAT)
+// =========================================================================
+let _driveArchiveRamCache = {
+    loadedAt: 0,
+    data: null
+};
+const DRIVE_RAM_CACHE_TTL_MS = 90 * 1000; // Vive solo 90 segundos en RAM durante la consulta
+
+function isDateOlderThanLocalWindow(dateStr, retentionDays = Number(process.env.DB_RETENTION_DAYS || 30)) {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+    const targetMs = Date.parse(`${dateStr}T00:00:00Z`);
+    if (!Number.isFinite(targetMs)) return false;
+    const cutoffMs = Date.now() - (retentionDays * 24 * 60 * 60 * 1000);
+    return targetMs < cutoffMs;
+}
+
+function loadDriveHistoricalArchiveInRam() {
+    return new Promise((resolve) => {
+        const now = Date.now();
+        if (_driveArchiveRamCache.data && (now - _driveArchiveRamCache.loadedAt) < DRIVE_RAM_CACHE_TTL_MS) {
+            return resolve(_driveArchiveRamCache.data);
+        }
+
+        const remoteName = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
+        const remoteDir = String(process.env.RCLONE_BACKUP_DIR || 'RespaldosApp').trim();
+        const homeDir = process.env.HOME || process.env.USERPROFILE || '/home/ubuntu';
+        const rcloneConf = process.env.RCLONE_CONFIG || path.join(homeDir, '.config', 'rclone', 'rclone.conf');
+
+        if (!fs.existsSync(rcloneConf)) {
+            return resolve(null);
+        }
+
+        const { execFile } = require('node:child_process');
+        const zlib = require('node:zlib');
+        execFile(
+            'rclone',
+            ['--config', rcloneConf, 'cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
+            { encoding: 'buffer', timeout: 22000, maxBuffer: 32 * 1024 * 1024 },
+            (err, stdoutBuf) => {
+                if (err || !stdoutBuf || stdoutBuf.length === 0) {
+                    return resolve(null);
+                }
+                try {
+                    const unzipped = zlib.gunzipSync(stdoutBuf).toString('utf8');
+                    const parsed = JSON.parse(unzipped);
+                    _driveArchiveRamCache = { loadedAt: Date.now(), data: parsed };
+                    setTimeout(() => {
+                        if (Date.now() - _driveArchiveRamCache.loadedAt >= DRIVE_RAM_CACHE_TTL_MS) {
+                            _driveArchiveRamCache = { loadedAt: 0, data: null };
+                        }
+                    }, DRIVE_RAM_CACHE_TTL_MS + 1000).unref?.();
+                    return resolve(parsed);
+                } catch (_) {
+                    return resolve(null);
+                }
+            }
+        );
+    });
+}
+
+async function mergeLocalRowsWithDriveRam(kind, localRows, begin, end, forceDrive = false) {
+    const listLocal = Array.isArray(localRows) ? localRows : [];
+    if (!forceDrive && !isDateOlderThanLocalWindow(begin)) {
+        return listLocal;
+    }
+    const archive = await loadDriveHistoricalArchiveInRam();
+    if (!archive || !archive[kind] || typeof archive[kind] !== 'object') {
+        return listLocal;
+    }
+
+    const archivedItems = Object.values(archive[kind]).filter(item => {
+        const f = String(item?.fecha || '').slice(0, 10);
+        if (!f) return false;
+        if (begin && f < begin) return false;
+        if (end && f > end) return false;
+        return true;
+    });
+
+    if (archivedItems.length === 0) return listLocal;
+
+    const mergedMap = new Map();
+    for (const row of archivedItems) {
+        const key = kind === 'mood'
+            ? `${String(row.fecha).slice(0, 10)}_${row.momento_dia}`
+            : String(row.id || `${row.fecha}_${row.hora || ''}`);
+        mergedMap.set(key, row);
+    }
+    for (const row of listLocal) {
+        const fStr = row.fecha instanceof Date
+            ? row.fecha.toISOString().slice(0, 10)
+            : String(row.fecha || '').slice(0, 10);
+        const key = kind === 'mood'
+            ? `${fStr}_${row.momento_dia}`
+            : String(row.id || `${fStr}_${row.hora || ''}`);
+        mergedMap.set(key, row);
+    }
+    return Array.from(mergedMap.values());
+}
+
+// Consultar estados de ánimo (PERMITIDO A ADMIN Y PSIQUIATRA; extrae de Drive en RAM si supera 1 mes)
 app.get('/api/get-moods', apiReadLimiter.middleware, requireAuth, (req, res) => {
-    const { begin, end } = req.query;
+    const { begin, end, includeDrive } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
         return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
     }
 
     const sql = 'SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?';
 
-    db.query(sql, [begin, end], (err, result) => {
+    db.query(sql, [begin, end], async (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Database query error.');
         }
-        res.json(result);
+        const merged = await mergeLocalRowsWithDriveRam('mood', result, begin, end, includeDrive === '1');
+        res.json(merged);
     });
 });
 
-// Consultar horas de sueño y desvelos (PERMITIDO A ADMIN Y PSIQUIATRA)
+// Consultar horas de sueño y desvelos (PERMITIDO A ADMIN Y PSIQUIATRA; extrae de Drive en RAM si supera 1 mes)
 app.get('/api/get-sleep', apiReadLimiter.middleware, requireAuth, (req, res) => {
-    const { begin, end } = req.query;
+    const { begin, end, includeDrive } = req.query;
     if (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
         return res.status(400).send('Parameters begin and end are required (YYYY-MM-DD).');
     }
@@ -1968,12 +2069,13 @@ app.get('/api/get-sleep', apiReadLimiter.middleware, requireAuth, (req, res) => 
         ORDER BY fecha ASC, id ASC
     `;
 
-    db.query(sql, [begin, end], (err, result) => {
+    db.query(sql, [begin, end], async (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Database query error.');
         }
-        res.json(result);
+        const merged = await mergeLocalRowsWithDriveRam('sleep', result, begin, end, includeDrive === '1');
+        res.json(merged);
     });
 });
 
@@ -2046,9 +2148,9 @@ app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, require
     });
 });
 
-// Consultar crisis registradas (PERMITIDO A ADMIN Y PSIQUIATRA EN MODO SOLO LECTURA)
+// Consultar crisis registradas (PERMITIDO A ADMIN Y PSIQUIATRA; extrae de Drive en RAM si supera 1 mes)
 app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) => {
-    const { begin, end } = req.query;
+    const { begin, end, includeDrive } = req.query;
     if ((begin || end) && (!begin || !end || !FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end))) {
         return res.status(400).send('Parameters begin and end must both be YYYY-MM-DD.');
     }
@@ -2058,13 +2160,63 @@ app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) =>
         : 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis ORDER BY fecha DESC, hora DESC, id DESC LIMIT 50';
     const params = begin && end ? [begin, end] : [];
 
-    db.query(sql, params, (err, result) => {
+    db.query(sql, params, async (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Database query error.');
         }
-        res.json(Array.isArray(result) ? result : []);
+        const merged = (begin && end)
+            ? await mergeLocalRowsWithDriveRam('crisis', result, begin, end, includeDrive === '1')
+            : (Array.isArray(result) ? result : []);
+        res.json(merged);
     });
+});
+
+// Endpoint para extraer temporalmente de Google Drive los últimos X meses (ej. 6 meses) en RAM sin llenar la instancia
+app.get('/api/archive/drive-range', apiReadLimiter.middleware, requireAuth, async (req, res) => {
+    try {
+        const months = Math.max(1, Math.min(24, Number.parseInt(String(req.query.months || '6'), 10) || 6));
+        const endDt = new Date();
+        const beginDt = new Date(endDt.getFullYear(), endDt.getMonth() - months, endDt.getDate());
+        const begin = String(req.query.begin || beginDt.toISOString().slice(0, 10)).slice(0, 10);
+        const end = String(req.query.end || endDt.toISOString().slice(0, 10)).slice(0, 10);
+
+        if (!FECHA_ISO_REGEX.test(begin) || !FECHA_ISO_REGEX.test(end)) {
+            return res.status(400).send('Invalid date range.');
+        }
+
+        const [localMoods, localSleeps, localCrises] = await Promise.all([
+            dbQueryAsync('SELECT fecha, momento_dia, color_hex FROM RegistrosMood WHERE fecha BETWEEN ? AND ?', [begin, end]),
+            dbQueryAsync('SELECT id, fecha, horas, calidad, hora_dormir, hora_despertar, es_desvelo, tipo_registro, motivo_desvelo FROM RegistrosSleep WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC', [begin, end]),
+            dbQueryAsync('SELECT id, fecha, hora, tipo_crisis, intensidad, motivo FROM RegistrosCrisis WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, hora DESC', [begin, end])
+        ]);
+
+        const [moods, sleeps, crises] = await Promise.all([
+            mergeLocalRowsWithDriveRam('mood', localMoods, begin, end, true),
+            mergeLocalRowsWithDriveRam('sleep', localSleeps, begin, end, true),
+            mergeLocalRowsWithDriveRam('crisis', localCrises, begin, end, true)
+        ]);
+
+        res.json({
+            ok: true,
+            source: _driveArchiveRamCache.data ? 'google_drive_ram + mysql_local_1m' : 'mysql_local_1m',
+            localRetentionDays: Number(process.env.DB_RETENTION_DAYS || 30),
+            monthsRequested: months,
+            begin,
+            end,
+            counts: {
+                moods: moods.length,
+                sleeps: sleeps.length,
+                crises: crises.length
+            },
+            moods,
+            sleeps,
+            crises
+        });
+    } catch (err) {
+        console.error('[DRIVE_RANGE_RAM_ERROR]', err.message);
+        res.status(500).send('Error loading historical range from Google Drive.');
+    }
 });
 
 app.delete('/api/delete-crisis/:id', apiWriteLimiter.middleware, requireAdmin, (req, res) => {

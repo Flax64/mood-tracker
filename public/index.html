@@ -2133,6 +2133,23 @@
                                 <select id="semanaSeleccionada"></select>
                             </div>
                         </div>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid rgba(148,163,184,0.16);">
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                                <span class="badge-pill">💾 Instancia local: solo último mes (30 días)</span>
+                                <select id="resumenDriveMonthsSelect" class="select-input select-compact"
+                                    title="Elige cuántos meses deseas extraer temporalmente desde Google Drive en memoria RAM sin ocupar disco">
+                                    <option value="3">☁️ Drive: Últimos 3 meses (Temporal RAM)</option>
+                                    <option value="6" selected>☁️ Drive: Últimos 6 meses (Temporal RAM)</option>
+                                    <option value="12">☁️ Drive: Último año / 12 meses (Temporal RAM)</option>
+                                </select>
+                                <button type="button" class="btn-secondary btn-small" id="btnLoadDriveMonthsRam"
+                                    title="Extrae temporalmente desde Google Drive los registros históricos sin saturar la base de datos de la instancia">
+                                    ☁️ Extraer Historial de Drive (RAM)
+                                </button>
+                            </div>
+                            <small id="resumenDriveStatusHint" class="muted-text">Los registros mayores a 1 mes se respaldan en Google Drive y se cargan solo en memoria temporal cuando los consultas.</small>
+                        </div>
+                        <div id="resumenDriveHistoryBox" class="lang-ai-result" hidden style="margin-top:10px;"></div>
 
                         <div id="resumenLoadingBanner" class="section-loading-banner" hidden></div>
                     </div>

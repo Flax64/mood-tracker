@@ -2022,6 +2022,73 @@ if (selectSemana) {
             seleccionarSemanaPorFechaCalendario(new Date());
         });
     }
+    const btnDriveRam = document.getElementById('btnLoadDriveMonthsRam');
+    const selDriveMonths = document.getElementById('resumenDriveMonthsSelect');
+    const boxDriveHistory = document.getElementById('resumenDriveHistoryBox');
+    const hintDriveStatus = document.getElementById('resumenDriveStatusHint');
+
+    if (btnDriveRam && boxDriveHistory) {
+        btnDriveRam.addEventListener('click', () => {
+            const months = Number(selDriveMonths?.value || 6);
+            runWithButtonLock(btnDriveRam, async () => {
+                try {
+                    const res = await fetch(`/api/archive/drive-range?months=${months}`, { cache: 'no-store' });
+                    if (!res.ok) throw new Error(await res.text() || 'No se pudo consultar el historial en Drive.');
+                    const data = await res.json();
+
+                    if (hintDriveStatus) {
+                        hintDriveStatus.textContent = `✅ Extraídos en RAM temporal (${data.begin} → ${data.end}): ${data.counts.moods} estados de ánimo · ${data.counts.sleeps} registros de sueño · ${data.counts.crises} episodios de crisis (0 KB guardados en disco local).`;
+                    }
+
+                    boxDriveHistory.hidden = false;
+                    boxDriveHistory.replaceChildren();
+
+                    const summaryHead = document.createElement('div');
+                    summaryHead.className = 'ai-summary-box';
+                    summaryHead.textContent = `☁️ Historial Temporal desde Google Drive (Últimos ${months} meses: ${data.begin} a ${data.end}) — Ánimo: ${data.counts.moods} · Sueño: ${data.counts.sleeps} · Crisis: ${data.counts.crises}`;
+                    boxDriveHistory.appendChild(summaryHead);
+
+                    // Generar botones rápidos para las semanas con actividad en esos 6 meses
+                    const weekSet = new Set();
+                    [...(data.moods || []), ...(data.sleeps || []), ...(data.crises || [])].forEach(r => {
+                        const f = String(r.fecha || '').slice(0, 10);
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
+                            const [yy, mm, dd] = f.split('-').map(Number);
+                            const dt = new Date(yy, mm - 1, dd);
+                            const dom = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() - dt.getDay());
+                            const domIso = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
+                            weekSet.add(domIso);
+                        }
+                    });
+
+                    const sortedWeeks = Array.from(weekSet).sort().reverse().slice(0, 26);
+                    if (sortedWeeks.length > 0) {
+                        const weeksBar = document.createElement('div');
+                        weeksBar.style.display = 'flex';
+                        weeksBar.style.flexWrap = 'wrap';
+                        weeksBar.style.gap = '6px';
+                        weeksBar.style.marginTop = '8px';
+
+                        sortedWeeks.forEach(domIso => {
+                            const [yy, mm, dd] = domIso.split('-').map(Number);
+                            const btnWk = document.createElement('button');
+                            btnWk.type = 'button';
+                            btnWk.className = 'btn-secondary btn-small';
+                            btnWk.textContent = `📅 Semana ${domIso}`;
+                            btnWk.title = 'Cargar esta semana histórica desde Google Drive en la tabla de arriba';
+                            btnWk.addEventListener('click', () => {
+                                seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd));
+                            });
+                            weeksBar.appendChild(btnWk);
+                        });
+                        boxDriveHistory.appendChild(weeksBar);
+                    }
+                } catch (err) {
+                    showToast('err', err.message || 'Error consultando Google Drive.');
+                }
+            }, { loadingText: 'Extrayendo de Drive en RAM...' });
+        });
+    }
 
     // 2. Fetch week data when changed
     selectSemana.addEventListener('change', () => {
