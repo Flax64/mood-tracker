@@ -769,6 +769,9 @@ describe('Versionado Automático SemVer 2.0.0 e Historial de Despliegues', () =>
 describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, Campus y Word Bloque A/B', () => {
     it('elimina credenciales, rutas locales y repositorios hardcodeados (Cloud Agnostic)', () => {
         for (const file of ['.env.example', 'docker-compose.yml', '.github/workflows/deploy.yml', 'server.js', 'sincronitation/sincronizador.py', 'sincronitation/yt_lyrics_helper.py']) {
+            if (file.startsWith('sincronitation/') && !fs.existsSync(path.join(ROOT, file))) {
+                continue;
+            }
             const text = readText(file);
             assert.equal(/flavio\.flax1234@gmail\.com/i.test(text), false, `${file} no debe hardcodear correo personal`);
             assert.equal(/C:\\\\Users\\\\flavi|C:\\Users\\flavi/i.test(text), false, `${file} no debe hardcodear rutas locales Windows de usuario`);
