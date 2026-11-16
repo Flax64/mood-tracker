@@ -23,6 +23,15 @@
 | Confirmar seguridad de cuenta YouTube Music (cero contraseñas/tokens) | [9. Seguridad en YouTube Music (Cero Credenciales)](#9-seguridad-en-youtube-music-cero-credenciales) |
 | Cambiar nombre del repo en GitHub/PC, comportamiento al reiniciar Windows y reiniciar Python local | [10. Renombrar Repositorio, Autoinicio y Reiniciar Python Local](#10-renombrar-repositorio-autoinicio-y-reiniciar-python-local) |
 | Verificar cifrado HTTP en EC2 (`tcpdump`, integridad HMAC y `GEMINI_API_KEY`) | [11. Verificación del Túnel Cifrado e IA Gemini en EC2](#11-verificación-del-túnel-cifrado-e-ia-gemini-en-ec2) |
+| Ver historial SemVer 2.0.0 y auto-versionado por despliegue | [12. Historial de Versiones SemVer 2.0.0](#12-historial-de-versiones-y-auto-versionado-por-despliegue-semver-200) |
+| **Catálogo Maestro de Comandos Rápidos (Dividir para IA, Diagnóstico, Servicios, DPAPI, Drive, `yt-dlp`, Git)** | [13. Catálogo Maestro de Comandos Rápidos](#13-catálogo-maestro-de-comandos-rápidos-git-bash-pc-docker-y-aws-ec2) · ([Guía Independiente](./GUIA_COMANDOS_RAPIDOS.md)) |
+| ↳ Dividir código en `codigo_dividido/` (118 KB) y `for-gemini/` con líneas exactas | [13.1 Dividir Archivos para la IA](#131-comandos-para-dividir-archivos-y-cargar-a-la-ia-git-bash) |
+| ↳ Consultar estado, logs, RAM, Swap, procesos Word y `yt-dlp` | [13.2 Consulta y Diagnóstico](#132-comandos-de-consulta-de-información-y-diagnóstico) |
+| ↳ Iniciar, detener y reiniciar Python PC / `WINWORD.EXE` / Docker EC2 | [13.3 Reiniciar, Iniciar y Detener Servicios](#133-comandos-para-reiniciar-iniciar-y-detener-servicios) |
+| ↳ Cifrar, descifrar y configurar autoinicio Windows DPAPI | [13.4 Bóveda `.env.enc` y DPAPI](#134-comandos-de-la-bóveda-de-seguridad-envenc-y-windows-dpapi) |
+| ↳ Backup `historico_completo.json.gz`, purga 30 días y consultas MySQL / Drive | [13.5 MySQL y Respaldos Drive (`rclone`)](#135-comandos-de-base-de-datos-mysql-y-respaldos-en-google-drive-rclone) |
+| ↳ Extraer y limpiar subtítulos localmente con `yt-dlp` | [13.6 Worker PC y `yt-dlp`](#136-comandos-del-worker-local-de-pc-sincronizadorpy-y-yt-dlp) |
+| ↳ Correr `npm test`, verificar sintaxis y hacer commits desglosados | [13.7 Pruebas, Git y Despliegue](#137-comandos-de-pruebas-git-commits-desglosados-y-despliegue) |
 
 ---
 
@@ -109,6 +118,7 @@ El script `sincronitation/sincronizador.py` detecta automáticamente `.env` o `.
 | `GITHUB_REPO` | Si usas token | Repositorio en formato `Flax64/mood-tracker` (valor por defecto si se omite) |
 | `PORT` | Opcional | Puerto respaldo si no está en GitHub Variables (por defecto `3000`) |
 | `URL_AWS` / `AWS_HOST` | Solo sin token | Respaldo manual (`http://IP:3000/api/pull-text` o solo la IP; para inglés sustituye `/api/pull-english` solo) si no configuras `GITHUB_TOKEN` |
+| `STUDY_RCLONE_REMOTE` / `STUDY_RCLONE_DIR` | Opcional | Remoto/carpeta `rclone` dedicada exclusivamente para respaldar `English_Learning_Notebook.docx` (jamás sube `Journal.docx`, validado explícitamente en `sincronizar_word_estudio_a_drive`) |
 
 ### Arranque 100% automático al encender la PC (Windows DPAPI)
 Para que `sincronizador.py` siga arrancando solo y en segundo plano al encender Windows **sin dejar `.env` plano ni contraseñas legibles en disco**, guarda tu contraseña maestra cifrada con **Windows DPAPI** (vinculada únicamente a tu sesión de usuario en esta PC, en `%LOCALAPPDATA%\mood-tracker\vault.dpapi`):
@@ -256,7 +266,7 @@ base64 -w 0 ~/.config/rclone/rclone.conf
 
 ## 5. Respaldos manuales y restauración desde Drive
 
-* **Respaldo automático nocturno:** corre todos los días a las **03:30 AM** (`30 3 * * *`) en modo sellado (`SEALED_MODE=1`) sin necesitar `.env`, leyendo las variables activas dentro del contenedor `mood_db`.
+* **Respaldo automático nocturno + retención inteligente de 1 mes en MySQL:** corre todos los días a las **03:30 AM** (`30 3 * * *`) en modo sellado (`SEALED_MODE=1`) sin necesitar `.env`, leyendo las variables activas dentro del contenedor `mood_db`. Además de subir `respaldo_mood_tracker.sql.gz`, `scripts/backup.sh` fusiona acumulativamente los registros de `RegistrosMood`, `RegistrosSleep`, `RegistrosCrisis` y `RegistrosAgenda` dentro de `historico_completo.json.gz` en Google Drive y después purga en MySQL local los registros mayores a `DB_RETENTION_DAYS` (por defecto **30 días**) para que la instancia `t3.micro` nunca se sature. Los últimos 3, 6 o 12 meses pueden consultarse bajo demanda en RAM desde `#resumen` vía `GET /api/archive/drive-range`.
 * **Generar un respaldo manual inmediato en EC2:**
   ```bash
   ~/projects/mood-tracker/scripts/backup.sh
@@ -521,3 +531,228 @@ Cada despliegue a producción desde `main` (o mediante **Actions → Run workflo
 1. **Job `release`:** Ejecuta [`scripts/release-version.js`](../scripts/release-version.js) `--apply --github-output`, analiza los commits incluidos desde el tag/despliegue anterior y calcula la siguiente versión exacta.
 2. **Registro persistente:** Actualiza [`package.json`](../package.json), `package-lock.json`, [`version-history.json`](../version-history.json) y [`CHANGELOG.md`](../CHANGELOG.md), crea el commit `chore(release): vX.Y.Z ... [skip ci]` (si la rama permite push directo), etiqueta el repo con `vX.Y.Z` y publica el **GitHub Release**.
 3. **Despliegue sincronizado a EC2:** Pasa `APP_VERSION` y `RELEASE_HISTORY_B64` por el paso SSH antes de reconstruir el contenedor (`docker compose up -d --build`), garantizando que **`GET /api/version`** y el modal **🏷️ Version History** dentro de la app reflejen al instante la versión recién desplegada.
+
+---
+
+## 13. Catálogo Maestro de Comandos Rápidos (Git Bash, PC, Docker y AWS EC2)
+
+> Referencia rápida completa de comandos (también disponible en documento independiente: [Guía Rápida de Comandos](./GUIA_COMANDOS_RAPIDOS.md)). Todos los comandos están separados estrictamente por categoría para evitar confusiones.
+
+### 13.1 Comandos para Dividir Archivos y Cargar a la IA (Git Bash)
+
+#### Script Completo por Tamaño (`118 KB` en `codigo_dividido/`)
+Divide automáticamente todo el código fuente del proyecto en partes de `118 KB` listas para subir a la IA, excluyendo `.git`, `node_modules`, `for-gemini` y `codigo_dividido`:
+
+```bash
+# Eliminar extracción anterior
+rm -rf codigo_dividido
+
+# Crear carpeta
+mkdir -p codigo_dividido
+
+# Buscar archivos del proyecto y dividirlos en bloques de 118 KB
+find . -type f \( \
+    -name "*.java" -o -name "*.js" -o -name "*.html" -o -name "*.css" -o -name "*.sql" -o \
+    -name "*.cs" -o -name "*.py" -o -name "*.cpp" -o -name "*.h" -o -name "*.xml" -o \
+    -name "*.json" -o -name "*.yml" -o -name "*.yaml" -o -name "Dockerfile" -o \
+    -name "Dockerfile.*" -o -name "docker-compose*" -o -name "compose.yml" -o \
+    -name "compose.yaml" -o -name ".dockerignore" -o -name ".gitignore" -o \
+    -name ".env.example" -o -name "Makefile" \
+\) \
+-not -path "./.git/*" \
+-not -path "./node_modules/*" \
+-not -path "./codigo_dividido/*" \
+-not -path "./for-gemini/*" \
+| while IFS= read -r archivo; do
+
+    nombre=$(basename "$archivo")
+    nombre_limpio="${nombre%.*}"
+    extension="${nombre##*.}"
+
+    split -b 118K -d -a 3 \
+    --additional-suffix=".$extension.txt" \
+    "$archivo" "codigo_dividido/${nombre_limpio}_parte_"
+
+done
+```
+
+#### División con Número de Línea Exacto (`for-gemini/`)
+```bash
+# Preparar carpeta for-gemini limpia
+mkdir -p for-gemini && rm -f for-gemini/*.txt
+
+# Dividir archivos Python con números de línea exactos
+nl -ba sincronitation/yt_lyrics_helper.py | split -l 550 -d -a 2 - for-gemini/PY_HELPER_ && \
+for f in for-gemini/PY_HELPER_*; do mv "$f" "${f}.txt"; done
+
+nl -ba sincronitation/sincronizador.py | split -l 1200 -d -a 2 - for-gemini/PY_SINCRO_ && \
+for f in for-gemini/PY_SINCRO_*; do mv "$f" "${f}.txt"; done
+
+# Dividir frontend.js, server.js o style.css con números de línea
+nl -ba public/frontend.js | split -l 2500 -d -a 2 - for-gemini/FRONT_ && \
+for f in for-gemini/FRONT_*; do mv "$f" "${f}.txt"; done
+
+nl -ba server.js | split -l 2000 -d -a 2 - for-gemini/SERVER_ && \
+for f in for-gemini/SERVER_*; do mv "$f" "${f}.txt"; done
+
+# Guardar resultado de pruebas en archivo de texto para enviar a la IA
+npm test > for-gemini/error_actual.txt 2>&1 || true
+```
+
+### 13.2 Comandos de Consulta de Información y Diagnóstico
+
+#### En tu PC Local (Git Bash)
+```bash
+# Consultar estado de la bóveda local (.env vs .env.enc)
+node scripts/local-vault.js status
+
+# Consultar desde dónde se resuelve yt-dlp en tu PC (PATH o GitHub Variable YT_DLP_PATH)
+python sincronitation/yt_lyrics_helper.py --check-yt-dlp
+
+# Ver las últimas 40 líneas del log del sincronizador en tu PC
+tail -n 40 sincronitation/historial.log
+
+# Ver en vivo lo que está haciendo sincronizador.py en tu PC
+tail -f sincronitation/historial.log
+
+# Consultar si hay procesos de Word (WINWORD.EXE) ocultos o colgados en Windows
+tasklist //FI "IMAGENAME eq WINWORD.EXE"
+```
+
+#### En el Servidor AWS EC2 (vía SSH)
+```bash
+# Ver estado y consumo de contenedores Docker (App y MySQL)
+docker compose ps
+docker stats --no-stream
+
+# Ver memoria RAM y Swap disponible en la instancia t3.micro
+free -h
+
+# Ver espacio en disco disponible en la instancia
+df -h
+
+# Consultar logs en tiempo real del servidor Node.js (últimas 100 líneas)
+docker logs --tail 100 -f mood_app
+
+# Consultar logs del contenedor MySQL
+docker logs --tail 50 mood_db
+
+# Consultar registro del respaldo automático nocturno hacia Google Drive
+tail -n 50 ~/projects/respaldos/backup.log
+
+# Ver tareas programadas en Cron (respaldo diario 3:30 AM)
+crontab -l
+```
+
+### 13.3 Comandos para Reiniciar, Iniciar y Detener Servicios
+
+#### En tu PC Local (Sincronizador y Entorno Local)
+```bash
+# Iniciar la app localmente leyendo .env.enc solo en memoria RAM (sin dejar .env en disco)
+node scripts/local-vault.js run -- npm start
+
+# Iniciar el sincronizador de Word + Puente de Letras en PC
+python sincronitation/sincronizador.py
+
+# Reiniciar el sincronizador en PC si ya estaba corriendo en segundo plano
+taskkill //F //IM python.exe //FI "WINDOWTITLE eq *sincronizador*" 2>/dev/null || true
+python sincronitation/sincronizador.py
+
+# Liberar procesos WINWORD.EXE colgados en segundo plano (si Word se bloqueó)
+taskkill //F //IM WINWORD.EXE
+```
+
+#### En el Servidor AWS EC2 (Docker)
+```bash
+# Reiniciar únicamente el servidor Node.js (rápido, sin tocar MySQL)
+docker restart mood_app
+
+# Reiniciar la base de datos MySQL y la aplicación
+docker restart mood_db mood_app
+
+# Levantar o reconstruir contenedores usando la bóveda sellada (.env.enc)
+./scripts/env-vault.sh up
+
+# Detener todos los contenedores sin perder datos del volumen MySQL
+docker compose down
+```
+
+### 13.4 Comandos de la Bóveda de Seguridad (`.env.enc` y Windows DPAPI)
+```bash
+# Cifrar tu archivo .env local a .env.enc (AES-256-CBC + PBKDF2 600,000 iteraciones) y borrar .env plano
+node scripts/local-vault.js encrypt
+
+# Descifrar temporalmente .env.enc a .env para editar variables
+node scripts/local-vault.js decrypt
+
+# Volver a bloquear/borrar el .env plano asegurando que exista .env.enc
+node scripts/local-vault.js lock
+
+# Configurar el autoinicio en Windows (guarda la clave en Windows DPAPI de tu usuario)
+python sincronitation/sincronizador.py --configurar-autoinicio
+
+# Probar que el autoinicio Windows DPAPI descifra .env.enc en RAM correctamente
+python sincronitation/sincronizador.py --probar-autoinicio
+
+# Eliminar la clave guardada en Windows DPAPI
+python sincronitation/sincronizador.py --quitar-autoinicio
+```
+
+### 13.5 Comandos de Base de Datos MySQL y Respaldos en Google Drive (`rclone`)
+```bash
+# Ejecutar respaldo manual inmediato a Google Drive + actualizar historico_completo.json.gz + purga >30 días
+./scripts/backup.sh
+
+# Restaurar respaldo desde Google Drive solo si la base de datos está vacía
+./scripts/restore.sh --if-empty
+
+# Forzar restauración completa desde Google Drive (sobrescribe datos locales con el último backup)
+./scripts/restore.sh --force
+
+# Consultar conteo de registros actuales en MySQL local (ventana de 30 días)
+docker exec -i mood_db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root "$MYSQL_DATABASE" -e "
+SELECT \"Mood\" AS Tabla, COUNT(*) AS Registros FROM RegistrosMood
+UNION ALL SELECT \"Sleep\", COUNT(*) FROM RegistrosSleep
+UNION ALL SELECT \"Crisis\", COUNT(*) FROM RegistrosCrisis
+UNION ALL SELECT \"Agenda\", COUNT(*) FROM RegistrosAgenda
+UNION ALL SELECT \"Canciones\", COUNT(*) FROM MusicaCanciones;"'
+
+# Listar archivos de respaldo almacenados en Google Drive vía rclone
+rclone lsl gdrive:RespaldosApp
+```
+
+### 13.6 Comandos del Worker Local de PC (`sincronizador.py` y `yt-dlp`)
+```bash
+# Extraer letra limpia y metadatos de una canción de YouTube / YT Music y copiarla al portapapeles
+python sincronitation/yt_lyrics_helper.py "https://www.youtube.com/watch?v=VIDEO_ID" --clip
+
+# Extraer subtítulos en Coreano, Inglés y Español y guardarlos en archivo .txt UTF-8
+python sincronitation/yt_lyrics_helper.py "https://music.youtube.com/watch?v=VIDEO_ID" --langs ko,en,es --out letra.txt
+
+# Limpiar un archivo de subtítulos local (.vtt, .srt o .lrc) sin usar internet
+python sincronitation/yt_lyrics_helper.py --clean-file subtitulos.vtt --clip
+```
+
+### 13.7 Comandos de Pruebas, Git, Commits Desglosados y Despliegue
+```bash
+# Ejecutar la suite completa de 67 pruebas automatizadas (Sintaxis, Bóveda, API, Cripto, i18n, yt-dlp)
+npm test
+
+# Validar únicamente sintaxis rápida de Node.js y Bash
+node --check server.js && node --check public/frontend.js && bash -n scripts/*.sh
+
+# Ver estado de archivos modificados y rama actual
+git status -sb
+
+# Crear commit desglosado con título corto (<50 chars para que GitHub no lo corte) y viñetas detalladas
+git add -A && git commit \
+  -m "feat(scope): short summary under 50 chars" \
+  -m "- Detalle 1 del cambio realizado." \
+  -m "- Detalle 2 del cambio realizado."
+
+# Subir cambios a la rama actual en GitHub
+git push -u origin HEAD
+
+# Simular cálculo de siguiente versión SemVer 2.0.0 sin modificar archivos
+node scripts/release-version.js
+```

@@ -1354,6 +1354,9 @@ function showView(viewName, updateHash = true, options = {}) {
     if (currentUser && currentUser.rol === 'admin') {
         cargarRecordatoriosActivos();
     }
+    if (typeof initResponsiveTextareas === 'function') {
+        setTimeout(initResponsiveTextareas, 30);
+    }
 }
 
 if (typeof window !== 'undefined') {
@@ -9503,6 +9506,8 @@ function populateSettingsForm(settings = {}) {
     setVal('setYoutubePlatformMode', getYouTubePlatformMode());
     setVal('setTimezone', settings.timezone || 'America/Monterrey');
     setCheck('setShowWeekend', settings.agendaShowWeekend !== false);
+    setCheck('setDriveStudySyncEnabled', settings.studyDriveSyncEnabled !== false);
+    setVal('setDriveStudyDir', settings.studyDriveFolder || 'NotasIdiomas');
 
     // Multilingual & Gemini AI preferences
     const prefLang = ['en', 'ko', 'en_ko'].includes(settings.preferredStudyLanguage)
@@ -9589,7 +9594,9 @@ function collectSettingsFormPayload() {
         defaultAgendaLayout: document.getElementById('setDefaultLayout')?.value || 'auto',
         youtubePlatformMode: document.getElementById('setYoutubePlatformMode')?.value || 'auto',
         timezone: String(document.getElementById('setTimezone')?.value || 'America/Monterrey').trim(),
-        agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked)
+        agendaShowWeekend: Boolean(document.getElementById('setShowWeekend')?.checked),
+        studyDriveSyncEnabled: Boolean(document.getElementById('setDriveStudySyncEnabled')?.checked),
+        studyDriveFolder: String(document.getElementById('setDriveStudyDir')?.value || 'NotasIdiomas').trim()
     };
 
     if (pendingClearGeminiKey) {
@@ -12597,6 +12604,37 @@ function initVersionHistoryHandlers() {
 // ==========================================
 // APP INITIALIZATION
 // ==========================================
+function autoResizeTextareaElement(el) {
+    if (!el || el.hidden || el.id === 'musicSongLyricsViewer') return;
+    const minH = el.id === 'journalText' ? 220 : 92;
+    el.style.height = 'auto';
+    const nextH = Math.max(minH, el.scrollHeight + 4);
+    el.style.height = `${nextH}px`;
+}
+
+function initResponsiveTextareas() {
+    const bindAll = () => {
+        document.querySelectorAll('textarea').forEach(el => {
+            if (el.id === 'musicSongLyricsViewer') return;
+            if (el.dataset.autoResizeWired !== '1') {
+                el.dataset.autoResizeWired = '1';
+                el.addEventListener('input', () => autoResizeTextareaElement(el));
+                el.addEventListener('focus', () => autoResizeTextareaElement(el));
+                el.addEventListener('change', () => autoResizeTextareaElement(el));
+            }
+            if (!el.closest('[hidden]')) {
+                autoResizeTextareaElement(el);
+            }
+        });
+    };
+
+    bindAll();
+    if (!window.__pdhTextareasResizeWired) {
+        window.__pdhTextareasResizeWired = true;
+        window.addEventListener('resize', bindAll);
+    }
+}
+
 function initApp() {
     initTheme();
     actualizarCabecerasDeFecha();
@@ -12611,6 +12649,7 @@ function initApp() {
     initCrisisHandlers();
     initMusicEntityEditModal();
     initKeyboardShortcuts();
+    initResponsiveTextareas();
     initVersionHistoryHandlers();
     if (window.DailyHubI18n && typeof window.DailyHubI18n.onChange === 'function') {
         window.DailyHubI18n.onChange(() => refreshDynamicLanguageViews());

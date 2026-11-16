@@ -16,7 +16,7 @@
   - [7.3 Tutor IA, Memoria Persistente y Reconocimiento de Repertorio](#73-tutor-ia-memoria-persistente-y-reconocimiento-de-repertorio)
   - [7.4 Reproducción YouTube (PC), Mini Player y Ventana Flotante vs YT Music](#74-reproducción-youtube-pc-mini-player-y-ventana-flotante-vs-yt-music)
   - [7.5 Qué poner en cada campo del Registro de Canciones y Álbumes](#75-qué-poner-en-cada-campo-del-registro-de-canciones-y-álbumes)
-  - [7.6 Navegador Interactivo, CRUD de Álbumes y Letras con yt-dlp](#76-navegador-interactivo-crud-de-álbumes-y-letras-con-yt-dlp)
+  - [7.6 Carpetas Estilo Windows 11, CRUD de Álbumes y Visor de Letras por Idiomas](#76-carpetas-estilo-windows-11-crud-de-álbumes-y-visor-de-letras-por-idiomas)
 - [8. Agenda Semanal y Flujo de Trabajo Jira](#8-agenda-semanal-y-flujo-de-trabajo-jira)
 - [9. Horario ITS (Salones, Semestres, Vacaciones), Residencias, Trabajo y GPS](#9-horario-its-salones-semestres-vacaciones-residencias-trabajo-y-gps)
 - [10. Resumen Semanal y Gestión de Acceso a Psiquiatra](#10-resumen-semanal-y-gestión-de-acceso-a-psiquiatra)
@@ -76,9 +76,9 @@ Accede desde **`⚠️ Crisis Log`** en el menú lateral o desde la tarjeta en *
 | --- | --- |
 | **Date (Fecha)** | Fecha en que ocurrió la crisis (se llena automáticamente con hoy). |
 | **Time (Hora exacta)** | Hora exacta en formato normal (`HH:MM`). Usa el botón **`⏱️ Now`** para capturar el minuto exacto actual en 1 clic. |
-| **Crisis Type (Tipo de episodio)** | Elige el botón correspondiente: `😣 Estrés`, `😠 Ira / Rabia`, `😰 Ansiedad`, `🫨 Pánico`, `😢 Llanto / Sobrecarga`, `🧱 Bloqueo / Saturación`, `🌘 Insomnio / Agitación` o `📝 Otro`. |
+| **Crisis Type (Tipo de episodio)** | Elige el botón correspondiente: `😣 Estrés`, `😠 Ira / Rabia`, `😰 Ansiedad`, `🫨 Pánico`, `😢 Llanto / Sobrecarga`, `🧱 Bloqueo / Saturación`, `🌘 Insomnio / Agitación`, `😔 Tristeza / Desánimo`, `😤 Frustración / Impotencia`, `🪫 Agotamiento Mental` o `📝 Otro`. Si eliges **`📝 Otro`**, aparece automáticamente un campo corto para especificar con exactitud qué emoción sentiste o qué pasó (máx. 80 caracteres). |
 | **Intensity Level (Intensidad 1–5)** | Escala del `1 · Leve` al `5 · Severa`. |
-| **Reason / Context in Spanish (Motivo)** | Escribe en español qué detonó la crisis, cómo te sentiste y si algo ayudó a calmarla (máx. 1000 caracteres). **Atajo rápido**: presiona `Ctrl + Enter` dentro del cuadro para guardar al instante. |
+| **Reason / Context in Spanish (Motivo)** | Campo opcional en español (con contador en vivo, **máx. 250 caracteres** para mantener ligera la BD) donde puedes describir brevemente qué detonó la crisis o cómo te sentiste. La caja crece automáticamente mientras escribes (`Ctrl + Enter` guarda al instante). |
 
 - En el panel derecho (**Recent Crisis Log**) puedes consultar tus episodios recientes y eliminar un registro si lo capturaste por error.
 - Tu **psiquiatra o psicóloga** verá automáticamente todas las crisis de la semana seleccionada dentro de **`📈 Weekly Summary -> ⚠️ Crisis & Episode Log`** en **modo solo lectura**.
@@ -212,26 +212,28 @@ En la tarjeta **`Register or Link Song`** (pestaña **`🎵 Music & Songs`**):
 > [!TIP]
 > También puedes usar el buscador superior **Song Finder** (escribe artista y canción y presiona **`Enter`**): abre resultados sin tocar tus playlists y muestra tarjetas con el botón **Select Song** para llenar el enlace al instante.
 
-### 7.6 Navegador Interactivo, CRUD de Álbumes y Letras con yt-dlp
+### 7.6 Carpetas Estilo Windows 11, CRUD de Álbumes y Visor de Letras por Idiomas
 
-Justo arriba de las tarjetas del catálogo verás el **Explorador de Repertorio en 3 columnas**:
-1. **Columna 1 (`🎤 Artists`)**: mueve el cursor encima de cualquier artista para previsualizar sus lanzamientos al instante, o haz **clic** para fijarlo y autocompletar el campo `Main Artist` (y su formato) si vas a agregar otra canción suya.
-2. **Columna 2 (`💿 Albums / Releases`)**: mueve el cursor o haz **clic** sobre cualquier álbum, mini álbum o `Standalone Singles` para filtrar sus canciones (al hacer clic también pre-llena Álbum, Tipo y Año en el formulario si no estás editando).
-3. **Columna 3 (`🎵 Songs`)**: haz **clic** en la canción deseada (o haz **clic directamente en cualquier tarjeta** de la lista inferior) para seleccionarla en **`Song Study Notes -> Encrypted Word (PC)`** y activar su contexto en el **Tutor IA**.
+En el catálogo verás **carpetas visuales estilo Windows 11** organizadas jerárquicamente (`Artista → Álbum → Canciones`) con miniatura de portada:
+1. **Carpetas de Artistas:** haz **clic** en la carpeta amarilla de cualquier artista para desplegar sus álbumes, sencillos y botones rápidos (`💿 + Álbum`, `➕ Agregar Canción`, `✏️ Editar Artista`).
+2. **Carpetas de Álbumes / Lanzamientos:** haz **clic** en un álbum, mini álbum o `Sencillos y Pistas Sueltas` para desplegar sus canciones ordenadas por número de pista (o pulsa `▲ Cerrar Carpeta` para contraerla).
+3. **Selección para estudio:** haz **clic** en cualquier canción o en **`Study -> Word`** para abrir su reproductor y el visor de letras en **`Song Study Notes -> Encrypted Word (PC)`**.
 
 **Cómo crear y editar canciones, artistas o álbumes (CRUD completo):**
-- **Crear Álbum o Mini Álbum desde cero:** haz clic en **`💿 + New Album / Mini Album`** (o **`+ New Album`** junto al campo de álbum) para registrar título, artista principal, tipo (`Album`, `Mini Album`, `EP`, `Single`, `Collab Single`, `OST`), año y notas. Luego en cualquier álbum puedes tocar **`+ Add Song`** para agregar pistas directamente a ese lanzamiento.
-- **Editar Canción:** haz clic en el botón **`Edit`** de la tarjeta de la canción o **`✏️ Edit Song / Link`** en la barra de estudio para cambiar título, enlace de YouTube/YT Music, Track #, idioma, colaboradores o álbum.
-- **Editar Artista:** haz clic en **`✏️ Edit Artist`** junto al nombre del artista para corregir su nombre, cambiar su formato (`Group`, `Solo Artist`, `Duo`, `Collab Unit`) o agregar notas en todas sus canciones al instante.
-- **Editar o Eliminar Álbum:** haz clic en **`✏️ Edit Album`** junto al lanzamiento para modificar título, tipo o año, o en **`🗑️`** para eliminarlo (las canciones asociadas pasan limpiamente a `Standalone Singles` sin perderse).
+- **Crear Álbum o Mini Álbum desde cero:** haz clic en **`💿 + New Album / Mini Album`** (o **`+ New Album`** junto al campo de álbum) para registrar título, artista principal, tipo (`Album`, `Mini Album`, `EP`, `Single`, `Collab Single`, `OST`), año y notas. Luego en cualquier álbum puedes tocar **`➕ Agregar Canción`** para agregar pistas directamente a ese lanzamiento.
+- **Editar Canción:** haz clic en el botón **`Edit`** de la fila de la canción o **`✏️ Edit Song / Link`** en la barra de estudio para cambiar título, enlace de YouTube/YT Music, Track #, idioma, colaboradores o álbum.
+- **Editar Artista:** haz clic en **`✏️ Editar Artista`** dentro de la carpeta del artista para corregir su nombre, cambiar su formato (`Group`, `Solo Artist`, `Duo`, `Collab Unit`) o agregar notas en todas sus canciones al instante.
+- **Editar o Eliminar Álbum:** haz clic en **`✏️ Editar Álbum`** junto al lanzamiento para modificar título, tipo o año, o en **`Delete`** para eliminar una canción del catálogo sin perder tus notas locales en Word.
 
-**Apartado dedicado de Letra en Word PC (0 KB en BD), Selector de Álbum/Pistas y Auto-registro IA:**
+**Visor de Letra en Solo Lectura (Completo por Idiomas) y Traducción Automática a Word:**
 En **`Song Study Notes -> Encrypted Word (PC)`**:
-- **Panel `📄 Letra en Word PC (E2EE · 0 KB en BD)`:** al seleccionar cualquier canción se muestra el selector rápido del álbum o lista ordenada por número de pista (**`01.`**, **`02.`**, etc.) y el indicador del puente PC (`🟢 PC online · Word sync` o `☁️ PC offline · Cola RAM EC2`):
-  - Presiona **`🎙️ Cargar / Extraer letra (PC yt-dlp)`** para que la app consulte cifradamente (**E2EE + HMAC**) a tu PC vía RAM: si la letra ya está en `English_Learning_Notebook.docx` la carga al instante; si aún no existe, tu PC ejecuta automáticamente `yt-dlp` local (`YT_DLP_PATH`), la organiza dentro de **Sección 4 → Álbum/Lista → Pista ordenada** en Word y te la muestra en pantalla sin guardar nada en MySQL. Si tu PC está apagada, usa la extracción temporal en RAM del servidor y deja la nota cifrada en la RAM de EC2 lista para guardarse cuando enciendas tu PC.
-  - Presiona **`📝 Guardar letra a Word (PC)`** para enviar cambios manuales cifrados E2EE hacia Word PC, **`🌐 Traducir`** para traducir cualquier fragmento sombreado, o **`⬇ Pasar a Breakdown / IA`** para analizarla línea por línea.
-- **Auto-registro de aprendizaje IA en Word PC:** tanto en **`✨ AI Language Tutor`** como en **`✨ Explain Lyrics & Romanize (AI)`**, la casilla **`☁️ Registrar automáticamente en Word PC`** envía al instante las explicaciones, romanización y vocabulario generados por la IA directamente hacia tu Word (fusionándolos bajo la misma pista sin borrar la letra original), o los conserva cifrados E2EE en la RAM de EC2 mientras tu PC está desconectada.
-- **Desde archivo o comando `yt-dlp` local (PC):** también puedes importar manualmente `.srt/.vtt/.lrc` con **`📥 Import .srt/.vtt/.lrc`**, limpiar tiempos con **`🧹 Clean Timestamps`** o copiar el comando CLI con **`💻 yt-dlp (PC)`**.
+- **Panel `📄 Letra en Word PC (Solo Lectura · Completa por Idiomas)`:** al seleccionar cualquier canción se muestra el selector rápido del álbum o lista ordenada por número de pista (**`01.`**, **`02.`**, etc.) y el indicador en tiempo real del puente PC (`🟢 PC en línea · Sync Word` o `☁️ PC desconectada · Cola RAM EC2`):
+  - **Visor sin recortes ni scroll atrapado:** la letra se muestra completa en modo **100 % solo lectura** y dividida automáticamente por bloques de idioma (`🇺🇸 Inglés`, `🇰🇷 Coreano + Romanización`, `🇪🇸 Español`) usando el filtro superior (`🌐 Todos los Idiomas`, `🇺🇸 Solo Inglés`, `🇰🇷 Solo Coreano`, `🇪🇸 Solo Español`).
+  - Presiona **`📄 Extraer Letra`**: antes de encolar nada, la app verifica en tiempo real (`< 150 ms`) si tu PC está encendida y `sincronizador.py` está conectado. Si la PC está apagada, bloquea la extracción al instante para no saturar la cola; si está conectada, consulta cifradamente (**E2EE + HMAC**) a `English_Learning_Notebook.docx` (o extrae con `yt-dlp` local en Windows usando `YT_DLP_PATH`) y organiza la letra bajo **Sección 4 → Álbum/Lista → Pista ordenada**.
+  - Presiona **`🇪🇸 Traducir Canción a Español`**: traduce la canción completa al español (o toma los subtítulos `[ES]` si ya venían), anexa el bloque en español **al final del visor** y lo guarda automáticamente con cifrado E2EE en `English_Learning_Notebook.docx` (opcionalmente respaldado a una segunda nube `STUDY_RCLONE_REMOTE` sin tocar jamás `Journal.docx`).
+  - Selecciona cualquier frase con el mouse o el dedo y pulsa **`🌐 Traductor Rápido`** para abrirla en el traductor flotante, o pulsa **`✨ Analizar Estrofas con IA`** para desglosar la canción línea por línea en el módulo inferior.
+- **Auto-registro de aprendizaje IA en Word PC:** tanto en **`✨ AI Language Tutor`** como en **`✨ Desglosar por Estrofas (IA)`**, la casilla **`☁️ Registrar automáticamente en Word PC`** envía al instante las explicaciones, romanización y vocabulario generados por la IA directamente hacia tu Word (fusionándolos bajo la misma pista sin borrar la letra original), o los conserva cifrados E2EE en la RAM de EC2 mientras tu PC está desconectada.
+- **Desde archivo o comando `yt-dlp` local (PC):** también puedes limpiar marcas de tiempo con **`🧹 Limpiar Texto`** o usar el modo de importación/comando local. Todas las cajas de texto de notas de estudio crecen automáticamente conforme escribes sin barras de scroll pequeñas.
 
 ---
 
@@ -246,8 +248,9 @@ Accede desde **`🗓️ Weekly Agenda`**. Qué poner en cada campo:
 | **Linked university class** | Visible **solo** al elegir `🎓 University` (oculto y limpiado automáticamente en `👤 Personal`). Vincula tus tareas o entregas con una materia de tu semestre actual (ITS) para que la tarjeta muestre su etiqueta con el nombre de la clase (`🎓 Nombre de la clase`) y permita filtrar la semana por materia. |
 | **Date** & **Time** | Al cambiar la hora en **`Time`**, el sistema **selecciona automáticamente el bloque del día (`Time block`)** (`Morning` 05:00–11:59, `School / University` 12:00–15:59, `Afternoon` 16:00–19:59, `Night` 20:00–04:59). |
 | **Workflow status (Jira)** | `To Do`, `In Progress` o `Done` (avanza estados desde las tarjetas semanales o usa el modo Kanban). |
-| **Title / Activity Tag** & **Description** | Separa el título corto de la descripción detallada. Ambos cuadros cuentan con validación en tiempo real de **ortografía y gramática en inglés estilo Microsoft Word** (subrayado de sugerencias y corrección con un clic). |
-| **Phone Reminder** | Elige cuántos minutos antes quieres recibir aviso en tu celular vía `ntfy`. |
+| **Clasificación / Alcance & Repetición** | Elige entre `Actividad / Tarea Estándar`, `📚 Proyecto / Tarea Larga Compleja` (recordatorios de hasta **7 días antes**) o `🗣️ Lección de Idiomas` (15 min antes). Además, puedes configurar **tareas repetitivas** (`Repetir cada X días` y número de repeticiones hasta 12 sesiones). |
+| **Title / Activity Tag** & **Description** | Separa el título corto de la descripción detallada (caja de texto oscura auto-ajustable). Ambos cuadros cuentan con validación en tiempo real de **ortografía y gramática en inglés estilo Microsoft Word** (subrayado de sugerencias y corrección con un clic). |
+| **Phone Reminder** | Elige cuántos minutos/horas/días antes quieres recibir aviso en tu celular vía `ntfy`. |
 
 ---
 
@@ -258,7 +261,7 @@ Accede desde **`🎓 ITS, Residencias & Work`**. Permite planificar tu carrera e
 1. **Semestres y Periodo de Vacaciones (Tabs `🎓 ITS Semester & Croquis` y `🏖️ Vacations & Breaks`)**:
    - Define tu semestre activo (fecha de inicio y fin) y registra rangos de **vacaciones / días inhábiles** (`Period Name` + fechas). Durante vacaciones o días marcados, no te enviará falsas alertas de primera clase.
 2. **Horario de Clases por Salón (`Add / Edit ITS Class`)**:
-   - Selecciona días de la semana, hora de inicio/fin en formato normal (`HH:MM`), **Clave de materia** (ej. `ACA0910`), **Nombre**, **Docente** y **Salón ITS** (`R02`, `R11`, `N21`, Lab, etc. con detección automática de edificio/campus según el croquis oficial). También puedes cargar al instante tus materias base con **⚡ Load MindBox 9th Sem Preset** y editar cualquier clase con **`Edit`**.
+   - Selecciona días de la semana, hora de inicio/fin en formato normal (`HH:MM`), **Clave de materia** (ej. `ACA0910`), **Nombre**, **Docente** y **Salón ITS** (`R02`, `R11`, `N21`, Lab, etc. con detección automática de edificio/campus y **coordenadas exactas de acceso sobre bulevares principales** para los 3 Campus: **`Principal CTO-002`**, **`Miravalle CTO-003`** y **`Boillot/Sistemas CTO-004`**). También puedes cargar al instante tus materias base con **⚡ Load MindBox 9th Sem Preset** y editar cualquier clase con **`Edit`**.
 3. **Residencias Profesionales (Tab `🏢 Residencias Profesionales`)**:
    - Registra tu empresa, proyecto, asesor interno/externo, horario, avance de las 500 horas y ubicación para alertas de traslado.
 4. **Horario Laboral (Tab `💼 Work (Full / Part-Time)`)**:
@@ -281,9 +284,11 @@ Accede desde **`🎓 ITS, Residencias & Work`**. Permite planificar tu carrera e
 ## 10. Resumen Semanal y Gestión de Acceso a Psiquiatra
 
 - **`📈 Weekly Summary`**:
+  - **Calendario visual y navegación semanal (`#resumenCalendarioDia`):** elige cualquier día en el calendario (o navega con **`◀ Semana Ant.`**, **`Hoy`** y **`Semana Sig. ▶`**) para visualizar automáticamente toda la semana correspondiente (Domingo a Sábado).
+  - **Retención de 1 mes en servidor + Historial Drive en RAM:** la base de datos local conserva el último mes (30 días) para mantener rápida y ligera la instancia AWS. Si tú o tu psiquiatra necesitan revisar periodos más largos, el selector **`☁️ Drive: Últimos 3 / 6 / 12 meses`** + botón **`☁️ Extraer Historial de Drive (RAM)`** descarga temporalmente el archivo acumulado de Google Drive directo a memoria RAM sin llenar el disco.
   - Muestra la matriz de colores del **Mood** por día y los 5 bloques del día.
   - Muestra tarjetas diarias de **Sueño y Desvelos** con duración total en horas y minutos (`5h 30m` o `0h 00m`), indicador especial **`🦉 3:00 AM`** / **`⚡ Desvelo total`** cuando hubo desvelo o trasnoche, y la lista detallada **`🦉 Bedtimes, Desvelos & Late-Night Details`** con hora exacta de dormir/despertar, calidad y motivo opcional (**visible en solo lectura para tu psiquiatra/psicóloga**).
-  - Muestra la lista completa de **`⚠️ Crisis & Episode Log`** de esa semana con fecha, hora, tipo, intensidad (`1/5`–`5/5`) y motivo en español. **Tanto tú como tu psiquiatra/psicóloga** pueden revisarla aquí.
+  - Muestra la lista completa de **`⚠️ Crisis & Episode Log`** de esa semana con fecha, hora, tipo, intensidad (`1/5`–`5/5`) y motivo breve en español. **Tanto tú como tu psiquiatra/psicóloga** pueden revisarla aquí.
 - **`🩺 Psychiatrist Access`** *(Solo Admin)*:
   - Llena `Doctor's name`, `Doctor's email address` y `Assigned password` (mín. 8 caracteres con letras y números) y guarda para generar el acceso de solo lectura.
   - Desde la lista inferior puedes **Suspender / Reactivar** el acceso clínico al instante (cierra de inmediato todas sus sesiones activas en `SesionesAuth`).
@@ -304,7 +309,7 @@ Accede desde **`⚙️ Settings & Reminders`**:
 3. En la app **`ntfy`** de tu celular:
    - Toca el botón **`+`** (`Subscribe to topic`).
    - Pega exactamente tu **Topic name** (`hub_personal_...`) y toca **Subscribe** (sin cambiar `Use another server`, usando `ntfy.sh`).
-4. Vuelve a Daily Hub y haz clic en **`Save All Settings`** primero y luego en **`🔔 Send Test to Phone`**. Deberías recibir la alerta con botones interactivos (`Open`, `Snooze 15m`, etc.) en segundos.
+4. Vuelve a Daily Hub y haz clic en **`Save All Settings`** primero y luego en **`🔔 Send Test to Phone`**. Deberías recibir la alerta con botones interactivos (**`Open App`**, **`Snooze 15m`**, **`Snooze 30m`**, **`Mark Done`**) firmados de forma persistente para funcionar al primer toque incluso si el servidor se reinició tras un despliegue.
 
 ### B) Cifrado de Transporte de Red (`Simulated HTTPS: X25519 + AES-256-CTR + HMAC-SHA256`):
 Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes sensibles entre tu navegador y el servidor se encapsulan dentro de un túnel criptográfico equivalente a TLS:
@@ -352,4 +357,4 @@ Aunque la IP pública de EC2 opere sobre HTTP puerto `3000`, todos los paquetes 
 - **📄 Creación Automática del Word de Idiomas vs Journal:**
   - **`English_Learning_Notebook.docx` (`ENGLISH_WORD_FILE_PATH` o `english-notes/English_Learning_Notebook.docx`)**: si no existe todavía en esa ruta al enviar o extraer algo, `sincronizador.py` **lo crea automáticamente** junto con su carpeta, portada, **Tabla de Contenidos** y sus 4 secciones (`1. Glossary & New Words`, `2. Grammar & Usage Notes`, `3. Phrasal Verbs`, `4. Songs & Music Study`).
   - **Journal `.docx` (`WORD_FILE_PATH` con contraseña):** por integridad y seguridad de contraseña, **debe existir previamente** en tu PC (el script no crea ni sobrescribe un `.docx` diario nuevo con contraseña).
-  - Para comandos exactos de **reinicio del Python local** y configuración de **arranque tras apagar/reiniciar tu PC**, consulta la [Guía de Operación, Secciones 2 y 10](./GUIA_OPERACION_Y_MIGRACION.md#10-renombrar-repositorio-autoinicio-y-reiniciar-python-local).
+  - Para comandos exactos de **reinicio del Python local** y configuración de **arranque tras apagar/reiniciar tu PC**, consulta la [Guía de Operación, Secciones 2 y 10](./GUIA_OPERACION_Y_MIGRACION.md#10-renombrar-repositorio-autoinicio-y-reiniciar-python-local), o abre directamente el catálogo completo en la [Guía Rápida de Comandos](./GUIA_COMANDOS_RAPIDOS.md).
