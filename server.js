@@ -7,6 +7,7 @@ const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { Readable } = require('node:stream');
@@ -82,6 +83,22 @@ app.use(cors({
     exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
 }));
 app.use(express.json({ limit: '512kb' }));
+app.use(express.text({ type: ['text/plain', 'text/*'], limit: '64kb' }));
+app.use((req, _res, next) => {
+    if (typeof req.body === 'string') {
+        const trimmed = req.body.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+                req.body = JSON.parse(trimmed);
+            } catch (_) {
+                req.body = {};
+            }
+        } else {
+            req.body = {};
+        }
+    }
+    next();
+});
 app.use((err, req, res, next) => {
     if (err && err.type === 'entity.parse.failed') {
         return res.status(400).send('Invalid JSON payload.');
@@ -3623,6 +3640,8 @@ function getDefaultUserSettings() {
         preferredStudyLanguage: 'en_ko',
         geminiModel: 'gemini-2.5-flash',
         geminiApiKey: '',
+        studyDriveSyncEnabled: true,
+        studyDriveFolder: String(process.env.STUDY_RCLONE_DIR || 'NotasIdiomas').trim(),
         languageMemory: sanitizeLanguageMemory(),
         academicPlanner: getDefaultAcademicPlanner()
     };
@@ -3845,6 +3864,14 @@ function validateUserSettingsPayload(input = {}, base = getDefaultUserSettings()
             return { error: 'Gemini API key exceeds maximum allowed length (180 characters).' };
         }
         next.geminiApiKey = rawKey;
+    }
+
+    if (input.studyDriveSyncEnabled !== undefined) {
+        next.studyDriveSyncEnabled = Boolean(input.studyDriveSyncEnabled);
+    }
+    if (typeof input.studyDriveFolder === 'string') {
+        const cleanFolder = input.studyDriveFolder.trim().replace(/[\\:*?"<>|]/g, '').slice(0, 80);
+        if (cleanFolder) next.studyDriveFolder = cleanFolder;
     }
 
     if (input.languageMemory !== undefined) {
@@ -4343,20 +4370,60 @@ function buildPublicBaseUrlForUser(settings, req = null) {
     return '';
 }
 
-function signReminderActionToken(payload) {
-    return signMfaChallenge({
-        ...payload,
-        purpose: 'reminder_action',
-        exp: Date.now() + 12 * 60 * 60 * 1000
-    });
+function getReminderActionSecrets() {
+    const persistent = [
+        process.env.ADMIN_SECRET,
+        process.env.JOURNAL_SECRET_KEY,
+        process.env.DB_PASS,
+        'daily-hub-ntfy-reminder-action-v1'
+    ].filter(Boolean).join('|');
+
+    const secrets = [persistent];
+    if (typeof MFA_HMAC_SECRET === 'string' && MFA_HMAC_SECRET && !secrets.includes(MFA_HMAC_SECRET)) {
+        secrets.push(MFA_HMAC_SECRET);
+    }
+    if (typeof SESSION_SECRET === 'string' && SESSION_SECRET && !secrets.includes(SESSION_SECRET)) {
+        secrets.push(SESSION_SECRET);
+    }
+    if (typeof MFA_SECRET === 'string' && MFA_SECRET && !secrets.includes(MFA_SECRET)) {
+        secrets.push(MFA_SECRET);
+    }
+    return secrets;
 }
 
-function verifyReminderActionToken(token) {
-    const parsed = verifyMfaChallenge(token);
-    if (!parsed || parsed.purpose !== 'reminder_action' || !parsed.reminderKey || !parsed.action) {
-        return null;
+function signReminderActionToken(userId, reminderKey) {
+    const uid = String(userId ?? '').trim();
+    const key = String(reminderKey ?? '').trim();
+    const primarySecret = getReminderActionSecrets()[0];
+    return crypto
+        .createHmac('sha256', primarySecret)
+        .update(`reminder-action:${uid}:${key}`)
+        .digest('hex');
+}
+
+function verifyReminderActionToken(userId, reminderKey, token) {
+    if (typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token.trim())) {
+        return false;
     }
-    return parsed;
+    const cleanToken = token.trim().toLowerCase();
+    const providedBuf = Buffer.from(cleanToken, 'hex');
+    const uidCandidates = Array.from(new Set([String(userId ?? '').trim(), '1'])).filter(Boolean);
+    const key = String(reminderKey ?? '').trim();
+    if (!key) return false;
+
+    for (const sec of getReminderActionSecrets()) {
+        for (const uid of uidCandidates) {
+            const expectedHex = crypto
+                .createHmac('sha256', sec)
+                .update(`reminder-action:${uid}:${key}`)
+                .digest('hex');
+            const expectedBuf = Buffer.from(expectedHex, 'hex');
+            if (expectedBuf.length === providedBuf.length && crypto.timingSafeEqual(expectedBuf, providedBuf)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }) {
@@ -4427,54 +4494,62 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
         }
 
         if (reminder.canSnooze && userId && reminder.key && reminder.type !== 'test') {
-            const snooze15Token = signReminderActionToken({
-                userId,
-                reminderKey: reminder.key,
-                type: reminder.type,
-                refId: reminder.refId || null,
-                action: 'snooze',
-                mins: 15
-            });
-            actions.push({
-                action: 'http',
+            const actionToken = signReminderActionToken(userId, reminder.key);
+            const buildNtfyHttpAction = ({ label, actionName, minutes = 0, clear = true }) => {
+                const actionPayload = {
+                    userId,
+                    key: reminder.key,
+                    action: actionName,
+                    minutes,
+                    type: reminder.type || 'general',
+                    refId: reminder.refId || null,
+                    title: reminder.title || '',
+                    message: reminder.message || '',
+                    token: actionToken
+                };
+                const actionQs = new URLSearchParams({
+                    userId: String(userId),
+                    key: String(reminder.key || ''),
+                    action: String(actionName),
+                    minutes: String(minutes),
+                    type: String(reminder.type || 'general'),
+                    ...(reminder.refId ? { refId: String(reminder.refId) } : {}),
+                    token: String(actionToken)
+                }).toString();
+
+                return {
+                    action: 'http',
+                    label,
+                    url: `${baseUrl}/api/reminders/action?${actionQs}`,
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(actionPayload),
+                    clear
+                };
+            };
+
+            actions.push(buildNtfyHttpAction({
                 label: 'Snooze 15m',
-                url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(snooze15Token)}`,
-                method: 'POST',
+                actionName: 'snooze',
+                minutes: 15,
                 clear: true
-            });
+            }));
 
             if (actions.length < 3) {
                 if (reminder.canComplete && reminder.refId) {
-                    const doneToken = signReminderActionToken({
-                        userId,
-                        reminderKey: reminder.key,
-                        type: reminder.type,
-                        refId: reminder.refId,
-                        action: 'complete'
-                    });
-                    actions.push({
-                        action: 'http',
+                    actions.push(buildNtfyHttpAction({
                         label: 'Mark Done',
-                        url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(doneToken)}`,
-                        method: 'POST',
+                        actionName: 'complete_agenda',
+                        minutes: 0,
                         clear: true
-                    });
+                    }));
                 } else {
-                    const snooze30Token = signReminderActionToken({
-                        userId,
-                        reminderKey: reminder.key,
-                        type: reminder.type,
-                        refId: reminder.refId || null,
-                        action: 'snooze',
-                        mins: 30
-                    });
-                    actions.push({
-                        action: 'http',
+                    actions.push(buildNtfyHttpAction({
                         label: 'Snooze 30m',
-                        url: `${baseUrl}/api/reminders/action?token=${encodeURIComponent(snooze30Token)}`,
-                        method: 'POST',
+                        actionName: 'snooze',
+                        minutes: 30,
                         clear: true
-                    });
+                    }));
                 }
             }
         }
@@ -5522,49 +5597,99 @@ app.post('/api/reminders/snooze', apiWriteLimiter.middleware, requireAdmin, requ
     }
 });
 
-app.post('/api/reminders/action', reminderActionLimiter.middleware, async (req, res) => {
-    const token = String((req.query && req.query.token) || (req.body && req.body.token) || '').trim();
-    const parsed = verifyReminderActionToken(token);
-    if (!parsed) {
-        return res.status(401).send('Invalid or expired reminder action token.');
-    }
+const handleReminderExternalAction = async (req, res) => {
+    const src = {
+        ...(req.query || {}),
+        ...(req.body && typeof req.body === 'object' ? req.body : {})
+    };
+    const userId = parsePositiveInt(src.userId, 1);
+    const key = typeof src.key === 'string' ? src.key.trim() : '';
+    const token = typeof src.token === 'string' ? src.token.trim() : '';
+    const action = typeof src.action === 'string' ? src.action.trim().toLowerCase() : 'snooze';
+    const minutes = src.minutes !== undefined ? Number(src.minutes) : 15;
+    const type = typeof src.type === 'string' && src.type.trim() ? src.type.trim().slice(0, 30) : 'general';
+    const refId = parsePositiveInt(src.refId, null);
+    const title = typeof src.title === 'string' && src.title.trim() ? src.title.trim().slice(0, 140) : 'Reminder';
+    const message = typeof src.message === 'string' ? src.message.trim().slice(0, 320) : '';
 
     try {
-        const userRows = await dbQueryAsync('SELECT id, rol, estado FROM Usuarios WHERE id = ? LIMIT 1', [parsed.userId]);
+        let authorized = verifyReminderActionToken(userId, key, token);
+        let effectiveUserId = userId;
+
+        if (!authorized && req.headers && req.headers.cookie) {
+            const cookies = parseCookies(req);
+            const rawCookieToken = cookies.mt_session;
+            if (rawCookieToken && rawCookieToken.length >= 32) {
+                const tokenHash = sha256Hex(rawCookieToken);
+                const nowSql = formatMySqlDateTime(new Date());
+                const sessRows = await dbQueryAsync(
+                    `SELECT s.id AS sesion_id, s.expira_en, u.id, u.nombre, u.email, u.rol, u.estado
+                     FROM SesionesAuth s
+                     INNER JOIN Usuarios u ON u.id = s.usuario_id
+                     WHERE s.token_hash = ? AND s.expira_en > ?
+                     LIMIT 1`,
+                    [tokenHash, nowSql]
+                );
+                if (sessRows && sessRows.length > 0 && (sessRows[0].estado || 'activo') === 'activo' && sessRows[0].rol === 'admin') {
+                    authorized = true;
+                    effectiveUserId = Number(sessRows[0].id);
+                }
+            }
+        }
+
+        if (!authorized) {
+            return res.status(401).send('Invalid or expired reminder action token.');
+        }
+
+        if (!key || key.length > 120) {
+            return res.status(400).send('Invalid reminder key.');
+        }
+
+        const userRows = await dbQueryAsync('SELECT id, rol, estado FROM Usuarios WHERE id = ? LIMIT 1', [effectiveUserId]);
         if (!userRows || userRows.length === 0 || (userRows[0].estado || 'activo') !== 'activo' || userRows[0].rol !== 'admin') {
             return res.status(403).send('Account not authorized for this action.');
         }
 
-        if (parsed.action === 'complete' && parsed.refId) {
-            await dbQueryAsync("UPDATE RegistrosAgenda SET estado = 'done', completada = 1 WHERE id = ?", [parsed.refId]);
+        if ((action === 'complete_agenda' || action === 'complete') && refId) {
+            await dbQueryAsync("UPDATE RegistrosAgenda SET estado = 'done', completada = 1 WHERE id = ?", [refId]);
             await applyReminderSnoozeOrDismiss({
-                userId: parsed.userId,
-                key: parsed.reminderKey,
-                type: parsed.type || 'agenda',
-                refId: parsed.refId,
-                action: 'dismiss'
+                userId: effectiveUserId,
+                key,
+                type: type || 'agenda',
+                refId,
+                action: 'dismiss',
+                title,
+                message
             });
-            return res.json({ message: 'Agenda item marked as Done.', id: parsed.refId });
+            return res.json({ ok: true, action: 'complete_agenda', key, refId, message: 'Agenda item marked as Done.' });
         }
 
-        if (parsed.action === 'snooze') {
-            const result = await applyReminderSnoozeOrDismiss({
-                userId: parsed.userId,
-                key: parsed.reminderKey,
-                type: parsed.type || 'general',
-                refId: parsed.refId || null,
-                action: 'snooze',
-                minutes: Number(parsed.mins || 15)
-            });
-            return res.json({ message: `Postponed for ${result.minutes} minutes.`, ...result });
-        }
-
-        return res.status(400).send('Unsupported reminder action.');
+        const result = await applyReminderSnoozeOrDismiss({
+            userId: effectiveUserId,
+            key,
+            type,
+            refId,
+            action: action === 'dismiss' ? 'dismiss' : 'snooze',
+            minutes,
+            title,
+            message
+        });
+        return res.json({
+            ok: true,
+            key,
+            message: result.action === 'dismissed'
+                ? 'Reminder dismissed.'
+                : `Postponed for ${result.minutes} minutes.`,
+            ...result
+        });
     } catch (err) {
         console.error(err);
-        return res.status(500).send('Error processing reminder action.');
+        return res.status(500).send('Error applying reminder action.');
     }
-});
+};
+
+app.post('/api/reminders/action', reminderActionLimiter.middleware, handleReminderExternalAction);
+app.get('/api/reminders/action', reminderActionLimiter.middleware, handleReminderExternalAction);
 
 // =========================================================================
 // APRENDIZAJE DE INGLÉS CON MÚSICA (SÓLO METADATOS EN MYSQL + YOUTUBE MUSIC)
@@ -6638,6 +6763,98 @@ app.get('/api/english/music/pc-jobs/:jobId', apiReadLimiter.middleware, requireA
         status: job.status,
         pcOnline: isPcBridgeOnline()
     });
+});
+
+app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, verifyPcBridgeAuth, async (req, res) => {
+    const rawBlob = req.body && typeof req.body.encryptedResult === 'string'
+        ? req.body.encryptedResult.trim()
+        : '';
+    if (!rawBlob || rawBlob.length > 480000) {
+        return res.status(400).json({ ok: false, error: 'Invalid or oversized Word payload.' });
+    }
+
+    let settings = getDefaultUserSettings();
+    try {
+        const adminRows = await dbQueryAsync("SELECT id FROM Usuarios WHERE rol = 'admin' ORDER BY id ASC LIMIT 1");
+        const targetUid = (adminRows && adminRows[0] && adminRows[0].id) ? Number(adminRows[0].id) : 1;
+        settings = await loadUserSettings(targetUid);
+    } catch (_) {}
+
+    if (settings.studyDriveSyncEnabled === false) {
+        return res.json({ ok: true, skipped: true, reason: 'disabled_in_settings' });
+    }
+
+    const remoteName = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
+    const folderName = String(settings.studyDriveFolder || process.env.STUDY_RCLONE_DIR || 'NotasIdiomas')
+        .trim()
+        .replace(/^\/+|\/+$/g, '') || 'NotasIdiomas';
+    const homeDir = process.env.HOME || process.env.USERPROFILE || '/home/ubuntu';
+    const rcloneConf = process.env.RCLONE_CONFIG || path.join(homeDir, '.config', 'rclone', 'rclone.conf');
+
+    let docxBuffer = null;
+    try {
+        // Desempaquetar Base64 del .docx enviado por sincronizador.py
+        const parsed = JSON.parse(Buffer.from(rawBlob, 'base64').toString('utf8'));
+        if (parsed && typeof parsed.docxB64 === 'string') {
+            docxBuffer = Buffer.from(parsed.docxB64, 'base64');
+        }
+    } catch (_) {
+        try {
+            docxBuffer = Buffer.from(rawBlob, 'base64');
+        } catch (_e) {
+            docxBuffer = null;
+        }
+    }
+
+    if (!docxBuffer || docxBuffer.length < 64 || docxBuffer[0] !== 0x50 || docxBuffer[1] !== 0x4b) {
+        return res.status(400).json({ ok: false, error: 'Payload is not a valid .docx ZIP container.' });
+    }
+
+    const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+    const tmpDocxPath = path.join(shmDir, `English_Learning_Notebook_${process.pid}_${Date.now()}.docx`);
+
+    try {
+        fs.writeFileSync(tmpDocxPath, docxBuffer, { mode: 0o600 });
+
+        if (!fs.existsSync(rcloneConf)) {
+            return res.json({
+                ok: true,
+                uploaded: false,
+                remoteTarget: `${remoteName}:${folderName}/English_Learning_Notebook.docx`,
+                message: 'rclone.conf no encontrado en entorno local; en EC2 se sube automáticamente con RCLONE_CONF_B64.'
+            });
+        }
+
+        const { execFile } = require('node:child_process');
+        const remoteTarget = `${remoteName}:${folderName}/English_Learning_Notebook.docx`;
+
+        await new Promise((resolve, reject) => {
+            execFile(
+                'rclone',
+                ['--config', rcloneConf, 'copyto', tmpDocxPath, remoteTarget],
+                { timeout: 25000 },
+                (err, _stdout, stderr) => {
+                    if (err) {
+                        return reject(new Error(String(stderr || err.message || 'rclone copyto failed').trim()));
+                    }
+                    resolve();
+                }
+            );
+        });
+
+        return res.json({
+            ok: true,
+            uploaded: true,
+            remoteTarget
+        });
+    } catch (err) {
+        console.error('[STUDY_DRIVE_SYNC_ERROR]', err.message);
+        return res.status(502).json({ ok: false, error: err.message || 'Failed to upload language notebook to Google Drive.' });
+    } finally {
+        try {
+            if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
+        } catch (_) {}
+    }
 });
 
 app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 2500 }), async (req, res) => {

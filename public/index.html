@@ -834,7 +834,7 @@
 
                                 <div class="form-group" id="sleepMotivoGroup" hidden>
                                     <label for="sleepMotivoDesvelo">Motivo / Nota del desvelo (opcional · visible para el psiquiatra):</label>
-                                    <textarea id="sleepMotivoDesvelo" lang="es" spellcheck="true" rows="2" maxlength="500"
+                                    <textarea id="sleepMotivoDesvelo" class="english-textarea" lang="es" spellcheck="true" rows="3" maxlength="500"
                                         placeholder="Ej: Me dormí hasta las 3:00 AM por insomnio, ansiedad o proyecto; o pasé la noche en vela..."></textarea>
                                 </div>
 
@@ -2626,6 +2626,19 @@
                                 <span>Include Saturday &amp; Sunday in Weekly Agenda by default</span>
                             </label>
 
+                            <div class="reminder-rule-block" style="margin: 12px 0;">
+                                <label class="switch-row">
+                                    <input type="checkbox" id="setDriveStudySyncEnabled" checked>
+                                    <span><strong>☁️ Respaldar automáticamente mi Word de Idiomas (<code>English_Learning_Notebook.docx</code>) en Google Drive</strong></span>
+                                </label>
+                                <div class="form-group" style="margin-top: 8px; margin-bottom: 0;">
+                                    <label for="setDriveStudyDir">Carpeta en tu Google Drive de respaldos (usa el mismo Drive configurado en GitHub Secrets):</label>
+                                    <input type="text" id="setDriveStudyDir" maxlength="80" value="NotasIdiomas"
+                                        placeholder="NotasIdiomas">
+                                    <small class="form-hint">Se guarda automáticamente en <code>gdrive:NotasIdiomas/English_Learning_Notebook.docx</code> cada vez que tu PC actualiza el cuaderno (tu <code>Journal.docx</code> personal jamás se sube a Drive).</small>
+                                </div>
+                            </div>
+
                             <div class="e2ee-key-box">
                                 <div>
                                     <strong>Local E2EE Secret Key (Journal &amp; English Word):</strong>
@@ -2816,7 +2829,7 @@
 
                 <div class="form-group">
                     <label for="agendaDescripcion">Description / Classroom / Details (optional):</label>
-                    <textarea id="agendaDescripcion" lang="en" spellcheck="true" rows="2" maxlength="180"
+                    <textarea id="agendaDescripcion" class="english-textarea" lang="en" spellcheck="true" rows="3" maxlength="180"
                         placeholder="e.g. Aula R11 (Campus Boillot) · Bring sprint backlog and architecture diagram..."></textarea>
                 </div>
 
