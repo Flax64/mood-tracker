@@ -668,15 +668,24 @@
                                     <label>Crisis Type (Tipo de episodio):</label>
                                     <input type="hidden" id="crisisTipo" value="Estrés">
                                     <div class="crisis-type-pills" id="crisisTipoPills" role="group" aria-label="Tipo de crisis">
-                                        <button type="button" class="crisis-pill active" data-crisis-type="Estrés">😣 Estrés</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Ira / Rabia">😠 Ira / Rabia</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Ansiedad">😰 Ansiedad</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Pánico">🫨 Pánico</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Llanto / Sobrecarga">😢 Llanto / Sobrecarga</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Bloqueo / Saturación">🧱 Bloqueo / Saturación</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Insomnio / Agitación">🌘 Insomnio / Agitación</button>
-                                        <button type="button" class="crisis-pill" data-crisis-type="Otro">📝 Otro</button>
+                                        <button type="button" class="crisis-pill active" data-crisis-type="Estrés" title="Episodio de estrés agudo o sobrecarga">😣 Estrés</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Ira / Rabia" title="Episodio de enojo intenso, ira o rabia">😠 Ira / Rabia</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Ansiedad" title="Episodio de ansiedad o nerviosismo elevado">😰 Ansiedad</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Pánico" title="Ataque de pánico o miedo súbito">🫨 Pánico</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Llanto / Sobrecarga" title="Llanto o saturación emocional">😢 Llanto / Sobrecarga</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Bloqueo / Saturación" title="Bloqueo mental o sobreestimulación">🧱 Bloqueo / Saturación</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Insomnio / Agitación" title="Dificultad severa para dormir o agitación nocturna">🌘 Insomnio / Agitación</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Tristeza / Desánimo" title="Bajón anímico, tristeza profunda o desmotivación">😔 Tristeza / Desánimo</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Frustración / Impotencia" title="Sensación de frustración o impotencia">😤 Frustración</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Agotamiento Mental" title="Fatiga cognitiva o agotamiento extremo">🪫 Agotamiento</button>
+                                        <button type="button" class="crisis-pill" data-crisis-type="Otro" title="Especificar otra emoción o situación">📝 Otro</button>
                                     </div>
+                                </div>
+
+                                <div class="form-group" id="crisisOtroSpecGroup" hidden>
+                                    <label for="crisisOtroTexto">¿Qué emoción sentiste o qué pasó? (Al elegir Otro):</label>
+                                    <input type="text" id="crisisOtroTexto" maxlength="80"
+                                        placeholder="Ej. Desesperación, confusión, incomodidad social...">
                                 </div>
 
                                 <div class="form-group">
@@ -692,9 +701,12 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="crisisMotivo">Reason / Context in Spanish (Motivo y detonante):</label>
-                                    <textarea id="crisisMotivo" class="english-textarea" rows="4" maxlength="1000" required
-                                        placeholder="Describe en español qué detonó la crisis, cómo se sintió y si algo ayudó a calmarla (Ctrl + Enter para guardar)..."></textarea>
+                                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                                        <label for="crisisMotivo">Descripción breve opcional (Motivo y detonante):</label>
+                                        <small id="crisisCharCounter" class="muted-text">0 / 250 máx.</small>
+                                    </div>
+                                    <textarea id="crisisMotivo" class="english-textarea" rows="3" maxlength="250"
+                                        placeholder="Opcional (máx. 250 caracteres para cuidar la base de datos): describe brevemente qué detonó el episodio o cómo te sentiste..."></textarea>
                                     <small class="muted-text" data-i18n-html="crisis_ctrl_enter_hint">Tip: Press <code>Ctrl + Enter</code> inside this box to save right away.</small>
                                 </div>
 
@@ -2018,11 +2030,11 @@
                                     <div class="form-row-2">
                                         <div class="form-group">
                                             <label for="uniLocationLat">ITS Main Latitude (Croquis CTO-001):</label>
-                                            <input type="number" id="uniLocationLat" step="any" value="25.443706">
+                                            <input type="number" id="uniLocationLat" step="any" value="25.444780">
                                         </div>
                                         <div class="form-group">
                                             <label for="uniLocationLng">ITS Main Longitude (Croquis CTO-001):</label>
-                                            <input type="number" id="uniLocationLng" step="any" value="-100.993845">
+                                            <input type="number" id="uniLocationLng" step="any" value="-100.992420">
                                         </div>
                                     </div>
                                 </div>
@@ -2100,9 +2112,20 @@
                     </div>
 
                     <div class="card resumen-filter-card">
-                        <div class="controls">
-                            <label for="semanaSeleccionada">Select a week:</label>
-                            <select id="semanaSeleccionada"></select>
+                        <div class="controls" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
+                            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                                <label for="resumenCalendarioDia"><strong>📅 Elegir día o semana en Calendario:</strong></label>
+                                <input type="date" id="resumenCalendarioDia" class="select-input"
+                                    title="Selecciona cualquier día en el calendario para ver automáticamente toda esa semana de domingo a sábado">
+                                <button type="button" class="btn-secondary btn-small" id="btnResumenPrevWeek" title="Ir a la semana anterior">◀ Semana Ant.</button>
+                                <button type="button" class="btn-secondary btn-small" id="btnResumenTodayWeek" title="Ir a la semana actual">Hoy</button>
+                                <button type="button" class="btn-secondary btn-small" id="btnResumenNextWeek" title="Ir a la semana siguiente">Semana Sig. ▶</button>
+                                <span id="resumenRangoVisualBadge" class="badge-pill">Semana actual</span>
+                            </div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <label for="semanaSeleccionada" class="muted-text">Rango semanal:</label>
+                                <select id="semanaSeleccionada"></select>
+                            </div>
                         </div>
 
                         <div id="resumenLoadingBanner" class="section-loading-banner" hidden></div>
@@ -2714,18 +2737,45 @@
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="agendaRecordatorioMin">Phone reminder timing:</label>
-                    <select id="agendaRecordatorioMin">
-                        <option value="">Use Settings default</option>
-                        <option value="0">At scheduled time (0 min before)</option>
-                        <option value="5">5 minutes before</option>
-                        <option value="10">10 minutes before</option>
-                        <option value="15">15 minutes before</option>
-                        <option value="30">30 minutes before</option>
-                        <option value="60">1 hour before</option>
-                        <option value="-1">No reminder for this item</option>
-                    </select>
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="agendaSubcategoria">Clasificación / Alcance:</label>
+                        <select id="agendaSubcategoria" title="Elige Proyecto/Tarea Larga para recordatorios amplios o Lección de Idiomas para tu agenda Personal">
+                            <option value="normal">📌 Actividad / Tarea Estándar</option>
+                            <option value="tarea_larga">📚 Proyecto / Tarea Larga Compleja (Universidad)</option>
+                            <option value="leccion_idiomas">🗣️ Lección de Idiomas (Personal · 15 min)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="agendaRecordatorioMin">Margen de recordatorio en celular:</label>
+                        <select id="agendaRecordatorioMin">
+                            <option value="">Usar predeterminado de Ajustes</option>
+                            <option value="0">A la hora exacta (0 min)</option>
+                            <option value="5">5 minutos antes</option>
+                            <option value="10">10 minutos antes</option>
+                            <option value="15">15 minutos antes (Ideal Idiomas)</option>
+                            <option value="30">30 minutos antes</option>
+                            <option value="60">1 hora antes</option>
+                            <option value="360">6 horas antes (Tarea Larga)</option>
+                            <option value="1440">1 día antes (24h · Proyecto / Tarea Larga)</option>
+                            <option value="4320">3 días antes (72h · Proyecto Complejo)</option>
+                            <option value="10080">7 días antes (1 semana · Entrega Grande)</option>
+                            <option value="-1">Sin recordatorio</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row-2">
+                    <div class="form-group">
+                        <label for="agendaRepetirCadaDias">🔁 Repetir cada X días (opcional):</label>
+                        <input type="number" id="agendaRepetirCadaDias" min="0" max="30" value="0"
+                            placeholder="0 = No repetir (ej. 2 = cada 2 días)">
+                    </div>
+                    <div class="form-group">
+                        <label for="agendaRepetirVeces">Número de repeticiones:</label>
+                        <input type="number" id="agendaRepetirVeces" min="1" max="12" value="1"
+                            placeholder="Ej. 4 sesiones">
+                    </div>
                 </div>
 
                 <div class="form-group">

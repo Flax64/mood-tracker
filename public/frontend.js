@@ -623,7 +623,7 @@ function syncStudyDraftForId(elId) {
         const v = String(el.value || '');
         if (v.trim()) localStorage.setItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${elId}`, v);
         else localStorage.removeItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${elId}`);
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function clearStudyNoteDrafts(scope = 'all') {
@@ -631,7 +631,7 @@ function clearStudyNoteDrafts(scope = 'all') {
         ? [...STUDY_DRAFTS_CONFIG.english, ...STUDY_DRAFTS_CONFIG.music, ...STUDY_DRAFTS_CONFIG.ai]
         : (STUDY_DRAFTS_CONFIG[scope] || []);
     groups.forEach(id => {
-        try { localStorage.removeItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${id}`); } catch (_) {}
+        try { localStorage.removeItem(`${STUDY_DRAFTS_STORAGE_PREFIX}${id}`); } catch (_) { }
     });
 }
 
@@ -646,7 +646,7 @@ function initStudyNoteDrafts() {
             if (saved && !String(el.value || '').trim()) {
                 el.value = saved;
             }
-        } catch (_) {}
+        } catch (_) { }
         el.addEventListener('input', () => syncStudyDraftForId(id));
     });
 }
@@ -1014,7 +1014,7 @@ async function autoQueueAiLearningToWord({ entry, hintEl, songToMarkSynced = nul
                 body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
             }, { timeoutMs: 8000 }).then(() => {
                 songToMarkSynced.word_sincronizado = 1;
-            }).catch(() => {});
+            }).catch(() => { });
         }
 
         if (hintEl) {
@@ -1960,6 +1960,69 @@ if (selectSemana) {
         selectSemana.appendChild(option);
     }
 
+    const calDiaInput = document.getElementById('resumenCalendarioDia');
+    const badgeRango = document.getElementById('resumenRangoVisualBadge');
+    const btnPrevWk = document.getElementById('btnResumenPrevWeek');
+    const btnTodayWk = document.getElementById('btnResumenTodayWeek');
+    const btnNextWk = document.getElementById('btnResumenNextWeek');
+
+    function seleccionarSemanaPorFechaCalendario(dateObj) {
+        if (!dateObj || Number.isNaN(dateObj.getTime())) return;
+        const dom = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate() - dateObj.getDay());
+        const sab = new Date(dom);
+        sab.setDate(dom.getDate() + 6);
+
+        const domStr = `${dom.getFullYear()}-${String(dom.getMonth() + 1).padStart(2, '0')}-${String(dom.getDate()).padStart(2, '0')}`;
+        const sabStr = `${sab.getFullYear()}-${String(sab.getMonth() + 1).padStart(2, '0')}-${String(sab.getDate()).padStart(2, '0')}`;
+        const valKey = `${domStr}|${sabStr}`;
+
+        let existingOpt = Array.from(selectSemana.options).find(o => o.value === valKey);
+        if (!existingOpt) {
+            const textoVisual = `${dom.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' })} - ${sab.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}`;
+            existingOpt = document.createElement('option');
+            existingOpt.value = valKey;
+            existingOpt.dataset.weekRange = valKey;
+            existingOpt.textContent = `${tUi('Week', 'Semana')}: ${textoVisual}`;
+            selectSemana.prepend(existingOpt);
+        }
+        selectSemana.value = valKey;
+        if (calDiaInput) {
+            calDiaInput.value = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+        }
+        if (badgeRango) {
+            badgeRango.textContent = existingOpt.textContent;
+        }
+        selectSemana.dispatchEvent(new Event('change'));
+    }
+
+    if (calDiaInput) {
+        calDiaInput.value = formatLocalDate(now);
+        calDiaInput.addEventListener('change', () => {
+            if (!calDiaInput.value) return;
+            const [yy, mm, dd] = calDiaInput.value.split('-').map(Number);
+            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd));
+        });
+    }
+    if (btnPrevWk) {
+        btnPrevWk.addEventListener('click', () => {
+            const [bStr] = (selectSemana.value || '').split('|');
+            const [yy, mm, dd] = (bStr || formatLocalDate(now)).split('-').map(Number);
+            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd - 7));
+        });
+    }
+    if (btnNextWk) {
+        btnNextWk.addEventListener('click', () => {
+            const [bStr] = (selectSemana.value || '').split('|');
+            const [yy, mm, dd] = (bStr || formatLocalDate(now)).split('-').map(Number);
+            seleccionarSemanaPorFechaCalendario(new Date(yy, mm - 1, dd + 7));
+        });
+    }
+    if (btnTodayWk) {
+        btnTodayWk.addEventListener('click', () => {
+            seleccionarSemanaPorFechaCalendario(new Date());
+        });
+    }
+
     // 2. Fetch week data when changed
     selectSemana.addEventListener('change', () => {
         const [begin, end] = selectSemana.value.split('|');
@@ -2444,8 +2507,8 @@ function cargarSuenoHoy(explicitDate = '') {
         .catch(() => renderSleepTodaySummary([], targetDate));
 }
 
-let initSleepViewDefaults = () => {};
-let enterSleepWakeupCompletion = () => {};
+let initSleepViewDefaults = () => { };
+let enterSleepWakeupCompletion = () => { };
 
 const formSleep = document.getElementById('sleepForm');
 if (formSleep) {
@@ -3376,7 +3439,7 @@ if (englishForm) {
                             updateAiMemoryBadgeUI(d.languageMemory);
                         }
                     })
-                    .catch(() => {});
+                    .catch(() => { });
 
                 const msg = 'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.';
                 mostrarEstadoEnglish('ok', msg);
@@ -3588,7 +3651,7 @@ function initLanguageAiStudio() {
                         updateAiMemoryBadgeUI(data.languageMemory);
                     }
                 }
-            } catch (_) {}
+            } catch (_) { }
 
             quickBox.replaceChildren();
             quickBox.hidden = false;
@@ -4047,7 +4110,7 @@ function initLanguageAiStudio() {
                 row.append(titleSpan, actions);
                 listEl.appendChild(row);
             });
-        } catch (_) {}
+        } catch (_) { }
     }
 
     document.getElementById('btnToggleStudyCourse')?.addEventListener('click', async (ev) => {
@@ -4155,7 +4218,7 @@ function initLanguageAiStudio() {
                 }
             }
         })
-        .catch(() => {});
+        .catch(() => { });
 
     cargarLeccionesSecuencialesUI();
 }
@@ -4236,7 +4299,7 @@ function restoreFloatingTranslatorPosition(drawer) {
         if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
             applyFloatingTranslatorPosition(drawer, parsed.left, parsed.top);
         }
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function resetFloatingTranslatorPosition(drawer) {
@@ -4247,7 +4310,7 @@ function resetFloatingTranslatorPosition(drawer) {
     drawer.style.bottom = '';
     try {
         localStorage.removeItem(FLOATING_TRANSLATOR_POS_KEY);
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function initFloatingTranslatorDrag(drawer) {
@@ -4274,7 +4337,7 @@ function initFloatingTranslatorDrag(drawer) {
         lastCoords = { left: rect.left, top: rect.top };
         drawer.classList.add('is-dragging');
         if (typeof handle.setPointerCapture === 'function') {
-            try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+            try { handle.setPointerCapture(e.pointerId); } catch (_) { }
         }
         e.preventDefault();
     });
@@ -4294,12 +4357,12 @@ function initFloatingTranslatorDrag(drawer) {
         if (!activeDrag || (e.pointerId !== undefined && e.pointerId !== activeDrag.pointerId)) return;
         drawer.classList.remove('is-dragging');
         if (typeof handle.releasePointerCapture === 'function') {
-            try { handle.releasePointerCapture(activeDrag.pointerId); } catch (_) {}
+            try { handle.releasePointerCapture(activeDrag.pointerId); } catch (_) { }
         }
         if (activeDrag.moved && lastCoords) {
             try {
                 localStorage.setItem(FLOATING_TRANSLATOR_POS_KEY, JSON.stringify(lastCoords));
-            } catch (_) {}
+            } catch (_) { }
         }
         activeDrag = null;
     };
@@ -4348,7 +4411,7 @@ function consumePendingPopupTranslatorVocab() {
         if (parsed && currentUser && currentUser.rol === 'admin') {
             applyTranslationToVocabularyForm(parsed, { switchToEnglish: true });
         }
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function initGlobalFloatingTranslator() {
@@ -4444,7 +4507,7 @@ function initGlobalFloatingTranslator() {
         if (event.origin !== window.location.origin) return;
         const msg = event.data;
         if (msg && msg.type === 'pdh_translator_send_vocab' && msg.translation) {
-            try { localStorage.removeItem('pdh_pending_translator_vocab'); } catch (_) {}
+            try { localStorage.removeItem('pdh_pending_translator_vocab'); } catch (_) { }
             if (currentUser && currentUser.rol === 'admin') {
                 applyTranslationToVocabularyForm(msg.translation, { switchToEnglish: true });
             }
@@ -4566,7 +4629,7 @@ async function cargarCatalogoMusical() {
         if (ytdlpRes && ytdlpRes.ok) {
             try {
                 musicState.ytdlpStatus = await ytdlpRes.json();
-            } catch (_) {}
+            } catch (_) { }
         }
         musicState.artists = Array.isArray(data.artists) ? data.artists : [];
         musicState.albums = Array.isArray(data.albums) ? data.albums : [];
@@ -4798,7 +4861,7 @@ function renderMusicLyricsAlbumPlaylist(song) {
 async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract = false } = {}) {
     const hintEl = document.getElementById('musicLyricsStatusHint');
     if (!song) return false;
-    
+
     if (musicState.ytdlpStatus && musicState.ytdlpStatus.pcOnline === false) {
         const offlineMsg = tUi(
             '⚠️ Your PC is currently offline. Lyrics & note extraction is paused to avoid saturating the server queue.',
@@ -4832,7 +4895,7 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
-        }, { timeoutMs: 8000 }).catch(() => {});
+        }, { timeoutMs: 8000 }).catch(() => { });
     };
 
     // 1. Intentar primero vía puente cifrado E2EE hacia tu PC (Word -> yt-dlp local -> Word)
@@ -4964,7 +5027,7 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                 scopeKey: 'english:music-lyrics-ram',
                 signature: `lyrics-ram:${song.id}`,
                 buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(wordEntry), llaveTexto) })
-            }).catch(() => {});
+            }).catch(() => { });
             markWordSyncedLocal();
 
             if (hintEl) {
@@ -5219,7 +5282,7 @@ function actualizarBarraCancionEstudio() {
                             const errJson = await probe.json().catch(() => null);
                             if (errJson && errJson.error) msg = tServer(errJson.error);
                         }
-                    } catch (_) {}
+                    } catch (_) { }
                     note.className = 'music-embed-fallback-note is-warning';
                     note.textContent = tUi(
                         `⚠️ ${msg} -> Use "📺 Floating Window (unblocked)" or "▶️ Try YouTube iframe".`,
@@ -6455,7 +6518,7 @@ if (englishMusicStudioRoot) {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
-        }, { timeoutMs: 8000 }).catch(() => {});
+        }, { timeoutMs: 8000 }).catch(() => { });
         actualizarPanelLetraCancion(song, { forceSyncText: true });
         return true;
     }
@@ -6514,11 +6577,11 @@ if (englishMusicStudioRoot) {
             const text = songLyricsViewerEl.value.trim();
             if (!song || !text || (musicState.ytdlpStatus && musicState.ytdlpStatus.pcOnline === false)) return;
             lyricsAutoSaveTimer = setTimeout(() => {
-                if ( obtenerLlaveE2EE() ) {
+                if (obtenerLlaveE2EE()) {
                     guardarLetraYNotasEnWordPc(song, {
                         lyricsStudy: text,
                         scopeKey: 'english:music-lyrics-autosave'
-                    }).catch(() => {});
+                    }).catch(() => { });
                 }
             }, 1800);
         });
@@ -7478,54 +7541,54 @@ function renderAgendaBoard() {
     weekBoard.style.setProperty('--agenda-cols', String(diasVisibles.length));
     weekBoard.classList.toggle('cols-5', diasVisibles.length === 5);
 
-            const corner = document.createElement('div');
-            corner.className = 'agenda-corner-cell';
-            corner.textContent = tUi('Block / Day', 'Bloque / Día');
-            weekBoard.appendChild(corner);
+    const corner = document.createElement('div');
+    corner.className = 'agenda-corner-cell';
+    corner.textContent = tUi('Block / Day', 'Bloque / Día');
+    weekBoard.appendChild(corner);
 
-            diasVisibles.forEach(dia => {
-                const header = document.createElement('div');
-                header.className = `agenda-day-header day-${dia.key}${dia.fecha === hoyStr ? ' is-today' : ''}`;
-                const dayNameLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function')
-                    ? window.DailyHubI18n.agendaDayName(dia.nombre, false)
-                    : dia.nombre;
-                const dateLabel = dia.dateObj.toLocaleDateString(tLocale(), { month: 'short', day: 'numeric' });
-                header.innerHTML = `
+    diasVisibles.forEach(dia => {
+        const header = document.createElement('div');
+        header.className = `agenda-day-header day-${dia.key}${dia.fecha === hoyStr ? ' is-today' : ''}`;
+        const dayNameLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaDayName === 'function')
+            ? window.DailyHubI18n.agendaDayName(dia.nombre, false)
+            : dia.nombre;
+        const dateLabel = dia.dateObj.toLocaleDateString(tLocale(), { month: 'short', day: 'numeric' });
+        header.innerHTML = `
                     <span class="agenda-day-name">${dayNameLoc}</span>
                     <span class="agenda-day-date">${dateLabel}${dia.fecha === hoyStr ? tUi(' · Today', ' · Hoy') : ''}</span>
                 `;
-                weekBoard.appendChild(header);
-            });
+        weekBoard.appendChild(header);
+    });
 
-            AGENDA_BLOQUES.forEach(bloque => {
-                const bloqueLabelLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaBlockLabel === 'function')
-                    ? window.DailyHubI18n.agendaBlockLabel(bloque.id)
-                    : bloque.label;
-                const blockHeader = document.createElement('div');
-                blockHeader.className = 'agenda-block-header';
-                blockHeader.innerHTML = `
+    AGENDA_BLOQUES.forEach(bloque => {
+        const bloqueLabelLoc = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaBlockLabel === 'function')
+            ? window.DailyHubI18n.agendaBlockLabel(bloque.id)
+            : bloque.label;
+        const blockHeader = document.createElement('div');
+        blockHeader.className = 'agenda-block-header';
+        blockHeader.innerHTML = `
                     ${bloque.svg}
                     <span class="agenda-block-title">${bloqueLabelLoc}</span>
                 `;
-                weekBoard.appendChild(blockHeader);
+        weekBoard.appendChild(blockHeader);
 
-                diasVisibles.forEach(dia => {
-                    const cell = document.createElement('div');
-                    cell.className = `agenda-cell day-${dia.key}`;
+        diasVisibles.forEach(dia => {
+            const cell = document.createElement('div');
+            cell.className = `agenda-cell day-${dia.key}`;
 
-                    const list = document.createElement('div');
-                    list.className = 'agenda-items-list';
+            const list = document.createElement('div');
+            list.className = 'agenda-items-list';
 
-                    const cellItems = filteredItems.filter(
-                        i => i.fecha === dia.fecha && i.bloque === bloque.id
-                    );
+            const cellItems = filteredItems.filter(
+                i => i.fecha === dia.fecha && i.bloque === bloque.id
+            );
 
-                    appendCategorizedAgendaItems(list, cellItems);
+            appendCategorizedAgendaItems(list, cellItems);
 
-                    const addBtn = document.createElement('button');
-                    addBtn.type = 'button';
-                    addBtn.className = 'agenda-cell-add';
-                    addBtn.textContent = tUi('+ Add', '+ Agregar');
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'agenda-cell-add';
+            addBtn.textContent = tUi('+ Add', '+ Agregar');
             addBtn.addEventListener('click', () => abrirAgendaModal({
                 fecha: dia.fecha,
                 bloque: bloque.id,
@@ -7846,6 +7909,12 @@ function abrirAgendaModal(prefill = {}) {
     if (catEl) catEl.value = resolvedCategoria;
     if (estadoEl) estadoEl.value = resolvedEstado;
     if (remEl) remEl.value = resolvedRemMin;
+    const subcatEl = document.getElementById('agendaSubcategoria');
+    const repDiasEl = document.getElementById('agendaRepetirCadaDias');
+    const repVecesEl = document.getElementById('agendaRepetirVeces');
+    if (subcatEl) subcatEl.value = 'normal';
+    if (repDiasEl) repDiasEl.value = '0';
+    if (repVecesEl) repVecesEl.value = '1';
     syncAgendaMateriaFieldUI(resolvedMateriaId, prefill.materia_nombre || '');
 
     const currentMateriaVal = resolvedCategoria === 'universidad'
@@ -8006,6 +8075,26 @@ if (agendaForm) {
     }
     if (agendaTipoInput) {
         agendaTipoInput.addEventListener('change', () => syncAgendaMateriaFieldUI());
+        const agendaSubcatInput = document.getElementById('agendaSubcategoria');
+        if (agendaSubcatInput) {
+            agendaSubcatInput.addEventListener('change', () => {
+                const subVal = agendaSubcatInput.value;
+                const catEl = document.getElementById('agendaCategoria');
+                const tipoEl = document.getElementById('agendaTipo');
+                const remEl = document.getElementById('agendaRecordatorioMin');
+                if (subVal === 'leccion_idiomas') {
+                    if (catEl) catEl.value = 'personal';
+                    if (tipoEl) tipoEl.value = 'tarea';
+                    if (remEl) remEl.value = '15';
+                    syncAgendaMateriaFieldUI();
+                } else if (subVal === 'tarea_larga') {
+                    if (catEl) catEl.value = 'universidad';
+                    if (tipoEl) tipoEl.value = 'tarea';
+                    if (remEl) remEl.value = '1440';
+                    syncAgendaMateriaFieldUI();
+                }
+            });
+        }
     }
 
     agendaForm.addEventListener('submit', (e) => {
@@ -8027,6 +8116,9 @@ if (agendaForm) {
         const composedAct = composeAgendaActividadClient(tituloRaw, descRaw);
         const horaClean = String(document.getElementById('agendaHora').value || '').slice(0, 5);
         const bloqueVal = document.getElementById('agendaBloque').value || inferAgendaBlockClient(horaClean, catVal);
+        const subcategoriaVal = document.getElementById('agendaSubcategoria')?.value || 'normal';
+        const repetirCadaDiasVal = Number(document.getElementById('agendaRepetirCadaDias')?.value || 0);
+        const repetirVecesVal = Number(document.getElementById('agendaRepetirVeces')?.value || 1);
 
         const payload = {
             fecha: document.getElementById('agendaFecha').value,
@@ -8037,6 +8129,9 @@ if (agendaForm) {
             actividad: composedAct,
             tipo: tipoVal,
             categoria: catVal,
+            subcategoria: subcategoriaVal,
+            repetir_cada_dias: repetirCadaDiasVal,
+            repetir_veces: repetirVecesVal,
             materia_id: materiaVal || null,
             materia_nombre: materiaVal ? (materiaNombreVal || null) : null,
             estado: estadoVal,
@@ -8253,7 +8348,7 @@ function enterAppSession(user) {
                     }
                 }
             })
-            .catch(() => {});
+            .catch(() => { });
 
         cargarRecordatoriosActivos();
         if (reminderPollInterval) clearInterval(reminderPollInterval);
@@ -8792,7 +8887,7 @@ function applyTheme() {
     try {
         document.documentElement.style.colorScheme = 'dark';
         localStorage.removeItem('mt_theme');
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function initTheme() {
@@ -9359,7 +9454,7 @@ function initSettingsHandlers() {
                         desktopCheck.checked = false;
                         setSettingsBanner('err', 'Browser denied desktop notifications. Phone notifications remain independent via ntfy.');
                     }
-                }).catch(() => {});
+                }).catch(() => { });
             }
         });
     }
@@ -10412,9 +10507,9 @@ function extractCoordsFromMapsUrlClient(rawUrl = '') {
     }
     const candidateStr = `${raw}\n${decoded}`;
     const pinMatch = candidateStr.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/) ||
-                     candidateStr.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/) ||
-                     candidateStr.match(/[?&](?:q|query|ll|center|destination|origin)=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i) ||
-                     candidateStr.match(/(?:^|[\s:/=])(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+        candidateStr.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/) ||
+        candidateStr.match(/[?&](?:q|query|ll|center|destination|origin)=(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i) ||
+        candidateStr.match(/(?:^|[\s:/=])(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
     if (!pinMatch) return null;
     const lat = Number(pinMatch[1]);
     const lng = Number(pinMatch[2]);
@@ -10902,9 +10997,9 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
         btnUseHome.hidden = target !== 'current' || !hasValidHome;
     }
     presets.push(
-        { label: '💻 ITS Boillot · Sistemas R/S (CTO-004)', lat: 25.443950, lng: -100.989650 },
-        { label: '🎓 ITS Principal (CTO-002)', lat: 25.443706, lng: -100.993845 },
-        { label: '⚙️ ITS Miravalle · N/Labs (CTO-003)', lat: 25.445350, lng: -100.991200 }
+        { label: '💻 ITS Blvd / Boillot · Sistemas R/S (CTO-004)', lat: 25.443650, lng: -100.989150 },
+        { label: '🎓 ITS Principal (CTO-002)', lat: 25.444780, lng: -100.992420 },
+        { label: '⚙️ ITS Miravalle · N/Labs (CTO-003)', lat: 25.444920, lng: -100.990850 }
     );
     const resLoc = academicPlannerState?.residencias?.location;
     if (resLoc && isValidNonZeroCoordPair(Number(resLoc.lat), Number(resLoc.lng))) {
@@ -11213,7 +11308,7 @@ function initAcademicPlannerHandlers() {
                     academicPlannerMindboxPreset = data.mindboxPreset || [];
                     applyPreset(academicPlannerMindboxPreset);
                 })
-                .catch(() => {});
+                .catch(() => { });
         });
     }
 
@@ -11246,7 +11341,7 @@ function initAcademicPlannerHandlers() {
                             courseCampusSelect.value = r.campusId;
                         }
                     }
-                }).catch(() => {});
+                }).catch(() => { });
             }, 180);
         });
     }
@@ -11949,6 +12044,22 @@ function initCrisisHandlers() {
     }
 
     const tipoHidden = document.getElementById('crisisTipo');
+    const otroGroup = document.getElementById('crisisOtroSpecGroup');
+    const otroInput = document.getElementById('crisisOtroTexto');
+    const motivoEl = document.getElementById('crisisMotivo');
+    const counterEl = document.getElementById('crisisCharCounter');
+
+    const updateCharCount = () => {
+        if (!motivoEl || !counterEl) return;
+        const len = motivoEl.value.length;
+        counterEl.textContent = `${len} / 250 máx.`;
+        counterEl.style.color = len >= 240 ? '#ef4444' : '';
+    };
+    if (motivoEl) {
+        motivoEl.addEventListener('input', updateCharCount);
+        updateCharCount();
+    }
+
     document.querySelectorAll('#crisisTipoPills [data-crisis-type]').forEach(btn => {
         btn.addEventListener('click', () => {
             const val = btn.getAttribute('data-crisis-type') || 'Estrés';
@@ -11956,6 +12067,10 @@ function initCrisisHandlers() {
             document.querySelectorAll('#crisisTipoPills [data-crisis-type]').forEach(b =>
                 b.classList.toggle('active', b === btn)
             );
+            if (otroGroup) {
+                otroGroup.hidden = val !== 'Otro';
+                if (val === 'Otro' && otroInput) otroInput.focus();
+            }
         });
     });
 
@@ -11977,10 +12092,20 @@ function initCrisisHandlers() {
         const hora = (document.getElementById('crisisHora')?.value || '').trim();
         const tipoCrisis = (document.getElementById('crisisTipo')?.value || 'Estrés').trim();
         const intensidad = Number(document.getElementById('crisisIntensidad')?.value || 3);
+        const detalleOtro = (document.getElementById('crisisOtroTexto')?.value || '').trim();
         const motivo = (document.getElementById('crisisMotivo')?.value || '').trim();
 
-        if (!fecha || !hora || !motivo) {
-            setInlineBanner('crisisStatusBanner', 'err', 'Completa la fecha, hora y el motivo en español.');
+        if (!fecha || !hora) {
+            setInlineBanner('crisisStatusBanner', 'err', 'Completa la fecha y la hora del episodio.');
+            return;
+        }
+        if (tipoCrisis === 'Otro' && !detalleOtro && !motivo) {
+            setInlineBanner('crisisStatusBanner', 'err', 'Al elegir "Otro", especifica brevemente qué emoción sentiste o qué ocurrió.');
+            otroInput?.focus();
+            return;
+        }
+        if (motivo.length > 250) {
+            setInlineBanner('crisisStatusBanner', 'err', 'La descripción no puede superar los 250 caracteres.');
             return;
         }
         setInlineBanner('crisisStatusBanner', '', '');
@@ -11990,12 +12115,22 @@ function initCrisisHandlers() {
                 const res = await fetch('/api/insert-crisis', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fecha, hora, tipoCrisis, intensidad, motivo })
+                    body: JSON.stringify({
+                        fecha,
+                        hora,
+                        tipoCrisis,
+                        intensidad,
+                        detalleOtro,
+                        motivo,
+                        allowOptionalMotivo: true
+                    })
                 });
                 if (!res.ok) throw new Error(await res.text() || 'Error saving crisis log.');
-                document.getElementById('crisisMotivo').value = '';
+                if (motivoEl) motivoEl.value = '';
+                if (otroInput) otroInput.value = '';
+                updateCharCount();
                 prefillCrisisCurrentTimestamp();
-                setInlineBanner('crisisStatusBanner', 'ok', 'Crisis guardada correctamente (visible para tu psiquiatra/psicóloga en Resumen Semanal).');
+                setInlineBanner('crisisStatusBanner', 'ok', 'Episodio guardado correctamente (visible para tu psiquiatra/psicóloga en Resumen Semanal).');
                 showToast('ok', 'Crisis episode saved.');
                 cargarCrisisRecientes();
             } catch (err) {
