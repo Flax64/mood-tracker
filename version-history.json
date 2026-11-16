@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.1",
-  "updatedAt": "2026-11-16T22:25:49.172Z",
+  "currentVersion": "1.10.2",
+  "updatedAt": "2026-11-16T22:38:33.166Z",
   "releases": [
+    {
+      "version": "1.10.2",
+      "tag": "v1.10.2",
+      "bumpType": "patch",
+      "previousVersion": "1.10.1",
+      "releasedAt": "2026-11-16T22:38:33.166Z",
+      "commitSha": "2a44971",
+      "trigger": "push",
+      "summary": "fix: respect [hidden] attribute on music lyrics textarea and allow vertical scroll",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: respect [hidden] attribute on music lyrics textarea and allow vertical scroll (9adf1f4)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.10.1",
       "tag": "v1.10.1",
