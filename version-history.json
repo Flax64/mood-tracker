@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.4.0",
+  "updatedAt": "2026-11-16T10:41:33.910Z",
   "releases": [
+    {
+      "version": "1.4.0",
+      "tag": "v1.4.0",
+      "bumpType": "minor",
+      "previousVersion": "1.3.0",
+      "releasedAt": "2026-11-16T10:41:33.910Z",
+      "commitSha": "ba7595c",
+      "trigger": "push",
+      "summary": "feat(music-ui): make full lyrics read-only divided by language, add visual collapsible folders, and fix nested scroll traps",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(music-ui): make full lyrics read-only divided by language, add visual collapsible folders, and fix nested scroll traps (6dd8bb3)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",
