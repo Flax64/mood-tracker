@@ -376,6 +376,7 @@ function inicializarTablasSeguridad() {
             titulo_normalizado VARCHAR(180) NOT NULL,
             tipo_lanzamiento ENUM('album','mini_album','ep','single','ost','collab_single') NOT NULL DEFAULT 'album',
             anio SMALLINT NULL,
+            fecha_lanzamiento DATE NULL DEFAULT NULL,
             notas_cortas VARCHAR(255) NULL,
             creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_album_usuario (usuario_id, artista_principal_id),
@@ -414,7 +415,21 @@ function inicializarTablasSeguridad() {
         )`
     ];
     const ejecutarTablasMusicaSecuencial = idx => {
-        if (idx >= musicaTablasSql.length) return;
+        if (idx >= musicaTablasSql.length) {
+            db.query("SHOW COLUMNS FROM MusicaAlbumes LIKE 'fecha_lanzamiento'", (errCol, cols) => {
+                if (!errCol && Array.isArray(cols) && cols.length === 0) {
+                    db.query(
+                        'ALTER TABLE MusicaAlbumes ADD COLUMN fecha_lanzamiento DATE NULL DEFAULT NULL AFTER anio',
+                        errAlt => {
+                            if (errAlt && !/Duplicate column/i.test(errAlt.message || '')) {
+                                console.error('Error migrando fecha_lanzamiento en MusicaAlbumes:', errAlt.message);
+                            }
+                        }
+                    );
+                }
+            });
+            return;
+        }
         db.query(musicaTablasSql[idx], err => {
             if (err) console.error('Error asegurando tabla musical:', err.message);
             ejecutarTablasMusicaSecuencial(idx + 1);
@@ -6067,7 +6082,7 @@ function validateAndExtractSongPayload(body) {
 }
 
 async function fetchUserMusicAlbumsAndSongs(uid) {
-    const [albums, songs] = await Promise.all([
+    const queryWithReleaseDate = () => Promise.all([
         dbQueryAsync(
             `SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre,
                     al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en,
@@ -6092,13 +6107,133 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
             [uid]
         )
     ]);
-    return { albums, songs };
+
+    try {
+        const [albums, songs] = await queryWithReleaseDate();
+        return { albums, songs };
+    } catch (err) {
+        if (err && (err.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(err.message || ''))) {
+            await dbQueryAsync(
+                'ALTER TABLE MusicaAlbumes ADD COLUMN fecha_lanzamiento DATE NULL DEFAULT NULL AFTER anio'
+            ).catch(() => {});
+            try {
+                const [albums, songs] = await queryWithReleaseDate();
+                return { albums, songs };
+            } catch (_) {
+                const [albums, songs] = await Promise.all([
+                    dbQueryAsync(
+                        `SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre,
+                                al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en,
+                                NULL AS fecha_lanzamiento
+                         FROM MusicaAlbumes al
+                         LEFT JOIN MusicaArtistas ma ON ma.id = al.artista_principal_id
+                         WHERE al.usuario_id = ?
+                         ORDER BY COALESCE(al.anio, 0) DESC, al.titulo ASC`,
+                        [uid]
+                    ),
+                    dbQueryAsync(
+                        `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
+                                al.anio AS album_anio, NULL AS album_fecha_lanzamiento,
+                                c.titulo, c.numero_pista, c.idioma,
+                                c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
+                                c.enfoque_corto, c.word_sincronizado,
+                                c.ultimo_estudio_en, c.creado_en, c.actualizado_en
+                         FROM MusicaCanciones c
+                         LEFT JOIN MusicaAlbumes al ON al.id = c.album_id
+                         WHERE c.usuario_id = ?
+                         ORDER BY c.actualizado_en DESC, c.id DESC`,
+                        [uid]
+                    )
+                ]);
+                return { albums, songs };
+            }
+        }
+        throw err;
+    }
+}
+
+async function tryRestoreMusicCatalogFromDriveIfEmpty(uid) {
+    const archive = await loadDriveHistoricalArchiveInRam();
+    if (!archive || typeof archive !== 'object') return false;
+
+    const archArtists = Object.values(archive.music_artists || {});
+    const archAlbums = Object.values(archive.music_albums || {});
+    const archSongs = Object.values(archive.music_songs || {});
+    const archLinks = Object.values(archive.music_song_artists || {});
+    if (!archSongs.length && !archAlbums.length && !archArtists.length) return false;
+
+    const artistByOldId = new Map();
+    for (const a of archArtists) {
+        if (!a || !a.nombre) continue;
+        const newId = await upsertMusicaArtista(uid, a.nombre, a.tipo_artista || 'solo').catch(() => null);
+        if (newId && a.id != null) artistByOldId.set(Number(a.id), { newId, nombre: a.nombre });
+    }
+
+    const albumByOldId = new Map();
+    for (const al of archAlbums) {
+        if (!al || !al.titulo) continue;
+        const mappedMain = al.artista_principal_id != null ? artistByOldId.get(Number(al.artista_principal_id)) : null;
+        const newId = await upsertMusicaAlbum({
+            usuarioId: uid,
+            mainArtistId: mappedMain ? mappedMain.newId : null,
+            albumTitle: al.titulo,
+            albumType: al.tipo_lanzamiento || 'album',
+            albumYear: al.anio || null
+        }).catch(() => null);
+        if (newId && al.id != null) albumByOldId.set(Number(al.id), newId);
+    }
+
+    const linksByOldSong = new Map();
+    for (const lk of archLinks) {
+        if (!lk || lk.cancion_id == null) continue;
+        const sid = Number(lk.cancion_id);
+        if (!linksByOldSong.has(sid)) linksByOldSong.set(sid, []);
+        linksByOldSong.get(sid).push(lk);
+    }
+
+    let restoredCount = 0;
+    for (const s of archSongs) {
+        if (!s || !s.titulo) continue;
+        const mappedAlbumId = s.album_id != null ? (albumByOldId.get(Number(s.album_id)) || null) : null;
+        const ins = await dbQueryAsync(
+            `INSERT INTO MusicaCanciones
+             (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                uid,
+                mappedAlbumId,
+                String(s.titulo).slice(0, 180),
+                s.numero_pista || null,
+                s.idioma || 'English',
+                s.yt_music_url || null,
+                s.yt_video_id || null,
+                s.thumbnail_url || null,
+                MUSIC_STUDY_STATES.has(s.estado_estudio) ? s.estado_estudio : 'to_study',
+                s.enfoque_corto || null,
+                s.word_sincronizado ? 1 : 0
+            ]
+        ).catch(() => null);
+        const newSongId = ins && ins.insertId;
+        if (!newSongId) continue;
+        restoredCount += 1;
+        const songLinks = linksByOldSong.get(Number(s.id)) || [];
+        for (const lk of songLinks) {
+            const art = artistByOldId.get(Number(lk.artista_id));
+            if (!art) continue;
+            await dbQueryAsync(
+                `INSERT IGNORE INTO MusicaCancionArtistas (cancion_id, artista_id, rol, orden)
+                 VALUES (?, ?, ?, ?)`,
+                [newSongId, art.newId, lk.rol || 'main', lk.orden || 1]
+            ).catch(() => {});
+        }
+    }
+    return restoredCount > 0 || albumByOldId.size > 0 || artistByOldId.size > 0;
 }
 
 app.get('/api/english/music/catalog', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
     try {
         const uid = req.user.id;
-        const [artists, albumsAndSongs, songArtists] = await Promise.all([
+        let [artists, albumsAndSongs, songArtists] = await Promise.all([
             dbQueryAsync(
                 `SELECT id, nombre, tipo_artista, notas_cortas, creado_en
                  FROM MusicaArtistas WHERE usuario_id = ? ORDER BY nombre ASC`,
@@ -6115,6 +6250,28 @@ app.get('/api/english/music/catalog', apiReadLimiter.middleware, requireAdmin, a
                 [uid]
             )
         ]);
+        if (artists.length === 0 && albumsAndSongs.albums.length === 0 && albumsAndSongs.songs.length === 0) {
+            const restored = await tryRestoreMusicCatalogFromDriveIfEmpty(uid).catch(() => false);
+            if (restored) {
+                [artists, albumsAndSongs, songArtists] = await Promise.all([
+                    dbQueryAsync(
+                        `SELECT id, nombre, tipo_artista, notas_cortas, creado_en
+                         FROM MusicaArtistas WHERE usuario_id = ? ORDER BY nombre ASC`,
+                        [uid]
+                    ),
+                    fetchUserMusicAlbumsAndSongs(uid),
+                    dbQueryAsync(
+                        `SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre
+                         FROM MusicaCancionArtistas mca
+                         INNER JOIN MusicaCanciones c ON c.id = mca.cancion_id
+                         INNER JOIN MusicaArtistas ma ON ma.id = mca.artista_id
+                         WHERE c.usuario_id = ?
+                         ORDER BY mca.orden ASC, ma.nombre ASC`,
+                        [uid]
+                    )
+                ]);
+            }
+        }
         const { albums, songs } = albumsAndSongs;
 
         const artistsBySong = new Map();

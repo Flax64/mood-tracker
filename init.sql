@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS MusicaAlbumes (
     titulo_normalizado VARCHAR(180) NOT NULL,
     tipo_lanzamiento ENUM('album','mini_album','ep','single','ost','collab_single') NOT NULL DEFAULT 'album',
     anio SMALLINT NULL,
+    fecha_lanzamiento DATE NULL DEFAULT NULL,
     notas_cortas VARCHAR(255) NULL,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_album_usuario (usuario_id, artista_principal_id),
