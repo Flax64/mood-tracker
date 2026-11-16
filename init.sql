@@ -172,3 +172,23 @@ CREATE TABLE IF NOT EXISTS MusicaCancionArtistas (
     FOREIGN KEY (cancion_id) REFERENCES MusicaCanciones(id) ON DELETE CASCADE,
     FOREIGN KEY (artista_id) REFERENCES MusicaArtistas(id) ON DELETE CASCADE
 );
+
+-- =========================================================================
+-- PROGRESO DE LECCIONES Y PRÁCTICAS (ZERO-BLOAT: SÓLO ID, NOMBRE Y ESTADO)
+-- El contenido de las prácticas y cuestionarios se guarda en el Word local.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS EstudioLecciones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    idioma ENUM('en', 'ko') NOT NULL DEFAULT 'en',
+    codigo_leccion VARCHAR(60) NOT NULL,
+    nombre_practica VARCHAR(180) NOT NULL,
+    orden_secuencia SMALLINT NOT NULL DEFAULT 1,
+    completada TINYINT(1) NOT NULL DEFAULT 0,
+    word_leido_en DATETIME NULL DEFAULT NULL,
+    completada_en DATETIME NULL DEFAULT NULL,
+    actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_usuario_leccion (usuario_id, codigo_leccion),
+    INDEX idx_leccion_orden (usuario_id, idioma, orden_secuencia),
+    FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
+);

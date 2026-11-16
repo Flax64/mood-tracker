@@ -19,6 +19,7 @@ const {
 } = require('./lib/transport-crypto');
 const {
     RECOMMENDED_GEMINI_MODELS,
+    DEFAULT_CURRICULUM_LESSONS,
     getLanguageRegistry,
     normalizeStudyLanguage,
     validateGeminiModelId,
@@ -34,6 +35,9 @@ const {
     translateWithGemini,
     translateLyricsToSpanishOffline,
     translateLyricsToSpanishWithGemini,
+    getAvailableGeminiModelsForUser,
+    generatePracticalLessonForWord,
+    evaluatePronunciation,
     testGeminiConnection
 } = require('./lib/language-studio');
 const {
@@ -305,6 +309,21 @@ function inicializarTablasSeguridad() {
             motivo VARCHAR(1000) NOT NULL,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_crisis_fecha (fecha, hora)
+        )`,
+        `CREATE TABLE IF NOT EXISTS EstudioLecciones (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            usuario_id INT NOT NULL,
+            idioma ENUM('en', 'ko') NOT NULL DEFAULT 'en',
+            codigo_leccion VARCHAR(60) NOT NULL,
+            nombre_practica VARCHAR(180) NOT NULL,
+            orden_secuencia SMALLINT NOT NULL DEFAULT 1,
+            completada TINYINT(1) NOT NULL DEFAULT 0,
+            word_leido_en DATETIME NULL DEFAULT NULL,
+            completada_en DATETIME NULL DEFAULT NULL,
+            actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_usuario_leccion (usuario_id, codigo_leccion),
+            INDEX idx_leccion_orden (usuario_id, idioma, orden_secuencia),
+            FOREIGN KEY (usuario_id) REFERENCES Usuarios(id) ON DELETE CASCADE
         )`
     ];
     tablasSql.forEach(sql => {
@@ -6788,12 +6807,17 @@ app.get('/api/language/registry', apiReadLimiter.middleware, requireAdmin, async
     try {
         const settings = await loadUserSettings(req.user.id);
         const mem = sanitizeLanguageMemory(settings.languageMemory);
+        const effectiveKey = String(settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+        const modelInfo = await getAvailableGeminiModelsForUser({ apiKey: effectiveKey });
+        const onlyAvailableModels = modelInfo.models.filter((m) => m.available !== false);
+
         res.json({
             languages: getLanguageRegistry(),
-            geminiModels: RECOMMENDED_GEMINI_MODELS,
-            preferredStudyLanguage: settings.preferredStudyLanguage || 'en_ko',
+            geminiModels: onlyAvailableModels.length ? onlyAvailableModels : RECOMMENDED_GEMINI_MODELS,
+            preferredStudyLanguage: settings.preferredStudyLanguage || 'en',
             activeGeminiModel: settings.geminiModel || 'gemini-2.5-flash',
-            geminiKeyConfigured: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY),
+            geminiKeyConfigured: Boolean(effectiveKey),
+            pcOnline: isPcBridgeOnline(),
             languageMemory: mem
         });
     } catch (err) {
@@ -7155,6 +7179,175 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
     } catch (err) {
         console.error('[MUSIC_LYRICS_TRANSLATE_ERROR]', err);
         res.status(500).send('Error translating song lyrics.');
+    }
+});
+
+async function ensureDefaultStudyLessonsForUser(uid) {
+    const existing = await dbQueryAsync(
+        'SELECT id, codigo_leccion, idioma, nombre_practica, orden_secuencia, completada, word_leido_en, completada_en FROM EstudioLecciones WHERE usuario_id = ? ORDER BY orden_secuencia ASC',
+        [uid]
+    );
+    if (existing.length > 0) return existing;
+
+    for (const item of DEFAULT_CURRICULUM_LESSONS) {
+        await dbQueryAsync(
+            `INSERT IGNORE INTO EstudioLecciones (usuario_id, idioma, codigo_leccion, nombre_practica, orden_secuencia, completada)
+             VALUES (?, ?, ?, ?, ?, 0)`,
+            [uid, item.idioma, item.codigo, item.nombre, item.orden]
+        );
+    }
+    return dbQueryAsync(
+        'SELECT id, codigo_leccion, idioma, nombre_practica, orden_secuencia, completada, word_leido_en, completada_en FROM EstudioLecciones WHERE usuario_id = ? ORDER BY orden_secuencia ASC',
+        [uid]
+    );
+}
+
+app.get('/api/language/lessons', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const uid = req.user.id;
+        const [lessons, settings] = await Promise.all([
+            ensureDefaultStudyLessonsForUser(uid),
+            loadUserSettings(uid)
+        ]);
+
+        let activeLessonFound = false;
+        const enriched = lessons.map((l) => {
+            const isCompleted = Boolean(l.completada);
+            const hasReadWord = Boolean(l.word_leido_en);
+            let locked = false;
+            if (!isCompleted) {
+                if (!activeLessonFound) {
+                    activeLessonFound = true;
+                } else {
+                    locked = true;
+                }
+            }
+            return {
+                id: l.id,
+                codigo: l.codigo_leccion,
+                idioma: l.idioma,
+                nombre: l.nombre_practica,
+                orden: l.orden_secuencia,
+                completada: isCompleted,
+                wordLeido: hasReadWord,
+                locked
+            };
+        });
+
+        const currentLesson = enriched.find((l) => !l.completada) || enriched[enriched.length - 1] || null;
+        res.json({
+            studyEnabled: Boolean(settings.englishReminderEnabled),
+            recommendedMinutes: 15,
+            pcOnline: isPcBridgeOnline(),
+            currentLesson,
+            needsPracticeAlert: Boolean(currentLesson && !currentLesson.wordLeido),
+            lessons: enriched
+        });
+    } catch (err) {
+        console.error('[LANGUAGE_LESSONS_GET_ERROR]', err);
+        res.status(500).send('Error loading study lessons.');
+    }
+});
+
+app.post('/api/language/lessons/:id/generate-practice', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    const lessonId = parsePositiveInt(req.params.id);
+    if (!lessonId) return res.status(400).send('Invalid lesson ID.');
+
+    try {
+        const uid = req.user.id;
+        const lessons = await ensureDefaultStudyLessonsForUser(uid);
+        const targetIdx = lessons.findIndex((l) => Number(l.id) === Number(lessonId));
+        if (targetIdx === -1) return res.status(404).send('Lesson not found.');
+
+        const prevIncomplete = lessons.slice(0, targetIdx).find((l) => !l.completada);
+        if (prevIncomplete) {
+            return res.status(409).json({
+                locked: true,
+                message: `Debes completar primero la lección previa: "${prevIncomplete.nombre_practica}".`
+            });
+        }
+
+        const lesson = lessons[targetIdx];
+        const settings = await loadUserSettings(uid);
+        const effectiveKey = String(settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+        const generated = await generatePracticalLessonForWord({
+            apiKey: effectiveKey,
+            model: settings.geminiModel || 'gemini-2.5-flash',
+            lessonCode: lesson.codigo_leccion,
+            lessonName: lesson.nombre_practica,
+            language: lesson.idioma,
+            learningMemory: settings.languageMemory
+        });
+
+        await dbQueryAsync(
+            'UPDATE EstudioLecciones SET word_leido_en = COALESCE(word_leido_en, ?) WHERE id = ? AND usuario_id = ?',
+            [formatMySqlDateTime(new Date()), lesson.id, uid]
+        );
+
+        res.json({
+            ok: true,
+            lessonId: lesson.id,
+            pcOnline: isPcBridgeOnline(),
+            practice: generated
+        });
+    } catch (err) {
+        console.error('[LANGUAGE_LESSON_GENERATE_ERROR]', err);
+        res.status(500).send('Error generating practical lesson.');
+    }
+});
+
+app.patch('/api/language/lessons/:id/complete', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    const lessonId = parsePositiveInt(req.params.id);
+    if (!lessonId) return res.status(400).send('Invalid lesson ID.');
+
+    try {
+        const uid = req.user.id;
+        const lessons = await ensureDefaultStudyLessonsForUser(uid);
+        const targetIdx = lessons.findIndex((l) => Number(l.id) === Number(lessonId));
+        if (targetIdx === -1) return res.status(404).send('Lesson not found.');
+
+        const lesson = lessons[targetIdx];
+        const prevIncomplete = lessons.slice(0, targetIdx).find((l) => !l.completada);
+        if (prevIncomplete) {
+            return res.status(409).send(`No puedes avanzar sin terminar antes: "${prevIncomplete.nombre_practica}".`);
+        }
+        if (!lesson.word_leido_en && req.body?.wordReadConfirmed !== true) {
+            return res.status(409).send('Aún no has abierto ni practicado el contenido de esta lección en tu documento Word (mínimo 10-15 min).');
+        }
+
+        const nowSql = formatMySqlDateTime(new Date());
+        await dbQueryAsync(
+            'UPDATE EstudioLecciones SET completada = 1, word_leido_en = COALESCE(word_leido_en, ?), completada_en = ? WHERE id = ? AND usuario_id = ?',
+            [nowSql, nowSql, lesson.id, uid]
+        );
+
+        res.json({ ok: true, id: lesson.id, completed: true });
+    } catch (err) {
+        console.error('[LANGUAGE_LESSON_COMPLETE_ERROR]', err);
+        res.status(500).send('Error updating lesson completion.');
+    }
+});
+
+app.post('/api/language/pronunciation', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    try {
+        const targetText = String(req.body.targetText || '').trim();
+        const spokenText = String(req.body.spokenText || '').trim();
+        if (!targetText || !spokenText) {
+            return res.status(400).send('Provide both target phrase and microphone spoken transcript.');
+        }
+        const settings = await loadUserSettings(req.user.id);
+        const effectiveKey = String(settings.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+        const evaluation = await evaluatePronunciation({
+            apiKey: effectiveKey,
+            model: settings.geminiModel || 'gemini-2.5-flash',
+            targetText,
+            spokenText,
+            language: req.body.language || settings.preferredStudyLanguage || 'en'
+        });
+        res.json(evaluation);
+    } catch (err) {
+        console.error('[PRONUNCIATION_EVAL_ERROR]', err);
+        res.status(500).send('Error evaluating pronunciation.');
     }
 });
 
