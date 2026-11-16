@@ -7869,3 +7869,9 @@ textarea:focus,
     max-width: 100%;
     min-width: 0;
 }
+
+#singleTabGuardModal {
+    z-index: 3500;
+    backdrop-filter: blur(6px);
+    background: rgba(11, 17, 32, 0.88);
+}

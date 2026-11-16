@@ -378,6 +378,8 @@ No necesitas agregar nuevos *Secrets* ni *Variables* en GitHub para usar los rec
 
 ### 8.1 Cómo recibir los recordatorios en la barra de notificaciones de tu celular (OPPO A79 / Android / iOS)
 
+*(Nota técnica de sesiones y pestañas: el backend limita a `MAX_ACTIVE_SESSIONS_PER_USER = 3` sesiones activas en `SesionesAuth` conservando las más recientes, y el frontend aplica guardia de pestaña única vía `BroadcastChannel('pdh_active_tab_channel_v1')` para que tocar **`Open App`** con `fromNtfy=1` reutilice y enfoque la pestaña ya abierta sin acumular duplicados).*
+
 1. Instala la aplicación gratuita **ntfy** (desde Google Play Store en Android o App Store en iOS).
 2. Entra a **Personal Daily Hub** en tu navegador → abre **⚙️ Settings** en la barra lateral.
 3. En la tarjeta **📱 Phone Notification Bar (ntfy)**:

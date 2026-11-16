@@ -3111,6 +3111,23 @@
         <div id="floatTranslatorResultBox" class="lang-translator-result" hidden aria-live="polite"></div>
     </aside>
 
+    <!-- Modal: Control de Límite de Pestañas y Redirección desde ntfy -->
+    <div class="modal-overlay" id="singleTabGuardModal" hidden aria-modal="true" role="dialog"
+        aria-labelledby="singleTabGuardTitle">
+        <div class="modal-card modal-card-compact">
+            <div class="modal-header">
+                <h2 id="singleTabGuardTitle">🔒 Pestaña Activa Detectada</h2>
+            </div>
+            <p id="singleTabGuardMessage" class="modal-subtitle">
+                Ya tienes Personal Daily Hub abierto en otra pestaña. Para proteger tu memoria RAM y evitar sesiones duplicadas, esta pestaña quedó en pausa.
+            </p>
+            <div class="modal-actions">
+                <button type="button" class="btn-cancel" id="btnCloseDuplicateTab">Cerrar esta pestaña</button>
+                <button type="button" class="btn-submit btn-modal-save" id="btnTakeOverTab">Usar aquí (pausar la otra)</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Global Toast Feedback Stack -->
     <div id="appToastContainer" class="app-toast-container" aria-live="polite" aria-atomic="true"></div>
 </body>

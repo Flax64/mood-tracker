@@ -93,7 +93,8 @@ El sistema se divide en cinco capas desacopladas:
 - **Tokens opacos + hash en BD:** al iniciar sesión se genera un token aleatorio con `crypto.randomBytes`, al navegador se envía el token crudo en una cookie:
   `mt_session=...; HttpOnly; Path=/; Max-Age=...; Expires=...; SameSite=Lax`
   mientras que MySQL almacena únicamente `sha256Hex(rawToken)` en `SesionesAuth`.
-- **Caducidad semanal automática:** `getNextSundayMidnight()` calcula el próximo **domingo a las `00:00:00`**. Así la sesión sobrevive aunque cierres la pestaña y solo caduca cuando presionas cerrar sesión (`/api/auth/logout`) o llega el domingo a medianoche.
+- **Caducidad semanal automática y límite de sesiones (`MAX_ACTIVE_SESSIONS_PER_USER = 3`):** `getNextSundayMidnight()` calcula el próximo **domingo a las `00:00:00`**. Además, cada login/registro ejecuta `pruneExcessUserSessions(user.id)` en `issueUserSession()` para limpiar sesiones vencidas y conservar únicamente las **3 sesiones más recientes (`ORDER BY id DESC LIMIT 3`)** en `SesionesAuth`.
+- **Control estricto de Pestaña Única + Handover `ntfy` (`public/frontend.js`):** `initSingleTabAndNtfyHandover()` sincroniza las pestañas del mismo navegador vía `BroadcastChannel('pdh_active_tab_channel_v1')`. Solo permite **1 pestaña activa** a la vez (pausando intervalos y mostrando `#singleTabGuardModal` en duplicados, con botón `#btnTakeOverTab` para transferir control) y, cuando el enlace de `ntfy` incluye `fromNtfy=1`, transfiere el destino (`rView`, `rDate`, `rMoment`, `rRef`, `captureGps`) directamente a la pestaña ya abierta.
 - **Limpieza automática:** `limpiarRegistrosExpirados()` elimina sesiones vencidas y códigos usados/expirados en cada login y cada 6 horas (`setInterval(...).unref()`).
 
 ### 3.2 Control de Acceso por Roles (RBAC) y Registro Seguro

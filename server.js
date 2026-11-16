@@ -1140,6 +1140,16 @@ function preventDuplicateSubmit(options = {}) {
     };
 }
 
+const MAX_ACTIVE_SESSIONS_PER_USER = 3;
+
+function pruneExcessUserSessions(userId) {
+    db.query(
+        'DELETE FROM SesionesAuth WHERE expira_en <= NOW() OR (usuario_id = ? AND id NOT IN (SELECT id FROM (SELECT id FROM SesionesAuth WHERE usuario_id = ? ORDER BY id DESC LIMIT ?) AS recientes))',
+        [userId, userId, MAX_ACTIVE_SESSIONS_PER_USER],
+        () => {}
+    );
+}
+
 function issueUserSession(res, user, { statusCode = 200, message, errorMessage = 'Error creating session.' }) {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = sha256Hex(rawToken);
@@ -1154,6 +1164,7 @@ function issueUserSession(res, user, { statusCode = 200, message, errorMessage =
                 console.error(errSes);
                 return res.status(500).send(errorMessage);
             }
+            pruneExcessUserSessions(user.id);
             setSessionCookie(res, rawToken, expiresAt);
             return res.status(statusCode).json({
                 message,
@@ -4470,6 +4481,9 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
                     params.set(String(k), String(v));
                 }
             }
+        }
+        if (reminder.type !== 'test') {
+            params.set('fromNtfy', '1');
         }
         if (Array.from(params.keys()).length > 0 && reminder.targetView) {
             params.set('rView', String(reminder.targetView));

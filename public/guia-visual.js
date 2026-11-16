@@ -192,13 +192,13 @@
                 },
                 {
                     icon: '📱',
-                    titleEn: 'ntfy Actions & Drive Study Sync',
-                    titleEs: 'Botones ntfy y Respaldo NotasIdiomas',
-                    flowEn: ['1. Persistent Snooze 15m/30m & Mark Done', '2. Auto-backups English Word -> gdrive:NotasIdiomas', '3. Always Dark Mode + live EN <-> ES switch'],
-                    flowEs: ['1. Botones Snooze 15m/30m desde Android ntfy', '2. Respalda Word Idiomas en gdrive:NotasIdiomas', '3. Modo Oscuro permanente + cambio EN <-> ES'],
+                    titleEn: 'Single-Tab Guard, ntfy & Drive Sync',
+                    titleEs: 'Pestaña Única, ntfy y NotasIdiomas',
+                    flowEn: ['1. 1 active tab + ntfy "Open App" reuses it', '2. Persistent Snooze 15m/30m & max 3 sessions', '3. Auto-backups English Word -> gdrive:NotasIdiomas'],
+                    flowEs: ['1. 1 pestaña activa + "Open App" ntfy la reutiliza', '2. Snooze 15m/30m persistente y máx. 3 sesiones', '3. Respalda Word Idiomas en gdrive:NotasIdiomas'],
                     targetView: 'settings',
-                    tagEn: 'Syncs across tabs & mini window',
-                    tagEs: 'Sincroniza pestañas y mini ventana'
+                    tagEn: 'BroadcastChannel + Always Dark EN/ES',
+                    tagEs: 'BroadcastChannel + Oscuro EN/ES'
                 },
                 {
                     icon: '🏷️',
@@ -421,6 +421,7 @@
         [
             tr('English_Learning_Notebook.docx auto-creates on PC & backs up to gdrive:NotasIdiomas.', 'English_Learning_Notebook.docx se crea solo en tu PC y se respalda en gdrive:NotasIdiomas.'),
             tr('Journal Word stays strictly local with WORD_PASSWORD (never uploaded to Drive).', 'Tu Diario Word permanece solo local con WORD_PASSWORD (jamás se sube a Drive).'),
+            tr('Single active browser tab (BroadcastChannel) + max 3 sessions in DB; ntfy Open App reuses open tab.', '1 pestaña activa (BroadcastChannel) + máx. 3 sesiones en BD; ntfy Open App reutiliza tu pestaña.'),
             tr('Local MySQL keeps 30 days; older history loads in RAM from Drive on demand.', 'MySQL local conserva 30 días; el historial antiguo se carga en RAM desde Drive.'),
             tr('Full quick guide: see guides/MANUAL_DE_USUARIO.md in repo.', 'Manual completo: consulta guides/MANUAL_DE_USUARIO.md en el repositorio.')
         ].forEach(function (txt) {

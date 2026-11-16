@@ -22,6 +22,7 @@
 
 * **Cambiar idioma (EN / ES):** Botón `🌐 EN / ES` arriba a la derecha o en el menú lateral.
 * **Llave E2EE (32 caracteres):** Pulsa `🔑 E2EE Key` una sola vez en tu navegador para activar el envío cifrado a tus archivos Word.
+* **Límite de Sesiones y Pestaña Única:** Cada cuenta conserva máximo **3 sesiones activas** (ej. PC + Celular; las más antiguas se limpian automáticamente) y el navegador permite **1 sola pestaña activa a la vez** (`#singleTabGuardModal`) con opción de transferir el control en 1 clic (**`Usar aquí`**) para cuidar la memoria RAM.
 
 ---
 
@@ -106,6 +107,7 @@
 1. **Notificaciones en el celular (`ntfy`):**
    * Instala la app **ntfy** en tu teléfono y suscríbete al tópico generado en `⚙️ Settings`.
    * Desde la notificación en tu barra de Android puedes tocar **`Open App`**, **`Snooze 15m`** o **`Snooze 30m`** directamente.
+   * Si ya tienes una pestaña abierta de Personal Daily Hub al tocar **`Open App`**, la aplicación transfiere la vista/recordatorio directo a esa pestaña activa sin acumular pestañas repetidas.
 2. **IA Google Gemini:** Pega tu `GEMINI_API_KEY` y pulsa `🧪 Test AI Connection` (el selector muestra únicamente los modelos activos en tu cuenta).
 3. **Carpeta `NotasIdiomas` en Drive:** En `⚙️ Settings` puedes activar/desactivar el respaldo automático de `English_Learning_Notebook.docx` y personalizar el nombre de la carpeta (`NotasIdiomas`).
 

@@ -8623,7 +8623,9 @@ function enterAppSession(user) {
     }
 
     actualizarCabecerasDeFecha();
-    programarExpiracionDomingo(user.expira_en);
+    if (!isCurrentTabSuspended) {
+        programarExpiracionDomingo(user.expira_en);
+    }
     if (typeof cargarVersionInfo === 'function') {
         cargarVersionInfo();
     }
@@ -8643,13 +8645,15 @@ function enterAppSession(user) {
             })
             .catch(() => { });
 
-        cargarRecordatoriosActivos();
-        if (reminderPollInterval) clearInterval(reminderPollInterval);
-        reminderPollInterval = setInterval(() => {
-            if (currentUser && currentUser.rol === 'admin') {
-                cargarRecordatoriosActivos();
-            }
-        }, 60 * 1000);
+        if (!isCurrentTabSuspended) {
+            cargarRecordatoriosActivos();
+            if (reminderPollInterval) clearInterval(reminderPollInterval);
+            reminderPollInterval = setInterval(() => {
+                if (!isCurrentTabSuspended && currentUser && currentUser.rol === 'admin') {
+                    cargarRecordatoriosActivos();
+                }
+            }, 60 * 1000);
+        }
 
         const urlParams = new URLSearchParams(window.location.search);
         const rView = urlParams.get('rView');
@@ -12635,10 +12639,176 @@ function initResponsiveTextareas() {
     }
 }
 
+let isCurrentTabSuspended = false;
+
+function applyDeepLinkParamsFromUrl(searchStr = '', hashStr = '') {
+    const urlParams = new URLSearchParams(searchStr || window.location.search);
+    const rView = urlParams.get('rView');
+    const shouldCaptureGps = urlParams.get('captureGps') === '1';
+    const cleanHash = String(hashStr || window.location.hash || '').replace('#', '');
+
+    if (rView && VALID_VIEWS.has(rView)) {
+        openReminderTarget({
+            targetView: rView,
+            targetDate: urlParams.get('rDate') || '',
+            targetMoment: urlParams.get('rMoment') || '',
+            targetTime: urlParams.get('rTime') || '',
+            targetBlock: urlParams.get('rBlock') || '',
+            targetTab: urlParams.get('rTab') || '',
+            refId: urlParams.get('rRef') || null
+        });
+        history.replaceState(null, '', `${window.location.pathname}#${rView}`);
+        if (shouldCaptureGps && currentUser?.rol === 'admin') {
+            setTimeout(() => triggerSmartGpsCapture('current'), 350);
+        }
+        return true;
+    }
+    if (shouldCaptureGps && currentUser?.rol === 'admin') {
+        openReminderTarget({ targetView: 'horario', targetTab: 'locations' });
+        history.replaceState(null, '', `${window.location.pathname}#horario`);
+        setTimeout(() => triggerSmartGpsCapture('current'), 350);
+        return true;
+    }
+    if (cleanHash && VALID_VIEWS.has(cleanHash)) {
+        showView(cleanHash, true);
+        return true;
+    }
+    return false;
+}
+
+function initSingleTabAndNtfyHandover() {
+    if (typeof window === 'undefined' || typeof BroadcastChannel !== 'function') return;
+
+    const tabId = `tab_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const channel = new BroadcastChannel('pdh_active_tab_channel_v1');
+    const modal = document.getElementById('singleTabGuardModal');
+    const titleEl = document.getElementById('singleTabGuardTitle');
+    const msgEl = document.getElementById('singleTabGuardMessage');
+    const btnTakeOver = document.getElementById('btnTakeOverTab');
+    const btnCloseTab = document.getElementById('btnCloseDuplicateTab');
+
+    const suspendThisTab = (customTitle, customMsg) => {
+        isCurrentTabSuspended = true;
+        if (reminderPollInterval) {
+            clearInterval(reminderPollInterval);
+            reminderPollInterval = null;
+        }
+        if (sundayWatcherInterval) {
+            clearInterval(sundayWatcherInterval);
+            sundayWatcherInterval = null;
+        }
+        if (titleEl && customTitle) titleEl.textContent = customTitle;
+        if (msgEl && customMsg) msgEl.textContent = customMsg;
+        if (modal) modal.hidden = false;
+    };
+
+    const activateThisTab = () => {
+        isCurrentTabSuspended = false;
+        if (modal) modal.hidden = true;
+        channel.postMessage({ type: 'TAKEOVER_ACTIVE_TAB', tabId });
+        if (currentUser?.expira_en && !sundayWatcherInterval) {
+            programarExpiracionDomingo(currentUser.expira_en);
+        }
+        if (currentUser && currentUser.rol === 'admin' && !reminderPollInterval) {
+            cargarRecordatoriosActivos();
+            reminderPollInterval = setInterval(() => {
+                if (!isCurrentTabSuspended && currentUser && currentUser.rol === 'admin') {
+                    cargarRecordatoriosActivos();
+                }
+            }, 60 * 1000);
+        }
+    };
+
+    if (btnTakeOver) {
+        btnTakeOver.addEventListener('click', () => {
+            activateThisTab();
+            showToast('ok', tUi('This tab is now active.', 'Esta pestaña ahora es la principal.'));
+        });
+    }
+
+    if (btnCloseTab) {
+        btnCloseTab.addEventListener('click', () => {
+            try { window.close(); } catch (_) {}
+            if (msgEl) {
+                msgEl.textContent = tUi(
+                    'This duplicate tab is paused (0% CPU/network). You can close it from your browser tab bar.',
+                    'Esta pestaña duplicada está pausada (0% red/CPU). Puedes cerrarla en la barra de tu navegador.'
+                );
+            }
+        });
+    }
+
+    const initialParams = new URLSearchParams(window.location.search);
+    const hasNotificationTarget = Boolean(
+        initialParams.get('rView') ||
+        initialParams.get('captureGps') === '1' ||
+        initialParams.get('fromNtfy') === '1'
+    );
+
+    channel.onmessage = (event) => {
+        const data = event.data || {};
+        if (!data || data.tabId === tabId) return;
+
+        if (data.type === 'PING_EXISTING_TAB' && !isCurrentTabSuspended) {
+            // Esta pestaña ya está activa: recibir navegación de ntfy si viene incluida y responder ACK
+            let navigated = false;
+            if (data.hasNotificationTarget && currentUser) {
+                navigated = applyDeepLinkParamsFromUrl(data.search || '', data.hash || '');
+                try { window.focus(); } catch (_) {}
+                showToast('info', tUi('Opened notification in your active tab!', '¡Notificación abierta en tu pestaña activa!'));
+            }
+            channel.postMessage({
+                type: 'ACK_EXISTING_TAB',
+                tabId,
+                targetTabId: data.tabId,
+                handledNavigation: navigated
+            });
+        } else if (data.type === 'ACK_EXISTING_TAB' && data.targetTabId === tabId) {
+            // Ya existe otra pestaña activa
+            if (hasNotificationTarget) {
+                try { window.close(); } catch (_) {}
+                suspendThisTab(
+                    tUi('✅ Opened in Active Tab', '✅ Abierto en tu pestaña activa'),
+                    tUi(
+                        'Your notification was opened directly in your existing Personal Daily Hub tab. You can close this tab or click "Use Here" to switch control.',
+                        'La notificación se abrió directamente en la pestaña que ya tenías abierta. Puedes cerrar esta pestaña o pulsar "Usar aquí" para pasar el control.'
+                    )
+                );
+            } else {
+                suspendThisTab(
+                    tUi('🔒 Active Tab Limit (1 Tab)', '🔒 Límite de Pestaña Activa (1 Pestaña)'),
+                    tUi(
+                        'Personal Daily Hub is already open in another tab. To avoid duplicate sessions and save memory, only 1 active tab is allowed at a time.',
+                        'Personal Daily Hub ya está abierto en otra pestaña. Para evitar sesiones múltiples y ahorrar memoria, solo se mantiene 1 pestaña activa a la vez.'
+                    )
+                );
+            }
+        } else if (data.type === 'TAKEOVER_ACTIVE_TAB') {
+            suspendThisTab(
+                tUi('🔒 Switched to Another Tab', '🔒 Control transferido a otra pestaña'),
+                tUi(
+                    'You switched active control to another tab. This tab is now paused so it does not consume resources.',
+                    'Pasaste el control a otra pestaña. Esta pestaña quedó en pausa para no duplicar sesiones ni consumir recursos.'
+                )
+            );
+        }
+    };
+
+    // Al arrancar esta pestaña, consultar si ya hay otra pestaña activa abierta
+    channel.postMessage({
+        type: 'PING_EXISTING_TAB',
+        tabId,
+        hasNotificationTarget,
+        search: window.location.search,
+        hash: window.location.hash
+    });
+}
+
 function initApp() {
     initTheme();
     actualizarCabecerasDeFecha();
     initPasswordToggles();
+    initSingleTabAndNtfyHandover();
     initAuthHandlers();
     initSettingsHandlers();
     initLanguageAiStudio();
