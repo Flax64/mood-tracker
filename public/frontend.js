@@ -4563,6 +4563,8 @@ const musicState = {
     embeddableByVideoId: {},
     navArtistId: null,
     navAlbumKey: null,
+    openArtistFolders: new Set(),
+    openAlbumFolders: new Set(),
     sessionLyricsBySongId: {}
 };
 
@@ -5063,18 +5065,163 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
     return false;
 }
 
+function parseAndDivideLyricsByLanguage(rawLyrics = '') {
+    const clean = String(rawLyrics || '').replace(/\r\n/g, '\n').trim();
+    if (!clean) return [];
+
+    // 1. Si viene etiquetado por pistas ([KO], [EN], [ES], === [ES — Traducción IA] ===)
+    const explicitBlocks = [];
+    const sectionRegex = /(?:^|\n)(?:===\s*\[([^\]]+)\]\s*===|\[([A-Za-z]{2,12}(?:\s*[—-][^\]]*)?)\])\s*\n([\s\S]*?)(?=\n(?:===\s*\[[^\]]+\]\s*===|\[[A-Za-z]{2,12}(?:\s*[—-][^\]]*)?\])\s*\n|$)/g;
+    let match;
+    while ((match = sectionRegex.exec(clean)) !== null) {
+        const rawTag = String(match[1] || match[2] || '').trim().toUpperCase();
+        const body = String(match[3] || '').trim();
+        if (!body) continue;
+        let code = 'mix';
+        let title = `🎵 ${rawTag}`;
+        if (rawTag.startsWith('KO') || rawTag.includes('COREANO') || rawTag.includes('KOREAN')) {
+            code = 'ko';
+            title = '🇰🇷 Coreano (Hangul + Romanización)';
+        } else if (rawTag.startsWith('EN') || rawTag.includes('INGL')) {
+            code = 'en';
+            title = '🇺🇸 Inglés (English)';
+        } else if (rawTag.startsWith('ES') || rawTag.includes('ESPAÑOL') || rawTag.includes('TRADUCCI')) {
+            code = 'es';
+            title = '🇪🇸 Español (Traducción Completa)';
+        }
+        explicitBlocks.push({ code, title, lines: body.split('\n') });
+    }
+
+    if (explicitBlocks.length > 0) {
+        return explicitBlocks;
+    }
+
+    // 2. Si es una sola pista (ej. K-Pop mixto sin cabeceras [EN]/[KO]), mostrarla completa y separar sub-bloques por idioma
+    const allLines = clean.split('\n');
+    const koLines = [];
+    const enLines = [];
+    const esLines = [];
+    const hasSpanishCues = /\b(que|para|como|pero|por|con|una|los|las|del|estoy|quiero|corazón|amor|siempre|noche)\b/i;
+
+    allLines.forEach(line => {
+        const t = line.trim();
+        if (!t) return;
+        if (/[\uAC00-\uD7A3\u3131-\u318E]/.test(t)) {
+            koLines.push(t);
+        } else if (/[áéíóúñ¿¡]/i.test(t) || hasSpanishCues.test(t)) {
+            esLines.push(t);
+        } else {
+            enLines.push(t);
+        }
+    });
+
+    const sections = [
+        {
+            code: 'full',
+            title: '🎵 Letra Completa Original (Sin cortes)',
+            lines: allLines
+        }
+    ];
+    if (enLines.length > 0 && koLines.length > 0) {
+        sections.push({
+            code: 'en',
+            title: `🇺🇸 Líneas en Inglés (${enLines.length})`,
+            lines: enLines
+        });
+        sections.push({
+            code: 'ko',
+            title: `🇰🇷 Líneas en Coreano + Romanización (${koLines.length})`,
+            lines: koLines
+        });
+    } else if (koLines.length > 0) {
+        sections[0].code = 'ko';
+        sections[0].title = '🇰🇷 Coreano (Hangul + Romanización Completa)';
+    } else if (enLines.length > 0) {
+        sections[0].code = 'en';
+        sections[0].title = '🇺🇸 Inglés (Letra Completa)';
+    }
+    if (esLines.length > 0 && sections[0].code !== 'es') {
+        sections.push({
+            code: 'es',
+            title: `🇪🇸 Líneas en Español (${esLines.length})`,
+            lines: esLines
+        });
+    }
+    return sections;
+}
+
+function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
+    const host = document.getElementById('musicLyricsReadonlyBlocks');
+    if (!host) return;
+    host.replaceChildren();
+
+    const clean = String(rawLyrics || '').trim();
+    if (!clean) {
+        const emptyBox = document.createElement('div');
+        emptyBox.className = 'lyrics-lang-section';
+        emptyBox.textContent = 'Presiona "📄 Extraer Letra" arriba para cargar la letra completa en solo lectura desde tu Word o PC.';
+        host.appendChild(emptyBox);
+        return;
+    }
+
+    const sections = parseAndDivideLyricsByLanguage(clean);
+    const filtered = filterLang === 'all'
+        ? sections
+        : sections.filter(s => s.code === filterLang || (filterLang === 'en' && s.code === 'full' && sections.length === 1));
+
+    const listToRender = filtered.length ? filtered : sections;
+
+    listToRender.forEach(sec => {
+        const card = document.createElement('div');
+        card.className = 'lyrics-lang-section';
+
+        const head = document.createElement('div');
+        head.className = 'lyrics-lang-section-head';
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = sec.title;
+        const countSpan = document.createElement('small');
+        countSpan.className = 'muted-text';
+        countSpan.textContent = `${sec.lines.filter(l => l.trim()).length} líneas · Solo lectura`;
+        head.append(titleSpan, countSpan);
+
+        const body = document.createElement('div');
+        body.className = 'lyrics-lang-body';
+
+        sec.lines.forEach(line => {
+            const lineDiv = document.createElement('div');
+            lineDiv.textContent = line || ' ';
+            body.appendChild(lineDiv);
+
+            if (/[\uAC00-\uD7A3]/.test(line) && typeof hangulToRomanizationClient === 'function') {
+                const rom = hangulToRomanizationClient(line);
+                if (rom && rom !== line) {
+                    const romSmall = document.createElement('small');
+                    romSmall.className = 'lyrics-line-rom-hint';
+                    romSmall.textContent = `[${rom}]`;
+                    body.appendChild(romSmall);
+                }
+            }
+        });
+
+        card.append(head, body);
+        host.appendChild(card);
+    });
+}
+
 function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     const card = document.getElementById('musicLyricsViewerCard');
     const badge = document.getElementById('musicLyricsMetaBadge');
     const viewer = document.getElementById('musicSongLyricsViewer');
     const hint = document.getElementById('musicLyricsStatusHint');
     const extractBtn = document.getElementById('btnMusicExtractLyrics');
+    const langFilterEl = document.getElementById('musicLyricsTrackLangFilter');
     if (!card || !viewer) return;
 
     if (!song) {
         card.hidden = true;
         viewer.value = '';
         viewer.dataset.loadedSongId = '';
+        renderReadonlyLyricsByLanguage('', 'all');
         if (badge) badge.textContent = tUi('PC Word Only', 'Solo en Word PC');
         renderMusicLyricsAlbumPlaylist(null);
         return;
@@ -5090,14 +5237,16 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         viewer.dataset.loadedSongId = songIdStr;
     }
 
+    const activeLangFilter = langFilterEl ? langFilterEl.value : 'all';
+    renderReadonlyLyricsByLanguage(viewer.value, activeLangFilter);
+
     if (badge) {
         if (savedLyrics.trim()) {
             const lineCount = savedLyrics.split(/\r?\n/).filter(l => l.trim()).length;
-            const src = cachedSession?.source ? ` · ${cachedSession.source}` : '';
-            badge.textContent = tUi(`${lineCount} lines in session${src}`, `${lineCount} líneas en sesión${src}`);
+            badge.textContent = tUi(`${lineCount} lines · Read-Only`, `${lineCount} líneas · Solo lectura`);
         } else {
             badge.textContent = song.word_sincronizado
-                ? tUi('In PC Word (click to load)', 'En Word PC (haz clic para cargar)')
+                ? tUi('In PC Word (click Extract Lyrics)', 'En Word PC (pulsa Extraer Letra)')
                 : tUi('PC Word Only', 'Solo en Word PC');
         }
     }
@@ -5109,14 +5258,7 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     if (extractBtn) extractBtn.disabled = !hasVideoId;
 
     if (hint) {
-        const ytdlpStat = musicState.ytdlpStatus;
-        if (ytdlpStat && ytdlpStat.pcOnline) {
-            hint.textContent = '🟢 PC online: al presionar "🎙️ Cargar / Extraer letra (PC yt-dlp)", tu PC busca la letra en tu Word o ejecuta yt-dlp localmente y la organiza por álbum/pista (E2EE · 0 KB en BD).';
-        } else if (ytdlpStat && ytdlpStat.available) {
-            hint.textContent = `☁️ PC offline · Servidor yt-dlp listo (${ytdlpStat.binaryName || 'yt-dlp'} · JS: ${ytdlpStat.jsRuntime || 'node'}): extrae en RAM sin guardar en BD y encóla E2EE hacia tu Word PC.`;
-        } else {
-            hint.textContent = '☁️ PC offline: inicia sincronizador.py en tu PC para cargar desde Word o ejecutar yt-dlp automáticamente (cifrado E2EE · 0 KB en MySQL/disco).';
-        }
+        hint.textContent = 'Letra en modo solo lectura completa y dividida por idiomas (puedes seleccionar cualquier frase con el mouse o dedo para traducirla).';
     }
 }
 
@@ -5858,84 +6000,40 @@ function renderMusicCatalog() {
 
     const sortedArtists = Array.from(artistBuckets.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
     const fragment = document.createDocumentFragment();
+    const isFilteringActive = Boolean(search || artistFilter || releaseFilter || langFilter || statusFilter);
 
     sortedArtists.forEach(artistGroup => {
+        const artistFolderKey = String(artistGroup.id || artistGroup.nombre);
+        const isArtistOpen = isFilteringActive || musicState.openArtistFolders.has(artistFolderKey);
+
         const groupCard = document.createElement('div');
-        groupCard.className = 'music-artist-group';
+        groupCard.className = `music-artist-group${isArtistOpen ? ' is-open' : ''}`;
 
         const header = document.createElement('div');
-        header.className = 'music-artist-header';
+        header.className = 'music-artist-header is-folder-toggle';
+        header.title = 'Haz clic para desplegar u ocultar las carpetas de álbumes de este artista';
+
         const nameEl = document.createElement('span');
         nameEl.className = 'music-artist-name';
         protectUserNode(nameEl);
-        nameEl.textContent = `🎤 ${artistGroup.nombre}`;
+        const chevron = document.createElement('span');
+        chevron.className = 'folder-chevron-badge';
+        chevron.textContent = '▶';
+        nameEl.append(chevron, document.createTextNode(`📁 ${artistGroup.nombre}`));
 
-        const artistRecord = (musicState.artists || []).find(a => Number(a.id) === Number(artistGroup.id));
-        const headActions = document.createElement('div');
-        headActions.className = 'music-artist-head-actions';
-
-        const countEl = document.createElement('span');
-        countEl.className = 'muted-text';
-        const totalInArtist = Array.from(artistGroup.albums.values()).reduce((sum, al) => sum + al.songs.length, 0);
-        countEl.textContent = tUi(
-            `${totalInArtist} song${totalInArtist === 1 ? '' : 's'}`,
-            `${totalInArtist} canción${totalInArtist === 1 ? '' : 'es'}`
-        );
-        headActions.appendChild(countEl);
-
-        if (artistGroup.id > 0) {
-            const newAlbForArtistBtn = document.createElement('button');
-            newAlbForArtistBtn.type = 'button';
-            newAlbForArtistBtn.className = 'btn-mini-add';
-            newAlbForArtistBtn.textContent = tUi('💿 + Album', '💿 + Álbum');
-            newAlbForArtistBtn.title = tUi(
-                `Create an Album or Mini Album for ${artistGroup.nombre}`,
-                `Crear Álbum o Mini Álbum para ${artistGroup.nombre}`
-            );
-            newAlbForArtistBtn.addEventListener('click', () => {
-                openMusicAlbumCreateModal({
-                    artistName: artistGroup.nombre,
-                    artistType: artistRecord?.tipo_artista || 'group'
-                });
-            });
-            headActions.appendChild(newAlbForArtistBtn);
-
-            const addSongForArtistBtn = document.createElement('button');
-            addSongForArtistBtn.type = 'button';
-            addSongForArtistBtn.className = 'btn-mini-add';
-            addSongForArtistBtn.textContent = tUi('➕ Add Song', '➕ Agregar Canción');
-            addSongForArtistBtn.title = tUi(
-                `Add a song under ${artistGroup.nombre}`,
-                `Agregar una canción bajo ${artistGroup.nombre}`
-            );
-            addSongForArtistBtn.addEventListener('click', () => {
-                prepararAgregarCancionAAlbum({
-                    mainArtist: artistGroup.nombre,
-                    artistType: artistRecord?.tipo_artista || 'group',
-                    albumTitle: '',
-                    albumType: 'single'
-                });
-            });
-            headActions.appendChild(addSongForArtistBtn);
-
-            const editArtistBtn = document.createElement('button');
-            editArtistBtn.type = 'button';
-            editArtistBtn.className = 'btn-mini-edit';
-            editArtistBtn.textContent = tUi('✏️ Edit Artist', '✏️ Editar Artista');
-            editArtistBtn.title = tUi('Rename artist, change format or notes', 'Renombrar artista, cambiar formato o notas');
-            editArtistBtn.addEventListener('click', () => {
-                openMusicEntityEditModal('artist', {
-                    id: artistGroup.id,
-                    nombre: artistGroup.nombre,
-                    tipo_artista: artistRecord?.tipo_artista || 'group',
-                    notas_cortas: artistRecord?.notas_cortas || ''
-                });
-            });
-            headActions.appendChild(editArtistBtn);
-        }
-
-        header.append(nameEl, headActions);
+        header.addEventListener('click', (ev) => {
+            if (ev.target && ev.target.closest('button, a')) return;
+            if (musicState.openArtistFolders.has(artistFolderKey)) {
+                musicState.openArtistFolders.delete(artistFolderKey);
+                groupCard.classList.remove('is-open');
+            } else {
+                musicState.openArtistFolders.add(artistFolderKey);
+                groupCard.classList.add('is-open');
+            }
+        });
         groupCard.appendChild(header);
+        const albumsWrap = document.createElement('div');
+        albumsWrap.className = 'music-artist-albums-wrap';
 
         const sortedAlbums = Array.from(artistGroup.albums.values()).sort((a, b) => {
             if (a.titulo === 'Standalone Singles & Tracks') return 1;
@@ -5946,68 +6044,41 @@ function renderMusicCatalog() {
         });
 
         sortedAlbums.forEach(album => {
+            const albumFolderKey = `${artistFolderKey}::${album.albumId || album.titulo}`;
+            const hasSelectedSong = album.songs.some(({ song }) => Number(song.id) === Number(musicState.selectedSongId));
+            const isAlbumOpen = isFilteringActive || hasSelectedSong || musicState.openAlbumFolders.has(albumFolderKey);
+
             const albumBlock = document.createElement('div');
-            albumBlock.className = 'music-album-block';
+            albumBlock.className = `music-album-block${isAlbumOpen ? ' is-open' : ''}`;
 
             const albumHeader = document.createElement('div');
-            albumHeader.className = 'music-album-header';
+            albumHeader.className = 'music-album-header is-folder-toggle';
+            albumHeader.title = 'Haz clic para abrir o cerrar las canciones de este álbum';
 
             const albumTitleEl = document.createElement('span');
             albumTitleEl.className = 'music-album-title';
             protectUserNode(albumTitleEl);
+            const albChevron = document.createElement('span');
+            albChevron.className = 'folder-chevron-badge';
+            albChevron.textContent = '▶';
             const displayAlbTitle = album.titulo === 'Standalone Singles & Tracks'
                 ? tUi('Standalone Singles & Tracks', 'Sencillos y Pistas Sueltas')
                 : album.titulo;
-            albumTitleEl.textContent = album.anio ? `${displayAlbTitle} (${album.anio})` : displayAlbTitle;
+            const labelText = album.anio ? `${displayAlbTitle} (${album.anio})` : displayAlbTitle;
+            albumTitleEl.append(albChevron, document.createTextNode(`💿 ${labelText} · ${album.songs.length}`));
 
-            const albumMetaWrap = document.createElement('div');
-            albumMetaWrap.className = 'music-artist-head-actions';
-
-            const typeBadge = document.createElement('span');
-            typeBadge.className = 'music-release-badge';
-            typeBadge.textContent = RELEASE_TYPE_LABELS[album.tipo] || album.tipo;
-            albumMetaWrap.appendChild(typeBadge);
-
-            const addSongToAlbumBtn = document.createElement('button');
-            addSongToAlbumBtn.type = 'button';
-            addSongToAlbumBtn.className = 'btn-mini-add';
-            addSongToAlbumBtn.textContent = tUi('➕ Add Song', '➕ Agregar Canción');
-            addSongToAlbumBtn.title = album.albumId
-                ? tUi(`Add a song directly to "${album.titulo}"`, `Agregar una canción a "${album.titulo}"`)
-                : tUi(`Add a standalone song for ${artistGroup.nombre}`, `Agregar un sencillo para ${artistGroup.nombre}`);
-            addSongToAlbumBtn.addEventListener('click', () => {
-                prepararAgregarCancionAAlbum({
-                    mainArtist: artistGroup.id > 0 ? artistGroup.nombre : '',
-                    artistType: artistRecord?.tipo_artista || 'group',
-                    albumTitle: album.albumId ? album.titulo : '',
-                    albumType: album.albumId ? (album.tipo || 'mini_album') : 'single',
-                    albumYear: album.anio || ''
-                });
+            albumHeader.addEventListener('click', (ev) => {
+                if (ev.target && ev.target.closest('button, a')) return;
+                if (musicState.openAlbumFolders.has(albumFolderKey)) {
+                    musicState.openAlbumFolders.delete(albumFolderKey);
+                    albumBlock.classList.remove('is-open');
+                } else {
+                    musicState.openAlbumFolders.add(albumFolderKey);
+                    albumBlock.classList.add('is-open');
+                }
             });
-            albumMetaWrap.appendChild(addSongToAlbumBtn);
-
-            if (album.albumId) {
-                const editAlbumBtn = document.createElement('button');
-                editAlbumBtn.type = 'button';
-                editAlbumBtn.className = 'btn-mini-edit';
-                editAlbumBtn.textContent = tUi('✏️ Edit Album', '✏️ Editar Álbum');
-                editAlbumBtn.title = tUi('Edit album title, release type, year or delete album', 'Editar título del álbum, tipo, año o eliminar');
-                editAlbumBtn.addEventListener('click', () => {
-                    openMusicEntityEditModal('album', {
-                        id: album.albumId,
-                        titulo: album.titulo,
-                        tipo_lanzamiento: album.tipo || 'album',
-                        anio: album.anio || ''
-                    });
-                });
-                albumMetaWrap.appendChild(editAlbumBtn);
-            }
-
-            albumHeader.append(albumTitleEl, albumMetaWrap);
-            albumBlock.appendChild(albumHeader);
-
             const songList = document.createElement('div');
-            songList.className = 'music-song-list';
+            songList.className = 'music-song-list music-album-songs-wrap';
 
             if (!album.songs.length) {
                 const emptyAlbumCta = document.createElement('div');
@@ -6205,9 +6276,10 @@ function renderMusicCatalog() {
             });
 
             albumBlock.appendChild(songList);
-            groupCard.appendChild(albumBlock);
+            albumsWrap.appendChild(albumBlock);
         });
 
+        groupCard.appendChild(albumsWrap);
         fragment.appendChild(groupCard);
     });
 
@@ -6590,18 +6662,7 @@ if (englishMusicStudioRoot) {
     const trackLangFilterEl = document.getElementById('musicLyricsTrackLangFilter');
     if (trackLangFilterEl && songLyricsViewerEl) {
         trackLangFilterEl.addEventListener('change', () => {
-            const song = getCancionSeleccionada();
-            const fullLyrics = song && musicState.sessionLyricsBySongId[song.id]?.lyrics;
-            if (!fullLyrics) return;
-            const mode = trackLangFilterEl.value;
-            if (mode === 'all') {
-                songLyricsViewerEl.value = fullLyrics;
-                return;
-            }
-            const tagMap = { en: /\[EN\]/i, ko: /\[KO\]/i, es: /(?:\[ES\]|===\s*\[ES)/i };
-            const blocks = fullLyrics.split(/\n(?=\[[A-Z]{2,}\]|===\s*\[)/);
-            const matched = blocks.filter(b => tagMap[mode] && tagMap[mode].test(b));
-            songLyricsViewerEl.value = matched.length ? matched.join('\n\n').trim() : fullLyrics;
+            renderReadonlyLyricsByLanguage(songLyricsViewerEl.value, trackLangFilterEl.value);
         });
     }
 
