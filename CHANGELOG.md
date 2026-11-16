@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.9.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.9.1**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.9.1] - 2026-11-16 (PATCH) · `7779ec7`
+**fix(ytdlp): remove server-side youtube fetch fallback to prevent IP bot blocks**
+
+### 🐛 Bug Fixes / Correcciones
+- fix(ytdlp): remove server-side youtube fetch fallback to prevent IP bot blocks (7779ec7)
 
 ## [v1.9.0] - 2026-11-16 (MINOR) · `3fab9d0`
 **feat(session): single-tab guard & ntfy tab reuse**

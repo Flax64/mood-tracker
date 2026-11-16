@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.9.0",
-  "updatedAt": "2026-11-16T13:28:16.710Z",
+  "currentVersion": "1.9.1",
+  "updatedAt": "2026-11-16T13:39:29.719Z",
   "releases": [
+    {
+      "version": "1.9.1",
+      "tag": "v1.9.1",
+      "bumpType": "patch",
+      "previousVersion": "1.9.0",
+      "releasedAt": "2026-11-16T13:39:29.719Z",
+      "commitSha": "7779ec7",
+      "trigger": "push",
+      "summary": "fix(ytdlp): remove server-side youtube fetch fallback to prevent IP bot blocks",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix(ytdlp): remove server-side youtube fetch fallback to prevent IP bot blocks (7779ec7)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.9.0",
       "tag": "v1.9.0",
