@@ -108,7 +108,99 @@ fi
 
 mv "$ARCHIVO_TMP" "$ARCHIVO"
 
-# 4. Subir a Google Drive con rclone
+# 4. Actualizar archivo histórico acumulativo en RAM (/dev/shm) y subir a Google Drive
+RAM_TMP_DIR="/dev/shm"
+if [ ! -d "$RAM_TMP_DIR" ] || [ ! -w "$RAM_TMP_DIR" ]; then
+    RAM_TMP_DIR="${TMPDIR:-/tmp}"
+fi
+HIST_PREV_GZ="$RAM_TMP_DIR/.hist_prev_$$.json.gz"
+HIST_NEW_GZ="$RAM_TMP_DIR/.hist_new_$$.json.gz"
+CURRENT_TSV="$RAM_TMP_DIR/.curr_rows_$$.tsv"
+trap 'rm -f "$ARCHIVO_TMP" "$HIST_PREV_GZ" "$HIST_NEW_GZ" "$CURRENT_TSV"' EXIT INT TERM
+
+run_mysql_query() {
+    local sql_query="$1"
+    if [ "$SEALED_MODE" -eq 1 ]; then
+        $DOCKER_CMD exec "$CONTENEDOR" sh -c \
+            "MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" mysql --batch --raw --skip-column-names -u root \"\$MYSQL_DATABASE\" -e \"$sql_query\""
+    elif [ -n "${DB_PASS:-}" ]; then
+        $DOCKER_CMD exec -e MYSQL_PWD="$DB_PASS" "$CONTENEDOR" mysql --batch --raw --skip-column-names \
+            -u "${DB_USER:-root}" "${DB_NAME:-MoodTrackerLocal}" -e "$sql_query"
+    else
+        $DOCKER_CMD exec "$CONTENEDOR" mysql --batch --raw --skip-column-names \
+            -u "${DB_USER:-root}" "${DB_NAME:-MoodTrackerLocal}" -e "$sql_query"
+    fi
+}
+
+ EXPORT_SQL="
+SELECT 'mood', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'momento_dia', momento_dia, 'estado_animo', estado_animo, 'color_hex', color_hex) FROM RegistrosMood
+UNION ALL
+SELECT 'sleep', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'horas', horas, 'calidad', calidad, 'hora_dormir', hora_dormir, 'hora_despertar', hora_despertar, 'es_desvelo', es_desvelo, 'tipo_registro', tipo_registro, 'motivo_desvelo', motivo_desvelo) FROM RegistrosSleep
+UNION ALL
+SELECT 'crisis', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'hora', hora, 'tipo_crisis', tipo_crisis, 'intensidad', intensidad, 'motivo', motivo) FROM RegistrosCrisis
+UNION ALL
+SELECT 'agenda', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'bloque', bloque, 'hora', TIME_FORMAT(hora, '%H:%i'), 'actividad', actividad, 'tipo', tipo, 'categoria', categoria, 'materia_id', materia_id, 'materia_nombre', materia_nombre, 'estado', estado, 'completada', completada, 'recordatorio_min', recordatorio_min) FROM RegistrosAgenda;
+"
+
+run_mysql_query "$EXPORT_SQL" > "$CURRENT_TSV" 2>/dev/null || true
+"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz" "$HIST_PREV_GZ" 2>/dev/null || true
+
+if command -v python3 >/dev/null 2>&1; then
+    python3 - "$HIST_PREV_GZ" "$CURRENT_TSV" "$HIST_NEW_GZ" <<'PYEOF'
+import gzip, json, os, sys
+
+prev_gz, curr_tsv, out_gz = sys.argv[1:4]
+store = {"mood": {}, "sleep": {}, "crisis": {}, "agenda": {}}
+
+if os.path.exists(prev_gz) and os.path.getsize(prev_gz) > 0:
+    try:
+        with gzip.open(prev_gz, "rt", encoding="utf-8") as fh:
+            loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                for k in store.keys():
+                    if isinstance(loaded.get(k), dict):
+                        store[k].update(loaded[k])
+    except Exception:
+        pass
+
+if os.path.exists(curr_tsv):
+    with open(curr_tsv, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            parts = line.rstrip("\r\n").split("\t", 3)
+            if len(parts) != 4:
+                continue
+            kind, row_id, fecha_str, raw_json = parts
+            if kind in store and row_id:
+                try:
+                    obj = json.loads(raw_json)
+                    key = f"{fecha_str}_{obj.get('momento_dia', row_id)}" if kind == "mood" else str(row_id)
+                    store[kind][key] = obj
+                except Exception:
+                    pass
+
+with gzip.open(out_gz, "wt", encoding="utf-8") as out_fh:
+    json.dump(store, out_fh, ensure_ascii=False)
+PYEOF
+fi
+
 "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copy "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}"
+if [ -s "$HIST_NEW_GZ" ]; then
+    "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$HIST_NEW_GZ" "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz"
+fi
+
+# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días = 1 mes) para no saturar la instancia
+RETENTION_DAYS="${DB_RETENTION_DAYS:-30}"
+if [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
+    PURGE_SQL="
+        DELETE FROM RegistrosMood WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
+        DELETE FROM RegistrosSleep WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
+        DELETE FROM RegistrosCrisis WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
+        DELETE FROM RegistrosAgenda WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY) AND (completada = 1 OR estado = 'done');
+        DELETE FROM SesionesAuth WHERE expira_en < NOW();
+        DELETE FROM CodigosSeguridad WHERE expira_en < NOW() OR usado = 1;
+    "
+    run_mysql_query "$PURGE_SQL" >/dev/null 2>&1 || true
+fi
+
 MODO_TXT=$([ "$SEALED_MODE" -eq 1 ] && echo "sellado" || echo "env")
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completado (modo=$MODO_TXT) y subido a ${REMOTE_NAME}:${REMOTE_DIR}/respaldo_mood_tracker.sql.gz"
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completo + archivo histórico subidos a ${REMOTE_NAME}:${REMOTE_DIR} y ventana local de ${RETENTION_DAYS} días aplicada (modo=$MODO_TXT)"
