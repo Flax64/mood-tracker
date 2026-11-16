@@ -144,7 +144,7 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.equal(calls[1].includes('--js-runtimes'), false);
     });
 
-    it('extrae letras limpias vía yt-dlp (archivo temporal limpiado en finally) y usa fallback watch-page cuando falta binario', async () => {
+    it('extrae letras limpias vía yt-dlp (archivo temporal limpiado en finally) y evita fetch directo cuando falta binario o hay bot check', async () => {
         // 1. Vía yt-dlp simulado escribiendo archivo VTT en carpeta temporal
         const mockExecSubs = async (_bin, args) => {
             const outIdx = args.indexOf('--output');
@@ -168,39 +168,50 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.equal(extracted.source, 'yt-dlp:en');
         assert.equal(extracted.lyrics, 'Baby got that drip drip\nForever never fades');
 
-        // 2. Fallback sin binario usando watch page captionTracks
+        // 2. Sin binario yt-dlp: nunca debe hacer fetch directo a YouTube y debe sugerir el helper local de PC
         const emptyFs = {
             ...fs,
             existsSync: () => false
         };
-        const mockFetch = async (targetUrl) => {
-            if (targetUrl.includes('/watch?')) {
-                return {
-                    ok: true,
-                    text: async () =>
-                        '<script>{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=Zp-Jhuhq0bQ&lang=ko","languageCode":"ko","name":{"simpleText":"Korean"}}]}</script>'
-                };
-            }
-            if (targetUrl.includes('/api/timedtext')) {
-                return {
-                    ok: true,
-                    text: async () => 'WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n영원할 것처럼\n빛나는 지금'
-                };
-            }
-            return { ok: false };
+        let fetchCalls = 0;
+        const forbiddenFetch = async () => {
+            fetchCalls += 1;
+            throw new Error('Server must never fetch YouTube pages directly');
         };
 
-        const fallbackRes = await extractSongLyrics({
+        const missingRes = await extractSongLyrics({
             videoId: 'Zp-Jhuhq0bQ',
             idioma: 'English + Korean',
             env: {},
             platform: 'linux',
             fsImpl: emptyFs,
-            fetchImpl: mockFetch
+            fetchImpl: forbiddenFetch
         });
-        assert.equal(fallbackRes.ok, true);
-        assert.equal(fallbackRes.source, 'youtube-captions');
-        assert.equal(fallbackRes.lyrics, '영원할 것처럼\n빛나는 지금');
+        assert.equal(fetchCalls, 0);
+        assert.equal(missingRes.ok, false);
+        assert.equal(missingRes.reason, 'ytdlp_missing');
+        assert.equal(missingRes.ytdlpAvailable, false);
+        assert.match(missingRes.suggestedCommand, /yt_lyrics_helper\.py/);
+        assert.match(missingRes.error, /sincronizador\.py|yt_lyrics_helper\.py/);
+
+        // 3. Si yt-dlp reporta bloqueo anti-bot/429, tampoco hace fetch directo y retorna bot_check
+        const botBlockedExec = async () => {
+            const err = new Error('ERROR: Sign in to confirm you are not a bot');
+            err.stderr = "ERROR: [youtube] Zp-Jhuhq0bQ: Sign in to confirm you're not a bot.";
+            throw err;
+        };
+        const botRes = await extractSongLyrics({
+            videoId: 'Zp-Jhuhq0bQ',
+            idioma: 'English + Korean',
+            ytdlpPath: '/usr/local/bin/yt-dlp',
+            execFileImpl: botBlockedExec,
+            fetchImpl: forbiddenFetch
+        });
+        assert.equal(fetchCalls, 0);
+        assert.equal(botRes.ok, false);
+        assert.equal(botRes.reason, 'bot_check');
+        assert.equal(botRes.ytdlpAvailable, true);
+        assert.match(botRes.error, /anti-bot|sincronizador\.py/i);
     });
 
     it('resuelve streams MP4 CDN directos con cache acotada y rechaza URLs no autorizadas', async () => {
