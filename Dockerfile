@@ -8,10 +8,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Instalar Python 3 + yt-dlp oficial (zipimport) para letras/subtítulos y streams reproducibles en t3.micro
-RUN apk add --no-cache python3 ca-certificates curl \
-    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+# Instalar rclone (respaldo Dual Drive), Python 3 y certificados CA
+RUN apk add --no-cache python3 ca-certificates curl rclone
 
 # Copiar únicamente el código necesario de la app (excluido el resto vía .dockerignore)
 COPY server.js version-history.json CHANGELOG.md ./

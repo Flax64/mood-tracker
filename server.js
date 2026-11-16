@@ -60,7 +60,7 @@ app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(), camera=()');
+    res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(self), camera=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
@@ -82,7 +82,14 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'X-Idempotency-Key', 'X-Transport-Session', 'X-Transport-Accept-Enc'],
     exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
 }));
-app.use(express.json({ limit: '512kb' }));
+const wordDriveSyncJsonParser = express.json({ limit: '15mb' });
+const defaultApiJsonParser = express.json({ limit: '512kb' });
+app.use((req, res, next) => {
+    if (req.path === '/api/english/music/pc-word-drive-sync') {
+        return wordDriveSyncJsonParser(req, res, next);
+    }
+    return defaultApiJsonParser(req, res, next);
+});
 app.use(express.text({ type: ['text/plain', 'text/*'], limit: '64kb' }));
 app.use((req, _res, next) => {
     if (typeof req.body === 'string') {
@@ -529,7 +536,7 @@ db.getConnection((err, connection) => {
 // ==========================================
 // UTILIDADES DE SEGURIDAD, SESIONES Y CORREO
 // ==========================================
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'flavio.flax1234@gmail.com').trim().toLowerCase();
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const BCRYPT_ROUNDS = 12;
 const EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const ESTADOS_CUENTA_VALIDOS = new Set(['activo', 'inactivo', 'suspendido']);
@@ -1981,6 +1988,41 @@ function isDateOlderThanLocalWindow(dateStr, retentionDays = Number(process.env.
     return targetMs < cutoffMs;
 }
 
+function resolveRcloneConfigPath({ preferStudy = false } = {}) {
+    if (preferStudy && process.env.STUDY_RCLONE_CONF_B64) {
+        try {
+            const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+            const studyConfPath = path.join(shmDir, `.rclone_study_${process.pid}.conf`);
+            fs.writeFileSync(
+                studyConfPath,
+                Buffer.from(String(process.env.STUDY_RCLONE_CONF_B64).replace(/\s+/g, ''), 'base64'),
+                { mode: 0o600 }
+            );
+            return { confPath: studyConfPath, cleanup: true, usingStudyConfig: true };
+        } catch (_) {}
+    }
+
+    const homeDir = process.env.HOME || process.env.USERPROFILE || os.homedir() || '/tmp';
+    const defaultConf = process.env.RCLONE_CONFIG || path.join(homeDir, '.config', 'rclone', 'rclone.conf');
+    if (fs.existsSync(defaultConf)) {
+        return { confPath: defaultConf, cleanup: false, usingStudyConfig: false };
+    }
+
+    if (process.env.RCLONE_CONF_B64) {
+        try {
+            const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+            const ramConfPath = path.join(shmDir, `.rclone_main_${process.pid}.conf`);
+            fs.writeFileSync(
+                ramConfPath,
+                Buffer.from(String(process.env.RCLONE_CONF_B64).replace(/\s+/g, ''), 'base64'),
+                { mode: 0o600 }
+            );
+            return { confPath: ramConfPath, cleanup: true, usingStudyConfig: false };
+        } catch (_) {}
+    }
+    return { confPath: defaultConf, cleanup: false, usingStudyConfig: false };
+}
+
 function loadDriveHistoricalArchiveInRam() {
     return new Promise((resolve) => {
         const now = Date.now();
@@ -1990,8 +2032,7 @@ function loadDriveHistoricalArchiveInRam() {
 
         const remoteName = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
         const remoteDir = String(process.env.RCLONE_BACKUP_DIR || 'RespaldosApp').trim();
-        const homeDir = process.env.HOME || process.env.USERPROFILE || '/home/ubuntu';
-        const rcloneConf = process.env.RCLONE_CONFIG || path.join(homeDir, '.config', 'rclone', 'rclone.conf');
+        const { confPath: rcloneConf, cleanup: cleanupConf } = resolveRcloneConfigPath({ preferStudy: false });
 
         if (!fs.existsSync(rcloneConf)) {
             return resolve(null);
@@ -2004,6 +2045,11 @@ function loadDriveHistoricalArchiveInRam() {
             ['--config', rcloneConf, 'cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
             { encoding: 'buffer', timeout: 22000, maxBuffer: 32 * 1024 * 1024 },
             (err, stdoutBuf) => {
+                if (cleanupConf) {
+                    try {
+                        if (fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
+                    } catch (_) {}
+                }
                 if (err || !stdoutBuf || stdoutBuf.length === 0) {
                     return resolve(null);
                 }
@@ -2149,12 +2195,12 @@ app.post('/api/insert-crisis', apiWriteLimiter.middleware, requireAdmin, require
     let motivoFinal = rawMotivo;
     if (tipoCrisis === 'Otro' && detalleOtro) {
         motivoFinal = rawMotivo ? `[${detalleOtro}] ${rawMotivo}` : `Emoción / episodio: ${detalleOtro}`;
-    } else if (!motivoFinal && allowOptional) {
+    } else if (!motivoFinal && allowOptional && tipoCrisis !== 'Otro') {
         motivoFinal = `Episodio de ${tipoCrisis} (sin descripción adicional).`;
     }
 
-    const maxAllowedChars = allowOptional ? 250 : 1000;
-    if (!motivoFinal || motivoFinal.length > maxAllowedChars) {
+    const maxAllowedChars = 250;
+    if (rawMotivo.length > maxAllowedChars || !motivoFinal || motivoFinal.length > maxAllowedChars) {
         return res.status(400).send(`Escribe el motivo o detonante de la crisis (máx. ${maxAllowedChars} caracteres).`);
     }
 
@@ -2654,12 +2700,20 @@ app.get('/api/get-agenda', apiReadLimiter.middleware, requireAdmin, (req, res) =
         ORDER BY fecha ASC, hora ASC, id ASC
     `;
 
-    db.query(sql, [begin, end], (err, result) => {
+    db.query(sql, [begin, end], async (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).send('Error querying agenda from database.');
         }
-        res.json(Array.isArray(result) ? result.map(enrichAgendaRow) : []);
+        const localMapped = Array.isArray(result) ? result.map(enrichAgendaRow) : [];
+        const merged = await mergeLocalRowsWithDriveRam(
+            'agenda',
+            localMapped,
+            begin,
+            end,
+            req.query.includeDrive === '1'
+        );
+        res.json(merged.map(enrichAgendaRow));
     });
 });
 
@@ -2939,27 +2993,27 @@ const ITS_CAMPUS_DIRECTORY = {
         id: 'principal',
         name: 'ITS Campus Principal',
         plano: 'CTO-002',
-        address: 'Blvd. Venustiano Carranza #2400 esq. Av. Universidad, Col. Tecnológico, Saltillo, Coah.',
-        lat: 25.444780,
-        lng: -100.992420,
+        address: 'Blvd. Venustiano Carranza #2400, Col. Tecnológico, Saltillo, Coahuila.',
+        lat: 25.4414,
+        lng: -100.9922,
         buildings: 'Aulas A-3..A-24 (Piso 1), B-2..B-21 (Piso 2), C-2..C-13 (Piso 3), CR-01..CR-15, AM-1..AM-5, TM1..TM3, LAC-L2A, SM1, LF1, SJMM'
     },
     miravalle: {
         id: 'miravalle',
         name: 'ITS Campus Miravalle',
         plano: 'CTO-003',
-        address: 'Blvd. Venustiano Carranza y Calle Reynosa (Puente Peatonal ITS · Aulas N y Labs), Saltillo, Coah.',
-        lat: 25.444920,
-        lng: -100.990850,
+        address: 'Blvd. Vito Alessio Robles, Col. Miravalle, Saltillo, Coahuila.',
+        lat: 25.4194,
+        lng: -101.0232,
         buildings: 'Aulas N-1..N-42 (Edif. 60-65), LMA, LE2..LE4, PLC, LM1..LM2, LEL, LIN, LS1..LS5, LC1..LC3, AP1'
     },
     boillot: {
         id: 'boillot',
-        name: 'ITS Campus Blvd / Boillot (Sistemas y Mecatrónica)',
+        name: 'ITS Campus Blvd (Glorieta)',
         plano: 'CTO-004',
-        address: 'Blvd. Saltillo esq. Calle Reynosa y Cuatrociénegas (Edif. 78 Sistemas y 79 Mecatrónica), Saltillo, Coah.',
-        lat: 25.443650,
-        lng: -100.989150,
+        address: 'Blvd. Venustiano Carranza esq. Av. Universidad (Glorieta), Saltillo, Coahuila.',
+        lat: 25.4385,
+        lng: -100.9940,
         buildings: 'Edif. 78 Sistemas (Aulas R-1..R-14), Edif. 79 Mecatrónica (S-13..S-20, LC3, CLO), Edif. 80 Ed. Distancia (ED1..ED4), Edif. 81 Vinculación (AV1..AV2)'
     }
 };
@@ -3358,10 +3412,10 @@ function getDefaultAcademicPlanner() {
             },
             university: {
                 label: 'Instituto Tecnológico de Saltillo (Blvd. V. Carranza #2400)',
-                address: 'Blvd. Venustiano Carranza #2400 esq. Av. Universidad, Col. Tecnológico, Saltillo',
-                mapsUrl: 'https://www.google.com/maps?q=25.444780,-100.992420',
-                lat: 25.444780,
-                lng: -100.992420
+                address: 'Blvd. Venustiano Carranza #2400, Col. Tecnológico, Saltillo, Coahuila',
+                mapsUrl: 'https://www.google.com/maps?q=25.4414,-100.9922',
+                lat: 25.4414,
+                lng: -100.9922
             },
             current: {
                 label: 'Ubicación actual',
@@ -6016,16 +6070,18 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
     const [albums, songs] = await Promise.all([
         dbQueryAsync(
             `SELECT al.id, al.artista_principal_id, ma.nombre AS artista_principal_nombre,
-                    al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en
+                    al.titulo, al.tipo_lanzamiento, al.anio, al.notas_cortas, al.creado_en,
+                    DATE_FORMAT(al.fecha_lanzamiento, '%Y-%m-%d') AS fecha_lanzamiento
              FROM MusicaAlbumes al
              LEFT JOIN MusicaArtistas ma ON ma.id = al.artista_principal_id
              WHERE al.usuario_id = ?
-             ORDER BY COALESCE(al.anio, 0) DESC, al.titulo ASC`,
+             ORDER BY COALESCE(al.fecha_lanzamiento, CONCAT(COALESCE(al.anio, 0), '-01-01')) DESC, al.titulo ASC`,
             [uid]
         ),
         dbQueryAsync(
             `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
-                    al.anio AS album_anio, c.titulo, c.numero_pista, c.idioma,
+                    al.anio AS album_anio, DATE_FORMAT(al.fecha_lanzamiento, '%Y-%m-%d') AS album_fecha_lanzamiento,
+                    c.titulo, c.numero_pista, c.idioma,
                     c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
                     c.enfoque_corto, c.word_sincronizado,
                     c.ultimo_estudio_en, c.creado_en, c.actualizado_en
@@ -6439,6 +6495,55 @@ app.patch('/api/english/music/songs/:id/status', apiWriteLimiter.middleware, req
     }
 });
 
+app.post('/api/english/music/songs/:id/sync-metadata', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+    const uid = req.user.id;
+    try {
+        const rows = await dbQueryAsync(
+            'SELECT id, album_id, numero_pista FROM MusicaCanciones WHERE id = ? AND usuario_id = ? LIMIT 1',
+            [songId, uid]
+        );
+        if (!rows.length) return res.status(404).send('Song not found.');
+        const songRow = rows[0];
+
+        const relDate = req.body.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.releaseDate).trim())
+            ? String(req.body.releaseDate).trim()
+            : null;
+        const relYear = req.body.releaseYear && Number.isInteger(Number(req.body.releaseYear))
+            ? Number(req.body.releaseYear)
+            : (relDate ? Number(relDate.slice(0, 4)) : null);
+        const trackNum = req.body.trackNumber && Number.isInteger(Number(req.body.trackNumber)) && Number(req.body.trackNumber) > 0
+            ? Number(req.body.trackNumber)
+            : null;
+
+        if (trackNum && !songRow.numero_pista) {
+            await dbQueryAsync(
+                'UPDATE MusicaCanciones SET numero_pista = ? WHERE id = ? AND usuario_id = ?',
+                [trackNum, songId, uid]
+            );
+        }
+        if (songRow.album_id && (relDate || relYear)) {
+            if (relYear) {
+                await dbQueryAsync(
+                    'UPDATE MusicaAlbumes SET anio = COALESCE(anio, ?) WHERE id = ? AND usuario_id = ?',
+                    [relYear, songRow.album_id, uid]
+                );
+            }
+            if (relDate) {
+                await dbQueryAsync(
+                    'UPDATE MusicaAlbumes SET fecha_lanzamiento = COALESCE(fecha_lanzamiento, ?) WHERE id = ? AND usuario_id = ?',
+                    [relDate, songRow.album_id, uid]
+                ).catch(() => {});
+            }
+        }
+        res.json({ ok: true, songId, releaseDate: relDate, releaseYear: relYear, trackNumber: trackNum });
+    } catch (err) {
+        console.error('[MUSIC_METADATA_SYNC_ERROR]', err);
+        res.status(500).send('Error syncing song metadata.');
+    }
+});
+
 app.delete('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
     const songId = parsePositiveInt(req.params.id);
     if (!songId) return res.status(400).send('Invalid song ID.');
@@ -6481,7 +6586,7 @@ async function fetchOwnedMusicSongForMediaOrLyrics(songId, uid) {
 // ==========================================
 const MAX_PC_MUSIC_JOBS = 25;
 const PC_MUSIC_JOB_TTL_MS = 5 * 60 * 1000;
-const PC_HEARTBEAT_ONLINE_MS = 8 * 1000;
+const PC_HEARTBEAT_ONLINE_MS = 65 * 1000;
 const pcMusicJobs = new Map();
 const pcPollWaiters = new Set();
 const pcJobResultWaiters = new Map();
@@ -6525,8 +6630,10 @@ function verifyPcBridgeAuth(req, res, next) {
         return res.status(401).send('Invalid or expired PC bridge signature.');
     }
 
-    const payloadBlob = (req.method === 'POST' && req.body && typeof req.body.encryptedResult === 'string')
-        ? req.body.encryptedResult
+    const payloadBlob = (req.method === 'POST' && req.body)
+        ? (typeof req.body.encryptedResult === 'string'
+            ? req.body.encryptedResult
+            : (typeof req.body.encryptedDocxB64 === 'string' ? req.body.encryptedDocxB64 : ''))
         : '';
     const bodyHash = crypto.createHash('sha256').update(payloadBlob, 'utf8').digest('hex');
     const canonical = `${req.method.toUpperCase()}:${req.path}:${tsRaw}:${bodyHash}`;
@@ -6651,9 +6758,6 @@ app.get('/api/english/music/pc-jobs/poll', pcPullLimiter.middleware, verifyPcBri
 
     if (!jobs.length && waitMs > 0) {
         if (req.aborted || res.destroyed) {
-            if (!res.writableEnded && pcPollWaiters.size === 0) {
-                lastPcHeartbeatAt = 0;
-            }
             return;
         }
         let clientAborted = false;
@@ -6672,9 +6776,6 @@ app.get('/api/english/music/pc-jobs/poll', pcPullLimiter.middleware, verifyPcBri
                 done = true;
                 clearTimeout(timer);
                 pcPollWaiters.delete(wake);
-                if (!res.writableEnded && pcPollWaiters.size === 0) {
-                    lastPcHeartbeatAt = 0;
-                }
                 clientAborted = true;
                 resolve();
             };
@@ -6780,30 +6881,39 @@ app.get('/api/english/music/pc-jobs/:jobId', apiReadLimiter.middleware, requireA
 });
 
 app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, verifyPcBridgeAuth, async (req, res) => {
+    const requestedTarget = String(req.body?.target || req.body?.documentType || req.body?.kind || 'study_word')
+        .trim()
+        .toLowerCase();
+    if (requestedTarget === 'journal' || requestedTarget === 'diario') {
+        return res.status(403).json({
+            ok: false,
+            error: 'Personal journal files cannot be synced to the isolated Study Word Drive (Drive 2).'
+        });
+    }
+
     const rawBlob = req.body && typeof req.body.encryptedResult === 'string'
         ? req.body.encryptedResult.trim()
-        : '';
-    if (!rawBlob || rawBlob.length > 480000) {
+        : (req.body && typeof req.body.encryptedDocxB64 === 'string' ? req.body.encryptedDocxB64.trim() : '');
+    if (!rawBlob || rawBlob.length > 15000000) {
         return res.status(400).json({ ok: false, error: 'Invalid or oversized Word payload.' });
     }
 
-    let settings = getDefaultUserSettings();
-    try {
-        const adminRows = await dbQueryAsync("SELECT id FROM Usuarios WHERE rol = 'admin' ORDER BY id ASC LIMIT 1");
-        const targetUid = (adminRows && adminRows[0] && adminRows[0].id) ? Number(adminRows[0].id) : 1;
-        settings = await loadUserSettings(targetUid);
-    } catch (_) {}
+    const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
+    const configuredStudyRemote = String(process.env.STUDY_RCLONE_REMOTE || '').trim();
+    const mainRemote = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
+    const studyDir = String(process.env.STUDY_RCLONE_DIR || 'NotasIdiomas').trim().replace(/^\/+|\/+$/g, '') || 'NotasIdiomas';
+    const mainBackupDir = String(process.env.RCLONE_BACKUP_DIR || 'RespaldosApp').trim().replace(/^\/+|\/+$/g, '') || 'RespaldosApp';
 
-    if (settings.studyDriveSyncEnabled === false) {
-        return res.json({ ok: true, skipped: true, reason: 'disabled_in_settings' });
+    let hasDedicatedStudyRemote = usingStudyConfig && Boolean(configuredStudyRemote);
+    if (!hasDedicatedStudyRemote && configuredStudyRemote && fs.existsSync(rcloneConf)) {
+        try {
+            const confText = fs.readFileSync(rcloneConf, 'utf8');
+            hasDedicatedStudyRemote = confText.includes(`[${configuredStudyRemote}]`);
+        } catch (_) {}
     }
 
-    const remoteName = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
-    const folderName = String(settings.studyDriveFolder || process.env.STUDY_RCLONE_DIR || 'NotasIdiomas')
-        .trim()
-        .replace(/^\/+|\/+$/g, '') || 'NotasIdiomas';
-    const homeDir = process.env.HOME || process.env.USERPROFILE || '/home/ubuntu';
-    const rcloneConf = process.env.RCLONE_CONFIG || path.join(homeDir, '.config', 'rclone', 'rclone.conf');
+    const remoteName = hasDedicatedStudyRemote ? configuredStudyRemote : mainRemote;
+    const folderName = hasDedicatedStudyRemote ? studyDir : `${mainBackupDir}/${studyDir}`;
 
     let docxBuffer = null;
     try {
@@ -6867,6 +6977,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
     } finally {
         try {
             if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
+            if (cleanupConf && rcloneConf && fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
         } catch (_) {}
     }
 });
@@ -7273,7 +7384,7 @@ app.get('/api/language/registry', apiReadLimiter.middleware, requireAdmin, async
 
         res.json({
             languages: getLanguageRegistry(),
-            geminiModels: onlyAvailableModels.length ? onlyAvailableModels : RECOMMENDED_GEMINI_MODELS,
+            geminiModels: onlyAvailableModels,
             preferredStudyLanguage: settings.preferredStudyLanguage || 'en',
             activeGeminiModel: settings.geminiModel || 'gemini-2.5-flash',
             geminiKeyConfigured: Boolean(effectiveKey),
@@ -7402,7 +7513,11 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
             ? String(req.body.mode || 'auto').toLowerCase()
             : 'auto';
         const language = normalizeStudyLanguage(req.body.language || settings.preferredStudyLanguage || 'en_ko');
-        const model = validateGeminiModelId(req.body.model || settings.geminiModel || 'gemini-2.5-flash');
+        const requestedReasoning = String(req.body.reasoningMode || settings.geminiMode || 'fast').toLowerCase() === 'reasoning';
+        const configuredForMode = requestedReasoning
+            ? (settings.geminiModelReasoning || settings.geminiModel)
+            : (settings.geminiModelFast || settings.geminiModel);
+        const model = validateGeminiModelId(req.body.model || configuredForMode || 'gemini-2.5-flash');
         const inlineKey = typeof req.body.apiKey === 'string' ? req.body.apiKey.trim() : '';
         const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
         const songTitle = String(req.body.songTitle || '').trim().slice(0, 180);
@@ -7463,11 +7578,14 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
             await saveUserSettings(req.user.id, settings);
         }
 
+        const modelInfo = await getAvailableGeminiModelsForUser({ apiKey: effectiveKey });
+        const onlyAvailableModels = (modelInfo.models || []).filter((m) => m.available !== false);
+
         res.json({
             ...result,
             languageMemory: settings.languageMemory,
             memoryTotalTerms: settings.languageMemory.terms.length,
-            availableModels: RECOMMENDED_GEMINI_MODELS,
+            availableModels: onlyAvailableModels,
             geminiKeyConfigured: Boolean(effectiveKey)
         });
     } catch (err) {
@@ -7483,9 +7601,16 @@ app.post('/api/language/test-gemini', apiWriteLimiter.middleware, requireAdmin, 
         const typedKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
         const effectiveKey = typedKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
         const model = validateGeminiModelId(body.model || settings.geminiModel || 'gemini-2.5-flash');
-        const diag = await testGeminiConnection({ apiKey: effectiveKey, model });
+        const [diag, activeRegistry] = await Promise.all([
+            testGeminiConnection({ apiKey: effectiveKey, model }),
+            getAvailableGeminiModelsForUser({ apiKey: effectiveKey, forceRefresh: true })
+        ]);
+        const activeModels = (activeRegistry.models || []).filter((m) => m.available !== false);
         res.json({
             ...diag,
+            activeModels,
+            fastModel: activeRegistry.fastModel || null,
+            reasoningModel: activeRegistry.reasoningModel || null,
             keySource: typedKey
                 ? 'typed-input'
                 : (settings.geminiApiKey ? 'saved-settings' : (process.env.GEMINI_API_KEY ? 'server-env' : 'none'))
@@ -7631,9 +7756,10 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
             return res.status(400).send(result?.error || 'Could not translate lyrics.');
         }
 
+        const liveRegistry = await getAvailableGeminiModelsForUser({ apiKey: effectiveKey });
         res.json({
             ...result,
-            availableModels: RECOMMENDED_GEMINI_MODELS,
+            availableModels: (liveRegistry.models || []).filter((m) => m.available !== false),
             geminiKeyConfigured: Boolean(effectiveKey)
         });
     } catch (err) {
@@ -7687,16 +7813,20 @@ app.get('/api/language/lessons', apiReadLimiter.middleware, requireAdmin, async 
                 codigo: l.codigo_leccion,
                 idioma: l.idioma,
                 nombre: l.nombre_practica,
+                lesson_name: l.nombre_practica,
                 orden: l.orden_secuencia,
                 completada: isCompleted,
+                completed: isCompleted,
                 wordLeido: hasReadWord,
                 locked
             };
         });
 
         const currentLesson = enriched.find((l) => !l.completada) || enriched[enriched.length - 1] || null;
+        const learningActive = Boolean(settings.languageLearningActive ?? settings.englishReminderEnabled);
         res.json({
-            studyEnabled: Boolean(settings.englishReminderEnabled),
+            studyEnabled: learningActive,
+            languageLearningActive: learningActive,
             recommendedMinutes: 15,
             pcOnline: isPcBridgeOnline(),
             currentLesson,
@@ -7706,6 +7836,72 @@ app.get('/api/language/lessons', apiReadLimiter.middleware, requireAdmin, async 
     } catch (err) {
         console.error('[LANGUAGE_LESSONS_GET_ERROR]', err);
         res.status(500).send('Error loading study lessons.');
+    }
+});
+
+app.patch('/api/language/learning-toggle', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const uid = req.user.id;
+        const current = await loadUserSettings(uid);
+        const currentActive = Boolean(current.languageLearningActive ?? current.englishReminderEnabled);
+        const nextActive = typeof req.body?.active === 'boolean' ? req.body.active : !currentActive;
+        const rawTopic = String(req.body?.topic || current.englishReminderTopic || 'Dedica 10 a 15 minutos a tu lección activa').trim();
+        const safeTopic = rawTopic.slice(0, 180) || 'Dedica 10 a 15 minutos a tu lección activa';
+
+        const nextSettings = {
+            ...current,
+            englishReminderEnabled: nextActive,
+            languageLearningActive: nextActive,
+            englishReminderTopic: safeTopic
+        };
+        await saveUserSettings(uid, nextSettings);
+
+        res.json({
+            ok: true,
+            studyEnabled: nextActive,
+            languageLearningActive: nextActive,
+            recommendedMinutes: 15,
+            topic: safeTopic,
+            settings: sanitizeSettingsForClient(nextSettings)
+        });
+    } catch (err) {
+        console.error('[LANGUAGE_TOGGLE_ERROR]', err);
+        res.status(500).send('Error toggling language learning state.');
+    }
+});
+
+app.post('/api/language/word-activity', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const uid = req.user.id;
+        const nowSql = formatMySqlDateTime(new Date());
+        const requestedId = parsePositiveInt(req.body?.lessonId);
+        const lessons = await ensureDefaultStudyLessonsForUser(uid);
+        const targetLesson = requestedId
+            ? lessons.find((l) => Number(l.id) === Number(requestedId))
+            : (lessons.find((l) => !l.completada) || lessons[lessons.length - 1] || null);
+
+        if (targetLesson) {
+            await dbQueryAsync(
+                'UPDATE EstudioLecciones SET word_leido_en = COALESCE(word_leido_en, ?) WHERE id = ? AND usuario_id = ?',
+                [nowSql, targetLesson.id, uid]
+            );
+        }
+
+        const current = await loadUserSettings(uid);
+        await saveUserSettings(uid, {
+            ...current,
+            lastWordActivityAt: new Date().toISOString(),
+            lastWordAction: String(req.body?.action || 'word_activity').trim().slice(0, 64)
+        });
+
+        res.json({
+            ok: true,
+            recordedAt: nowSql,
+            lessonId: targetLesson ? targetLesson.id : null
+        });
+    } catch (err) {
+        console.error('[WORD_ACTIVITY_ERROR]', err);
+        res.status(500).send('Error recording Word study activity.');
     }
 });
 

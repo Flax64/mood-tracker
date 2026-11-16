@@ -65,6 +65,9 @@ unset RCLONE_BACKUP_DIR RCLONE_REMOTE RCLONE_CONF_B64
 
 trap 'rm -f "$ARCHIVO_TMP"' EXIT
 mkdir -p "$RUTA_LOCAL"
+chmod 700 "$RUTA_LOCAL" 2>/dev/null || true
+chmod 700 "$(dirname "$RCLONE_CONF_PATH")" 2>/dev/null || true
+chmod 600 "$RCLONE_CONF_PATH" 2>/dev/null || true
 
 DOCKER_CMD="docker"
 if ! docker info >/dev/null 2>&1; then
@@ -107,8 +110,9 @@ if [ ! -s "$ARCHIVO_TMP" ] || ! gzip -t "$ARCHIVO_TMP" >/dev/null 2>&1; then
 fi
 
 mv "$ARCHIVO_TMP" "$ARCHIVO"
+chmod 600 "$ARCHIVO" 2>/dev/null || true
 
-# 4. Actualizar archivo histórico acumulativo en RAM (/dev/shm) y subir a Google Drive
+# 4. Actualizar archivo histórico acumulativo en RAM (/dev/shm) y subir respaldos completos a Google Drive
 RAM_TMP_DIR="/dev/shm"
 if [ ! -d "$RAM_TMP_DIR" ] || [ ! -w "$RAM_TMP_DIR" ]; then
     RAM_TMP_DIR="${TMPDIR:-/tmp}"
@@ -132,7 +136,7 @@ run_mysql_query() {
     fi
 }
 
- EXPORT_SQL="
+EXPORT_SQL="
 SELECT 'mood', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'momento_dia', momento_dia, 'estado_animo', estado_animo, 'color_hex', color_hex) FROM RegistrosMood
 UNION ALL
 SELECT 'sleep', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'horas', horas, 'calidad', calidad, 'hora_dormir', hora_dormir, 'hora_despertar', hora_despertar, 'es_desvelo', es_desvelo, 'tipo_registro', tipo_registro, 'motivo_desvelo', motivo_desvelo) FROM RegistrosSleep
@@ -142,11 +146,12 @@ UNION ALL
 SELECT 'agenda', id, DATE_FORMAT(fecha, '%Y-%m-%d'), JSON_OBJECT('id', id, 'fecha', DATE_FORMAT(fecha, '%Y-%m-%d'), 'bloque', bloque, 'hora', TIME_FORMAT(hora, '%H:%i'), 'actividad', actividad, 'tipo', tipo, 'categoria', categoria, 'materia_id', materia_id, 'materia_nombre', materia_nombre, 'estado', estado, 'completada', completada, 'recordatorio_min', recordatorio_min) FROM RegistrosAgenda;
 "
 
-run_mysql_query "$EXPORT_SQL" > "$CURRENT_TSV" 2>/dev/null || true
-"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz" "$HIST_PREV_GZ" 2>/dev/null || true
+ARCHIVE_READY=0
+if run_mysql_query "$EXPORT_SQL" > "$CURRENT_TSV"; then
+    "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz" "$HIST_PREV_GZ" 2>/dev/null || true
 
-if command -v python3 >/dev/null 2>&1; then
-    python3 - "$HIST_PREV_GZ" "$CURRENT_TSV" "$HIST_NEW_GZ" <<'PYEOF'
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$HIST_PREV_GZ" "$CURRENT_TSV" "$HIST_NEW_GZ" <<'PYEOF'
 import gzip, json, os, sys
 
 prev_gz, curr_tsv, out_gz = sys.argv[1:4]
@@ -181,16 +186,23 @@ if os.path.exists(curr_tsv):
 with gzip.open(out_gz, "wt", encoding="utf-8") as out_fh:
     json.dump(store, out_fh, ensure_ascii=False)
 PYEOF
+    fi
 fi
 
 "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copy "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}"
-if [ -s "$HIST_NEW_GZ" ]; then
+MONTH_TAG="$(date '+%Y-%m')"
+"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}/historico_sql/respaldo_${MONTH_TAG}.sql.gz"
+if [ -s "$HIST_NEW_GZ" ] && gzip -t "$HIST_NEW_GZ" >/dev/null 2>&1; then
     "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$HIST_NEW_GZ" "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz"
+    ARCHIVE_READY=1
 fi
 
-# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días = 1 mes) para no saturar la instancia
+# Purgar archivos temporales antiguos en disco local (> 7 días) para mantener cero saturación en servidor
+find "$RUTA_LOCAL" -maxdepth 1 -type f -name '*.sql.gz.*' -mtime +7 -delete 2>/dev/null || true
+
+# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días = 1 mes) SOLO si la subida histórica a Drive fue exitosa
 RETENTION_DAYS="${DB_RETENTION_DAYS:-30}"
-if [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
+if [ "$ARCHIVE_READY" -eq 1 ] && [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
     PURGE_SQL="
         DELETE FROM RegistrosMood WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
         DELETE FROM RegistrosSleep WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
@@ -200,6 +212,8 @@ if [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
         DELETE FROM CodigosSeguridad WHERE expira_en < NOW() OR usado = 1;
     "
     run_mysql_query "$PURGE_SQL" >/dev/null 2>&1 || true
+else
+    echo "Aviso: Se omitió la poda automática en MySQL porque el respaldo histórico acumulativo no se verificó aún (ARCHIVE_READY=$ARCHIVE_READY)." >&2
 fi
 
 MODO_TXT=$([ "$SEALED_MODE" -eq 1 ] && echo "sellado" || echo "env")

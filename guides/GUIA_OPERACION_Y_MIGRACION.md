@@ -149,7 +149,7 @@ powershell.exe -NoProfile -Command 'Start-Process -FilePath pythonw.exe -Working
 
 # (Alternativa en PowerShell directo:)
 # Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-# Start-Process -FilePath pythonw.exe -WorkingDirectory "C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub" -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden
+# Start-Process -FilePath pythonw.exe -WorkingDirectory "<RUTA_DEL_PROYECTO>\personal-daily-hub" -ArgumentList "sincronitation\sincronizador.py" -WindowStyle Hidden
 
 # 3. Verificar que quedó corriendo y leer los últimos eventos del log
 powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*sincronizador.py*" } | Select-Object ProcessId, CommandLine'
@@ -173,7 +173,7 @@ python sincronitation/yt_lyrics_helper.py --clean-file subtitulos.vtt --clip
 ```
 * **Configurar la ruta de `yt-dlp` mediante GitHub Repository Variables (`YT_DLP_PATH`):**
   1. En GitHub abre tu repositorio → **Settings → Secrets and variables → Actions → Variables → New repository variable**.
-  2. Crea la variable **`YT_DLP_PATH`** con el valor de tu carpeta o ejecutable en Windows, por ejemplo `C:\Users\flavi\Desktop\Download Videos\yt-dlp.exe` (o solo `C:\Users\flavi\Desktop\Download Videos`; el script detecta ambos automáticamente).
+  2. Crea la variable **`YT_DLP_PATH`** con el valor de tu carpeta o ejecutable en Windows, por ejemplo `C:\Herramientas\yt-dlp.exe` (el script detecta ejecutables automáticamente).
   3. Como ya tienes `GITHUB_TOKEN` + `GITHUB_REPO` en tu `.env.enc` (con autoinicio DPAPI activo para `sincronizador.py`), `yt_lyrics_helper.py` descifra el token en RAM silenciosamente, consulta `YT_DLP_PATH` vía GitHub API y lo cachea por 5 minutos en `.last_yt_dlp_path.json`.
   4. Prueba que la lee al instante con: `python sincronitation/yt_lyrics_helper.py --check-yt-dlp --refresh-github-var`.
 * Banderas disponibles: `--langs`, `--all-langs`, `--out`, `--clip`, `--json`, `--yt-dlp-bin`, `--check-yt-dlp`, `--refresh-github-var` y `--clean-file`.
@@ -435,8 +435,8 @@ El pipeline [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) ob
    # Actualizar la ruta de mood-tracker -> personal-daily-hub (ejecutar 1 sola vez en PowerShell):
    @'
    Set WshShell = CreateObject("WScript.Shell")
-   WshShell.CurrentDirectory = "C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub"
-   WshShell.Run "pythonw.exe ""C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub\sincronitation\sincronizador.py""", 0, False
+   WshShell.CurrentDirectory = "<RUTA_DEL_PROYECTO>\personal-daily-hub"
+   WshShell.Run "pythonw.exe ""<RUTA_DEL_PROYECTO>\personal-daily-hub\sincronitation\sincronizador.py""", 0, False
    '@ | Set-Content -Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\iniciar_diario.vbs" -Encoding ASCII
    ```
 3. **¿Se actualiza solo al apagar o reiniciar la PC?**
@@ -444,8 +444,8 @@ El pipeline [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) ob
    - **Lo que NO se actualiza solo sin tu acción:** `sincronitation/sincronizador.py` está en `.gitignore` para proteger tu bitácora y configuración local en Windows, así que al reiniciar la PC se vuelve a ejecutar la versión que ya tienes en disco. Si descargaste código nuevo del repositorio (`git pull`) o editaste `sincronitation/sincronizador.py`, detén y vuelve a lanzar `pythonw.exe` (Paso 1 y Paso 5) o usa este bloque opcional en `iniciar_diario.vbs` si quieres que cada reinicio de Windows haga `git pull --ff-only` seguro de los archivos rastreados antes de levantar Python:
    ```vbscript
    Set WshShell = CreateObject("WScript.Shell")
-   WshShell.CurrentDirectory = "C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub"
-   WshShell.Run "cmd.exe /c git pull --ff-only origin main >NUL 2>&1 & pythonw.exe ""C:\Users\flavi\Desktop\9no Semestre\Proyectos\personal-daily-hub\sincronitation\sincronizador.py""", 0, False
+   WshShell.CurrentDirectory = "<RUTA_DEL_PROYECTO>\personal-daily-hub"
+   WshShell.Run "cmd.exe /c git pull --ff-only origin main >NUL 2>&1 & pythonw.exe ""<RUTA_DEL_PROYECTO>\personal-daily-hub\sincronitation\sincronizador.py""", 0, False
    ```
 
 Sigue este orden exacto en **Git Bash** para renombrar tanto en GitHub como en tu PC sin interrumpir el pipeline ni dejar ejecutándose una versión vieja de Python:

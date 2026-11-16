@@ -59,18 +59,44 @@ services:
       - DB_NAME=${DB_NAME}
       - PORT=${PORT:-3000}
       - TZ=${TZ:-America/Monterrey}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-flavio.flax1234@gmail.com}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - ADMIN_SECRET=${ADMIN_SECRET:-}
       - WORD_PASSWORD=${WORD_PASSWORD:-}
       - JOURNAL_SECRET_KEY=${JOURNAL_SECRET_KEY:-}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - APP_BASE_URL=${APP_BASE_URL:-}
+      - RCLONE_REMOTE=${RCLONE_REMOTE:-gdrive}
+      - RCLONE_BACKUP_DIR=${RCLONE_BACKUP_DIR:-RespaldosApp}
+      - STUDY_RCLONE_REMOTE=${STUDY_RCLONE_REMOTE:-}
+      - STUDY_RCLONE_DIR=${STUDY_RCLONE_DIR:-NotasIdiomas}
+      - RCLONE_CONF_B64=${RCLONE_CONF_B64:-}
+      - STUDY_RCLONE_CONF_B64=${STUDY_RCLONE_CONF_B64:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - YT_DLP_PATH=${YT_DLP_PATH:-}
     depends_on:
       db:
         condition: service_healthy
 
+  proxy:
+    image: caddy:2-alpine
+    container_name: mood_proxy
+    restart: unless-stopped
+    mem_limit: 48m
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SITE_ADDRESS=${SITE_ADDRESS:-:80}
+      - PORT=${PORT:-3000}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
 volumes:
   db_data:
+  caddy_data:
+  caddy_config:
