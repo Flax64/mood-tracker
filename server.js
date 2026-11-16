@@ -7108,12 +7108,13 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
 
         const { execFile } = require('node:child_process');
         const remoteTarget = `${remoteName}:${folderName}/English_Learning_Notebook.docx`;
+        const localSha256 = crypto.createHash('sha256').update(docxBuffer).digest('hex');
 
         await new Promise((resolve, reject) => {
             execFile(
                 'rclone',
-                ['--config', rcloneConf, 'copyto', tmpDocxPath, remoteTarget],
-                { timeout: 25000 },
+                ['--config', rcloneConf, 'copyto', '--retries', '2', tmpDocxPath, remoteTarget],
+                { timeout: 30000 },
                 (err, _stdout, stderr) => {
                     if (err) {
                         return reject(new Error(String(stderr || err.message || 'rclone copyto failed').trim()));
@@ -7123,9 +7124,51 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             );
         });
 
+        // Verificar que el archivo realmente existe en Google Drive y coincide en tamaño
+        let verified = false;
+        let remoteSize = null;
+        try {
+            const lsOut = await new Promise((resolve, reject) => {
+                execFile(
+                    'rclone',
+                    ['--config', rcloneConf, 'lsjson', remoteTarget],
+                    { timeout: 15000 },
+                    (err, stdout, stderr) => {
+                        if (err) return reject(new Error(String(stderr || err.message).trim()));
+                        resolve(stdout);
+                    }
+                );
+            });
+            const entries = JSON.parse(String(lsOut || '[]'));
+            if (Array.isArray(entries) && entries.length > 0 && Number(entries[0].Size) === docxBuffer.length) {
+                verified = true;
+                remoteSize = Number(entries[0].Size);
+            } else if (Array.isArray(entries) && entries.length > 0) {
+                remoteSize = Number(entries[0].Size);
+            }
+        } catch (verifyErr) {
+            console.warn('[STUDY_DRIVE_VERIFY_WARN]', verifyErr.message);
+        }
+
+        if (!verified) {
+            return res.status(502).json({
+                ok: false,
+                uploaded: false,
+                verified: false,
+                remoteTarget,
+                localSize: docxBuffer.length,
+                remoteSize,
+                error: 'Google Drive upload could not be verified with matching byte size.'
+            });
+        }
+
         return res.json({
             ok: true,
             uploaded: true,
+            verified: true,
+            localSize: docxBuffer.length,
+            remoteSize,
+            sha256: localSha256,
             remoteTarget
         });
     } catch (err) {
