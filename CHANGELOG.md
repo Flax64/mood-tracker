@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.3**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.4**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.10.4] - 2026-11-16 (PATCH) · `0d8eefa`
+**fix: strip RCLONE_* env vars before invoking rclone CLI inside container**
+
+### 🐛 Bug Fixes / Correcciones
+- fix: strip RCLONE_* env vars before invoking rclone CLI inside container (ed8841b)
 
 ## [v1.10.3] - 2026-11-16 (PATCH) · `2ff44ac`
 **fix: verify Study Word upload size on Google Drive via rclone lsjson**

@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.3",
-  "updatedAt": "2026-11-16T23:04:04.610Z",
+  "currentVersion": "1.10.4",
+  "updatedAt": "2026-11-16T23:14:58.171Z",
   "releases": [
+    {
+      "version": "1.10.4",
+      "tag": "v1.10.4",
+      "bumpType": "patch",
+      "previousVersion": "1.10.3",
+      "releasedAt": "2026-11-16T23:14:58.171Z",
+      "commitSha": "0d8eefa",
+      "trigger": "push",
+      "summary": "fix: strip RCLONE_* env vars before invoking rclone CLI inside container",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: strip RCLONE_* env vars before invoking rclone CLI inside container (ed8841b)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.10.3",
       "tag": "v1.10.3",
