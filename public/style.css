@@ -761,7 +761,9 @@ body {
     .app-shell.sidebar-collapsed .logout-text,
     .app-shell.sidebar-collapsed .theme-label,
     .app-shell.sidebar-collapsed .lang-label,
-    .app-shell.sidebar-collapsed .sidebar-tunnel-row .tunnel-label {
+    .app-shell.sidebar-collapsed .sidebar-tunnel-row .tunnel-label,
+    .app-shell.sidebar-collapsed .sidebar-version-btn .sidebar-version-label,
+    .app-shell.sidebar-collapsed .sidebar-version-btn strong {
         display: none;
     }
 
@@ -772,6 +774,13 @@ body {
         padding: 6px 4px;
         margin: 4px 0 6px;
         font-size: 1rem;
+    }
+
+    .app-shell.sidebar-collapsed .sidebar-version-btn {
+        justify-content: center;
+        padding: 10px 6px;
+        margin-top: 6px;
+        margin-bottom: 0;
     }
 
     .app-shell.sidebar-collapsed .btn-theme-sidebar,
