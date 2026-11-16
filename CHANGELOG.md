@@ -1,11 +1,23 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.1.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.2.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.2.0] - 2026-11-16 (MINOR) · `42fc4da`
+**feat(language,music,ai): add stanza breakdown, 15m sequential lessons, mic pronunciation, auto-save Word lyrics, and live Gemini models**
+
+### ✨ Features / Nuevas Funciones
+- feat(language,music,ai): add stanza breakdown, 15m sequential lessons, mic pronunciation, auto-save Word lyrics, and live Gemini models (aa28e49)
+- feat(language-ai): add stanza breakdown, 15m sequential lessons, pronunciation eval, and live Gemini model filter (9f50014)
+
+### 🔧 Maintenance & Docs
+- chore(dockerignore): folder for-gemini added (886c289)
+- chore: new folder added (85e2a3f)
+- chore: new file into the gitignore (43e3ab4)
 
 ## [v1.1.0] - 2026-11-15 (MINOR) · `61335e8`
 **feat(ui,i18n,docs): enforce dark mode, complete EN/ES translation, visual guide, and Windows sync lifecycle docs**

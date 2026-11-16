@@ -1,8 +1,37 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.2.0",
+  "updatedAt": "2026-11-16T09:25:56.417Z",
   "releases": [
+    {
+      "version": "1.2.0",
+      "tag": "v1.2.0",
+      "bumpType": "minor",
+      "previousVersion": "1.1.2",
+      "releasedAt": "2026-11-16T09:25:56.417Z",
+      "commitSha": "42fc4da",
+      "trigger": "push",
+      "summary": "feat(language,music,ai): add stanza breakdown, 15m sequential lessons, mic pronunciation, auto-save Word lyrics, and live Gemini models",
+      "counts": {
+        "breaking": 0,
+        "features": 2,
+        "fixes": 0,
+        "maintenance": 3
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(language,music,ai): add stanza breakdown, 15m sequential lessons, mic pronunciation, auto-save Word lyrics, and live Gemini models (aa28e49)",
+          "feat(language-ai): add stanza breakdown, 15m sequential lessons, pronunciation eval, and live Gemini model filter (9f50014)"
+        ],
+        "fixes": [],
+        "maintenance": [
+          "chore(dockerignore): folder for-gemini added (886c289)",
+          "chore: new folder added (85e2a3f)",
+          "chore: new file into the gitignore (43e3ab4)"
+        ]
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",
