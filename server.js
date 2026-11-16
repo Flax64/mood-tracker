@@ -6342,14 +6342,14 @@ async function fetchOwnedMusicSongForMediaOrLyrics(songId, uid) {
 // ==========================================
 const MAX_PC_MUSIC_JOBS = 25;
 const PC_MUSIC_JOB_TTL_MS = 5 * 60 * 1000;
-const PC_HEARTBEAT_ONLINE_MS = 45 * 1000;
+const PC_HEARTBEAT_ONLINE_MS = 8 * 1000;
 const pcMusicJobs = new Map();
 const pcPollWaiters = new Set();
 const pcJobResultWaiters = new Map();
 let lastPcHeartbeatAt = 0;
 
 function isPcBridgeOnline() {
-    return lastPcHeartbeatAt > 0 && (Date.now() - lastPcHeartbeatAt) <= PC_HEARTBEAT_ONLINE_MS;
+    return pcPollWaiters.size > 0 || (lastPcHeartbeatAt > 0 && (Date.now() - lastPcHeartbeatAt) <= PC_HEARTBEAT_ONLINE_MS);
 }
 
 function getPcBridgeSecrets() {
@@ -6511,20 +6511,39 @@ app.get('/api/english/music/pc-jobs/poll', pcPullLimiter.middleware, verifyPcBri
     const waitMs = Number.isFinite(requestedWaitMs) ? Math.min(Math.max(requestedWaitMs, 0), 25000) : 0;
 
     if (!jobs.length && waitMs > 0) {
+        if (req.aborted || res.destroyed) {
+            if (!res.writableEnded && pcPollWaiters.size === 0) {
+                lastPcHeartbeatAt = 0;
+            }
+            return;
+        }
+        let clientAborted = false;
         await new Promise((resolve) => {
             let done = false;
-            const finish = () => {
+            const wake = () => {
                 if (done) return;
                 done = true;
                 clearTimeout(timer);
-                pcPollWaiters.delete(finish);
-                req.off('close', finish);
+                pcPollWaiters.delete(wake);
+                req.off('close', onClose);
                 resolve();
             };
-            const timer = setTimeout(finish, waitMs);
-            pcPollWaiters.add(finish);
-            req.on('close', finish);
+            const onClose = () => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                pcPollWaiters.delete(wake);
+                if (!res.writableEnded && pcPollWaiters.size === 0) {
+                    lastPcHeartbeatAt = 0;
+                }
+                clientAborted = true;
+                resolve();
+            };
+            const timer = setTimeout(wake, waitMs);
+            pcPollWaiters.add(wake);
+            req.on('close', onClose);
         });
+        if (clientAborted || res.headersSent || res.destroyed) return;
         lastPcHeartbeatAt = Date.now();
         jobs = popPendingPcJobs();
     }
