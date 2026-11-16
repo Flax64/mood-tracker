@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.0",
-  "updatedAt": "2026-11-16T22:13:25.787Z",
+  "currentVersion": "1.10.1",
+  "updatedAt": "2026-11-16T22:25:49.172Z",
   "releases": [
+    {
+      "version": "1.10.1",
+      "tag": "v1.10.1",
+      "bumpType": "patch",
+      "previousVersion": "1.10.0",
+      "releasedAt": "2026-11-16T22:25:49.172Z",
+      "commitSha": "681cd9f",
+      "trigger": "push",
+      "summary": "fix: add MusicaAlbumes fecha_lanzamiento auto-migration and Drive catalog recovery",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: add MusicaAlbumes fecha_lanzamiento auto-migration and Drive catalog recovery (9e575d6)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.10.0",
       "tag": "v1.10.0",
