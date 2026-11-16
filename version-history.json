@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.2",
-  "updatedAt": "2026-11-16T22:38:33.166Z",
+  "currentVersion": "1.10.3",
+  "updatedAt": "2026-11-16T23:04:04.610Z",
   "releases": [
+    {
+      "version": "1.10.3",
+      "tag": "v1.10.3",
+      "bumpType": "patch",
+      "previousVersion": "1.10.2",
+      "releasedAt": "2026-11-16T23:04:04.610Z",
+      "commitSha": "2ff44ac",
+      "trigger": "push",
+      "summary": "fix: verify Study Word upload size on Google Drive via rclone lsjson",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: verify Study Word upload size on Google Drive via rclone lsjson (63a2af2)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.10.2",
       "tag": "v1.10.2",
