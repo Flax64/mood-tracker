@@ -35,12 +35,12 @@
                 },
                 {
                     icon: '⚠️',
-                    titleEn: 'Crisis Log (Clinical)',
-                    titleEs: 'Bitácora de Crisis (Clínica)',
-                    flowEn: ['1. Tap ⏱️ Now + Type', '2. Intensity 1–5 + Spanish note', '3. Press Ctrl + Enter'],
-                    flowEs: ['1. Toca ⏱️ Ahora + Tipo', '2. Intensidad 1–5 + motivo', '3. Presiona Ctrl + Enter'],
+                    titleEn: 'Compact Crisis Log (250 chars)',
+                    titleEs: 'Bitácora de Crisis Compacta',
+                    flowEn: ['1. Tap ⏱️ Now + emotion (or "Otro") + 1–5', '2. Optional Spanish trigger (max 250 chars)', '3. Read-only visible to psychiatrist'],
+                    flowEs: ['1. Elige fecha/hora (⏱️ Now), emoción (u Otro) y 1–5', '2. Descripción opcional máx. 250 caracteres (Ctrl+Enter)', '3. Visible en solo lectura para psiquiatra/psicóloga'],
                     targetView: 'crisis',
-                    tagEn: 'Read-only visible for doctor',
+                    tagEn: 'Ctrl + Enter saves instantly',
                     tagEs: 'Solo lectura para especialista'
                 },
                 {
@@ -52,6 +52,16 @@
                     targetView: 'sueno',
                     tagEn: 'Intervals summed automatically',
                     tagEs: 'Suma intervalos en un día'
+                },
+                {
+                    icon: '📈',
+                    titleEn: 'Clinician Calendar & 6m Drive RAM',
+                    titleEs: 'Calendario Médico e Historial Drive RAM',
+                    flowEn: ['1. Jump to any day/week in Calendar', '2. MySQL keeps 1 month (30 days) local', '3. Tap Drive (RAM) for 3, 6 or 12 months'],
+                    flowEs: ['1. Usa el Calendario por día o semana', '2. MySQL local conserva 1 mes (30 días)', '3. Pulsa ☁️ Drive (RAM) para ver 3, 6 o 12 meses'],
+                    targetView: 'resumen',
+                    tagEn: 'Zero disk bloat on EC2',
+                    tagEs: 'Sin llenar disco en EC2'
                 },
                 {
                     icon: '🩺',
@@ -83,24 +93,24 @@
                     tagEs: 'Usa tu archivo .docx protegido'
                 },
                 {
-                    icon: '📘',
-                    titleEn: 'Language Studio + AI',
-                    titleEs: 'Estudio de Idiomas + IA',
-                    flowEn: ['1. Glossary / Grammar / Phrasal Verbs', '2. Gemini AI or 0-RAM Local Hangul', '3. Auto-creates Word notebook + TOC'],
-                    flowEs: ['1. Glosario / Gramática / Phrasal Verbs', '2. IA Gemini o Hangul Local sin RAM', '3. Crea Word de idiomas automático + Índice'],
+                    icon: '🎯',
+                    titleEn: '15m Sequential Course & Voice',
+                    titleEs: 'Curso Secuencial (15m) y Pronunciación',
+                    flowEn: ['1. Priority: 1st EN->ES & 2nd KO->EN', '2. Complete Word practice to unlock next', '3. Tap 🎤 Practice Pronunciation with mic'],
+                    flowEs: ['1. Prioridad: 1° Inglés (EN→ES) y 2° Coreano (KO→EN)', '2. Completa la práctica en Word para desbloquear', '3. Usa 🎤 Practicar Pronunciación con micrófono'],
                     targetView: 'english',
-                    tagEn: 'Auto-creates .docx if missing!',
-                    tagEs: '¡Crea el .docx si no existe!'
+                    tagEn: 'Auto-creates Word + TOC',
+                    tagEs: 'Crea Word e Índice automático'
                 },
                 {
-                    icon: '🎧',
-                    titleEn: 'Music, yt-dlp & Word Lyrics',
-                    titleEs: 'Música, yt-dlp y Letras en Word',
-                    flowEn: ['1. Group by Artist & Album / Track #', '2. Click Load Lyrics -> PC reads Word/yt-dlp', '3. AI breakdowns auto-file under Album'],
-                    flowEs: ['1. Agrupa por Artista, Álbum y Pista', '2. Cargar Letra -> PC lee Word/yt-dlp', '3. IA guarda análisis bajo su Álbum'],
+                    icon: '📂',
+                    titleEn: 'Win11 Music Folders & Read-Only Lyrics',
+                    titleEs: 'Carpetas Musicales Win11 y Letras',
+                    flowEn: ['1. Yellow folders: Artist -> Album -> Song', '2. Extract Lyrics checks PC live & splits langs', '3. Translate ES appends & saves to Word + Drive'],
+                    flowEs: ['1. Carpeta Artista → carpeta Álbum → canción', '2. Extraer Letra verifica PC y divide por idioma', '3. Traducir ES / Estrofas IA guarda en Word y Drive'],
                     targetView: 'english',
-                    tagEn: '0 KB lyrics stored on EC2/MySQL',
-                    tagEs: '0 KB de letras guardadas en la nube'
+                    tagEn: '0 KB lyrics in DB · gdrive:NotasIdiomas',
+                    tagEs: '0 KB en BD · Respaldo gdrive:NotasIdiomas'
                 },
                 {
                     icon: '🌐',
@@ -123,20 +133,20 @@
             cards: [
                 {
                     icon: '🗓️',
-                    titleEn: 'Weekly Agenda & Class Tasks',
-                    titleEs: 'Agenda Semanal y Tareas por Clase',
-                    flowEn: ['1. Link Uni tasks to current ITS class', '2. Card badge shows the class name', '3. 1-click cycle: To Do -> Doing -> Done'],
-                    flowEs: ['1. Vincula tareas Univ a tu clase actual', '2. La etiqueta muestra el nombre de la clase', '3. Flujo: Por hacer -> Progreso -> Hecho'],
+                    titleEn: 'Repetitive Agenda & Long Projects',
+                    titleEs: 'Agenda Repetitiva y Proyectos Largos',
+                    flowEn: ['1. Standard, Long Projects (1–7d) or Language', '2. Repeat every X days (up to 12 sessions)', '3. 1-click cycle: To Do -> Doing -> Done'],
+                    flowEs: ['1. Estándar, Proyectos Largos (1–7d) o Idiomas', '2. Repite cada X días (hasta 12 sesiones)', '3. Flujo: Por hacer → Progreso → Hecho'],
                     targetView: 'agenda',
-                    tagEn: 'Filter by class & ntfy alerts',
-                    tagEs: 'Filtro por clase y alertas ntfy'
+                    tagEn: 'Unified auto-resize textboxes',
+                    tagEs: 'Cajas de texto auto-ajustables'
                 },
                 {
                     icon: '🏫',
-                    titleEn: 'ITS Classes & Croquis Map',
-                    titleEs: 'Clases ITS y Croquis Campus',
-                    flowEn: ['1. Type room (R11, N21, A10, S15)', '2. Auto-detects CTO-002 / 003 / 004', '3. Pauses alerts during Vacations'],
-                    flowEs: ['1. Escribe salón (R11, N21, A10, S15)', '2. Detecta campus CTO-002 / 003 / 004', '3. Pausa alertas en Vacaciones'],
+                    titleEn: 'ITS Classes & Boulevard Coords',
+                    titleEs: 'Clases ITS y Campus sobre Bulevar',
+                    flowEn: ['1. Type room (R02, R11, N21, A10, S15)', '2. Exact boulevard coords (CTO-002/003/004)', '3. Real-time traffic ntfy + Snooze 15m/30m'],
+                    flowEs: ['1. Escribe salón (R02, R11, N21, A10, S15)', '2. Campus exacto en bulevar (CTO-002/003/004)', '3. Alertas ntfy con Snooze 15m / 30m'],
                     targetView: 'horario',
                     tagEn: '1-click Sync Week -> Agenda',
                     tagEs: 'Sincroniza Semana -> Agenda en 1 clic'
@@ -182,10 +192,10 @@
                 },
                 {
                     icon: '📱',
-                    titleEn: 'Phone Alerts (ntfy) & EN/ES',
-                    titleEs: 'Notificaciones ntfy e Idioma EN/ES',
-                    flowEn: ['1. Subscribe private topic on Android', '2. Always Dark Mode (0 eye strain)', '3. Instant EN <-> ES switch anywhere'],
-                    flowEs: ['1. Suscríbete al topic privado en Android', '2. Modo Oscuro Permanente integrado', '3. Cambia EN <-> ES en todo el sistema'],
+                    titleEn: 'ntfy Actions & Drive Study Sync',
+                    titleEs: 'Botones ntfy y Respaldo NotasIdiomas',
+                    flowEn: ['1. Persistent Snooze 15m/30m & Mark Done', '2. Auto-backups English Word -> gdrive:NotasIdiomas', '3. Always Dark Mode + live EN <-> ES switch'],
+                    flowEs: ['1. Botones Snooze 15m/30m desde Android ntfy', '2. Respalda Word Idiomas en gdrive:NotasIdiomas', '3. Modo Oscuro permanente + cambio EN <-> ES'],
                     targetView: 'settings',
                     tagEn: 'Syncs across tabs & mini window',
                     tagEs: 'Sincroniza pestañas y mini ventana'
@@ -409,10 +419,10 @@
         pyCard.appendChild(el('h4', '', tr('🐍 Local PC Python & Word Facts', '🐍 Python Local y Archivos Word')));
         var pyUl = el('ul', 'vg-facts-list');
         [
-            tr('English_Learning_Notebook.docx auto-creates on PC if missing (with Table of Contents + 4 sections).', 'English_Learning_Notebook.docx se crea solo en tu PC si no existe (con Índice y 4 secciones).'),
-            tr('Journal Word keeps your existing file & WORD_PASSWORD protection.', 'Tu Diario Word conserva tu archivo protegido con WORD_PASSWORD.'),
-            tr('Moving either Word file? Just update WORD_FILE_PATH / ENGLISH_WORD_FILE_PATH in GitHub Variables.', '¿Moviste un archivo Word? Solo actualiza WORD_FILE_PATH / ENGLISH_WORD_FILE_PATH en GitHub Variables.'),
-            tr('Full text docs: see guides/MANUAL_DE_USUARIO.md in repo.', 'Manual extendido completo: consulta guides/MANUAL_DE_USUARIO.md en el repositorio.')
+            tr('English_Learning_Notebook.docx auto-creates on PC & backs up to gdrive:NotasIdiomas.', 'English_Learning_Notebook.docx se crea solo en tu PC y se respalda en gdrive:NotasIdiomas.'),
+            tr('Journal Word stays strictly local with WORD_PASSWORD (never uploaded to Drive).', 'Tu Diario Word permanece solo local con WORD_PASSWORD (jamás se sube a Drive).'),
+            tr('Local MySQL keeps 30 days; older history loads in RAM from Drive on demand.', 'MySQL local conserva 30 días; el historial antiguo se carga en RAM desde Drive.'),
+            tr('Full quick guide: see guides/MANUAL_DE_USUARIO.md in repo.', 'Manual completo: consulta guides/MANUAL_DE_USUARIO.md en el repositorio.')
         ].forEach(function (txt) {
             pyUl.appendChild(el('li', '', txt));
         });
