@@ -1,8 +1,35 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.1.0",
-  "updatedAt": "2026-11-15T14:54:46.321Z",
+  "currentVersion": "1.5.0",
+  "updatedAt": "2026-11-16T11:53:28.375Z",
   "releases": [
+    {
+      "version": "1.5.0",
+      "tag": "v1.5.0",
+      "bumpType": "minor",
+      "previousVersion": "1.4.0",
+      "releasedAt": "2026-11-16T11:53:28.375Z",
+      "commitSha": "f9390f5",
+      "trigger": "push",
+      "summary": "feat(drive-archive): keep 1-month local DB window and load 6-month historical data in RAM from Google Drive",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 2
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(drive-archive): keep 1-month local DB window and load 6-month historical data in RAM from Google Drive (7b0eb20)"
+        ],
+        "fixes": [],
+        "maintenance": [
+          "chore: new folder added (f45bb33)",
+          "style: barra de version (3247850)"
+        ]
+      }
+    },
     {
       "version": "1.1.0",
       "tag": "v1.1.0",

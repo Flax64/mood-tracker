@@ -1,11 +1,21 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.1.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.5.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.5.0] - 2026-11-16 (MINOR) · `f9390f5`
+**feat(drive-archive): keep 1-month local DB window and load 6-month historical data in RAM from Google Drive**
+
+### ✨ Features / Nuevas Funciones
+- feat(drive-archive): keep 1-month local DB window and load 6-month historical data in RAM from Google Drive (7b0eb20)
+
+### 🔧 Maintenance & Docs
+- chore: new folder added (f45bb33)
+- style: barra de version (3247850)
 
 ## [v1.1.0] - 2026-11-15 (MINOR) · `61335e8`
 **feat(ui,i18n,docs): enforce dark mode, complete EN/ES translation, visual guide, and Windows sync lifecycle docs**
