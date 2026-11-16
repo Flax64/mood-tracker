@@ -929,13 +929,13 @@
 
                     <div class="study-language-bar" id="studyLanguageSelectorBar">
                         <div class="study-lang-label">
-                            <strong>Study Language:</strong>
-                            <span class="muted-text" id="studyLanguageHint">English + Korean (Auto Hangul Romanization &amp; K-Pop Code-Switching)</span>
+                            <strong>Prioridad de Idioma:</strong>
+                            <span class="muted-text" id="studyLanguageHint">1° Inglés (EN → ES) · 2° Coreano (KO → EN) · Mixto K-Pop</span>
                         </div>
                         <div class="study-lang-pills" role="group" aria-label="Select target language">
-                            <button type="button" class="study-lang-pill" data-study-lang="en">🇺🇸 English</button>
-                            <button type="button" class="study-lang-pill" data-study-lang="ko">🇰🇷 Korean (한국어)</button>
-                            <button type="button" class="study-lang-pill active" data-study-lang="en_ko">🎵 K-Pop (EN + KR)</button>
+                            <button type="button" class="study-lang-pill active" data-study-lang="en" title="Prioridad 1: Estudiar Inglés con explicaciones y traducción de Inglés a Español">🇺🇸 1° Inglés (EN → ES)</button>
+                            <button type="button" class="study-lang-pill" data-study-lang="ko" title="Prioridad 2: Estudiar Coreano (Alfabeto Hangul y vocabulario) traducido de Coreano a Inglés">🇰🇷 2° Coreano (KO → EN)</button>
+                            <button type="button" class="study-lang-pill" data-study-lang="en_ko" title="Modo canciones K-Pop que mezclan Inglés y Coreano">🎵 K-Pop (EN + KR)</button>
                         </div>
                     </div>
 
@@ -1081,6 +1081,36 @@
 
                         <button type="submit" class="btn-submit" id="btnSendEnglish">Encrypt E2EE &amp; Save to Word Notebook (PC)</button>
                     </form>
+
+                    <!-- Plan de Estudio Secuencial (15 min) + Práctica de Pronunciación con Micrófono -->
+                    <section class="lang-ai-panel" id="sequentialStudyPanel" aria-label="Plan de Estudio Práctico y Pronunciación">
+                        <div class="lang-ai-head">
+                            <div>
+                                <h3>🎯 Plan de Estudio Práctico (15 min) &amp; Pronunciación por Voz</h3>
+                                <p class="muted-text" id="seqLessonStatusHint">Aprendizaje activo por práctica constante: completa la lección actual en tu Word para desbloquear la siguiente.</p>
+                            </div>
+                            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+                                <button type="button" class="btn-secondary btn-small" id="btnToggleStudyCourse"
+                                    title="Activa o pausa cuando quieras las notificaciones de estudio de 10-15 minutos (sin fecha límite)">
+                                    ▶️ Iniciar / Pausar Curso (15 min)
+                                </button>
+                                <button type="button" class="btn-secondary btn-small" id="btnStartMicPronunciation"
+                                    title="Usa tu micrófono para pronunciar la palabra o verso actual y que la IA evalúe tu fonética">
+                                    🎤 Practicar Pronunciación
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="micPronunciationResultBox" class="inline-status-banner" hidden aria-live="polite" style="margin-top:8px;"></div>
+
+                        <details id="seqLessonsAccordion" style="margin-top:10px;">
+                            <summary style="cursor:pointer;font-weight:600;" title="Despliega tu ruta de lecciones en orden (Inglés -> Coreano)">
+                                📚 Ver Lecciones Secuenciales y Cuestionario Rápido (Guardado automático en Word)
+                            </summary>
+                            <div id="seqLessonsListContainer" style="margin-top:10px;display:grid;gap:8px;"></div>
+                            <div id="seqActivePracticeBox" class="lang-ai-result" hidden style="margin-top:10px;"></div>
+                        </details>
+                    </section>
 
                     <!-- Interactive AI Tutor Panel (Gemini + Zero-RAM Offline Hangul/EN) -->
                     <section class="lang-ai-panel" id="languageAiPanel" aria-label="AI Language Tutor">
@@ -1367,11 +1397,33 @@
                                         <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle">⚪ Verificando PC...</span>
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicExtractLyrics">🎙️ Cargar / Extraer letra (PC yt-dlp)</button>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicSaveLyrics">📝 Guardar letra a Word (PC)</button>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy">⬇ Pasar a Breakdown / IA</button>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateLyricsSel">🌐 Traducir</button>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateFullLyricsEs" title="Traduce la letra completa al español (IA Gemini o subtítulos [ES] de YouTube) y la guarda cifrada E2EE en Notas/Word">🇪🇸 Traducir letra a ES (IA + Guardar)</button>
+                                        <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
+                                            title="Elige en qué idioma ver la pista de la letra (Español, Inglés o Mixto Inglés-Coreano)">
+                                            <option value="all">🌐 Pista: Completa (Mixto EN/KR/ES)</option>
+                                            <option value="en">🇺🇸 Solo Inglés</option>
+                                            <option value="ko">🇰🇷 Solo Coreano + Inglés</option>
+                                            <option value="es">🇪🇸 Solo Español</option>
+                                        </select>
+                                        <button type="button" class="btn-primary btn-small" id="btnMusicExtractLyrics"
+                                            title="Carga la letra desde tu documento Word o la extrae automáticamente y la guarda en Word">
+                                            📄 Extraer Letra
+                                        </button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicSaveLyrics" hidden
+                                            title="La letra se guarda automáticamente en tu documento Word">
+                                            📝 Guardar letra a Word (PC)
+                                        </button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy"
+                                            title="Pasa esta letra al analizador de IA para desglosarla por estrofas">
+                                            ✨ Analizar Estrofas con IA
+                                        </button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateLyricsSel"
+                                            title="Abre el traductor rápido al lado de la letra sin perder visibilidad">
+                                            🌐 Traductor Rápido
+                                        </button>
+                                        <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateFullLyricsEs"
+                                            title="Traduce toda la canción al español con IA y la guarda automáticamente en tu Word">
+                                            🇪🇸 Traducir Canción a Español
+                                        </button>
                                     </div>
                                 </div>
                                 <div id="musicLyricsAlbumPlaylistBox" class="music-album-tracklist-box" hidden></div>
@@ -1388,11 +1440,11 @@
                                     <div class="music-lyrics-label-row">
                                         <label for="musicStudyLyrics">Lyrics Breakdown, Meanings &amp; Explanations (E2EE -&gt; PC Word only)</label>
                                         <div class="music-lyrics-label-actions">
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicImportLyricsFile" title="Import .srt, .vtt, .lrc or .txt subtitles exported by yt-dlp">📥 Import .srt/.vtt/.lrc</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicImportLyricsFile" hidden>📥 Import .srt/.vtt/.lrc</button>
                                             <input type="file" id="musicLyricsFileInput" accept=".srt,.vtt,.lrc,.txt" hidden>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCleanTimestamps" title="Remove .srt/.vtt/.lrc timestamps from pasted text">🧹 Clean Timestamps</button>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicToggleYtdlpHint" title="Show yt-dlp command for extracting YouTube subtitles on your PC">💻 yt-dlp (PC)</button>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics">✨ Explain Lyrics &amp; Romanize (AI)</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCleanTimestamps" title="Limpia marcas de tiempo si pegaste una letra manualmente">🧹 Limpiar Texto</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicToggleYtdlpHint" hidden>💻 yt-dlp (PC)</button>
+                                            <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics" title="Divide la canción por estrofas (Intro, Pre-Coro, Coro, Rap) y explica su vocabulario y pronunciación">✨ Desglosar por Estrofas (IA)</button>
                                         </div>
                                     </div>
                                     <div id="musicYtdlpHelperBox" class="music-ytdlp-helper" hidden>

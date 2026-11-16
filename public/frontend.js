@@ -3462,6 +3462,39 @@ function renderAiAnalysisIntoBox(container, analysis) {
         container.appendChild(warnEl);
     }
 
+    if (Array.isArray(analysis.stanzas) && analysis.stanzas.length) {
+        analysis.stanzas.forEach((stanza, sIdx) => {
+            const det = document.createElement('details');
+            det.className = 'ai-line-card';
+            if (sIdx < 2) det.open = true;
+
+            const sum = document.createElement('summary');
+            sum.style.cursor = 'pointer';
+            sum.style.fontWeight = '700';
+            protectUserNode(sum);
+            sum.textContent = `🎵 [${stanza.section || `Estrofa ${sIdx + 1}`}] — ${stanza.meaningSummary || ''}`;
+            det.appendChild(sum);
+
+            if (stanza.phoneticGuide) {
+                const ph = document.createElement('div');
+                ph.className = 'ai-line-rom';
+                protectUserNode(ph);
+                ph.textContent = `🗣️ Fonética de estrofa: [${stanza.phoneticGuide}]`;
+                det.appendChild(ph);
+            }
+
+            (Array.isArray(stanza.lines) ? stanza.lines : []).forEach(l => {
+                const row = document.createElement('div');
+                row.style.padding = '4px 0';
+                row.style.borderTop = '1px solid rgba(148,163,184,0.15)';
+                protectUserNode(row);
+                row.textContent = `${l.original || ''}${l.phonetic ? ` [${l.phonetic}]` : ''} → ${l.meaning || ''}`;
+                det.appendChild(row);
+            });
+            container.appendChild(det);
+        });
+    }
+
     if (Array.isArray(analysis.lines) && analysis.lines.length) {
         analysis.lines.slice(0, 24).forEach(line => {
             const card = document.createElement('div');
@@ -3897,6 +3930,234 @@ function initLanguageAiStudio() {
             showToast('ok', 'Added Romanization, Vocabulary & AI Notes below—ready to encrypt & save to Word!');
         });
     }
+
+    // Lecciones secuenciales (15 min, Zero-Bloat en BD + guardado en Word) y Pronunciación por Micrófono
+    async function cargarLeccionesSecuencialesUI() {
+        const listEl = document.getElementById('seqLessonsListContainer');
+        const hintEl = document.getElementById('seqLessonStatusHint');
+        const btnToggle = document.getElementById('btnToggleStudyCourse');
+        if (!listEl) return;
+
+        try {
+            const res = await fetch('/api/language/lessons', { cache: 'no-store' });
+            if (!res.ok) return;
+            const data = await res.json();
+
+            if (btnToggle) {
+                btnToggle.textContent = data.studyEnabled
+                    ? '⏸️ Pausar Curso de Idiomas (Activo · 15 min)'
+                    : '▶️ Iniciar Curso de Idiomas (Sin fecha fija · 15 min)';
+            }
+            if (hintEl && data.currentLesson) {
+                hintEl.textContent = data.needsPracticeAlert
+                    ? `⚠️ Lección actual pendiente de lectura/práctica en Word (15 min): ${data.currentLesson.nombre}`
+                    : `✅ Lección activa lista: ${data.currentLesson.nombre}`;
+            }
+
+            listEl.replaceChildren();
+            (data.lessons || []).forEach(lesson => {
+                const row = document.createElement('div');
+                row.className = 'ai-line-card';
+                row.style.display = 'flex';
+                row.style.justifyContent = 'space-between';
+                row.style.alignItems = 'center';
+                row.style.gap = '8px';
+                row.style.opacity = lesson.locked ? '0.55' : '1';
+
+                const titleSpan = document.createElement('span');
+                const statusIcon = lesson.completada ? '✅' : (lesson.locked ? '🔒' : '🎯');
+                titleSpan.textContent = `${statusIcon} [${lesson.idioma.toUpperCase()}] ${lesson.nombre}`;
+
+                const actions = document.createElement('div');
+                actions.style.display = 'flex';
+                actions.style.gap = '6px';
+
+                const btnPractice = document.createElement('button');
+                btnPractice.type = 'button';
+                btnPractice.className = 'btn-secondary btn-small';
+                btnPractice.disabled = lesson.locked;
+                btnPractice.title = lesson.locked
+                    ? 'Completa primero la lección anterior para desbloquear esta'
+                    : 'Genera la práctica de 15 minutos y guárdala automáticamente en tu documento Word';
+                btnPractice.textContent = '📖 Practicar (15 min -> Word)';
+                btnPractice.addEventListener('click', () => {
+                    runWithButtonLock(btnPractice, async () => {
+                        const pRes = await resilientFetchJson(`/api/language/lessons/${lesson.id}/generate-practice`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({})
+                        }, { timeoutMs: 25000 });
+                        if (!pRes.ok || !pRes.data?.practice) {
+                            showToast('err', pRes.errorMessage || 'No se pudo generar la práctica.');
+                            return;
+                        }
+                        const prac = pRes.data.practice;
+                        const box = document.getElementById('seqActivePracticeBox');
+                        if (box) {
+                            box.hidden = false;
+                            box.replaceChildren();
+                            const h = document.createElement('div');
+                            h.className = 'ai-summary-box';
+                            h.textContent = `🎯 ${prac.lessonName} (Guardada en tu Word local)`;
+                            box.appendChild(h);
+
+                            (prac.practicalDrills || []).forEach((d, idx) => {
+                                const det = document.createElement('details');
+                                det.className = 'ai-line-card';
+                                const s = document.createElement('summary');
+                                s.style.cursor = 'pointer';
+                                s.textContent = `Ejercicio ${idx + 1}: ${d.prompt} (Clic para ver respuesta)`;
+                                const ans = document.createElement('p');
+                                ans.className = 'muted-text';
+                                ans.textContent = `✔️ ${d.answer}`;
+                                det.append(s, ans);
+                                box.appendChild(det);
+                            });
+                        }
+                        if (prac.wordPayload && (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline !== false)) {
+                            await autoQueueAiLearningToWord({ entry: prac.wordPayload, hintEl });
+                        }
+                        await cargarLeccionesSecuencialesUI();
+                    });
+                });
+
+                const btnDone = document.createElement('button');
+                btnDone.type = 'button';
+                btnDone.className = 'btn-primary btn-small';
+                btnDone.disabled = lesson.locked || lesson.completada;
+                btnDone.title = 'Marca esta lección como completada después de practicar para avanzar a la siguiente';
+                btnDone.textContent = lesson.completada ? 'Completada' : '✓ Completar';
+                btnDone.addEventListener('click', () => {
+                    runWithButtonLock(btnDone, async () => {
+                        const cRes = await fetch(`/api/language/lessons/${lesson.id}/complete`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ wordReadConfirmed: true })
+                        });
+                        if (!cRes.ok) {
+                            showToast('err', await cRes.text());
+                            return;
+                        }
+                        showToast('ok', '¡Lección completada! Se desbloqueó la siguiente lección.');
+                        await cargarLeccionesSecuencialesUI();
+                    });
+                });
+
+                actions.append(btnPractice, btnDone);
+                row.append(titleSpan, actions);
+                listEl.appendChild(row);
+            });
+        } catch (_) {}
+    }
+
+    document.getElementById('btnToggleStudyCourse')?.addEventListener('click', async (ev) => {
+        const btn = ev.currentTarget;
+        runWithButtonLock(btn, async () => {
+            const nextState = !(currentSettings && currentSettings.englishReminderEnabled);
+            const res = await submitMutationRequest({
+                url: '/api/settings',
+                method: 'PUT',
+                scopeKey: 'toggle-study-course',
+                signature: String(Date.now()),
+                buildBody: () => ({
+                    englishReminderEnabled: nextState,
+                    englishReminderTopic: 'Dedica 15 minutos a tu lección activa de Inglés / Coreano en Word'
+                }),
+                parseJson: true
+            });
+            if (res?.settings) aplicarSettingsEnEstado(res.settings);
+            await cargarLeccionesSecuencialesUI();
+            showToast('ok', nextState
+                ? 'Curso de idiomas activado (recordatorios de 15 min encendidos).'
+                : 'Curso de idiomas en pausa.');
+        });
+    });
+
+    document.getElementById('btnStartMicPronunciation')?.addEventListener('click', () => {
+        const resultBox = document.getElementById('micPronunciationResultBox');
+        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRec) {
+            if (resultBox) {
+                resultBox.hidden = false;
+                resultBox.className = 'inline-status-banner is-error';
+                resultBox.textContent = '⚠️ Tu navegador bloqueó el micrófono por usar HTTP plano o no soporta Web Speech API. En tu OPPO A79 habilita el origen en chrome://flags/#unsafely-treat-insecure-origin-as-secure o usa HTTPS.';
+            }
+            return;
+        }
+        const targetText = (
+            document.getElementById('engWord')?.value ||
+            document.getElementById('langAiQuestion')?.value ||
+            document.getElementById('musicSongTitle')?.value ||
+            ''
+        ).trim().slice(0, 200);
+
+        if (!targetText) {
+            showToast('info', 'Escribe primero una palabra en Glosario o una frase en el cuadro de IA para evaluar tu pronunciación.');
+            return;
+        }
+
+        const langCode = document.getElementById('studyLanguageInput')?.value || 'en';
+        const rec = new SpeechRec();
+        rec.lang = langCode === 'ko' || /[\uAC00-\uD7A3]/.test(targetText) ? 'ko-KR' : 'en-US';
+        rec.interimResults = false;
+
+        if (resultBox) {
+            resultBox.hidden = false;
+            resultBox.className = 'inline-status-banner is-info';
+            resultBox.textContent = `🎙️ Escuchando (${rec.lang})... Pronuncia en voz alta: "${targetText}"`;
+        }
+
+        rec.onresult = async (event) => {
+            const spokenText = event.results?.[0]?.[0]?.transcript || '';
+            const evalRes = await resilientFetchJson('/api/language/pronunciation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetText, spokenText, language: langCode })
+            }, { timeoutMs: 18000 });
+
+            if (evalRes.ok && evalRes.data && resultBox) {
+                const d = evalRes.data;
+                resultBox.className = d.score >= 75 ? 'inline-status-banner is-ok' : 'inline-status-banner is-info';
+                resultBox.textContent = `🎯 Puntaje: ${d.score}% · Captado: "${d.spokenText}" · Fonética: [${d.phoneticTarget}] — ${d.feedback} (${d.mouthTip})`;
+            }
+        };
+        rec.onerror = (e) => {
+            if (resultBox) {
+                resultBox.hidden = false;
+                resultBox.className = 'inline-status-banner is-error';
+                resultBox.textContent = `⚠️ No se pudo capturar el micrófono (${e.error || 'permiso denegado'}).`;
+            }
+        };
+        rec.start();
+    });
+
+    // Poblar selector de modelos en Ajustes SOLO con los modelos disponibles en GEMINI_API_KEY
+    fetch('/api/language/registry', { cache: 'no-store' })
+        .then(r => (r.ok ? r.json() : null))
+        .then(reg => {
+            if (!reg) return;
+            const modelSel = document.getElementById('setGeminiModel');
+            if (modelSel && Array.isArray(reg.geminiModels) && reg.geminiModels.length) {
+                const currentVal = reg.activeGeminiModel || modelSel.value || 'gemini-2.5-flash';
+                modelSel.replaceChildren();
+                reg.geminiModels.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.label || m.id;
+                    modelSel.appendChild(opt);
+                });
+                const customOpt = document.createElement('option');
+                customOpt.value = '__custom__';
+                customOpt.textContent = 'Custom Model ID (enter below)';
+                modelSel.appendChild(customOpt);
+                if (Array.from(modelSel.options).some(o => o.value === currentVal)) {
+                    modelSel.value = currentVal;
+                }
+            }
+        })
+        .catch(() => {});
+
+    cargarLeccionesSecuencialesUI();
 }
 
 function applyTranslationToVocabularyForm(translation, { switchToEnglish = true } = {}) {
@@ -4537,6 +4798,16 @@ function renderMusicLyricsAlbumPlaylist(song) {
 async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract = false } = {}) {
     const hintEl = document.getElementById('musicLyricsStatusHint');
     if (!song) return false;
+    
+    if (musicState.ytdlpStatus && musicState.ytdlpStatus.pcOnline === false) {
+        const offlineMsg = tUi(
+            '⚠️ Your PC is currently offline. Lyrics & note extraction is paused to avoid saturating the server queue.',
+            '⚠️ Tu PC está apagada o desconectada. Se restringió la carga de letras y notas para no saturar la cola del servidor.'
+        );
+        if (hintEl) hintEl.textContent = offlineMsg;
+        if (!silent) showToast('info', offlineMsg);
+        return false;
+    }
 
     const llaveTexto = silent ? obtenerLlaveE2EE() : await solicitarLlaveE2EEAsync();
     if (!llaveTexto) return false;
@@ -6232,6 +6503,42 @@ if (englishMusicStudioRoot) {
                     showToast('err', err.message || 'No se pudo cifrar/enviar la letra al túnel RAM.');
                 }
             }, { loadingText: 'Cifrando E2EE...' });
+        });
+    }
+
+    if (songLyricsViewerEl) {
+        let lyricsAutoSaveTimer = null;
+        songLyricsViewerEl.addEventListener('input', () => {
+            clearTimeout(lyricsAutoSaveTimer);
+            const song = getCancionSeleccionada();
+            const text = songLyricsViewerEl.value.trim();
+            if (!song || !text || (musicState.ytdlpStatus && musicState.ytdlpStatus.pcOnline === false)) return;
+            lyricsAutoSaveTimer = setTimeout(() => {
+                if ( obtenerLlaveE2EE() ) {
+                    guardarLetraYNotasEnWordPc(song, {
+                        lyricsStudy: text,
+                        scopeKey: 'english:music-lyrics-autosave'
+                    }).catch(() => {});
+                }
+            }, 1800);
+        });
+    }
+
+    const trackLangFilterEl = document.getElementById('musicLyricsTrackLangFilter');
+    if (trackLangFilterEl && songLyricsViewerEl) {
+        trackLangFilterEl.addEventListener('change', () => {
+            const song = getCancionSeleccionada();
+            const fullLyrics = song && musicState.sessionLyricsBySongId[song.id]?.lyrics;
+            if (!fullLyrics) return;
+            const mode = trackLangFilterEl.value;
+            if (mode === 'all') {
+                songLyricsViewerEl.value = fullLyrics;
+                return;
+            }
+            const tagMap = { en: /\[EN\]/i, ko: /\[KO\]/i, es: /(?:\[ES\]|===\s*\[ES)/i };
+            const blocks = fullLyrics.split(/\n(?=\[[A-Z]{2,}\]|===\s*\[)/);
+            const matched = blocks.filter(b => tagMap[mode] && tagMap[mode].test(b));
+            songLyricsViewerEl.value = matched.length ? matched.join('\n\n').trim() : fullLyrics;
         });
     }
 
