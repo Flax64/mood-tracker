@@ -20,3 +20,4 @@ README.md
 *.log
 Dockerfile
 docker-compose.yml
+for-gemini
