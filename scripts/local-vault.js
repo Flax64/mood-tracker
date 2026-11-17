@@ -43,7 +43,11 @@ function decryptBuffer(encBuf, password) {
     const { key, iv } = deriveKeyAndIv(password, salt);
     const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
     try {
-        return Buffer.concat([decipher.update(payload), decipher.final()]).toString('utf8');
+        const plain = Buffer.concat([decipher.update(payload), decipher.final()]);
+        // Decodificación UTF-8 ESTRICTA (igual que `.decode("utf-8")` en sincronizador.py): con una
+        // contraseña errónea, AES-CBC produce padding PKCS#7 "válido" ~1/256 veces; la basura
+        // resultante casi nunca es UTF-8 válido, así que se rechaza en lugar de devolver texto corrupto.
+        return new TextDecoder('utf-8', { fatal: true }).decode(plain);
     } catch {
         throw new Error('Contraseña incorrecta o archivo .env.enc corrupto.');
     }
