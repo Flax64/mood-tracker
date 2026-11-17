@@ -6,7 +6,9 @@ base_datos/
 test/
 respaldos/
 *.sql.gz
-sincronitation/
+sincronitation/*
+!sincronitation/sincronizador.py
+!sincronitation/yt_lyrics_helper.py
 english-notes/
 for-gemini/
 codigo_dividido/

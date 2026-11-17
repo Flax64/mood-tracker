@@ -11,6 +11,20 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const VAULT_SCRIPT = path.join(ROOT_DIR, 'scripts', 'local-vault.js');
 const PY_SYNC = path.join(ROOT_DIR, 'sincronitation', 'sincronizador.py');
 
+function resolvePythonExecutable({ requireSyncDeps = false } = {}) {
+    const candidates = process.platform === 'win32' ? ['python', 'python3'] : ['python3', 'python'];
+    for (const cmd of candidates) {
+        const ver = spawnSync(cmd, ['--version'], { encoding: 'utf8' });
+        if (ver.error || ver.status !== 0) continue;
+        if (requireSyncDeps) {
+            const deps = spawnSync(cmd, ['-B', '-c', 'import Crypto.Cipher, requests'], { encoding: 'utf8' });
+            if (deps.error || deps.status !== 0) continue;
+        }
+        return cmd;
+    }
+    return null;
+}
+
 describe('Bóveda local (.env / .env.enc)', () => {
     test('scripts/local-vault.js tiene sintaxis JavaScript válida', () => {
         const res = spawnSync(process.execPath, ['--check', VAULT_SCRIPT], {
@@ -24,7 +38,15 @@ describe('Bóveda local (.env / .env.enc)', () => {
         const gitignore = fs.readFileSync(path.join(ROOT_DIR, '.gitignore'), 'utf8')
             .split(/\r?\n/)
             .map((l) => l.trim());
-        for (const entry of ['.env', '.env.enc', '.ssh/', 'sincronitation/', 'english-notes/']) {
+        for (const entry of [
+            '.env',
+            '.env.enc',
+            '.ssh/',
+            'sincronitation/*',
+            '!sincronitation/sincronizador.py',
+            '!sincronitation/yt_lyrics_helper.py',
+            'english-notes/'
+        ]) {
             assert.ok(gitignore.includes(entry), `Falta "${entry}" en .gitignore`);
         }
         assert.ok(!gitignore.includes('guides') && !gitignore.includes('guides/'), 'guides/ debe mantenerse versionada en Git');
@@ -32,7 +54,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
         const dockerignore = fs.readFileSync(path.join(ROOT_DIR, '.dockerignore'), 'utf8')
             .split(/\r?\n/)
             .map((l) => l.trim());
-        for (const entry of ['.env', '.env.enc', '.env.*.tmp', '.ssh', 'scripts', 'tests', 'guides', 'english-notes']) {
+        for (const entry of ['.env', '.env.enc', '.env.*.tmp', '.ssh', 'sincronitation', 'scripts', 'tests', 'guides', 'english-notes']) {
             assert.ok(dockerignore.includes(entry), `Falta "${entry}" en .dockerignore`);
         }
     });
@@ -164,10 +186,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
             return;
         }
 
-        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
-        if (pyCheck.error || pyCheck.status !== 0) {
-            return;
-        }
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
 
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-py-vault-'));
         const tmpEnc = path.join(tmpDir, '.env.enc');
@@ -227,7 +247,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
             delete pyEnv.EC2_API_URL;
             delete pyEnv.MOOD_ENV_PASS;
 
-            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpEnc, password, tmpDpapi], {
+            const res = spawnSync(pyCmd, ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpEnc, password, tmpDpapi], {
                 cwd: ROOT_DIR,
                 env: pyEnv,
                 encoding: 'utf8'
@@ -250,10 +270,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
             return;
         }
 
-        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
-        if (pyCheck.error || pyCheck.status !== 0) {
-            return;
-        }
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
 
         const pyCode = [
             'import base64, json, os, sys',
@@ -311,7 +329,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
         delete pyEnv.URL_AWS;
         delete pyEnv.AWS_HOST;
 
-        const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC)], {
+        const res = spawnSync(pyCmd, ['-B', '-c', pyCode, path.dirname(PY_SYNC)], {
             cwd: ROOT_DIR,
             env: pyEnv,
             encoding: 'utf8'
@@ -344,10 +362,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
             return;
         }
 
-        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
-        if (pyCheck.error || pyCheck.status !== 0) {
-            return;
-        }
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
 
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'py-sync-resilience-'));
         try {
@@ -415,7 +431,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
                 'print(json.dumps({"ok": True}))'
             ].join('\n');
 
-            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir], {
+            const res = spawnSync(pyCmd, ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir], {
                 cwd: ROOT_DIR,
                 encoding: 'utf8'
             });
@@ -430,6 +446,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
     test('sincronitation/yt_lyrics_helper.py normaliza enlaces YT/YT Music y limpia subtítulos .vtt/.srt/.lrc', () => {
         const pyHelper = path.join(ROOT_DIR, 'sincronitation', 'yt_lyrics_helper.py');
         if (!fs.existsSync(pyHelper)) return;
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: false });
+        if (!pyCmd) return;
 
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yt-lyrics-helper-'));
         try {
@@ -539,7 +557,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
             ].join('\n');
 
             const res = spawnSync(
-                'python',
+                pyCmd,
                 ['-B', '-c', pyCode, path.dirname(pyHelper), vttFile, tmpDir, dlDir, fakeBinPath, cliOverrideBin],
                 {
                     cwd: ROOT_DIR,
@@ -557,6 +575,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
 
     test('sincronitation/sincronizador.py cifra/descifra E2EE compatible con Node, firma HMAC y organiza Word por Álbum y Pista', () => {
         if (!fs.existsSync(PY_SYNC)) return;
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
         const crypto = require('node:crypto');
         const secretKey = '0123456789abcdef0123456789abcdef';
         const samplePayload = JSON.stringify({
@@ -624,7 +644,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
         ].join('\n');
 
         const res = spawnSync(
-            'python',
+            pyCmd,
             ['-B', '-c', pyCode, path.dirname(PY_SYNC), secretKey, nodeEnvelope],
             { cwd: ROOT_DIR, encoding: 'utf8' }
         );
@@ -645,6 +665,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
 
     test('sincronitation/sincronizador.py resuelve WORD_FILE_PATH y ENGLISH_WORD_FILE_PATH desde GitHub Variables con respaldo local', () => {
         if (!fs.existsSync(PY_SYNC)) return;
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'word-vars-test-'));
         try {
             const pyCode = [
@@ -768,7 +790,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
             ].join('\n');
 
             const res = spawnSync(
-                'python',
+                pyCmd,
                 ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir],
                 { cwd: ROOT_DIR, encoding: 'utf8' }
             );
@@ -785,10 +807,8 @@ describe('Bóveda local (.env / .env.enc)', () => {
         if (!fs.existsSync(PY_SYNC)) {
             return;
         }
-        const pyCheck = spawnSync('python', ['--version'], { encoding: 'utf8' });
-        if (pyCheck.error || pyCheck.status !== 0) {
-            return;
-        }
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
 
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-py-dedup-'));
         try {
@@ -830,7 +850,7 @@ describe('Bóveda local (.env / .env.enc)', () => {
                 'print(json.dumps({"ok": True, "summary": summary}))'
             ].join('\n');
 
-            const res = spawnSync('python', ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir], {
+            const res = spawnSync(pyCmd, ['-B', '-c', pyCode, path.dirname(PY_SYNC), tmpDir], {
                 cwd: ROOT_DIR,
                 encoding: 'utf8'
             });
