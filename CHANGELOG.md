@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.5**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.6**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.10.6] - 2026-11-17 (PATCH) · `a81ecf8`
+**chore(sync): track local python sync scripts and isolate from server build (Closes #84)**
+
+### 🔧 Maintenance & Docs
+- chore(sync): track local python sync scripts and isolate from server build (Closes #84) (c2c02cd)
 
 ## [v1.10.5] - 2026-11-17 (PATCH) · `81ccc0a`
 **chore: track local Python sync scripts in repo while keeping logs ignored and excluded from Docker/EC2**

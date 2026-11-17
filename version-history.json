@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.5",
-  "updatedAt": "2026-11-17T17:21:29.068Z",
+  "currentVersion": "1.10.6",
+  "updatedAt": "2026-11-17T18:12:20.520Z",
   "releases": [
+    {
+      "version": "1.10.6",
+      "tag": "v1.10.6",
+      "bumpType": "patch",
+      "previousVersion": "1.10.5",
+      "releasedAt": "2026-11-17T18:12:20.520Z",
+      "commitSha": "a81ecf8",
+      "trigger": "push",
+      "summary": "chore(sync): track local python sync scripts and isolate from server build (Closes #84)",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 0,
+        "maintenance": 1
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [],
+        "maintenance": [
+          "chore(sync): track local python sync scripts and isolate from server build (Closes #84) (c2c02cd)"
+        ]
+      }
+    },
     {
       "version": "1.10.5",
       "tag": "v1.10.5",
