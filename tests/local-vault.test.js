@@ -59,6 +59,84 @@ describe('Bóveda local (.env / .env.enc)', () => {
         }
     });
 
+    test('Issue #84: .gitignore rastrea código fuente de sincronitation/ y mantiene secretos/documentos ignorados', () => {
+        const gitignoreLines = fs.readFileSync(path.join(ROOT_DIR, '.gitignore'), 'utf8')
+            .split(/\r?\n/)
+            .map((l) => l.trim());
+        for (const entry of [
+            '!sincronitation/*.py',
+            '!sincronitation/*.md',
+            '!sincronitation/requirements.txt',
+            '!sincronitation/*.example',
+            '.env', '.env.enc', '*.key', '*.pem', '*.docx', '*.doc', '~$*.docx',
+            '*.queue', '*.enc', '*.db', '*.sqlite', '__pycache__/', '*.pyc', '.venv/'
+        ]) {
+            assert.ok(gitignoreLines.includes(entry), `Falta "${entry}" en .gitignore`);
+        }
+        // Las reglas de secretos deben declararse DESPUÉS de las excepciones "!" para que nunca se re-incluyan.
+        const lastNegation = gitignoreLines.reduce((acc, l, i) => (l.startsWith('!sincronitation/') ? i : acc), -1);
+        for (const secret of ['.env', '*.docx', '*.enc', '*.key', '*.pem']) {
+            assert.ok(gitignoreLines.lastIndexOf(secret) > lastNegation, `"${secret}" debe declararse después de las excepciones de sincronitation/`);
+        }
+
+        // Verificación semántica real con `git check-ignore --no-index` (si git está disponible).
+        const gitCheck = spawnSync('git', ['--version'], { encoding: 'utf8' });
+        if (gitCheck.error || gitCheck.status !== 0) return;
+        const isIgnored = (rel) => {
+            const r = spawnSync('git', ['check-ignore', '-q', '--no-index', rel], { cwd: ROOT_DIR, encoding: 'utf8' });
+            if (r.status === 128) return null; // no es un repo git (p.ej. tarball)
+            return r.status === 0;
+        };
+        const probe = isIgnored('sincronitation/sincronizador.py');
+        if (probe === null) return;
+        for (const rel of [
+            'sincronitation/sincronizador.py',
+            'sincronitation/yt_lyrics_helper.py',
+            'sincronitation/README.md',
+            'sincronitation/requirements.txt',
+            'sincronitation/.env.example'
+        ]) {
+            assert.equal(isIgnored(rel), false, `${rel} debe poder rastrearse en Git`);
+        }
+        for (const rel of [
+            'sincronitation/.env',
+            'sincronitation/.env.enc',
+            'sincronitation/historial.log',
+            'sincronitation/.last_ec2_host.json',
+            'sincronitation/.pending_e2ee_queue.json',
+            'sincronitation/__pycache__/sincronizador.cpython-312.pyc',
+            'sincronitation/Cuaderno.docx',
+            'sincronitation/~$Cuaderno.docx',
+            'sincronitation/private.key',
+            'sincronitation/cert.pem',
+            'sincronitation/pendientes.queue',
+            'sincronitation/indice.sqlite',
+            'sincronitation/.venv/pyvenv.cfg',
+            '.env',
+            'Diario.docx',
+            'notas.doc'
+        ]) {
+            assert.equal(isIgnored(rel), true, `${rel} debe permanecer ignorado por Git`);
+        }
+    });
+
+    test('Issue #84: ningún proceso del servidor (Docker/compose/CI/package.json) ejecuta sincronizador.py', () => {
+        const dockerfile = fs.readFileSync(path.join(ROOT_DIR, 'Dockerfile'), 'utf8');
+        const compose = fs.readFileSync(path.join(ROOT_DIR, 'docker-compose.yml'), 'utf8');
+        const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'package.json'), 'utf8'));
+        const deploy = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', 'deploy.yml'), 'utf8');
+        const ci = fs.readFileSync(path.join(ROOT_DIR, '.github', 'workflows', 'ci.yml'), 'utf8');
+
+        assert.equal(/sincronitation|sincronizador|yt_lyrics_helper/i.test(dockerfile), false, 'Dockerfile no debe copiar ni ejecutar scripts de PC local');
+        assert.equal(/COPY\s+\.\s+\./.test(dockerfile), false, 'Dockerfile no debe copiar el repo completo (COPY . .)');
+        assert.equal(/sincronizador|yt_lyrics_helper/i.test(compose), false, 'docker-compose.yml no debe invocar scripts de PC local');
+        assert.equal(/sincronizador|yt_lyrics_helper/i.test(JSON.stringify(pkg.scripts || {})), false, 'package.json no debe invocar scripts de PC local');
+        assert.equal(/python3?\s+[^\n]*sincronizador\.py/i.test(deploy), false, 'deploy.yml no debe ejecutar sincronizador.py en EC2');
+        assert.match(deploy, /rm -rf "\$HOME\/projects\/mood-tracker\/sincronitation"/, 'deploy.yml debe retirar sincronitation/ de la copia de trabajo en EC2');
+        // CI solo valida la sintaxis (ast.parse), nunca ejecuta el sincronizador.
+        assert.equal(/python3?\s+sincronitation\/sincronizador\.py/i.test(ci), false, 'CI no debe ejecutar sincronizador.py');
+    });
+
     test('encryptText y decryptBuffer cifran con cabecera Salted__, PBKDF2-SHA256 y rechazan claves erróneas', () => {
         assert.equal(vault.MAGIC.toString('ascii'), 'Salted__');
         assert.equal(vault.PBKDF2_ITERATIONS, 600000);

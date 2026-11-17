@@ -7,9 +7,24 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const ROOT = path.resolve(__dirname, '..');
+// Rutas absolutas resueltas desde la raíz del proyecto (independientes del cwd de `node --test`).
+// Evita ENOENT cuando la suite se ejecuta desde otra carpeta (Issue #84).
+const SYNC_PY_PATH = path.resolve(__dirname, '..', 'sincronitation', 'sincronizador.py');
+const YT_HELPER_PY_PATH = path.resolve(__dirname, '..', 'sincronitation', 'yt_lyrics_helper.py');
 
 function readText(relPath) {
-    return fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+    return fs.readFileSync(path.resolve(ROOT, relPath), 'utf8');
+}
+
+function resolvePythonCmd() {
+    const candidates = process.platform === 'win32' ? ['python', 'python3', 'py'] : ['python3', 'python'];
+    for (const cmd of candidates) {
+        try {
+            execFileSync(cmd, ['--version'], { stdio: 'pipe' });
+            return cmd;
+        } catch (_) { /* siguiente candidato */ }
+    }
+    return null;
 }
 
 describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
@@ -147,19 +162,19 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         assert.strictEqual(opens, closes, `Llaves desbalanceadas en style.css: ${opens} vs ${closes}`);
     });
 
-    it('valida sintaxis Python de sincronitation/sincronizador.py y yt_lyrics_helper.py cuando están presentes en disco', () => {
-        const pyFiles = [
-            path.join(ROOT, 'sincronitation', 'sincronizador.py'),
-            path.join(ROOT, 'sincronitation', 'yt_lyrics_helper.py')
-        ];
-        const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+    it('valida sintaxis Python de sincronitation/sincronizador.py y yt_lyrics_helper.py (versionados en Git)', () => {
+        const pyFiles = [SYNC_PY_PATH, YT_HELPER_PY_PATH];
         for (const pyPath of pyFiles) {
-            if (!fs.existsSync(pyPath)) continue;
+            assert.ok(fs.existsSync(pyPath), `Falta ${path.relative(ROOT, pyPath)}: los scripts locales deben estar versionados (Issue #84)`);
+        }
+        const pyCmd = resolvePythonCmd();
+        for (const pyPath of pyFiles) {
             const pyCode = fs.readFileSync(pyPath, 'utf8');
-            if (pyPath.endsWith('sincronizador.py')) {
+            if (pyPath === SYNC_PY_PATH) {
                 assert.match(pyCode, /EC2_HOST/);
                 assert.match(pyCode, /JOURNAL_SECRET_KEY/);
             }
+            if (!pyCmd) continue;
             execFileSync(
                 pyCmd,
                 ['-c', 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', pyPath],
@@ -769,13 +784,17 @@ describe('Versionado Automático SemVer 2.0.0 e Historial de Despliegues', () =>
 
 describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, Campus y Word Bloque A/B', () => {
     it('elimina credenciales, rutas locales y repositorios hardcodeados (Cloud Agnostic)', () => {
-        for (const file of ['.env.example', 'docker-compose.yml', '.github/workflows/deploy.yml', 'server.js', 'sincronitation/sincronizador.py', 'sincronitation/yt_lyrics_helper.py']) {
-            if (file.startsWith('sincronitation/') && !fs.existsSync(path.join(ROOT, file))) {
-                continue;
-            }
+        for (const file of ['.env.example', 'docker-compose.yml', '.github/workflows/deploy.yml', 'server.js']) {
             const text = readText(file);
             assert.equal(/flavio\.flax1234@gmail\.com/i.test(text), false, `${file} no debe hardcodear correo personal`);
             assert.equal(/C:\\\\Users\\\\flavi|C:\\Users\\flavi/i.test(text), false, `${file} no debe hardcodear rutas locales Windows de usuario`);
+        }
+        for (const absPath of [SYNC_PY_PATH, YT_HELPER_PY_PATH]) {
+            assert.ok(fs.existsSync(absPath), `No se encontró ${absPath} (ruta resuelta desde la raíz del proyecto)`);
+            const text = fs.readFileSync(absPath, 'utf8');
+            const rel = path.relative(ROOT, absPath);
+            assert.equal(/flavio\.flax1234@gmail\.com/i.test(text), false, `${rel} no debe hardcodear correo personal`);
+            assert.equal(/C:\\\\Users\\\\flavi|C:\\Users\\flavi/i.test(text), false, `${rel} no debe hardcodear rutas locales Windows de usuario`);
         }
 
         const caddyfile = readText('Caddyfile');

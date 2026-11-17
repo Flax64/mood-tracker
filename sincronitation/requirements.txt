@@ -1,0 +1,11 @@
+# Dependencias del cliente local de sincronización (PC Windows).
+# Instalar con:  python -m pip install -r sincronitation/requirements.txt
+#
+# NOTA: Estos scripts NO se ejecutan en el servidor (EC2/Docker). Ver sincronitation/README.md.
+
+# HTTP (long-polling al puente HMAC del servidor)
+requests>=2.31,<3
+# AES-256 (E2EE de colas /api/send-to-pc y /api/send-english, bóveda .env.enc Salted__/PBKDF2-SHA256)
+pycryptodome>=3.20,<4
+# Word COM (fallback para crear/abrir .docx) y pythoncom. Solo Windows.
+pywin32>=306; sys_platform == "win32"

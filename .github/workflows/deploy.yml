@@ -214,6 +214,10 @@ jobs:
             git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             git fetch origin main
             git reset --hard origin/main
+            # Aislamiento (Issue #84): los scripts de PC local (sincronizador.py / yt_lyrics_helper.py)
+            # se versionan en Git pero JAMÁS se ejecutan en EC2. Se eliminan de la copia de trabajo del
+            # servidor tras cada reset (la imagen Docker ya los excluye vía .dockerignore).
+            rm -rf "$HOME/projects/mood-tracker/sincronitation"
             if [ -n "${RELEASE_HISTORY_B64:-}" ]; then
               printf '%s' "${RELEASE_HISTORY_B64}" | base64 -d > version-history.json
             fi

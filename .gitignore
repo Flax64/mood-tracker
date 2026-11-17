@@ -1,14 +1,39 @@
-.env
-.env.enc
 .env.*.tmp
 .ssh/
 base_datos/
 test/
 respaldos/
 *.sql.gz
-sincronitation/*
-!sincronitation/sincronizador.py
-!sincronitation/yt_lyrics_helper.py
 english-notes/
 for-gemini/
 codigo_dividido/
+
+# --- Scripts locales de sincronización (PC Windows, Issue #84) ---
+# Se versiona SOLO el código fuente y su documentación. Todo lo demás dentro de
+# sincronitation/ (logs, cachés JSON de host/rutas, colas cifradas, estado Drive)
+# permanece fuera de Git. Estos scripts NUNCA se empaquetan en Docker/EC2 (.dockerignore).
+sincronitation/*
+!sincronitation/*.py
+!sincronitation/*.md
+!sincronitation/requirements.txt
+!sincronitation/*.example
+!sincronitation/sincronizador.py
+!sincronitation/yt_lyrics_helper.py
+
+# --- Secretos, artefactos locales y documentos personales (siempre ignorados) ---
+# Declarados DESPUÉS de las excepciones para que ninguna regla "!" los re-incluya.
+.env
+.env.enc
+*.key
+*.pem
+*.docx
+*.doc
+~$*.docx
+*.queue
+*.enc
+*.db
+*.sqlite
+*.log
+__pycache__/
+*.pyc
+.venv/
