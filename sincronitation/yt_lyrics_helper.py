@@ -932,6 +932,192 @@ def _has_meaningful_lyrics(text: str) -> bool:
     return len(substantive) >= 1 and sum(len(ln) for ln in substantive) >= 8
 
 
+_INNERTUBE_BASE = "https://music.youtube.com/youtubei/v1/"
+_INNERTUBE_SONGS_PARAMS = "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
+
+
+def _is_allowed_innertube_url(raw_url: str) -> bool:
+    """Anti-SSRF: only https://music.youtube.com/youtubei/v1/* is allowed."""
+    try:
+        p = urlparse(str(raw_url or ""))
+        return (
+            p.scheme == "https"
+            and (p.hostname or "").lower() == "music.youtube.com"
+            and p.username is None
+            and p.password is None
+            and p.port in (None, 443)
+            and p.path.startswith("/youtubei/v1/")
+            and ".." not in p.path
+        )
+    except Exception:
+        return False
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # type: ignore[override]
+        return None
+
+
+def _innertube_post(endpoint: str, body: Dict[str, Any], timeout: int = 15) -> Dict[str, Any]:
+    url = f"{_INNERTUBE_BASE}{endpoint}?prettyPrint=false"
+    if not _is_allowed_innertube_url(url):
+        raise ValueError("URL InnerTube bloqueada por el validador anti-SSRF")
+    payload = {
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20250310.01.00",
+                "hl": "en",
+                "gl": "US",
+            }
+        },
+        **body,
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "https://music.youtube.com",
+            "Referer": "https://music.youtube.com/",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            ),
+        },
+        method="POST",
+    )
+    opener = urllib.request.build_opener(_NoRedirect)
+    with opener.open(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8", errors="replace"))
+
+
+def _walk_json(node: Any, visitor, depth: int = 0) -> Any:
+    if depth > 40:
+        return None
+    if isinstance(node, dict):
+        hit = visitor(node)
+        if hit:
+            return hit
+        children = node.values()
+    elif isinstance(node, list):
+        children = node
+    else:
+        return None
+    for child in children:
+        res = _walk_json(child, visitor, depth + 1)
+        if res:
+            return res
+    return None
+
+
+def _runs_text(runs: Any) -> str:
+    if not isinstance(runs, list):
+        return ""
+    return "".join(str(r.get("text", "")) for r in runs if isinstance(r, dict))
+
+
+def _find_lyrics_browse_id(next_json: Dict[str, Any]) -> str:
+    return (
+        _walk_json(
+            next_json,
+            lambda n: n.get("browseId")
+            if isinstance(n.get("browseId"), str) and n["browseId"].startswith("MPLYt_")
+            else None,
+        )
+        or ""
+    )
+
+
+def _parse_lyrics_from_browse(browse_json: Dict[str, Any]) -> str:
+    """Prefers timedLyricsModel; falls back to musicDescriptionShelfRenderer. Keeps EN/KR/JP intact."""
+    timed = _walk_json(
+        browse_json,
+        lambda n: n.get("timedLyricsData") if isinstance(n.get("timedLyricsData"), list) else None,
+    )
+    if timed:
+        lines = [str(l.get("lyricLine", "")).rstrip() for l in timed if isinstance(l, dict)]
+        text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+        if text:
+            return text
+    shelf = _walk_json(browse_json, lambda n: n.get("musicDescriptionShelfRenderer"))
+    if isinstance(shelf, dict):
+        text = _runs_text((shelf.get("description") or {}).get("runs"))
+        text = re.sub(r"\r\n?", "\n", text).strip()
+        if text:
+            return text
+    return ""
+
+
+def _innertube_track_info(next_json: Dict[str, Any], video_id: str) -> Tuple[str, str]:
+    item = _walk_json(
+        next_json,
+        lambda n: n.get("playlistPanelVideoRenderer")
+        if isinstance(n.get("playlistPanelVideoRenderer"), dict)
+        and n["playlistPanelVideoRenderer"].get("videoId") == video_id
+        else None,
+    )
+    if not item:
+        return "", ""
+    title = _runs_text((item.get("title") or {}).get("runs"))
+    byline = (item.get("longBylineText") or item.get("shortBylineText") or {}).get("runs") or []
+    artist = byline[0].get("text", "") if byline and isinstance(byline[0], dict) else ""
+    return title, artist
+
+
+def _innertube_find_song_id(search_json: Dict[str, Any], exclude_id: str) -> str:
+    def visit(n: Dict[str, Any]) -> Optional[str]:
+        r = n.get("musicResponsiveListItemRenderer")
+        if not isinstance(r, dict):
+            return None
+        vid = (r.get("playlistItemData") or {}).get("videoId") or _walk_json(
+            r.get("overlay") or {}, lambda m: (m.get("watchEndpoint") or {}).get("videoId")
+        )
+        return vid if isinstance(vid, str) and len(vid) == 11 and vid != exclude_id else None
+
+    return _walk_json(search_json, visit) or ""
+
+
+def fetch_ytmusic_lyrics(video_id: str) -> Dict[str, Any]:
+    """YouTube Music InnerTube (WEB_REMIX): next -> MPLYt_ -> browse; Song fallback via search.
+
+    Never raises: returns {"ok": False, "reason": ...} on 429 / network errors / no lyrics.
+    """
+    try:
+        nxt = _innertube_post("next", {"videoId": video_id})
+        title, artist = _innertube_track_info(nxt, video_id)
+        browse_id = _find_lyrics_browse_id(nxt)
+        if browse_id:
+            text = _parse_lyrics_from_browse(_innertube_post("browse", {"browseId": browse_id}))
+            if text:
+                return {"ok": True, "lyrics": text, "title": title, "artist": artist,
+                        "source": "ytmusic:innertube", "video_id": video_id}
+
+        query = f"{title} {artist}".strip()
+        if query:
+            search = _innertube_post(
+                "search", {"query": query, "params": _INNERTUBE_SONGS_PARAMS}
+            )
+            song_id = _innertube_find_song_id(search, video_id)
+            if song_id:
+                nxt2 = _innertube_post("next", {"videoId": song_id})
+                bid2 = _find_lyrics_browse_id(nxt2)
+                if bid2:
+                    text = _parse_lyrics_from_browse(_innertube_post("browse", {"browseId": bid2}))
+                    if text:
+                        return {"ok": True, "lyrics": text, "title": title, "artist": artist,
+                                "source": "ytmusic:innertube:song", "video_id": video_id,
+                                "song_video_id": song_id}
+        return {"ok": False, "reason": "lyrics_not_available", "error": "Lyrics not available"}
+    except urllib.error.HTTPError as exc:
+        reason = "rate_limited" if exc.code == 429 else "innertube_error"
+        LOGGER.warning("yt_lyrics_helper: InnerTube HTTP %s para %s", exc.code, video_id)
+        return {"ok": False, "reason": reason, "error": f"HTTP {exc.code}"}
+    except Exception as exc:  # network blocks, JSON errors, timeouts
+        LOGGER.warning("yt_lyrics_helper: InnerTube falló para %s: %s", video_id, exc)
+        return {"ok": False, "reason": "innertube_error", "error": str(exc)[:200]}
+
+
 def run_yt_dlp_extract(
     url_or_id: Optional[str] = None,
     langs: str = DEFAULT_SUB_LANGS,
@@ -951,6 +1137,22 @@ def run_yt_dlp_extract(
         )
 
     canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+
+    # Cascada paso 2: YouTube Music InnerTube (prioritario para Art Tracks / solo audio).
+    if os.environ.get("YTM_INNERTUBE", "1").strip() != "0":
+        yt = fetch_ytmusic_lyrics(video_id)
+        if yt.get("ok") and _has_meaningful_lyrics(yt.get("lyrics", "")):
+            LOGGER.info("yt_lyrics_helper: letra de YT Music obtenida para %s (%s)", video_id, yt["source"])
+            return {
+                "url": canonical_url,
+                "yt_dlp_bin": None,
+                "yt_dlp_source": yt["source"],
+                "metadata": {"video_id": video_id, "title": yt.get("title") or None,
+                             "artist": yt.get("artist") or None},
+                "tracks": [{"lang": "multi", "raw_lang": "multi", "lyrics": yt["lyrics"]}],
+                "lyrics": yt["lyrics"],
+            }
+
     exe, exe_source = resolve_yt_dlp_executable(
         yt_dlp_bin, refresh_cache=refresh_github_cache
     )
