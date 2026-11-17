@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.4",
-  "updatedAt": "2026-11-16T23:14:58.171Z",
+  "currentVersion": "1.10.5",
+  "updatedAt": "2026-11-17T17:21:29.068Z",
   "releases": [
+    {
+      "version": "1.10.5",
+      "tag": "v1.10.5",
+      "bumpType": "patch",
+      "previousVersion": "1.10.4",
+      "releasedAt": "2026-11-17T17:21:29.068Z",
+      "commitSha": "81ccc0a",
+      "trigger": "push",
+      "summary": "chore: track local Python sync scripts in repo while keeping logs ignored and excluded from Docker/EC2",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 0,
+        "maintenance": 1
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [],
+        "maintenance": [
+          "chore: track local Python sync scripts in repo while keeping logs ignored and excluded from Docker/EC2 (81ccc0a)"
+        ]
+      }
+    },
     {
       "version": "1.10.4",
       "tag": "v1.10.4",
