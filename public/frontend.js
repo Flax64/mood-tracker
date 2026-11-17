@@ -3364,6 +3364,12 @@ if (englishForm) {
             requiredIds: ['engPvVerb', 'engPvMeaningEs'],
             focusId: 'engPvVerb',
             badgeLabel: 'Phrasal Verb'
+        },
+        notes: {
+            fieldsetId: 'englishFieldsNotes',
+            requiredIds: ['engNoteTitle', 'engNoteBody'],
+            focusId: 'engNoteTitle',
+            badgeLabel: 'Personal Note'
         }
     };
 
@@ -3440,6 +3446,16 @@ if (englishForm) {
             };
         }
 
+        if (category === 'notes') {
+            return {
+                category: 'notes',
+                language: languageLabel,
+                title: val('engNoteTitle'),
+                notes: val('engNoteBody'),
+                example: val('engNoteExample')
+            };
+        }
+
         return {
             category: 'phrasal_verb',
             language: languageLabel,
@@ -3464,7 +3480,7 @@ if (englishForm) {
         if (entry.category === 'vocabulary') {
             const romPart = entry.romanization ? ` [${entry.romanization}]` : '';
             titleSpan.textContent = `${entry.word}${romPart} — ${entry.spanish}`;
-        } else if (entry.category === 'grammar') {
+        } else if (entry.category === 'grammar' || entry.category === 'notes') {
             titleSpan.textContent = entry.title;
         } else {
             titleSpan.textContent = `${entry.verb} — ${entry.meaning_es}`;
@@ -3482,7 +3498,8 @@ if (englishForm) {
         const idsByCategory = {
             vocabulary: ['engWord', 'engRomanization', 'engPos', 'engSpanish', 'engVocabExample', 'engVocabNotes'],
             grammar: ['engGrammarTitle', 'engGrammarNotes', 'engGrammarExample'],
-            phrasal_verb: ['engPvVerb', 'engPvType', 'engPvMeaningEs', 'engPvMeaningEn', 'engPvExample', 'engPvNotes']
+            phrasal_verb: ['engPvVerb', 'engPvType', 'engPvMeaningEs', 'engPvMeaningEn', 'engPvExample', 'engPvNotes'],
+            notes: ['engNoteTitle', 'engNoteBody', 'engNoteExample']
         };
         (idsByCategory[category] || []).forEach(id => {
             const el = document.getElementById(id);
@@ -3526,6 +3543,10 @@ if (englishForm) {
         }
         if (category === 'grammar' && (!entry.title || !entry.notes)) {
             mostrarEstadoEnglish('err', 'Please enter a topic title and your grammar/usage notes.');
+            return;
+        }
+        if (category === 'notes' && (!entry.title || !entry.notes)) {
+            mostrarEstadoEnglish('err', 'Please enter a note title and your personal learning notes.');
             return;
         }
         if (category === 'phrasal_verb' && (!entry.verb || !entry.meaning_es)) {
@@ -7190,10 +7211,13 @@ if (englishMusicStudioRoot) {
                 let sourceTag = 'gemini';
                 let usedGemini = false;
 
-                if (existingEs && existingEs.kind === 'youtube-es' && !forceAiRefresh) {
+                if (existingEs && !forceAiRefresh) {
                     spanishText = existingEs.text;
-                    sourceTag = 'youtube-es';
-                    updatedLyrics = mergeSpanishLyricsSection(rawLyrics, spanishText, '=== [ES — Traducción Subtítulos] ===');
+                    sourceTag = existingEs.kind === 'youtube-es' ? 'youtube-es' : 'word-cache';
+                    const hdr = existingEs.kind === 'youtube-es'
+                        ? '=== [ES — Traducción Subtítulos] ==='
+                        : '=== [ES — Traducción IA] ===';
+                    updatedLyrics = mergeSpanishLyricsSection(rawLyrics, spanishText, hdr);
                     songLyricsViewerEl.value = updatedLyrics;
                 } else {
                     const trResp = await resilientFetchJson('/api/english/music/translate-lyrics', {
@@ -7208,6 +7232,7 @@ if (englishMusicStudioRoot) {
                             artistName: formatSongArtistsSummary(song),
                             language: song.idioma || '',
                             mode: 'auto',
+                            forceRefresh: forceAiRefresh,
                             uiLang: typeof i18nGetLang === 'function' ? i18nGetLang() : 'es'
                         })
                     }, { timeoutMs: 36000 });
@@ -7218,7 +7243,7 @@ if (englishMusicStudioRoot) {
                         throw new Error(trResp?.errorMessage || tUi('Could not generate a Spanish translation for these lyrics.', 'No se pudo generar traducción al español para esta letra.'));
                     }
                     usedGemini = Boolean(payloadData.usedGemini);
-                    sourceTag = usedGemini ? 'gemini' : 'offline';
+                    sourceTag = payloadData.cached ? 'cache' : (usedGemini ? 'gemini' : 'offline');
                     const headerLabel = usedGemini ? '=== [ES — Traducción IA] ===' : '=== [ES — Traducción Local] ===';
                     updatedLyrics = mergeSpanishLyricsSection(rawLyrics, spanishText, headerLabel);
                     songLyricsViewerEl.value = updatedLyrics;
@@ -13042,8 +13067,257 @@ function initApp() {
         });
 }
 
+function initStudyNotebookViewer() {
+    const btnOpen = document.getElementById('btnOpenStudyViewer');
+    const modal = document.getElementById('studyNotebookModal');
+    const btnClose = document.getElementById('btnCloseStudyNotebookModal');
+    const btnRefresh = document.getElementById('btnRefreshStudyViewer');
+    const sectionSel = document.getElementById('studyViewerSectionFilter');
+    const artistSel = document.getElementById('studyViewerArtistFilter');
+    const albumSel = document.getElementById('studyViewerAlbumFilter');
+    const searchInp = document.getElementById('studyViewerSearchInput');
+    const statusBar = document.getElementById('studyViewerStatusBar');
+    const bodyEl = document.getElementById('studyViewerBody');
+    const pagBar = document.getElementById('studyViewerPagination');
+    const btnPrev = document.getElementById('btnStudyViewerPrev');
+    const btnNext = document.getElementById('btnStudyViewerNext');
+    const pageInfo = document.getElementById('studyViewerPageInfo');
+    if (!btnOpen || !modal || !bodyEl) return;
+
+    const viewerState = {
+        offsetStack: [0],
+        nextOffset: null,
+        loading: false
+    };
+
+    const SECTION_LABELS = {
+        vocabulary: '1. Vocabulario',
+        grammar: '2. Gramática',
+        phrasal_verb: '3. Phrasal Verbs',
+        music: '4. Música y Letras',
+        notes: '5. Notas Manuales'
+    };
+
+    const FIELD_LABELS = {
+        focus_summary: 'Enfoque',
+        lyrics_study: 'Letra y Estudio',
+        vocabulary_list: 'Vocabulario',
+        pronunciation_notes: 'Pronunciación',
+        practice_quiz: 'Práctica / Quiz',
+        notes: 'Notas',
+        yt_music_url: 'YouTube Music'
+    };
+
+    function populateSelectOptions(sel, items, defaultLabel) {
+        if (!sel || !Array.isArray(items)) return;
+        const current = sel.value;
+        sel.textContent = '';
+        const optAll = document.createElement('option');
+        optAll.value = '';
+        optAll.textContent = defaultLabel;
+        sel.appendChild(optAll);
+        items.forEach((val) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = val;
+            if (val === current) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }
+
+    function renderEntries(data) {
+        bodyEl.textContent = '';
+        const entries = Array.isArray(data?.entries) ? data.entries : [];
+        if (!entries.length) {
+            const empty = document.createElement('p');
+            empty.className = 'muted-text';
+            empty.textContent = 'No se encontraron entradas con estos filtros en tu cuaderno Word.';
+            bodyEl.appendChild(empty);
+            return;
+        }
+
+        entries.forEach((entry) => {
+            const card = document.createElement('article');
+            card.className = 'study-viewer-card';
+
+            const head = document.createElement('div');
+            head.className = 'study-viewer-card-head';
+
+            const title = document.createElement('h4');
+            title.textContent = entry.heading || entry.song || 'Entrada';
+
+            const badge = document.createElement('span');
+            badge.className = 'english-badge';
+            badge.textContent = SECTION_LABELS[entry.section] || entry.section || 'Nota';
+
+            head.append(title, badge);
+            card.appendChild(head);
+
+            if (entry.section === 'music') {
+                const metaLine = [entry.artist, entry.album, entry.language].filter(Boolean).join(' · ');
+                if (metaLine) {
+                    const metaP = document.createElement('p');
+                    metaP.className = 'study-viewer-meta muted-text';
+                    metaP.textContent = metaLine;
+                    card.appendChild(metaP);
+                }
+                const fields = entry.fields || {};
+                Object.entries(fields).forEach(([k, val]) => {
+                    if (!val) return;
+                    const block = document.createElement('details');
+                    block.className = 'study-viewer-field';
+                    if (k === 'lyrics_study' || k === 'focus_summary') block.open = true;
+
+                    const sum = document.createElement('summary');
+                    sum.textContent = FIELD_LABELS[k] || k;
+
+                    const pre = document.createElement('pre');
+                    pre.className = 'study-viewer-pre';
+                    pre.textContent = String(val);
+
+                    block.append(sum, pre);
+                    card.appendChild(block);
+                });
+            } else {
+                const lines = Array.isArray(entry.lines) ? entry.lines : [];
+                if (lines.length) {
+                    const pre = document.createElement('pre');
+                    pre.className = 'study-viewer-pre';
+                    pre.textContent = lines.join('\n');
+                    card.appendChild(pre);
+                }
+                if (entry.added) {
+                    const addedEl = document.createElement('p');
+                    addedEl.className = 'study-viewer-meta muted-text';
+                    addedEl.textContent = `Agregado: ${entry.added}`;
+                    card.appendChild(addedEl);
+                }
+            }
+            bodyEl.appendChild(card);
+        });
+    }
+
+    async function loadStudyPage(offset = 0, { pushStack = false } = {}) {
+        if (viewerState.loading) return;
+        const llaveTexto = await solicitarLlaveE2EEAsync();
+        if (!llaveTexto) return;
+
+        viewerState.loading = true;
+        if (statusBar) statusBar.textContent = 'Consultando tu cuaderno Word (solo lectura) en tu PC...';
+        try {
+            const payload = {
+                action: 'read_study_notebook',
+                section: sectionSel?.value || 'all',
+                artist: artistSel?.value || '',
+                album: albumSel?.value || '',
+                q: (searchInp?.value || '').trim(),
+                offset
+            };
+            const createResp = await submitMutationRequest({
+                url: '/api/english/music/pc-jobs',
+                method: 'POST',
+                buildBody: () => ({
+                    encryptedRequest: encriptarTextoE2EE(JSON.stringify(payload), llaveTexto),
+                    timeoutMs: 30000
+                }),
+                parseJson: true,
+                timeoutMs: 12000
+            });
+            if (!createResp?.jobId) throw new Error('No se pudo crear la consulta al PC.');
+
+            let result = null;
+            for (let i = 0; i < 3; i++) {
+                const pollResp = await resilientFetchJson(
+                    `/api/english/music/pc-jobs/${encodeURIComponent(createResp.jobId)}?waitMs=12000`,
+                    { method: 'GET' },
+                    { timeoutMs: 16000 }
+                );
+                if (pollResp.ok && pollResp.data?.status === 'completed' && pollResp.data.encryptedResult) {
+                    result = JSON.parse(desencriptarTextoE2EE(pollResp.data.encryptedResult, llaveTexto));
+                    break;
+                }
+            }
+            if (!result) throw new Error('Tu PC no respondió a tiempo. Verifica que sincronizador.py esté activo.');
+            if (!result.ok) throw new Error(result.error || 'No se pudo leer el cuaderno Word.');
+
+            if (pushStack) viewerState.offsetStack.push(offset);
+            viewerState.nextOffset = result.nextOffset ?? null;
+
+            populateSelectOptions(artistSel, result.facets?.artists || [], 'Todos los artistas');
+            populateSelectOptions(albumSel, result.facets?.albums || [], 'Todos los álbumes');
+            renderEntries(result);
+
+            const counts = result.counts || {};
+            if (statusBar) {
+                statusBar.textContent = `Mostrando ${result.entries?.length || 0} de ${result.total || 0} resultados · Vocab: ${counts.vocabulary || 0} · Gramática: ${counts.grammar || 0} · Phrasal: ${counts.phrasal_verb || 0} · Canciones: ${counts.music || 0} · Notas: ${counts.notes || 0}`;
+            }
+            if (pagBar) {
+                const hasPages = viewerState.offsetStack.length > 1 || viewerState.nextOffset !== null;
+                pagBar.hidden = !hasPages;
+            }
+            if (btnPrev) btnPrev.disabled = viewerState.offsetStack.length <= 1;
+            if (btnNext) btnNext.disabled = viewerState.nextOffset === null;
+            if (pageInfo) pageInfo.textContent = `Página ${viewerState.offsetStack.length}`;
+        } catch (err) {
+            if (statusBar) statusBar.textContent = `⚠️ ${err.message || 'No se pudo cargar el cuaderno.'}`;
+            bodyEl.textContent = '';
+        } finally {
+            viewerState.loading = false;
+        }
+    }
+
+    function openModal() {
+        modal.hidden = false;
+        viewerState.offsetStack = [0];
+        viewerState.nextOffset = null;
+        loadStudyPage(0);
+    }
+
+    function closeModal() {
+        modal.hidden = true;
+    }
+
+    btnOpen.addEventListener('click', openModal);
+    btnClose?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (ev) => {
+        if (ev.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !modal.hidden) closeModal();
+    });
+
+    const resetAndReload = () => {
+        viewerState.offsetStack = [0];
+        viewerState.nextOffset = null;
+        loadStudyPage(0);
+    };
+    btnRefresh?.addEventListener('click', resetAndReload);
+    sectionSel?.addEventListener('change', resetAndReload);
+    artistSel?.addEventListener('change', resetAndReload);
+    albumSel?.addEventListener('change', resetAndReload);
+    let searchTimer = null;
+    searchInp?.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(resetAndReload, 320);
+    });
+    btnPrev?.addEventListener('click', () => {
+        if (viewerState.offsetStack.length <= 1) return;
+        viewerState.offsetStack.pop();
+        const prevOff = viewerState.offsetStack[viewerState.offsetStack.length - 1] || 0;
+        loadStudyPage(prevOff);
+    });
+    btnNext?.addEventListener('click', () => {
+        if (viewerState.nextOffset === null) return;
+        loadStudyPage(viewerState.nextOffset, { pushStack: true });
+    });
+}
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
+    document.addEventListener('DOMContentLoaded', () => {
+        initApp();
+        initStudyNotebookViewer();
+    });
 } else {
     initApp();
+    initStudyNotebookViewer();
 }

@@ -938,6 +938,7 @@
                             </div>
                         </div>
                         <div class="view-header-actions">
+                            <button type="button" class="btn-secondary btn-small" id="btnOpenStudyViewer" title="Abrir visor de estudio en modo solo lectura desde tu cuaderno Word">📚 Ver Cuaderno (Solo Lectura)</button>
                             <button type="button" class="e2ee-key-pill" id="englishE2eePill" title="Configurar o desbloquear tu llave privada de cifrado">🔑 Llave Privada</button>
                         </div>
                     </div>
@@ -963,6 +964,8 @@
                             aria-selected="false">✍️ Grammar &amp; Usage Note</button>
                         <button type="button" class="english-tab-btn" data-english-cat="phrasal_verb" role="tab"
                             aria-selected="false">🔗 Phrasal Verbs &amp; Expressions</button>
+                        <button type="button" class="english-tab-btn" data-english-cat="notes" role="tab"
+                            aria-selected="false">📝 My Notes &amp; Learnings</button>
                         <button type="button" class="english-tab-btn" data-english-cat="music" role="tab"
                             aria-selected="false">🎵 Learn with Music + AI</button>
                     </div>
@@ -1083,6 +1086,27 @@
                                 <label for="engPvNotes">Additional notes (optional)</label>
                                 <textarea id="engPvNotes" class="english-textarea" rows="2" maxlength="500"
                                     placeholder="e.g. Has multiple meanings depending on context."></textarea>
+                            </div>
+                        </fieldset>
+
+                        <!-- Section 5: Manual Notes & Learnings -->
+                        <fieldset class="english-fieldset" id="englishFieldsNotes" hidden>
+                            <div class="form-group">
+                                <label for="engNoteTitle">Topic / Note Title *</label>
+                                <input type="text" id="engNoteTitle" maxlength="150"
+                                    placeholder="e.g. Diferencia entre nuance de 'actually' vs 'currently' / Reflexión de pronunciación">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engNoteBody">Personal Notes, Reflections or Learning Rules *</label>
+                                <textarea id="engNoteBody" class="english-textarea" rows="5" maxlength="4000"
+                                    placeholder="Escribe tus apuntes personales, reflexiones, reglas propias o trucos de memoria... Se guardarán en su propia sección en tu cuaderno Word sin mezclarse con las letras."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="engNoteExample">Examples / Context (optional)</label>
+                                <textarea id="engNoteExample" class="english-textarea" rows="2" maxlength="1000"
+                                    placeholder="e.g. Actually, I meant... (En realidad, quise decir...)"></textarea>
                             </div>
                         </fieldset>
 
@@ -3103,6 +3127,52 @@
             <div class="modal-actions">
                 <button type="button" class="btn-cancel" id="btnCloseDuplicateTab">Cerrar esta pestaña</button>
                 <button type="button" class="btn-submit btn-modal-save" id="btnTakeOverTab">Usar aquí (pausar la otra)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Read-Only Study Notebook Viewer -->
+    <div class="modal-overlay" id="studyNotebookModal" hidden aria-modal="true" role="dialog"
+        aria-labelledby="studyNotebookModalTitle">
+        <div class="modal-card modal-card-wide study-viewer-modal">
+            <div class="modal-header">
+                <div>
+                    <h3 id="studyNotebookModalTitle">📚 Cuaderno de Estudio (Solo Lectura)</h3>
+                    <p class="muted-text" style="margin:2px 0 0;font-size:0.85rem;">Repasa tu Vocabulario, Gramática, Phrasal Verbs, Letras y Notas Personales guardadas en tu Word sin modificar nada.</p>
+                </div>
+                <button type="button" class="modal-close-btn" id="btnCloseStudyNotebookModal" aria-label="Close">✕</button>
+            </div>
+
+            <div class="study-viewer-toolbar">
+                <select id="studyViewerSectionFilter" class="select-input" aria-label="Section filter">
+                    <option value="all">Todas las secciones</option>
+                    <option value="vocabulary">1. Vocabulario</option>
+                    <option value="grammar">2. Gramática</option>
+                    <option value="phrasal_verb">3. Phrasal Verbs</option>
+                    <option value="music">4. Canciones y Letras</option>
+                    <option value="notes">5. Notas Manuales</option>
+                </select>
+                <select id="studyViewerArtistFilter" class="select-input" aria-label="Artist filter">
+                    <option value="">Todos los artistas</option>
+                </select>
+                <select id="studyViewerAlbumFilter" class="select-input" aria-label="Album filter">
+                    <option value="">Todos los álbumes</option>
+                </select>
+                <input type="search" id="studyViewerSearchInput" maxlength="120"
+                    placeholder="Buscar palabra, canción, letra o nota...">
+                <button type="button" class="btn-secondary btn-small" id="btnRefreshStudyViewer" title="Recargar desde Word PC">🔄 Recargar</button>
+            </div>
+
+            <div id="studyViewerStatusBar" class="study-viewer-status muted-text">
+                Haz clic en "Recargar" o abre el visor con tu PC encendida para leer tu cuaderno.
+            </div>
+
+            <div id="studyViewerBody" class="study-viewer-body"></div>
+
+            <div class="study-viewer-pagination" id="studyViewerPagination" hidden>
+                <button type="button" class="btn-secondary btn-small" id="btnStudyViewerPrev" disabled>← Anterior</button>
+                <span id="studyViewerPageInfo" class="muted-text"></span>
+                <button type="button" class="btn-secondary btn-small" id="btnStudyViewerNext" disabled>Siguiente →</button>
             </div>
         </div>
     </div>

@@ -7139,6 +7139,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
         // Verificar que el archivo realmente existe en Google Drive y coincide en tamaño
         let verified = false;
         let remoteSize = null;
+        let remoteModTime = '';
         try {
             const lsOut = await new Promise((resolve, reject) => {
                 execFile(
@@ -7152,6 +7153,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
                 );
             });
             const entries = JSON.parse(String(lsOut || '[]'));
+            if (Array.isArray(entries) && entries.length > 0) remoteModTime = String(entries[0].ModTime || '');
             if (Array.isArray(entries) && entries.length > 0 && Number(entries[0].Size) === docxBuffer.length) {
                 verified = true;
                 remoteSize = Number(entries[0].Size);
@@ -7180,12 +7182,78 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             verified: true,
             localSize: docxBuffer.length,
             remoteSize,
+            remoteModTime,
             sha256: localSha256,
             remoteTarget
         });
     } catch (err) {
         console.error('[STUDY_DRIVE_SYNC_ERROR]', err.message);
         return res.status(502).json({ ok: false, error: err.message || 'Failed to upload language notebook to Google Drive.' });
+    } finally {
+        try {
+            if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
+            if (cleanupConf && rcloneConf && fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
+        } catch (_) {}
+    }
+});
+
+// Drive -> PC (reverse mirror). Signed GET from sincronizador.py; `?download=1` returns the .docx as base64.
+// Read-only against Drive: never writes remote files, and only touches the isolated Study Word remote.
+app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verifyPcBridgeAuth, async (req, res) => {
+    const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
+    const configuredStudyRemote = String(process.env.STUDY_RCLONE_REMOTE || '').trim();
+    const mainRemote = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
+    const studyDir = String(process.env.STUDY_RCLONE_DIR || 'NotasIdiomas').trim().replace(/^\/+|\/+$/g, '') || 'NotasIdiomas';
+    const mainBackupDir = String(process.env.RCLONE_BACKUP_DIR || 'RespaldosApp').trim().replace(/^\/+|\/+$/g, '') || 'RespaldosApp';
+
+    let hasDedicatedStudyRemote = usingStudyConfig && Boolean(configuredStudyRemote);
+    if (!hasDedicatedStudyRemote && configuredStudyRemote && fs.existsSync(rcloneConf)) {
+        try {
+            hasDedicatedStudyRemote = fs.readFileSync(rcloneConf, 'utf8').includes(`[${configuredStudyRemote}]`);
+        } catch (_) {}
+    }
+    const remoteName = hasDedicatedStudyRemote ? configuredStudyRemote : mainRemote;
+    const folderName = hasDedicatedStudyRemote ? studyDir : `${mainBackupDir}/${studyDir}`;
+    const remoteTarget = `${remoteName}:${folderName}/English_Learning_Notebook.docx`;
+
+    const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+    const tmpDocxPath = path.join(shmDir, `English_Pull_${process.pid}_${Date.now()}.docx`);
+    try {
+        if (!fs.existsSync(rcloneConf)) {
+            return res.json({ ok: true, exists: false, message: 'rclone.conf not available on this server.' });
+        }
+        const { execFile } = require('node:child_process');
+        const rcloneExecEnv = buildSafeRcloneExecEnv();
+        const run = (args, timeout) => new Promise((resolve, reject) => {
+            execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
+                if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
+                resolve(stdout);
+            });
+        });
+
+        const entries = JSON.parse(String(await run(['lsjson', remoteTarget], 15000) || '[]'));
+        if (!Array.isArray(entries) || !entries.length) {
+            return res.json({ ok: true, exists: false, remoteTarget });
+        }
+        const meta = { ok: true, exists: true, remoteTarget, remoteSize: Number(entries[0].Size) || 0, remoteModTime: String(entries[0].ModTime || '') };
+        if (String(req.query.download || '') !== '1') return res.json(meta);
+        if (meta.remoteSize > 12 * 1024 * 1024) {
+            return res.status(413).json({ ok: false, error: 'Remote notebook exceeds the 12 MB sync limit.' });
+        }
+
+        await run(['copyto', '--retries', '2', remoteTarget, tmpDocxPath], 40000);
+        const buf = fs.readFileSync(tmpDocxPath);
+        if (buf.length < 64 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+            return res.status(502).json({ ok: false, error: 'Downloaded file is not a valid .docx container.' });
+        }
+        return res.json({
+            ...meta,
+            sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+            docxB64: buf.toString('base64')
+        });
+    } catch (err) {
+        console.error('[STUDY_DRIVE_PULL_ERROR]', err.message);
+        return res.status(502).json({ ok: false, error: 'Could not read the language notebook from Google Drive.' });
     } finally {
         try {
             if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
@@ -7736,8 +7804,33 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
         const artistName = String(req.body.artistName || '').trim().slice(0, 140);
 
         const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
+        const forceRefresh = req.body.forceRefresh === true;
+        const exactMemHit = (!forceRefresh && mode === 'auto' && text.length <= 160 && ['auto', 'en_es', 'ko_es'].includes(direction))
+            ? currentMemory.terms.find((t) =>
+                t.term.toLowerCase() === text.toLowerCase()
+                && t.meaning
+                && !isPoisonedMemoryMeaning(t.meaning)
+            )
+            : null;
+
         let result;
-        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+        if (exactMemHit) {
+            result = {
+                ok: true,
+                usedGemini: false,
+                cachedFromMemory: true,
+                direction,
+                sourceText: text,
+                translatedText: exactMemHit.meaning,
+                spanishMeaning: exactMemHit.meaning,
+                romanization: exactMemHit.romanization || '',
+                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                rememberable: false,
+                explanation: uiLang === 'en'
+                    ? 'Retrieved instantaneously from your saved study memory (0 AI tokens).'
+                    : 'Recuperado al instante desde tu memoria de estudio guardada (0 tokens de IA).'
+            };
+        } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = analyzeTextOffline({
                 text,
                 question,
@@ -7856,8 +7949,33 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
         const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
 
         const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
+        const forceRefresh = req.body.forceRefresh === true;
+        const exactMemHit = (!forceRefresh && mode === 'auto' && text.length <= 160 && ['auto', 'en_es', 'ko_es'].includes(direction))
+            ? currentMemory.terms.find((t) =>
+                t.term.toLowerCase() === text.toLowerCase()
+                && t.meaning
+                && !isPoisonedMemoryMeaning(t.meaning)
+            )
+            : null;
+
         let result;
-        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+        if (exactMemHit) {
+            result = {
+                ok: true,
+                usedGemini: false,
+                cachedFromMemory: true,
+                direction,
+                sourceText: text,
+                translatedText: exactMemHit.meaning,
+                spanishMeaning: exactMemHit.meaning,
+                romanization: exactMemHit.romanization || '',
+                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                rememberable: false,
+                explanation: uiLang === 'en'
+                    ? 'Retrieved instantaneously from your saved study memory (0 AI tokens).'
+                    : 'Recuperado al instante desde tu memoria de estudio guardada (0 tokens de IA).'
+            };
+        } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = translateOffline({
                 text,
                 direction,
@@ -7919,6 +8037,32 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
     }
 });
 
+const lyricsTranslationCache = new Map();
+const MAX_LYRICS_TRANSLATION_CACHE = 100;
+const LYRICS_TRANSLATION_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getCachedLyricsTranslation(cacheKey) {
+    const entry = lyricsTranslationCache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() - entry.createdAt > LYRICS_TRANSLATION_CACHE_TTL_MS) {
+        lyricsTranslationCache.delete(cacheKey);
+        return null;
+    }
+    return entry.result;
+}
+
+function setCachedLyricsTranslation(cacheKey, result) {
+    if (lyricsTranslationCache.has(cacheKey)) {
+        lyricsTranslationCache.delete(cacheKey);
+    }
+    while (lyricsTranslationCache.size >= MAX_LYRICS_TRANSLATION_CACHE) {
+        const oldestKey = lyricsTranslationCache.keys().next().value;
+        if (!oldestKey) break;
+        lyricsTranslationCache.delete(oldestKey);
+    }
+    lyricsTranslationCache.set(cacheKey, { result, createdAt: Date.now() });
+}
+
 app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
     try {
         const lyrics = String(req.body.lyrics || req.body.text || '').trim();
@@ -7931,6 +8075,7 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
 
         const modeRaw = String(req.body.mode || 'auto').toLowerCase();
         const mode = ['auto', 'gemini', 'offline'].includes(modeRaw) ? modeRaw : 'auto';
+        const forceRefresh = req.body.forceRefresh === true;
         const songTitle = String(req.body.songTitle || req.body.titulo || '').trim().slice(0, 160);
         const artistName = String(req.body.artistName || req.body.artista || '').trim().slice(0, 160);
         const language = String(req.body.language || req.body.idioma || '').trim().slice(0, 60);
@@ -7942,8 +8087,15 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
         const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
         const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
 
-        let result;
-        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+        const cacheKey = crypto
+            .createHash('sha256')
+            .update(`${req.user.id}|${songTitle.toLowerCase()}|${artistName.toLowerCase()}|${lyrics.replace(/\s+/g, ' ').trim()}`)
+            .digest('hex');
+
+        let result = (!forceRefresh && mode !== 'offline') ? getCachedLyricsTranslation(cacheKey) : null;
+        if (result) {
+            result = { ...result, usedGemini: false, cached: true };
+        } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = translateLyricsToSpanishOffline({
                 lyrics,
                 songTitle,
@@ -7962,6 +8114,9 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
                 learningMemory: currentMemory,
                 uiLang
             });
+            if (result && result.ok !== false && result.spanishLyrics) {
+                setCachedLyricsTranslation(cacheKey, result);
+            }
         }
 
         if (!result || result.ok === false) {
