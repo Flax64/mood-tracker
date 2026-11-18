@@ -7487,7 +7487,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             execFile(
                 'rclone',
                 ['--config', rcloneConf, 'copyto', '--retries', '2', tmpDocxPath, remoteTarget],
-                { timeout: 30000, env: rcloneExecEnv },
+                { timeout: 60000, env: rcloneExecEnv },
                 (err, _stdout, stderr) => {
                     if (err) {
                         return reject(new Error(String(stderr || err.message || 'rclone copyto failed').trim()));
@@ -7611,7 +7611,45 @@ app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verif
     }
 });
 
-async function resolveAutonomousSongLyrics({ song, uid, forceExtract = false, preferredLangs = null } = {}) {
+const AUTONOMOUS_LYRICS_DEADLINE_MS = 28000;
+const autonomousLyricsInFlight = new Map();
+
+/**
+ * Evita que varios clics sobre la misma canción apilen trabajos pesados (rclone / yt-dlp) en la
+ * instancia t3.micro y garantiza respuesta antes del timeout del navegador (el cliente espera 40 s).
+ * Si se agota el tiempo, responde `reason: 'timeout'` para que el cliente pruebe el puente PC.
+ */
+function resolveAutonomousSongLyrics(opts = {}) {
+    const song = opts.song;
+    if (!song || !song.id) return resolveAutonomousSongLyricsUncached(opts);
+
+    const key = `${opts.uid}:${song.id}:${opts.forceExtract ? 'force' : 'auto'}`;
+    if (autonomousLyricsInFlight.has(key)) return autonomousLyricsInFlight.get(key);
+
+    const work = resolveAutonomousSongLyricsUncached(opts);
+    let timer = null;
+    const deadline = new Promise((resolve) => {
+        timer = setTimeout(() => resolve({
+            ok: false,
+            tier: 4,
+            songId: song.id,
+            reason: 'timeout',
+            error: 'Cloud lyrics lookup timed out.',
+            canFallbackToPc: isPcBridgeOnline(),
+            pcOnline: isPcBridgeOnline(),
+            storedInDb: false
+        }), AUTONOMOUS_LYRICS_DEADLINE_MS);
+    });
+    const guarded = Promise.race([work, deadline]).finally(() => {
+        clearTimeout(timer);
+        autonomousLyricsInFlight.delete(key);
+    });
+    work.catch(() => {});
+    autonomousLyricsInFlight.set(key, guarded);
+    return guarded;
+}
+
+async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = false, preferredLangs = null } = {}) {
     if (!song || !song.id) {
         return { ok: false, tier: 4, reason: 'song_not_found', error: 'Song not found.', storedInDb: false };
     }
@@ -7704,6 +7742,7 @@ async function resolveAutonomousSongLyrics({ song, uid, forceExtract = false, pr
         idioma: song.idioma || '',
         preferredLangs,
         useInnerTube: true,
+        budgetMs: 20000,
         trackTitle: song.titulo || '',
         trackArtist: artistName
     });

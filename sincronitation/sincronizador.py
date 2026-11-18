@@ -3862,6 +3862,8 @@ def _fusionar_pista_en_lista_musica(music_list, track_fields):
         return
 
     for idx, prev in enumerate(music_list):
+        if not isinstance(prev, dict):
+            continue
         prev_heading = _encabezado_pista_cancion(prev)
         if _coincide_cancion_en_bloque(prev, prev_heading, target_title, target_artist):
             # Conservar metadata más rica (p.ej. Mini Album sobre Album, año válido, notas combinadas)
@@ -4358,7 +4360,7 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
                     url_sync,
                     json={"encryptedResult": payload_b64},
                     headers=headers,
-                    timeout=40,
+                    timeout=80,
                 )
                 if resp.status_code == 200:
                     data = resp.json()

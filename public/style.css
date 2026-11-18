@@ -4525,8 +4525,11 @@ select,
     border-radius: 999px;
     background: rgba(14, 116, 144, 0.13);
     color: #0e7490;
-    white-space: nowrap;
-    flex-shrink: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    min-width: 0;
+    line-height: 1.25;
 }
 
 .music-song-actions {

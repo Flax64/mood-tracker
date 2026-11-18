@@ -959,8 +959,9 @@
         ['Add Song to Album', 'Agregar Canción al Álbum'],
         ['Edit', 'Editar'],
         ['Delete', 'Eliminar'],
-        ['Study -> Word', 'Estudiar -> Word'],
+        ['Study → Word', 'Estudiar → Word'],
         ['Word Notes Queued', 'Notas Enviadas a Word'],
+        ['Word notes synced', 'Notas de Word sincronizadas'],
 
         // --- Server Common Responses ---
         ['Session not started or expired.', 'Sesión no iniciada o expirada.'],
@@ -1049,7 +1050,7 @@
         ['Update Song Metadata', 'Actualizar Metadatos de Canción'],
         ['Type a song or artist name first (e.g. BABYMONSTER DRIP).', 'Escribe primero el nombre de una canción o artista (ej. BABYMONSTER DRIP).'],
         ['Select Song', 'Seleccionar Canción'],
-        ['Select a song from the catalog first ("Study -> Word").', 'Selecciona primero una canción del catálogo ("Study -> Word").'],
+        ['Select a song from the catalog first ("Study → Word").', 'Selecciona primero una canción del catálogo ("Study → Word").'],
         ['Select a song from the catalog first.', 'Selecciona primero una canción del catálogo.'],
         ['Session viewer cleared (0 KB in DB; Word untouched).', 'Visor en sesión limpiado (0 KB en BD; Word intacto).'],
         ['Extract or paste the lyrics above first.', 'Primero extrae o pega la letra arriba.'],

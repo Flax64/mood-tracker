@@ -5392,7 +5392,7 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
             method: 'POST',
             buildBody: () => ({ forceExtract: Boolean(forceExtract) }),
             parseJson: true,
-            timeoutMs: 30000
+            timeoutMs: 40000
         }).catch(() => null);
 
         if (cloudData && cloudData.ok && cloudData.lyrics) {
@@ -5464,8 +5464,8 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
     if (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline === false) {
         const offlineMsg = tUi(
-            'Could not find captions automatically in cloud sources and your computer is currently offline.',
-            'No se encontraron subtítulos en las fuentes autónomas de la nube y tu computadora está apagada en este momento.'
+            'Could not get these lyrics from the cloud right now (YouTube may be limiting the server) and your computer is offline. Try again in a few minutes or turn on your PC.',
+            'No se pudo obtener esta letra desde la nube en este momento (YouTube puede estar limitando al servidor) y tu computadora está apagada. Intenta de nuevo en unos minutos o enciende tu PC.'
         );
         if (hintEl) hintEl.textContent = `ℹ️ ${offlineMsg}`;
         if (!silent) showToast('info', offlineMsg);
@@ -5823,7 +5823,10 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
     if (!clean && !(structuredTracks && Object.values(structuredTracks).some(Boolean))) {
         const emptyBox = document.createElement('div');
         emptyBox.className = 'lyrics-lang-section';
-        emptyBox.textContent = 'Presiona "📄 Extraer Letra" arriba para cargar la letra completa en solo lectura desde tu Word o PC.';
+        emptyBox.textContent = tUi(
+            'Press "📄 Extract lyrics" above to load the full lyrics in read-only mode from your Word notebook or the cloud.',
+            'Presiona "📄 Extraer letra" arriba para cargar la letra completa en solo lectura desde tu cuaderno Word o la nube.'
+        );
         host.appendChild(emptyBox);
         return;
     }
@@ -6170,7 +6173,10 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     if (extractBtn) extractBtn.disabled = !hasVideoId;
 
     if (hint && !savedLyrics.trim()) {
-        hint.textContent = 'Sombrea cualquier verso o frase para que aparezca el botón flotante «🌐 Traducir Selección», o abre el traductor flotante con Alt+T.';
+        hint.textContent = tUi(
+            'Highlight any verse or phrase to show the floating «🌐 Translate selection» button, or open the floating translator with Alt+T.',
+            'Sombrea cualquier verso o frase para que aparezca el botón flotante «🌐 Traducir selección», o abre el traductor flotante con Alt+T.'
+        );
     }
     if (typeof updateMobileLandscapeSongStudyClass === 'function') updateMobileLandscapeSongStudyClass();
 }
@@ -7420,7 +7426,7 @@ function renderMusicCatalog() {
                 if (song.word_sincronizado) {
                     const wordBadge = document.createElement('span');
                     wordBadge.className = 'music-word-badge';
-                    wordBadge.textContent = tUi('Word Notes Queued', 'Notas Word Sincronizadas');
+                    wordBadge.textContent = tUi('Word notes synced', 'Notas de Word sincronizadas');
                     badgeRow.appendChild(wordBadge);
                 }
                 info.appendChild(badgeRow);
@@ -7442,7 +7448,7 @@ function renderMusicCatalog() {
                 const studyBtn = document.createElement('button');
                 studyBtn.type = 'button';
                 studyBtn.className = 'btn-primary btn-small';
-                studyBtn.textContent = tUi('Study -> Word', 'Estudiar -> Word');
+                studyBtn.textContent = tUi('Study → Word', 'Estudiar → Word');
                 studyBtn.addEventListener('click', () => seleccionarCancionParaEstudio(song));
 
                 const editBtn = document.createElement('button');
@@ -8097,7 +8103,7 @@ if (englishMusicStudioRoot) {
         btnMusicTranslateFullLyricsEs.addEventListener('click', ev => {
             const song = getCancionSeleccionada();
             if (!song || !songLyricsViewerEl) {
-                showToast('err', tUi('Select a song from the catalog first ("Study -> Word").', 'Selecciona primero una canción del catálogo ("Study -> Word").'));
+                showToast('err', tUi('Select a song from the catalog first ("Study → Word").', 'Selecciona primero una canción del catálogo ("Study → Word").'));
                 return;
             }
             runWithButtonLock(btnMusicTranslateFullLyricsEs, async () => {
@@ -8327,7 +8333,7 @@ if (englishMusicStudioRoot) {
                 mostrarBannerMusica(
                     'musicWordStatusBanner',
                     'err',
-                    'Select a song from the catalog (click "Study -> Word") or fill Song Title + Main Artist above.'
+                    'Select a song from the catalog (click "Study → Word") or fill Song Title + Main Artist above.'
                 );
                 return;
             }
