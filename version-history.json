@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.13.0",
-  "updatedAt": "2026-11-18T02:28:02.198Z",
+  "currentVersion": "1.14.0",
+  "updatedAt": "2026-11-18T02:52:27.254Z",
   "releases": [
+    {
+      "version": "1.14.0",
+      "tag": "v1.14.0",
+      "bumpType": "minor",
+      "previousVersion": "1.13.0",
+      "releasedAt": "2026-11-18T02:52:27.254Z",
+      "commitSha": "7fead67",
+      "trigger": "push",
+      "summary": "feat(planner): add task postpone by days and skip actions, move title/description to top, clarify recurrence UI and integrate interactive calendar",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(planner): add task postpone by days and skip actions, move title/description to top, clarify recurrence UI and integrate interactive calendar (c80c8a8)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.13.0",
       "tag": "v1.13.0",

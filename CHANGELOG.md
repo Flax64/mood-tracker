@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.13.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.14.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.14.0] - 2026-11-18 (MINOR) · `7fead67`
+**feat(planner): add task postpone by days and skip actions, move title/description to top, clarify recurrence UI and integrate interactive calendar**
+
+### ✨ Features / Nuevas Funciones
+- feat(planner): add task postpone by days and skip actions, move title/description to top, clarify recurrence UI and integrate interactive calendar (c80c8a8)
 
 ## [v1.13.0] - 2026-11-18 (MINOR) · `b4513a1`
 **feat: traductor flotante y filtro de idioma en estrofas**
