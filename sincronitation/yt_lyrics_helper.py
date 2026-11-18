@@ -1292,6 +1292,7 @@ def run_yt_dlp_extract(
     yt_dlp_bin: Optional[str] = None,
     refresh_github_cache: bool = False,
     target: Optional[str] = None,
+    use_innertube: bool = False,
 ) -> Dict[str, Any]:
     """Run yt-dlp on local PC with multi-client validation & caption retries without downloading media."""
     effective_target = url_or_id if url_or_id is not None else (target or "")
@@ -1306,8 +1307,10 @@ def run_yt_dlp_extract(
 
     canonical_url = f"https://www.youtube.com/watch?v={video_id}"
 
-    # Cascada paso 2: YouTube Music InnerTube (prioritario para Art Tracks / solo audio).
-    if os.environ.get("YTM_INNERTUBE", "1").strip() != "0":
+    # Cascada opt-in: YouTube Music InnerTube (MPLYt_) previo solo si use_innertube=True o YTM_INNERTUBE=1.
+    innertube_env = os.environ.get("YTM_INNERTUBE", "").strip()
+    innertube_pre = bool(use_innertube) or innertube_env == "1"
+    if innertube_pre:
         yt = fetch_ytmusic_lyrics(video_id)
         if yt.get("ok") and _has_meaningful_lyrics(yt.get("lyrics", "")):
             LOGGER.info("yt_lyrics_helper: letra de YT Music obtenida para %s (%s)", video_id, yt["source"])
@@ -1492,6 +1495,15 @@ def run_yt_dlp_extract(
         track_list = deduplicate_tracks(raw_tracks, preferred_list, max_tracks=5)
         structured_tracks = build_structured_tracks(track_list, preferred_list)
         combined_lyrics = format_structured_tracks_text(structured_tracks, track_list)
+        yt_dlp_src_out = exe_source
+
+        if not track_list and innertube_env != "0" and not innertube_pre:
+            yt_fb = fetch_ytmusic_lyrics(video_id)
+            if yt_fb.get("ok") and _has_meaningful_lyrics(yt_fb.get("lyrics", "")):
+                track_list = [{"lang": "original", "raw_lang": "multi", "lyrics": yt_fb["lyrics"], "is_manual": True}]
+                structured_tracks = build_structured_tracks(track_list, preferred_list, raw_original=yt_fb["lyrics"])
+                combined_lyrics = format_structured_tracks_text(structured_tracks, track_list)
+                yt_dlp_src_out = f"{exe_source}+{yt_fb['source']}"
 
         if track_list:
             LOGGER.info(
@@ -1512,7 +1524,7 @@ def run_yt_dlp_extract(
         return {
             "url": canonical_url,
             "yt_dlp_bin": exe,
-            "yt_dlp_source": exe_source,
+            "yt_dlp_source": yt_dlp_src_out,
             "metadata": meta,
             "tracks": structured_tracks,
             "track_list": track_list,
