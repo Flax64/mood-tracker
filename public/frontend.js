@@ -560,6 +560,78 @@ function hangulToRomanizationClient(text = '') {
         .trim();
 }
 
+function kanaToRomajiClient(text = '') {
+    const DIGRAPHS = {
+        'きゃ': 'kya', 'きゅ': 'kyu', 'きょ': 'kyo', 'ぎゃ': 'gya', 'ぎゅ': 'gyu', 'ぎょ': 'gyo',
+        'しゃ': 'sha', 'しゅ': 'shu', 'しょ': 'sho', 'じゃ': 'ja', 'じゅ': 'ju', 'じょ': 'jo',
+        'ちゃ': 'cha', 'ちゅ': 'chu', 'ちょ': 'cho', 'にゃ': 'nya', 'にゅ': 'nyu', 'にょ': 'nyo',
+        'ひゃ': 'hya', 'ひゅ': 'hyu', 'ひょ': 'hyo', 'びゃ': 'bya', 'びゅ': 'byu', 'びょ': 'byo',
+        'ぴゃ': 'pya', 'ぴゅ': 'pyu', 'ぴょ': 'pyo', 'みゃ': 'mya', 'みゅ': 'myu', 'みょ': 'myo',
+        'りゃ': 'rya', 'りゅ': 'ryu', 'りょ': 'ryo', 'ふぁ': 'fa', 'ふぃ': 'fi', 'ふぇ': 'fe', 'ふぉ': 'fo',
+        'てぃ': 'ti', 'でぃ': 'di',
+        'キャ': 'kya', 'キュ': 'kyu', 'キョ': 'kyo', 'ギャ': 'gya', 'ギュ': 'gyu', 'ギョ': 'gyo',
+        'シャ': 'sha', 'シュ': 'shu', 'ショ': 'sho', 'ジャ': 'ja', 'ジュ': 'ju', 'ジョ': 'jo',
+        'チャ': 'cha', 'チュ': 'chu', 'チョ': 'cho', 'ニャ': 'nya', 'ニュ': 'nyu', 'ニョ': 'nyo',
+        'ヒャ': 'hya', 'ヒュ': 'hyu', 'ヒョ': 'hyo', 'ビャ': 'bya', 'ビュ': 'byu', 'ビョ': 'byo',
+        'ピャ': 'pya', 'ピュ': 'pyu', 'ピョ': 'pyo', 'ミャ': 'mya', 'ミュ': 'myu', 'ミョ': 'myo',
+        'リャ': 'rya', 'リュ': 'ryu', 'リョ': 'ryo', 'ファ': 'fa', 'フィ': 'fi', 'フェ': 'fe', 'フォ': 'fo',
+        'ティ': 'ti', 'ディ': 'di', 'シェ': 'she', 'ジェ': 'je', 'チェ': 'che', 'ウィ': 'wi', 'ウェ': 'we', 'ウォ': 'wo',
+        'ヴァ': 'va', 'ヴィ': 'vi', 'ヴ': 'vu', 'ヴェ': 've', 'ヴォ': 'vo'
+    };
+    const SINGLES = {
+        'あ': 'a', 'い': 'i', 'う': 'u', 'え': 'e', 'お': 'o', 'か': 'ka', 'き': 'ki', 'く': 'ku', 'け': 'ke', 'こ': 'ko',
+        'が': 'ga', 'ぎ': 'gi', 'ぐ': 'gu', 'げ': 'ge', 'ご': 'go', 'さ': 'sa', 'し': 'shi', 'す': 'su', 'せ': 'se', 'そ': 'so',
+        'ざ': 'za', 'じ': 'ji', 'ず': 'zu', 'ぜ': 'ze', 'ぞ': 'zo', 'た': 'ta', 'ち': 'chi', 'つ': 'tsu', 'て': 'te', 'と': 'to',
+        'だ': 'da', 'ぢ': 'ji', 'づ': 'zu', 'で': 'de', 'ど': 'do', 'な': 'na', 'に': 'ni', 'ぬ': 'nu', 'ね': 'ne', 'の': 'no',
+        'は': 'ha', 'ひ': 'hi', 'ふ': 'fu', 'へ': 'he', 'ほ': 'ho', 'ば': 'ba', 'び': 'bi', 'ぶ': 'bu', 'べ': 'be', 'ぼ': 'bo',
+        'ぱ': 'pa', 'ぴ': 'pi', 'ぷ': 'pu', 'ぺ': 'pe', 'ぽ': 'po', 'ま': 'ma', 'み': 'mi', 'む': 'mu', 'め': 'me', 'も': 'mo',
+        'や': 'ya', 'ゆ': 'yu', 'よ': 'yo', 'ら': 'ra', 'り': 'ri', 'る': 'ru', 'れ': 're', 'ろ': 'ro', 'わ': 'wa', 'を': 'o', 'ん': 'n',
+        'ア': 'a', 'イ': 'i', 'ウ': 'u', 'エ': 'e', 'オ': 'o', 'カ': 'ka', 'キ': 'ki', 'ク': 'ku', 'ケ': 'ke', 'コ': 'ko',
+        'ガ': 'ga', 'ギ': 'gi', 'グ': 'gu', 'ゲ': 'ge', 'ゴ': 'go', 'サ': 'sa', 'シ': 'shi', 'ス': 'su', 'セ': 'se', 'ソ': 'so',
+        'ザ': 'za', 'ジ': 'ji', 'ズ': 'zu', 'ゼ': 'ze', 'ゾ': 'zo', 'タ': 'ta', 'チ': 'chi', 'ツ': 'tsu', 'テ': 'te', 'ト': 'to',
+        'ダ': 'da', 'ヂ': 'ji', 'ヅ': 'zu', 'デ': 'de', 'ド': 'do', 'ナ': 'na', 'ニ': 'ni', 'ヌ': 'nu', 'ネ': 'ne', 'ノ': 'no',
+        'ハ': 'ha', 'ヒ': 'hi', 'フ': 'fu', 'ヘ': 'he', 'ホ': 'ho', 'バ': 'ba', 'ビ': 'bi', 'ブ': 'bu', 'ベ': 'be', 'ボ': 'bo',
+        'パ': 'pa', 'ピ': 'pi', 'プ': 'pu', 'ペ': 'pe', 'ポ': 'po', 'マ': 'ma', 'ミ': 'mi', 'ム': 'mu', 'メ': 'me', 'モ': 'mo',
+        'ヤ': 'ya', 'ユ': 'yu', 'ヨ': 'yo', 'ラ': 'ra', 'リ': 'ri', 'ル': 'ru', 'レ': 're', 'ロ': 'ro', 'ワ': 'wa', 'ヲ': 'o', 'ン': 'n', 'ヴ': 'vu'
+    };
+    const KANJI_HINTS = [
+        ['愛してる', 'aishiteru'], ['大丈夫', 'daijoubu'], ['愛', 'ai'], ['心', 'kokoro'], ['夢', 'yume'],
+        ['光', 'hikari'], ['涙', 'namida'], ['空', 'sora'], ['風', 'kaze'], ['星', 'hoshi'], ['夜', 'yoru'],
+        ['君', 'kimi'], ['僕', 'boku'], ['私', 'watashi'], ['世界', 'sekai'], ['未来', 'mirai'], ['永遠', 'eien'],
+        ['記憶', 'kioku'], ['約束', 'yakusoku'], ['笑顔', 'egao'], ['言葉', 'kotoba'], ['時間', 'jikan'],
+        ['今日', 'kyou'], ['明日', 'ashita'], ['今', 'ima'], ['好き', 'suki']
+    ];
+    let src = String(text || '');
+    for (const [k, r] of KANJI_HINTS) {
+        if (src.includes(k)) src = src.split(k).join(` ${r} `);
+    }
+    const chars = Array.from(src);
+    let out = '';
+    for (let i = 0; i < chars.length; i++) {
+        const ch = chars[i];
+        const next = chars[i + 1] || '';
+        if (ch === 'っ' || ch === 'ッ') {
+            const pair = chars[i + 2] ? next + chars[i + 2] : '';
+            const nr = DIGRAPHS[pair] || SINGLES[next] || '';
+            if (nr && /^[bcdfghjklmnpqrstvwxyz]/i.test(nr)) out += nr.startsWith('ch') ? 't' : nr[0];
+            continue;
+        }
+        if (ch === 'ー') {
+            const prevV = out.slice(-1);
+            if (/[aeiou]/i.test(prevV)) out += prevV;
+            continue;
+        }
+        const pair = ch + next;
+        if (DIGRAPHS[pair]) {
+            out += DIGRAPHS[pair];
+            i++;
+            continue;
+        }
+        out += SINGLES[ch] !== undefined ? SINGLES[ch] : ch;
+    }
+    return out.replace(/\s+/g, ' ').trim();
+}
+
 function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin red', message = '', sampleText = '', onRetry = null, onInsertOfflineRom = null } = {}) {
     if (!container) return;
     container.replaceChildren();
@@ -577,7 +649,10 @@ function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin
     card.append(strong, desc);
 
     const hasHangul = /[\uAC00-\uD7A3]/.test(String(sampleText || ''));
-    const offlineRom = hasHangul ? hangulToRomanizationClient(sampleText) : '';
+    const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(String(sampleText || ''));
+    const offlineRom = hasHangul
+        ? hangulToRomanizationClient(sampleText)
+        : (hasJapanese && typeof kanaToRomajiClient === 'function' ? kanaToRomajiClient(sampleText) : '');
     if (offlineRom) {
         const romBox = document.createElement('div');
         romBox.className = 'ai-line-rom';
@@ -3304,11 +3379,23 @@ if (englishForm) {
             hint: 'Dual-script mode: English hooks + Korean Hangul with instant Romanization & AI meaning bridge.',
             wordLabel: 'Word / Lyric Phrase (EN or 한국어) *',
             wordPlaceholder: 'e.g. 마음 (maeum) / Golden Hour'
+        },
+        ja: {
+            label: '🇯🇵 Japanese (日本語)',
+            hint: 'Hiragana, Katakana & Kanji + automatic Romaji reading guide and Japanese grammar notes.',
+            wordLabel: 'Japanese Word / Phrase (日本語 Kanji/Kana) *',
+            wordPlaceholder: 'e.g. 心 / ありがとう / 愛してる'
+        },
+        en_ja: {
+            label: '🎌 J-Pop (JP + EN)',
+            hint: 'Hybrid J-Pop mode: preserves English phrases alongside Japanese Kana/Kanji + Romaji guide.',
+            wordLabel: 'Word / Lyric Phrase (EN or 日本語) *',
+            wordPlaceholder: 'e.g. 夢 (yume) · Midnight Dream'
         }
     };
 
     function applyStudyLanguageUi(langCode, { syncMusicSelect = true } = {}) {
-        const norm = ['en', 'ko', 'en_ko'].includes(langCode) ? langCode : 'en_ko';
+        const norm = ['en', 'ko', 'en_ko', 'ja', 'en_ja'].includes(langCode) ? langCode : 'en_ko';
         if (studyLanguageInput) studyLanguageInput.value = norm;
         studyLangPills.forEach(btn => {
             const active = btn.getAttribute('data-study-lang') === norm;
@@ -3322,9 +3409,14 @@ if (englishForm) {
         if (syncMusicSelect) {
             const musicLangSelect = document.getElementById('musicSongLanguage');
             if (musicLangSelect && !document.getElementById('musicSongEditId')?.value) {
-                musicLangSelect.value = norm === 'ko'
-                    ? 'Korean'
-                    : (norm === 'en' ? 'English' : 'English + Korean (K-Pop)');
+                const mapSelect = {
+                    ko: 'Korean',
+                    en: 'English',
+                    en_ko: 'English + Korean (K-Pop)',
+                    ja: 'Japanese',
+                    en_ja: 'English + Japanese (J-Pop)'
+                };
+                musicLangSelect.value = mapSelect[norm] || 'English + Korean (K-Pop)';
             }
         }
     }
@@ -3339,7 +3431,8 @@ if (englishForm) {
         let romTimer = null;
         engWordInput.addEventListener('input', () => {
             const val = engWordInput.value.trim();
-            if (!/[\uAC00-\uD7A3]/.test(val)) return;
+            const isCjkStudy = /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(val);
+            if (!isCjkStudy) return;
             clearTimeout(romTimer);
             romTimer = setTimeout(async () => {
                 try {
@@ -3354,7 +3447,9 @@ if (englishForm) {
                         engRomanizationInput.value = data.romanization;
                     }
                 } catch (_) {
-                    // Best-effort auto-romanization
+                    if (/[\u3040-\u30FF]/.test(val) && typeof kanaToRomajiClient === 'function') {
+                        engRomanizationInput.value = kanaToRomajiClient(val);
+                    }
                 }
             }, 220);
         });
@@ -5262,13 +5357,43 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
 function _isolateHangulLinesClient(linesArr) {
     const out = [];
+    let pendingBreak = false;
     for (const raw of Array.isArray(linesArr) ? linesArr : []) {
         const line = String(raw || '').trim();
-        if (!line || /^\[(?:음악|music|applause|laughter|cheering|instrumental)\]$/i.test(line)) continue;
+        if (!line) {
+            if (out.length) pendingBreak = true;
+            continue;
+        }
+        if (/^\[(?:음악|music|applause|laughter|cheering|instrumental)\]$/i.test(line)) continue;
         if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line)) {
-            if (out[out.length - 1] !== line) out.push(line);
+            if (pendingBreak && out.length && out[out.length - 1] !== '') out.push('');
+            pendingBreak = false;
+            const lastNonEmpty = [...out].reverse().find(x => x !== '');
+            if (lastNonEmpty !== line) out.push(line);
         }
     }
+    while (out.length && out[out.length - 1] === '') out.pop();
+    return out;
+}
+
+function _isolateJapaneseLinesClient(linesArr) {
+    const out = [];
+    let pendingBreak = false;
+    for (const raw of Array.isArray(linesArr) ? linesArr : []) {
+        const line = String(raw || '').trim();
+        if (!line) {
+            if (out.length) pendingBreak = true;
+            continue;
+        }
+        if (/^\[(?:音楽|歌|music|applause|laughter|cheering|instrumental)\]$/i.test(line)) continue;
+        if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line)) {
+            if (pendingBreak && out.length && out[out.length - 1] !== '') out.push('');
+            pendingBreak = false;
+            const lastNonEmpty = [...out].reverse().find(x => x !== '');
+            if (lastNonEmpty !== line) out.push(line);
+        }
+    }
+    while (out.length && out[out.length - 1] === '') out.pop();
     return out;
 }
 
@@ -5277,7 +5402,7 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         original: { code: 'original', tabLabel: '🎵 Original', title: '🎵 Original (Mezcla Nativa)' },
         ko: { code: 'ko', tabLabel: '🇰🇷 Coreano', title: '🇰🇷 Coreano (Solo Coreano + Romanización)' },
         en: { code: 'en', tabLabel: '🇺🇸 Inglés', title: '🇺🇸 Inglés (English)' },
-        ja: { code: 'ja', tabLabel: '🇯🇵 Japonés', title: '🇯🇵 Japonés (日本語)' },
+        ja: { code: 'ja', tabLabel: '🇯🇵 Japonés', title: '🇯🇵 Japonés (日本語 + Romaji)' },
         es: { code: 'es', tabLabel: '🇪🇸 Español', title: '🇪🇸 Español (Traducción)' }
     };
 
@@ -5287,8 +5412,10 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         for (const k of orderedKeys) {
             const val = String(structuredTracks[k] || '').trim();
             if (!val) continue;
-            const lines = k === 'ko' ? _isolateHangulLinesClient(val.split(/\r?\n/)) : val.split(/\r?\n/);
-            if (!lines.length) continue;
+            let lines = val.split(/\r?\n/);
+            if (k === 'ko') lines = _isolateHangulLinesClient(lines);
+            else if (k === 'ja' && lines.some(ln => /[A-Za-z]{2,}/.test(ln))) lines = _isolateJapaneseLinesClient(lines);
+            if (!lines.some(l => l.trim())) continue;
             const meta = SECTION_META[k];
             out.push({
                 code: meta.code,
@@ -5303,7 +5430,7 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
     const clean = String(rawLyrics || '').replace(/\r\n/g, '\n').trim();
     if (!clean) return [];
 
-    const headerPattern = /(?:^|\n)(?:===\s*\[([^\]]+)\]\s*===|\[((?:ORIGINAL|ORIG|FULL|KO|KR|EN|JA|JP|ES|ZH|FR|PT|DE|IT|RU|SUB)(?:\s*[—\-][^\]]*)?)\])\s*\n/gi;
+    const headerPattern = /(?:^|\n)(?:===\s*\[([^\]]+)\]\s*===|\[((?:ORIGINAL|ORIG|FULL|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|ZH|FR|PT|DE|IT|RU|SUB)(?:\s*[—\-][^\]]*)?)\])\s*\n/gi;
     const matches = [];
     let m;
     while ((m = headerPattern.exec(clean)) !== null) {
@@ -5316,7 +5443,7 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
     }
 
     const classifyTag = (rawTag) => {
-        if (rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL')) {
+        if (rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL') || rawTag.includes('JP-EN') || rawTag.includes('EN-JP')) {
             return SECTION_META.original;
         }
         if (rawTag.startsWith('KO') || rawTag.startsWith('KR') || rawTag.includes('COREANO') || rawTag.includes('KOREAN')) {
@@ -5343,16 +5470,24 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
 
         linesArr.forEach(line => {
             const t = line.trim();
-            if (!t) return;
+            if (!t) {
+                [koLines, jaLines, enLines, esLines].forEach(arr => {
+                    if (arr.length && arr[arr.length - 1] !== '') arr.push('');
+                });
+                return;
+            }
             if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(t)) {
                 koLines.push(t);
-            } else if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(t)) {
+            } else if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(t)) {
                 jaLines.push(t);
             } else if (/[áéíóúñ¿¡]/i.test(t) || hasSpanishCues.test(t)) {
                 esLines.push(t);
             } else {
                 enLines.push(t);
             }
+        });
+        [koLines, jaLines, enLines, esLines].forEach(arr => {
+            while (arr.length && arr[arr.length - 1] === '') arr.pop();
         });
         return { koLines, jaLines, enLines, esLines };
     };
@@ -5383,33 +5518,48 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         const allLines = clean.split('\n');
         const { koLines, jaLines, enLines, esLines } = splitLinesByScript(allLines);
         rawBlocks.push({ ...SECTION_META.original, lines: allLines });
-        if (koLines.length > 0) rawBlocks.push({ ...SECTION_META.ko, lines: koLines });
-        if (enLines.length > 0 && koLines.length === 0 && jaLines.length === 0) {
+        if (koLines.some(l => l.trim())) rawBlocks.push({ ...SECTION_META.ko, lines: koLines });
+        if (enLines.some(l => l.trim()) && !koLines.some(l => l.trim()) && !jaLines.some(l => l.trim())) {
             rawBlocks.push({ ...SECTION_META.en, lines: enLines });
         }
-        if (jaLines.length > 0) rawBlocks.push({ ...SECTION_META.ja, lines: jaLines });
-        if (esLines.length > 0) rawBlocks.push({ ...SECTION_META.es, lines: esLines });
+        if (jaLines.some(l => l.trim())) rawBlocks.push({ ...SECTION_META.ja, lines: jaLines });
+        if (esLines.some(l => l.trim())) rawBlocks.push({ ...SECTION_META.es, lines: esLines });
     }
 
-    // Si existe [KO] con mezcla EN+KR y no existe aún apartado original explícito, separar original (mix) + ko (solo Hangul)
-    const hasOriginal = rawBlocks.some(b => b.code === 'original');
+    // Si existe [KO] o [JA] con mezcla EN+KR / EN+JP sin apartado original explícito, separar original + pista pura
+    let hasOriginal = rawBlocks.some(b => b.code === 'original');
     const normalized = [];
     for (const b of rawBlocks) {
         if (b.code === 'ko') {
             const hangulOnly = _isolateHangulLinesClient(b.lines);
             const hasLatin = b.lines.some(ln => /[A-Za-z]{2,}/.test(ln));
-            if (!hasOriginal && hasLatin && hangulOnly.length > 0) {
+            if (!hasOriginal && hasLatin && hangulOnly.some(l => l.trim())) {
                 normalized.push({
                     ...SECTION_META.original,
                     lines: b.lines
                 });
+                hasOriginal = true;
             }
-            if (hangulOnly.length > 0) {
+            if (hangulOnly.some(l => l.trim())) {
                 normalized.push({
                     ...b,
                     lines: hangulOnly
                 });
             }
+        } else if (b.code === 'ja') {
+            const jaOnly = _isolateJapaneseLinesClient(b.lines);
+            const hasLatin = b.lines.some(ln => /[A-Za-z]{2,}/.test(ln));
+            if (!hasOriginal && hasLatin && jaOnly.some(l => l.trim())) {
+                normalized.push({
+                    ...SECTION_META.original,
+                    lines: b.lines
+                });
+                hasOriginal = true;
+            }
+            normalized.push({
+                ...b,
+                lines: hasLatin && jaOnly.some(l => l.trim()) ? jaOnly : b.lines
+            });
         } else {
             normalized.push(b);
         }
@@ -5449,8 +5599,13 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
         return;
     }
 
-    const activeLang = filterLang === 'en_ko' ? 'original' : (filterLang || 'all');
     const sections = parseAndDivideLyricsByLanguage(clean, structuredTracks);
+    let activeLang = filterLang || 'all';
+    if (activeLang === 'en_ko') {
+        activeLang = sections.some(s => s.code === 'original') ? 'original' : 'ko';
+    } else if (activeLang === 'en_ja') {
+        activeLang = sections.some(s => s.code === 'original') ? 'original' : 'ja';
+    }
 
     if (sections.length > 1) {
         const tabBar = document.createElement('div');
@@ -5504,20 +5659,65 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
         const body = document.createElement('div');
         body.className = 'lyrics-lang-body';
 
-        sec.lines.forEach(line => {
-            const lineDiv = document.createElement('div');
-            lineDiv.textContent = line || ' ';
-            body.appendChild(lineDiv);
+        // Agrupar líneas en estrofas manteniendo emparejados verso original + romanización + traducción
+        const stanzas = [];
+        let currentStanza = [];
+        sec.lines.forEach(rawLine => {
+            const ln = String(rawLine || '').trim();
+            if (!ln) {
+                if (currentStanza.length) {
+                    stanzas.push(currentStanza);
+                    currentStanza = [];
+                }
+            } else {
+                currentStanza.push(ln);
+            }
+        });
+        if (currentStanza.length) stanzas.push(currentStanza);
 
-            if ((sec.code === 'ko' || sec.code === 'original') && /[\uAC00-\uD7A3]/.test(line) && typeof hangulToRomanizationClient === 'function') {
-                const rom = hangulToRomanizationClient(line);
-                if (rom && rom !== line) {
+        stanzas.forEach(stanzaLines => {
+            const stanzaGroup = document.createElement('div');
+            stanzaGroup.className = 'lyrics-stanza-group';
+
+            stanzaLines.forEach(line => {
+                const block = document.createElement('div');
+                block.className = 'lyrics-line-block';
+
+                const arrowIdx = line.indexOf(' → ');
+                const origPart = arrowIdx > 0 ? line.slice(0, arrowIdx).trim() : line;
+                const transPart = arrowIdx > 0 ? line.slice(arrowIdx + 3).trim() : '';
+
+                const origEl = document.createElement('div');
+                origEl.className = 'lyrics-line-original';
+                origEl.textContent = origPart;
+                block.appendChild(origEl);
+
+                const hasHangul = /[\uAC00-\uD7A3]/.test(origPart);
+                const hasJapanese = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(origPart);
+                let rom = '';
+                if (hasHangul && (sec.code === 'ko' || sec.code === 'original') && typeof hangulToRomanizationClient === 'function') {
+                    rom = hangulToRomanizationClient(origPart);
+                } else if (hasJapanese && !hasHangul && (sec.code === 'ja' || sec.code === 'original') && typeof kanaToRomajiClient === 'function') {
+                    rom = kanaToRomajiClient(origPart);
+                }
+                if (rom && rom !== origPart) {
                     const romSmall = document.createElement('small');
                     romSmall.className = 'lyrics-line-rom-hint';
                     romSmall.textContent = `[${rom}]`;
-                    body.appendChild(romSmall);
+                    block.appendChild(romSmall);
                 }
-            }
+
+                if (transPart) {
+                    const transSmall = document.createElement('small');
+                    transSmall.className = 'lyrics-line-translation';
+                    transSmall.textContent = `→ ${transPart}`;
+                    block.appendChild(transSmall);
+                }
+
+                stanzaGroup.appendChild(block);
+            });
+
+            body.appendChild(stanzaGroup);
         });
 
         card.append(head, body);

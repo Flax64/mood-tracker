@@ -1458,12 +1458,25 @@ def _extraer_campos_bloque_word(lineas_texto, heading_text=""):
     return fields
 
 
-_LANG_CODE_ALIASES = {"kr": "ko", "jp": "ja", "orig": "original"}
+_LANG_CODE_ALIASES = {
+    "kr": "ko",
+    "jp": "ja",
+    "orig": "original",
+    "jp-en": "original",
+    "en-jp": "original",
+    "ja-en": "original",
+    "en-ja": "original",
+}
 _RE_ENCABEZADO_IDIOMA_LETRA = re.compile(
-    r"^(?:===\s*)?\[(?:Letra\s*[—\-]\s*)?(original|orig|en|ko|kr|es|ja|jp|zh|fr|pt|de|it|ru|sub|und)(?:-[A-Za-z0-9]+)?(?:\s*(?:[—/\-])[^\]]*)?\](?:\s*===)?\s*$",
+    r"^(?:===\s*)?\[(?:Letra\s*[—\-]\s*)?(original|orig|en|ko|kr|es|ja|jp|jp-en|en-jp|ja-en|en-ja|zh|fr|pt|de|it|ru|sub|und)(?:-[A-Za-z0-9]+)?(?:\s*(?:[—/\-])[^\]]*)?\](?:\s*===)?\s*$",
     re.IGNORECASE,
 )
 _RE_HANGUL_CHAR = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]")
+_RE_JAPANESE_CHAR = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]")
+_RE_STRUCTURAL_TAG_LINE = re.compile(
+    r"^\[(?:intro|verse(?:\s*\d+)?|pre-?chorus|post-?chorus|chorus|refrain|bridge|rap(?:\s*part)?|interlude|outro|hook|solo|breakdown|coro|verso(?:\s*\d+)?|puente|estribillo)[^\]]*\]$",
+    re.IGNORECASE,
+)
 _RE_RUIDO_SUBTITULO_LINEA = re.compile(
     r"^(?:\[(?:음악|音楽|歌|music|applause|laughter|cheering|instrumental)\]|\s*[\[\]]\s*)$",
     re.IGNORECASE,
@@ -1475,16 +1488,105 @@ _RE_TRADUCCION_ES_EN_NOTAS = re.compile(
 
 
 def _aislar_lineas_coreano(texto):
-    """Conserva únicamente líneas que contienen Hangul para el bloque [KO] puro."""
-    limpias = []
+    """Conserva únicamente líneas que contienen Hangul para el bloque [KO] puro, respetando estrofas."""
+    out = []
+    pending_break = False
     for raw in str(texto or "").replace("\r", "").split("\n"):
         s = raw.strip()
-        if not s or _RE_RUIDO_SUBTITULO_LINEA.match(s):
+        if not s:
+            if out:
+                pending_break = True
+            continue
+        if _RE_RUIDO_SUBTITULO_LINEA.match(s):
+            continue
+        if _RE_STRUCTURAL_TAG_LINE.match(s):
+            if out and not out[-1] == "":
+                out.append("")
+            pending_break = False
             continue
         if _RE_HANGUL_CHAR.search(s):
-            if not limpias or limpias[-1] != s:
-                limpias.append(s)
-    return "\n".join(limpias).strip()
+            if pending_break and out and out[-1] != "":
+                out.append("")
+            pending_break = False
+            last_non_empty = next((x for x in reversed(out) if x != ""), None)
+            if last_non_empty != s:
+                out.append(s)
+    while out and out[-1] == "":
+        out.pop()
+    return "\n".join(out).strip()
+
+
+def _aislar_lineas_japones(texto):
+    """Conserva únicamente líneas que contienen Hiragana, Katakana o Kanji para el bloque [JA] puro."""
+    out = []
+    pending_break = False
+    for raw in str(texto or "").replace("\r", "").split("\n"):
+        s = raw.strip()
+        if not s:
+            if out:
+                pending_break = True
+            continue
+        if _RE_RUIDO_SUBTITULO_LINEA.match(s) or _RE_STRUCTURAL_TAG_LINE.match(s):
+            if out and out[-1] != "":
+                pending_break = True
+            continue
+        if _RE_JAPANESE_CHAR.search(s):
+            if pending_break and out and out[-1] != "":
+                out.append("")
+            pending_break = False
+            last_non_empty = next((x for x in reversed(out) if x != ""), None)
+            if last_non_empty != s:
+                out.append(s)
+    while out and out[-1] == "":
+        out.pop()
+    return "\n".join(out).strip()
+
+
+def _segmentar_estrofas_letra(texto, max_lines_per_stanza=4):
+    """Segmenta letras largas sin puntuación occidental en estrofas limpias de forma agnóstica al idioma."""
+    raw = str(texto or "").replace("\r", "").strip()
+    if not raw:
+        return ""
+    lines = [ln.rstrip() for ln in raw.split("\n")]
+    # Si ya contiene cortes de estrofa naturales, solo normalizar etiquetas estructurales
+    existing_breaks = sum(1 for ln in lines if not ln.strip())
+    result = []
+    block = []
+
+    def _flush_block(blk):
+        non_empty = [x for x in blk if x.strip()]
+        if not non_empty:
+            return
+        if existing_breaks > 0 or len(non_empty) < (max_lines_per_stanza * 2):
+            result.extend(non_empty)
+            return
+        for idx in range(0, len(non_empty), max_lines_per_stanza):
+            if idx > 0:
+                result.append("")
+            result.extend(non_empty[idx : idx + max_lines_per_stanza])
+
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            if block:
+                _flush_block(block)
+                block = []
+            if result and result[-1] != "":
+                result.append("")
+            continue
+        if _RE_ENCABEZADO_IDIOMA_LETRA.match(s) or _RE_STRUCTURAL_TAG_LINE.match(s):
+            if block:
+                _flush_block(block)
+                block = []
+            if result and result[-1] != "":
+                result.append("")
+            result.append(s)
+            continue
+        block.append(ln)
+    if block:
+        _flush_block(block)
+    out = re.sub(r"\n{3,}", "\n\n", "\n".join(result)).strip()
+    return out
 
 
 def _limpiar_ruido_letra(texto):
@@ -1500,7 +1602,7 @@ def _limpiar_ruido_letra(texto):
         limpias.append(line.rstrip())
     res = "\n".join(limpias)
     res = re.sub(r"\n{3,}", "\n\n", res)
-    return res.strip()
+    return _segmentar_estrofas_letra(res.strip())
 
 
 def _limpiar_notas_redundantes_cancion(notes_val, lyrics_val=""):
@@ -1729,7 +1831,36 @@ def _combinar_metadata_cancion_word(existing_fields, new_entry):
     return merged
 
 
-def _agregar_lineas_texto(lineas_spec, label, raw_text):
+def _agregar_lineas_texto(lineas_spec, label, raw_text, preserve_stanzas=False):
+    if preserve_stanzas:
+        raw_lines = str(raw_text or "").replace("\r", "").split("\n")
+        cleaned = []
+        pending_blank = False
+        for raw_ln in raw_lines:
+            s = raw_ln.strip()
+            if not s:
+                if cleaned:
+                    pending_blank = True
+                continue
+            if pending_blank and cleaned and cleaned[-1] != "":
+                cleaned.append("")
+            pending_blank = False
+            cleaned.append(s)
+        while cleaned and cleaned[-1] == "":
+            cleaned.pop()
+        for idx, line in enumerate(cleaned):
+            is_lang_hdr = idx > 0 and bool(_RE_ENCABEZADO_IDIOMA_LETRA.match(line))
+            lineas_spec.append(
+                {
+                    "label": label if idx == 0 else "",
+                    "text": line,
+                    "size": 11,
+                    "bold_all": is_lang_hdr,
+                    "italic": False,
+                    "muted": False,
+                }
+            )
+        return
     partes = _dividir_lineas_limpias(raw_text)
     for idx, line in enumerate(partes):
         lineas_spec.append(
@@ -1737,6 +1868,7 @@ def _agregar_lineas_texto(lineas_spec, label, raw_text):
                 "label": label if idx == 0 else "",
                 "text": line,
                 "size": 11,
+                "bold_all": False,
                 "italic": False,
                 "muted": False,
             }
@@ -2000,9 +2132,10 @@ def formatear_entrada_ingles(entry, fecha_dt=None):
             lines,
             "Stanzas Breakdown (Intro / Chorus / Rap): ",
             entry.get("stanzas_breakdown"),
+            preserve_stanzas=True,
         )
         _agregar_lineas_texto(
-            lines, "Lyrics & Meaning Breakdown: ", clean_lyrics
+            lines, "Lyrics & Meaning Breakdown: ", clean_lyrics, preserve_stanzas=True
         )
         _agregar_lineas_texto(
             lines, "Vocabulary & Expressions: ", entry.get("vocabulary_list")
@@ -2080,9 +2213,14 @@ def _aplicar_estilo_parrafo(
     bold_all=False,
     italic=False,
     muted=False,
+    page_break_before=False,
 ):
     para = doc.Paragraphs(para_idx)
     para.Style = doc.Styles(style_const)
+    try:
+        para.Format.PageBreakBefore = -1 if page_break_before else 0
+    except Exception:
+        pass
     rng = para.Range.Duplicate
     rng.MoveEnd(1, -1)  # wdCharacter = 1 (no sobrescribir el marcador final de párrafo)
     rng.Text = f"{label_prefix}{text}"
@@ -2104,6 +2242,43 @@ def _aplicar_estilo_parrafo(
     ):
         lbl_rng = doc.Range(fmt_rng.Start, fmt_rng.Start + len(label_prefix))
         lbl_rng.Font.Bold = True
+
+
+def _word_com_normalizar_saltos_pagina(doc):
+    """Aplica pageBreakBefore únicamente en Títulos Principales (H1 secciones y H2/H3 Álbum/Canción 2+),
+    manteniendo continuidad sin páginas en blanco en todos los subtítulos e ítems internos."""
+    try:
+        current_section = ""
+        music_albums_seen = 0
+        album_tracks_seen = 0
+        for i in range(1, doc.Paragraphs.Count + 1):
+            p = doc.Paragraphs(i)
+            if _en_rango_toc(doc, p):
+                continue
+            lvl = p.OutlineLevel
+            txt = _texto_parrafo_limpio(p)
+            low = txt.lower()
+            if lvl == 1:
+                if low.startswith("4.") or "music" in low:
+                    current_section = "music"
+                    music_albums_seen = 0
+                    album_tracks_seen = 0
+                else:
+                    current_section = "other"
+                p.Format.PageBreakBefore = -1
+            elif lvl == 2 and current_section == "music":
+                is_first_album = music_albums_seen == 0
+                music_albums_seen += 1
+                album_tracks_seen = 0
+                p.Format.PageBreakBefore = 0 if is_first_album else -1
+            elif lvl == 3 and current_section == "music":
+                is_first_track = album_tracks_seen == 0
+                album_tracks_seen += 1
+                p.Format.PageBreakBefore = 0 if is_first_track else -1
+            else:
+                p.Format.PageBreakBefore = 0
+    except Exception:
+        pass
 
 
 _ACL_OPENED_DIRS = set()
@@ -2373,6 +2548,7 @@ def _insertar_parrafo_antes(
     bold_all=False,
     italic=False,
     muted=False,
+    page_break_before=False,
 ):
     doc.Paragraphs(target_idx).Range.InsertParagraphBefore()
     _aplicar_estilo_parrafo(
@@ -2385,6 +2561,7 @@ def _insertar_parrafo_antes(
         bold_all=bold_all,
         italic=italic,
         muted=muted,
+        page_break_before=page_break_before,
     )
     return target_idx + 1
 
@@ -2478,7 +2655,13 @@ def _recolectar_grupos_y_pistas_musica(doc, sec_start_idx, sec_end_idx):
 
 
 def _insertar_bloque_lineas(
-    doc, target_idx, style_const, heading_text, heading_size, spec_lines
+    doc,
+    target_idx,
+    style_const,
+    heading_text,
+    heading_size,
+    spec_lines,
+    page_break_before=False,
 ):
     target_idx = _insertar_parrafo_antes(
         doc,
@@ -2488,6 +2671,7 @@ def _insertar_bloque_lineas(
         text=heading_text,
         font_size=heading_size,
         bold_all=True,
+        page_break_before=page_break_before,
     )
     for item in spec_lines:
         target_idx = _insertar_parrafo_antes(
@@ -2497,9 +2681,10 @@ def _insertar_bloque_lineas(
             label_prefix=item["label"],
             text=item["text"],
             font_size=item.get("size", 11),
-            bold_all=False,
+            bold_all=bool(item.get("bold_all", False)),
             italic=item.get("italic", False),
             muted=item.get("muted", False),
+            page_break_before=False,
         )
     _insertar_parrafo_antes(doc, target_idx, -1, label_prefix="", text="")
     return target_idx
@@ -2815,6 +3000,125 @@ def _ooxml_crear_run_texto(
     return run
 
 
+def _ooxml_configurar_page_break_before(p_elem, enabled=False):
+    """Activa o desactiva <w:pageBreakBefore> en un <w:p> existente y limpia saltos <w:br w:type="page"/>."""
+    ppr_tag = _ooxml_w_tag("pPr")
+    pstyle_tag = _ooxml_w_tag("pStyle")
+    pb_tag = _ooxml_w_tag("pageBreakBefore")
+    r_tag = _ooxml_w_tag("r")
+    br_tag = _ooxml_w_tag("br")
+    type_attr = _ooxml_w_tag("type")
+    val_attr = _ooxml_w_tag("val")
+
+    for r_el in list(p_elem.findall(r_tag)):
+        for br_el in list(r_el.findall(br_tag)):
+            if br_el.attrib.get(type_attr, "").lower() == "page":
+                r_el.remove(br_el)
+
+    ppr = p_elem.find(ppr_tag)
+    if ppr is None:
+        if not enabled:
+            return
+        ppr = _ooxml_w_el("pPr")
+        p_elem.insert(0, ppr)
+
+    for old_pb in list(ppr.findall(pb_tag)):
+        ppr.remove(old_pb)
+
+    pstyle_el = ppr.find(pstyle_tag)
+    if enabled:
+        pb_el = _ooxml_w_el("pageBreakBefore")
+        insert_idx = list(ppr).index(pstyle_el) + 1 if pstyle_el is not None else 0
+        ppr.insert(insert_idx, pb_el)
+    elif pstyle_el is not None and pstyle_el.attrib.get(val_attr):
+        pb_el = _ooxml_w_el("pageBreakBefore", val="0")
+        insert_idx = list(ppr).index(pstyle_el) + 1
+        ppr.insert(insert_idx, pb_el)
+
+
+def _ooxml_normalizar_saltos_pagina(body, style_levels):
+    """Aplica pageBreakBefore únicamente en Títulos Principales (H1 y H2/H3 Álbum/Canción 2+);
+    garantiza flujo continuo sin páginas en blanco en subtítulos e ítems internos."""
+    p_tag = _ooxml_w_tag("p")
+    children = list(body)
+    toc_range = _ooxml_encontrar_rango_toc(children)
+    t_start, t_end = toc_range if toc_range[0] is not None else (-1, -1)
+    sect_idx = _ooxml_indice_sectpr(body)
+
+    first_h1_idx = None
+    for idx in range(sect_idx):
+        if t_start <= idx < t_end:
+            continue
+        if body[idx].tag == p_tag and _nivel_parrafo_ooxml(body[idx], style_levels) == 1:
+            first_h1_idx = idx
+            break
+
+    current_section = ""
+    music_albums_seen = 0
+    album_tracks_seen = 0
+    orphan_tracks_seen = 0
+
+    for idx in range(sect_idx):
+        if t_start <= idx < t_end:
+            continue
+        child = body[idx]
+        if child.tag != p_tag:
+            continue
+        if first_h1_idx is not None and idx < first_h1_idx:
+            # Limpiar saltos manuales antes del primer H1 para evitar doble salto/hoja en blanco
+            _ooxml_configurar_page_break_before(child, enabled=False)
+            continue
+
+        lvl = _nivel_parrafo_ooxml(child, style_levels)
+        txt = _texto_parrafo_ooxml(child).lower()
+
+        if lvl == 1:
+            if txt.startswith("4.") or "music" in txt:
+                current_section = "music"
+                music_albums_seen = 0
+                album_tracks_seen = 0
+                orphan_tracks_seen = 0
+            else:
+                current_section = "other"
+            _ooxml_configurar_page_break_before(child, enabled=True)
+        elif lvl == 2 and current_section == "music":
+            is_first_album = music_albums_seen == 0
+            music_albums_seen += 1
+            album_tracks_seen = 0
+            _ooxml_configurar_page_break_before(child, enabled=(not is_first_album))
+        elif lvl == 3 and current_section == "music":
+            if music_albums_seen > 0:
+                is_first_track = album_tracks_seen == 0
+                album_tracks_seen += 1
+            else:
+                is_first_track = orphan_tracks_seen == 0
+                orphan_tracks_seen += 1
+            _ooxml_configurar_page_break_before(child, enabled=(not is_first_track))
+        else:
+            _ooxml_configurar_page_break_before(child, enabled=False)
+
+    # Eliminar párrafos vacíos consecutivos duplicados después del primer H1
+    sect_idx = _ooxml_indice_sectpr(body)
+    prev_empty = False
+    to_remove = []
+    start_clean = first_h1_idx if first_h1_idx is not None else 0
+    for idx in range(start_clean, max(start_clean, sect_idx - 1)):
+        child = body[idx]
+        if t_start <= idx < t_end or child.tag != p_tag:
+            prev_empty = False
+            continue
+        lvl = _nivel_parrafo_ooxml(child, style_levels)
+        txt = _texto_parrafo_ooxml(child)
+        is_empty = (lvl is None) and (not txt)
+        if is_empty and prev_empty:
+            to_remove.append(child)
+        prev_empty = is_empty
+
+    for rm_el in to_remove:
+        if rm_el in body:
+            body.remove(rm_el)
+
+
 def _ooxml_crear_parrafo_texto(
     style_id="",
     label_prefix="",
@@ -2823,11 +3127,17 @@ def _ooxml_crear_parrafo_texto(
     bold_all=False,
     italic=False,
     muted=False,
+    page_break_before=False,
 ):
     p = _ooxml_w_el("p")
-    if style_id:
+    if style_id or page_break_before:
         ppr = _ooxml_w_el("pPr")
-        ppr.append(_ooxml_w_el("pStyle", val=style_id))
+        if style_id:
+            ppr.append(_ooxml_w_el("pStyle", val=style_id))
+        if page_break_before:
+            ppr.append(_ooxml_w_el("pageBreakBefore"))
+        elif style_id:
+            ppr.append(_ooxml_w_el("pageBreakBefore", val="0"))
         p.append(ppr)
     color = "666666" if muted else None
     if label_prefix:
@@ -2854,7 +3164,11 @@ def _ooxml_crear_parrafo_texto(
 
 
 def _ooxml_construir_bloque_elementos(
-    heading_text, heading_style_id, heading_size, spec_lines
+    heading_text,
+    heading_style_id,
+    heading_size,
+    spec_lines,
+    page_break_before=False,
 ):
     elems = [
         _ooxml_crear_parrafo_texto(
@@ -2862,6 +3176,7 @@ def _ooxml_construir_bloque_elementos(
             text=heading_text,
             font_size=heading_size,
             bold_all=True,
+            page_break_before=page_break_before,
         )
     ]
     for item in spec_lines or []:
@@ -2870,8 +3185,10 @@ def _ooxml_construir_bloque_elementos(
                 label_prefix=item.get("label", ""),
                 text=item.get("text", ""),
                 font_size=item.get("size", 11),
+                bold_all=bool(item.get("bold_all", False)),
                 italic=bool(item.get("italic", False)),
                 muted=bool(item.get("muted", False)),
+                page_break_before=False,
             )
         )
     elems.append(_ooxml_w_el("p"))
@@ -3474,6 +3791,7 @@ def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
         for offset, el in enumerate(bloque):
             body.insert(sec_end + offset, el)
 
+    _ooxml_normalizar_saltos_pagina(body, style_levels)
     _ooxml_reconstruir_toc_con_enlaces(body, style_levels, estilo_ids)
     new_doc_bytes = _ooxml_serializar_documento(doc_root, orig_doc_bytes)
 
@@ -3914,6 +4232,7 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
             body.insert(insert_pos + offset, el)
 
         _ooxml_asegurar_secciones_y_final(body, style_levels, estilo_ids)
+        _ooxml_normalizar_saltos_pagina(body, style_levels)
         _ooxml_reconstruir_toc_con_enlaces(body, style_levels, estilo_ids)
         new_doc_bytes = _ooxml_serializar_documento(doc_root, orig_doc_bytes)
 
@@ -4343,6 +4662,7 @@ def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
                     doc, target_idx, -3, spec["heading"], 12, spec["lines"]
                 )
 
+            _word_com_normalizar_saltos_pagina(doc)
             _actualizar_toc_ingles(doc)
             _asegurar_edicion_abierta_word_doc(doc)
             doc.Save()
@@ -4936,13 +5256,20 @@ def buscar_letra_cancion_en_word(song_meta, ruta_docx=None, use_ram_fallback=Tru
 
 def _idiomas_preferidos_para_ytdlp(idioma_texto):
     low = str(idioma_texto or "").lower()
-    if "korean" in low or "k-pop" in low or "kpop" in low:
+    if "korean" in low or "k-pop" in low or "kpop" in low or "coreano" in low:
         return "ko,en,es,ja"
-    if "japanese" in low or "j-pop" in low:
+    if (
+        "japanese" in low
+        or "j-pop" in low
+        or "jpop" in low
+        or "japon" in low
+        or "jp-en" in low
+        or "日本語" in low
+    ):
         return "ja,en,es,ko"
     if "spanish" in low or "español" in low:
         return "es,en,ko,ja"
-    return "en,ko,es,ja"
+    return "en,ko,ja,es"
 
 
 def _base_lang_tag(lang_tag):
@@ -4985,7 +5312,10 @@ def _formatear_pistas_ytdlp(tracks):
         orig = _limpiar_ruido_letra(tracks.get("original"))
         ko = _aislar_lineas_coreano(_limpiar_ruido_letra(tracks.get("ko")))
         en = _limpiar_ruido_letra(tracks.get("en"))
-        ja = _limpiar_ruido_letra(tracks.get("ja"))
+        ja_raw = _limpiar_ruido_letra(tracks.get("ja"))
+        ja = _aislar_lineas_japones(ja_raw) if (ja_raw and re.search(r"[A-Za-z]{2,}", ja_raw)) else ja_raw
+        if not ja and orig and _RE_JAPANESE_CHAR.search(orig) and re.search(r"[A-Za-z]{2,}", orig):
+            ja = _aislar_lineas_japones(orig)
         es = _limpiar_ruido_letra(tracks.get("es"))
 
         sections = []
@@ -5039,14 +5369,21 @@ def _formatear_pistas_ytdlp(tracks):
     if not chosen:
         return "", ""
 
-    # Si alguna pista KO incluye mezcla real EN + KR, separar ORIGINAL (mix) + KO (Hangul puro)
-    has_ko_mixed = any(
-        t.get("lang") == "ko"
-        and _RE_HANGUL_CHAR.search(t.get("lyrics", ""))
-        and re.search(r"[A-Za-z]{2,}", t.get("lyrics", ""))
+    # Si alguna pista KO o JA incluye mezcla real EN+KR o EN+JP, separar ORIGINAL (mix) + KO/JA puro
+    has_mixed_cjk = any(
+        (
+            t.get("lang") == "ko"
+            and _RE_HANGUL_CHAR.search(t.get("lyrics", ""))
+            and re.search(r"[A-Za-z]{2,}", t.get("lyrics", ""))
+        )
+        or (
+            t.get("lang") == "ja"
+            and _RE_JAPANESE_CHAR.search(t.get("lyrics", ""))
+            and re.search(r"[A-Za-z]{2,}", t.get("lyrics", ""))
+        )
         for t in chosen
     )
-    if has_ko_mixed:
+    if has_mixed_cjk:
         try:
             import yt_lyrics_helper as ylh
 
@@ -5106,6 +5443,12 @@ def _extraer_cinco_apartados_desde_letra(lyrics_text):
         iso_ko = _aislar_lineas_coreano(out["ko"] or out["original"])
         if iso_ko:
             out["ko"] = iso_ko
+    if out["ja"] or _RE_JAPANESE_CHAR.search(out["original"]):
+        ja_src = out["ja"] or out["original"]
+        if re.search(r"[A-Za-z]{2,}", ja_src):
+            iso_ja = _aislar_lineas_japones(ja_src)
+            if iso_ja:
+                out["ja"] = iso_ja
     return out
 
 

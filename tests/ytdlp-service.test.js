@@ -339,4 +339,33 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.match(extracted.lyrics, /\[ES\]\nCierra los ojos y siente la vibra/);
         assert.doesNotMatch(extracted.lyrics, /\[KO-ORIG\]|\[EN-KN\]|\[ES-419\]/i);
     });
+
+    it('segmenta estrofas por pausas musicales (>=2.5s), bloques CJK continuos y aisla JP vs JP-EN', () => {
+        const { segmentLyricsIntoStanzas } = require('../lib/youtube-metadata');
+        const { classifyLyricsIntoFiveTracks } = require('../lib/ytdlp-service');
+        const vttPaused = [
+            'WEBVTT',
+            '',
+            '00:00:01.000 --> 00:00:03.000',
+            '夜空に光る星',
+            '',
+            '00:00:03.200 --> 00:00:05.000',
+            'Shining right now',
+            '',
+            '00:00:09.000 --> 00:00:11.000',
+            'ずっと忘れない'
+        ].join('\n');
+        const cleanedPaused = cleanSubtitleText(vttPaused);
+        assert.equal(cleanedPaused, '夜空に光る星\nShining right now\n\nずっと忘れない');
+
+        const longTenLines = Array.from({ length: 10 }, (_, i) => `ライン${i + 1}`).join('\n');
+        const segmented = segmentLyricsIntoStanzas(longTenLines);
+        assert.equal(segmented.split('\n\n').length, 3);
+
+        const jpHybrid = classifyLyricsIntoFiveTracks([
+            { rawLanguage: 'ja', lyrics: 'Shining right now\n夜空に光る星\nずっと忘れない\nHold my hand' }
+        ]);
+        assert.ok(jpHybrid.original.includes('Shining right now') && jpHybrid.original.includes('夜空に光る星'));
+        assert.equal(jpHybrid.ja, '夜空に光る星\nずっと忘れない');
+    });
 });

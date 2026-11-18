@@ -25,6 +25,8 @@ const {
     normalizeStudyLanguage,
     validateGeminiModelId,
     hangulToRomanization,
+    hasJapaneseScript,
+    kanaToRomaji,
     detectScriptKind,
     isPoisonedMemoryMeaning,
     sanitizeLanguageMemory,
@@ -7874,12 +7876,15 @@ app.post('/api/language/memory', apiWriteLimiter.middleware, requireAdmin, requi
 app.post('/api/language/romanize', apiReadLimiter.middleware, requireAdmin, requireNonEmptyBody, (req, res) => {
     const text = String(req.body.text || '').trim().slice(0, 5000);
     if (!text) {
-        return res.status(400).send('Provide Korean text or mixed lyrics to romanize.');
+        return res.status(400).send('Provide Korean or Japanese text or mixed lyrics to romanize.');
     }
+    const romanization = hasJapaneseScript(text) && !/[\uAC00-\uD7A3]/.test(text)
+        ? kanaToRomaji(text)
+        : hangulToRomanization(text);
     return res.json({
         text,
         script: detectScriptKind(text),
-        romanization: hangulToRomanization(text)
+        romanization
     });
 });
 
@@ -7996,7 +8001,8 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
             .digest('hex');
 
         const ramHit = (!forceRefresh && mode !== 'offline') ? languageAnalysisCache.get(analysisCacheKey) : null;
-        const exactMemHit = (!ramHit && !forceRefresh && !question && mode === 'auto' && text.length <= 160 && ['auto', 'en_es', 'ko_es'].includes(direction))
+        const cacheableDirs = ['auto', 'en_es', 'ko_es', 'ko_en', 'ja_es', 'ja_en', 'en_ja'];
+        const exactMemHit = (!ramHit && !forceRefresh && !question && mode === 'auto' && text.length <= 160 && cacheableDirs.includes(direction))
             ? currentMemory.terms.find((t) =>
                 t.term.toLowerCase() === text.toLowerCase()
                 && t.meaning
@@ -8075,7 +8081,7 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                     translatedText: cachedMeaning,
                     spanishMeaning: cachedMeaning,
                     romanization: cachedRom,
-                    detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                    detectedScript: detectScriptKind(text),
                     summary: notebookMatch.summary || `${text} -> ${cachedMeaning}`,
                     vocabulary: [
                         {
@@ -8127,7 +8133,7 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 translatedText: exactMemHit.meaning,
                 spanishMeaning: exactMemHit.meaning,
                 romanization: exactMemHit.romanization || baseOffline.wordNoteDraft?.romanization || '',
-                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                detectedScript: detectScriptKind(text),
                 rememberable: false,
                 summary: `${text} -> ${exactMemHit.meaning}`,
                 explanation: uiLang === 'en'
@@ -8269,7 +8275,8 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
             .digest('hex');
 
         const cachedTrans = (!forceRefresh && mode !== 'offline') ? languageTranslationCache.get(transCacheKey) : null;
-        const exactMemHit = (!cachedTrans && !forceRefresh && mode === 'auto' && text.length <= 160 && ['auto', 'en_es', 'ko_es'].includes(direction))
+        const cacheableTransDirs = ['auto', 'en_es', 'ko_es', 'ko_en', 'ja_es', 'ja_en', 'en_ja'];
+        const exactMemHit = (!cachedTrans && !forceRefresh && mode === 'auto' && text.length <= 160 && cacheableTransDirs.includes(direction))
             ? currentMemory.terms.find((t) =>
                 t.term.toLowerCase() === text.toLowerCase()
                 && t.meaning
@@ -8277,7 +8284,7 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
             )
             : null;
         let notebookMatch = null;
-        if (!cachedTrans && !exactMemHit && !forceRefresh && mode !== 'offline' && ['auto', 'en_es', 'ko_es'].includes(direction)) {
+        if (!cachedTrans && !exactMemHit && !forceRefresh && mode !== 'offline' && cacheableTransDirs.includes(direction)) {
             const notebookData = await getStudyNotebookDataForUser();
             if (notebookData && notebookData.ok) {
                 notebookMatch = findNotebookTranslationMatch(notebookData, { text, mode: 'text' });
@@ -8306,7 +8313,7 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
                 translatedText: translatedVal,
                 spanishMeaning: translatedVal,
                 romanization: notebookMatch.romanization || '',
-                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                detectedScript: detectScriptKind(text),
                 rememberable: false,
                 explanation: notebookMatch.explanation
                     || (uiLang === 'en'
@@ -8325,7 +8332,7 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
                 translatedText: exactMemHit.meaning,
                 spanishMeaning: exactMemHit.meaning,
                 romanization: exactMemHit.romanization || '',
-                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                detectedScript: detectScriptKind(text),
                 rememberable: false,
                 explanation: uiLang === 'en'
                     ? 'Retrieved instantaneously from your saved study memory (0 AI tokens).'
@@ -8361,9 +8368,15 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
             && !isPoisonedMemoryMeaning(candidateMemoryMeaning);
 
         if (canRemember) {
-            const langCode = result.direction === 'ko_en' || result.direction === 'ko_es' || /hangul|korean/i.test(String(result.detectedScript || ''))
-                ? 'ko'
-                : 'en';
+            const detScript = String(result.detectedScript || '');
+            let langCode = 'en';
+            if (['ja_es', 'ja_en', 'es_ja'].includes(result.direction) || detScript === 'japanese') {
+                langCode = 'ja';
+            } else if (result.direction === 'en_ja' || detScript === 'mixed-jpop') {
+                langCode = 'en_ja';
+            } else if (result.direction === 'ko_en' || result.direction === 'ko_es' || /hangul|korean/i.test(detScript)) {
+                langCode = 'ko';
+            }
             settings.languageMemory = mergeLanguageMemory(currentMemory, {
                 terms: [{
                     term: text.slice(0, 120),

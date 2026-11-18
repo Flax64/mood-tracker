@@ -2,10 +2,70 @@
 
 ## Índice
 
+- [⚡ Inicio Rápido (Primera Página): Servicio Local Python (`sincronizador.py`) y Migración de PC](#-inicio-rápido-primera-página-servicio-local-python-sincronizadorpy-y-migración-de-pc)
 - [1. Ciclo de Vida de Contenedores y HTTPS (Docker Compose + Caddy)](#1-ciclo-de-vida-de-contenedores-y-https-docker-compose--caddy)
 - [2. Base de Datos y Respaldos Dual Drive (MySQL + rclone)](#2-base-de-datos-y-respaldos-dual-drive-mysql--rclone)
 - [3. Cliente Local de Sincronización en Windows (Python + Word)](#3-cliente-local-de-sincronización-en-windows-python--word)
 - [4. Pruebas Automatizadas y Diagnóstico](#4-pruebas-automatizadas-y-diagnóstico)
+
+---
+
+## ⚡ Inicio Rápido (Primera Página): Servicio Local Python (`sincronizador.py`) y Migración de PC
+
+### Iniciar el servicio local de Python (segundo plano sin ventana o modo consola)
+
+**Resumen:** Inicia el acompañante local en Windows para sincronizar notas E2EE hacia Word (`Journal` + `English_Learning_Notebook.docx`), extraer letras con `yt-dlp` y mantener el espejo bidireccional con Google Drive.
+
+```powershell
+# En segundo plano silencioso (recomendado para uso diario):
+Start-Process pythonw -ArgumentList ".\sincronitation\sincronizador.py" -WorkingDirectory (Get-Location).Path -WindowStyle Hidden
+
+# O en consola visible para ver registros en tiempo real:
+python .\sincronitation\sincronizador.py
+```
+
+| Parámetro / Comando | Significado |
+| --- | --- |
+| `pythonw` | Ejecuta el servicio sin ventana negra de consola; los eventos se guardan en `sincronitation/historial.log`. |
+| `.\sincronitation\sincronizador.py` | Script cliente E2EE + OOXML/COM + puente HTTP firmado con HMAC. |
+| `--consolidar-word` | Opcional: reorganiza, elimina duplicados y normaliza saltos de página en títulos principales de `English_Learning_Notebook.docx`. |
+
+### Reiniciar el servicio local de Python (una sola línea en PowerShell)
+
+**Resumen:** Detiene limpiamente cualquier proceso previo de `sincronizador.py` (`python.exe` o `pythonw.exe`) y vuelve a iniciarlo en segundo plano con los cambios más recientes.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%sincronizador.py%'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; Start-Sleep -Milliseconds 500; Start-Process pythonw -ArgumentList ".\sincronitation\sincronizador.py" -WorkingDirectory (Get-Location).Path -WindowStyle Hidden
+```
+
+| Parámetro / Paso | Significado |
+| --- | --- |
+| `Get-CimInstance Win32_Process` | Localiza procesos activos cuyo comando incluya `sincronizador.py` (cierra instancias previas y libera el mutex). |
+| `Stop-Process -Force` | Termina el worker anterior de forma segura antes de relanzar. |
+| `Start-Process pythonw` | Levanta el nuevo servicio en segundo plano inmediatamente. |
+
+---
+
+### 📋 Instrucciones Paso a Paso si Necesitas Migrar a Otra PC (Windows)
+
+Sigue este orden exacto al cambiar de computadora (por seguridad, la bóveda DPAPI está ligada al usuario y hardware de cada PC):
+
+1. **Preparar entorno y código:** Instala Python 3.10+, Git y `yt-dlp` en la nueva PC, clona este repositorio e instala las dependencias de sincronización (`pip install pycryptodome pywin32 requests` o equivalente).
+2. **Transferir archivos privados locales:** Copia desde tu PC anterior (vía USB cifrado o respaldo seguro) tu archivo `.env.enc`, tus documentos Word locales (`WORD_FILE_PATH` / `ENGLISH_WORD_FILE_PATH` o la carpeta `english-notes/` si aún no están respaldados en Drive 2) y, si aplica, la ruta de `yt-dlp.exe` (`YT_DLP_PATH`). *Nunca subas `.env.enc` ni tu Word personal a GitHub.*
+3. **Configurar la nueva bóveda DPAPI local (obligatorio en cada PC):** No copies `vault.dpapi` entre computadoras (no descifrará fuera de la PC original). En la nueva PC ejecuta:
+   ```powershell
+   python .\sincronitation\sincronizador.py --configurar-autoinicio
+   ```
+   Ingresa la clave maestra de `.env.enc` cuando se te solicite y verifica con:
+   ```powershell
+   python .\sincronitation\sincronizador.py --probar-autoinicio
+   ```
+4. **Habilitar autoinicio en Windows y auditar Word:** Ejecuta el script de registro de arranque automático y valida la jerarquía del cuaderno:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\sincronitation\registrar_inicio_windows.ps1
+   python .\sincronitation\sincronizador.py --consolidar-word .\english-notes\English_Learning_Notebook.docx
+   ```
+5. **Arrancar y confirmar:** Ejecuta el comando de **Reiniciar el servicio local de Python** de arriba y revisa `sincronitation\historial.log` para confirmar conexión con EC2/servidor y estado verde del puente PC en la aplicación web.
 
 ---
 
