@@ -5307,7 +5307,7 @@ function renderMusicLyricsAlbumPlaylist(song) {
         btn.addEventListener('click', () => {
             if (Number(trackSong.id) === Number(song.id)) return;
             seleccionarCancionParaEstudio(trackSong);
-            if (musicState.ytdlpStatus?.pcOnline && obtenerLlaveE2EE() && !musicState.sessionLyricsBySongId[trackSong.id]?.lyrics) {
+            if (!musicState.sessionLyricsBySongId[trackSong.id]?.lyrics) {
                 solicitarOExtraerLetraViaPc(trackSong, { silent: true, forceExtract: false });
             }
         });
@@ -5318,10 +5318,131 @@ function renderMusicLyricsAlbumPlaylist(song) {
     box.hidden = false;
 }
 
+function applyResolvedLyricsPayload(song, resultObj, defaultSource = 'cloud-extract') {
+    if (!song || !resultObj || !resultObj.lyrics) return false;
+    if (resultObj.trackNumber && !song.numero_pista) {
+        song.numero_pista = resultObj.trackNumber;
+    }
+    musicState.sessionLyricsBySongId[song.id] = {
+        lyrics: resultObj.lyrics,
+        tracks: resultObj.tracks || null,
+        source: resultObj.source || defaultSource,
+        fields: resultObj.fields || null
+    };
+    if (resultObj.fields && typeof resultObj.fields === 'object') {
+        const loadedFields = {
+            vocab: resultObj.fields.vocabulary_list || '',
+            pronunciation: resultObj.fields.pronunciation_notes || '',
+            notes: resultObj.fields.notes || ''
+        };
+        musicState.sessionStudyFieldsBySongId[song.id] = loadedFields;
+        if (Number(musicState.selectedSongId) === Number(song.id)) {
+            const fillIfEmpty = (id, val) => {
+                const el = document.getElementById(id);
+                if (el && !el.value.trim() && val) el.value = val;
+            };
+            fillIfEmpty('musicStudyVocab', loadedFields.vocab);
+            fillIfEmpty('musicStudyPronunciation', loadedFields.pronunciation);
+            fillIfEmpty('musicStudyExtraNotes', loadedFields.notes);
+        }
+    }
+    if (resultObj.metadata && typeof resultObj.metadata === 'object') {
+        resilientFetchJson(`/api/english/music/songs/${song.id}/sync-metadata`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(resultObj.metadata)
+        }, { timeoutMs: 8000 }).catch(() => { });
+    }
+    actualizarPanelLetraCancion(song, { forceSyncText: true });
+    if (Number(musicState.selectedSongId) === Number(song.id)) {
+        renderMusicLyricsAlbumPlaylist(song);
+    }
+    return true;
+}
+
 async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract = false } = {}) {
     const hintEl = document.getElementById('musicLyricsStatusHint');
     if (!song) return false;
 
+    const markWordSyncedLocal = () => {
+        song.word_sincronizado = 1;
+        const nextStatus = song.estado_estudio === 'to_study' ? 'in_progress' : (song.estado_estudio || 'in_progress');
+        resilientFetchJson(`/api/english/music/songs/${song.id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
+        }, { timeoutMs: 8000 }).catch(() => { });
+        resilientFetchJson('/api/language/word-activity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'music_lyrics_loaded', songId: song.id })
+        }, { timeoutMs: 6000 }).catch(() => { });
+    };
+
+    // Tiers 1-3 — Resolución autónoma en la nube (Drive Word cache -> InnerTube -> yt-dlp servidor) sin depender de la PC ni E2EE previo
+    try {
+        if (hintEl) {
+            hintEl.textContent = tUi(
+                'Searching Drive Word notebook and autonomous cloud sources (0 AI tokens)...',
+                'Buscando en cuaderno Word (Drive) y extracción autónoma en la nube (0 tokens IA)...'
+            );
+        }
+        const cloudData = await submitMutationRequest({
+            url: `/api/english/music/songs/${encodeURIComponent(song.id)}/resolve-lyrics`,
+            method: 'POST',
+            buildBody: () => ({ forceExtract: Boolean(forceExtract) }),
+            parseJson: true,
+            timeoutMs: 30000
+        }).catch(() => null);
+
+        if (cloudData && cloudData.ok && cloudData.lyrics) {
+            const tierNum = Number(cloudData.tier || 3);
+            const tierDefaultSource = tierNum === 1 ? 'drive-word' : (tierNum === 2 ? 'ytm-innertube' : 'cloud-ytdlp');
+            applyResolvedLyricsPayload(song, cloudData, tierDefaultSource);
+
+            if (tierNum === 1) {
+                markWordSyncedLocal();
+            } else if (tierNum >= 2) {
+                const unlockedKey = obtenerLlaveE2EE();
+                if (unlockedKey) {
+                    const autoEntry = {
+                        category: 'music',
+                        language: song.idioma || 'English',
+                        song_title: song.titulo,
+                        artists_display: formatSongArtistsSummary(song),
+                        album_title: song.album_titulo || '',
+                        album_type: RELEASE_TYPE_LABELS[song.album_tipo] || song.album_tipo || '',
+                        release_year: song.album_anio ? String(song.album_anio) : '',
+                        track_number: song.numero_pista || null,
+                        yt_music_url: song.yt_music_url || song.youtube_url || '',
+                        focus_summary: song.enfoque_corto || '',
+                        lyrics_study: cloudData.lyrics
+                    };
+                    submitMutationRequest({
+                        url: '/api/send-english',
+                        method: 'POST',
+                        scopeKey: `music_cloud_autosync_${song.id}`,
+                        signature: `cloud:${song.id}:${String(cloudData.lyrics).length}`,
+                        buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(autoEntry), unlockedKey) }),
+                        timeoutMs: 12000
+                    }).then(() => markWordSyncedLocal()).catch(() => { });
+                }
+            }
+
+            const tierMsg = tierNum === 1
+                ? tUi('✅ Lyrics loaded from Drive Word notebook (Tier 1 • 0 AI tokens).', '✅ Letra cargada desde tu Word en Drive (Tier 1 • 0 tokens IA).')
+                : (tierNum === 2
+                    ? tUi('✅ Lyrics extracted via YouTube Music in the cloud (Tier 2 • 0 AI tokens).', '✅ Letra extraída desde YouTube Music en la nube (Tier 2 • 0 tokens IA).')
+                    : tUi('✅ Lyrics extracted on cloud server via yt-dlp (Tier 3 • 0 AI tokens).', '✅ Letra extraída en el servidor vía yt-dlp (Tier 3 • 0 tokens IA).'));
+            if (hintEl) hintEl.textContent = tierMsg;
+            if (!silent) showToast('ok', tierMsg);
+            return true;
+        }
+    } catch (_) {
+        // Continuar hacia comprobación Tier 4 (PC)
+    }
+
+    // Tier 4 — Respaldo local en PC (solo si Tiers 1-3 no resolvieron la letra y el puente PC está en línea)
     try {
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         const timer = controller ? setTimeout(() => controller.abort(), 3000) : null;
@@ -5343,10 +5464,10 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
     if (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline === false) {
         const offlineMsg = tUi(
-            'Your computer is currently turned off or asleep. Turn it on briefly to automatically read your Word notebook or extract missing lyrics without restrictions.',
-            'Tu computadora está apagada o en reposo en este momento. Enciéndela un momento para consultar tu Word y extraer automáticamente esta letra sin bloqueos.'
+            'Could not find captions automatically in cloud sources and your computer is currently offline.',
+            'No se encontraron subtítulos en las fuentes autónomas de la nube y tu computadora está apagada en este momento.'
         );
-        if (hintEl) hintEl.textContent = offlineMsg;
+        if (hintEl) hintEl.textContent = `ℹ️ ${offlineMsg}`;
         if (!silent) showToast('info', offlineMsg);
         return false;
     }
@@ -5354,26 +5475,11 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
     const llaveTexto = silent ? obtenerLlaveE2EE() : await solicitarLlaveE2EEAsync();
     if (!llaveTexto) return false;
 
-    const markWordSyncedLocal = () => {
-        song.word_sincronizado = 1;
-        const nextStatus = song.estado_estudio === 'to_study' ? 'in_progress' : (song.estado_estudio || 'in_progress');
-        resilientFetchJson(`/api/english/music/songs/${song.id}/status`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ estadoEstudio: nextStatus, wordSynced: true })
-        }, { timeoutMs: 8000 }).catch(() => { });
-        resilientFetchJson('/api/language/word-activity', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'music_lyrics_loaded', songId: song.id })
-        }, { timeoutMs: 6000 }).catch(() => { });
-    };
-
     try {
         if (hintEl) {
             hintEl.textContent = tUi(
-                'Checking your Word notebook and preparing lyrics... Please wait a moment.',
-                'Buscando la letra en tu cuaderno Word y fuentes de estudio... Espera un momento por favor.'
+                'Cloud sources had no captions; checking local PC bridge as fallback...',
+                'Las fuentes en la nube no devolvieron subtítulos; consultando puente local de PC como respaldo...'
             );
         }
         const jobPayload = {
@@ -5435,37 +5541,7 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                 if (musicState.ytdlpStatus) musicState.ytdlpStatus.pcOnline = true;
                 actualizarBadgePuentePc();
                 if (jobResult.ok && jobResult.lyrics) {
-                    musicState.sessionLyricsBySongId[song.id] = {
-                        lyrics: jobResult.lyrics,
-                        tracks: jobResult.tracks || null,
-                        source: jobResult.source || 'word-pc',
-                        fields: jobResult.fields || null
-                    };
-                    if (jobResult.fields && typeof jobResult.fields === 'object') {
-                        const loadedFields = {
-                            vocab: jobResult.fields.vocabulary_list || '',
-                            pronunciation: jobResult.fields.pronunciation_notes || '',
-                            notes: jobResult.fields.notes || ''
-                        };
-                        musicState.sessionStudyFieldsBySongId[song.id] = loadedFields;
-                        if (Number(musicState.selectedSongId) === Number(song.id)) {
-                            const fillIfEmpty = (id, val) => {
-                                const el = document.getElementById(id);
-                                if (el && !el.value.trim() && val) el.value = val;
-                            };
-                            fillIfEmpty('musicStudyVocab', loadedFields.vocab);
-                            fillIfEmpty('musicStudyPronunciation', loadedFields.pronunciation);
-                            fillIfEmpty('musicStudyExtraNotes', loadedFields.notes);
-                        }
-                    }
-                    if (jobResult.metadata && typeof jobResult.metadata === 'object') {
-                        resilientFetchJson(`/api/english/music/songs/${song.id}/sync-metadata`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(jobResult.metadata)
-                        }, { timeoutMs: 8000 }).catch(() => { });
-                    }
-                    actualizarPanelLetraCancion(song, { forceSyncText: true });
+                    applyResolvedLyricsPayload(song, jobResult, 'word-pc');
                     if (jobResult.wordSaved || jobResult.source === 'word-pc') markWordSyncedLocal();
                     if (hintEl) {
                         hintEl.textContent = jobResult.source === 'word-pc'

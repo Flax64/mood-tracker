@@ -46,7 +46,8 @@ const {
     extractSpanishBlockFromLyrics,
     parseStudyNotebookDocxBuffer,
     filterStudyNotebookData,
-    findNotebookTranslationMatch
+    findNotebookTranslationMatch,
+    findNotebookSongEntry
 } = require('./lib/language-studio');
 const {
     extractYouTubeWatchPageMetadata,
@@ -7177,6 +7178,7 @@ app.get('/api/english/music/pc-jobs/:jobId', apiReadLimiter.middleware, requireA
 const studyNotebookCache = {
     sha256: '',
     mtimeMs: 0,
+    remoteModTime: '',
     size: 0,
     loadedAt: 0,
     source: '',
@@ -7216,6 +7218,7 @@ function updateStudyNotebookCacheFromBuffer(docxBuffer, source = 'word', diskMet
     parsed.updatedAt = new Date().toISOString();
     studyNotebookCache.sha256 = sha256;
     studyNotebookCache.mtimeMs = diskMeta ? Number(diskMeta.mtimeMs) || 0 : 0;
+    studyNotebookCache.remoteModTime = diskMeta && diskMeta.remoteModTime ? String(diskMeta.remoteModTime) : '';
     studyNotebookCache.size = diskMeta ? Number(diskMeta.size) || docxBuffer.length : docxBuffer.length;
     studyNotebookCache.loadedAt = Date.now();
     studyNotebookCache.source = source;
@@ -7225,12 +7228,18 @@ function updateStudyNotebookCacheFromBuffer(docxBuffer, source = 'word', diskMet
 
 async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
     try {
+        // Strict isolation: Journal Notes (WORD_FILE_PATH / Personal_Journal.docx) are NEVER touched in the cloud.
         const explicitPath = String(process.env.ENGLISH_WORD_FILE_PATH || '').trim();
+        const journalPathEnv = String(process.env.WORD_FILE_PATH || '').trim();
         const localPath = explicitPath
             ? path.resolve(explicitPath)
             : path.join(__dirname, 'english-notes', 'English_Learning_Notebook.docx');
+        const pointsToJournal = Boolean(
+            (journalPathEnv && path.resolve(journalPathEnv) === localPath)
+            || /personal_journal|journal_notes/i.test(path.basename(localPath))
+        );
 
-        if (localPath && fs.existsSync(localPath)) {
+        if (localPath && !pointsToJournal && fs.existsSync(localPath)) {
             const stat = fs.statSync(localPath);
             if (stat.isFile() && stat.size >= 64) {
                 if (
@@ -7261,10 +7270,9 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
         return _studyNotebookFetchPromise;
     }
 
-    _studyNotebookFetchPromise = (async () => {
+    _studyNotebookFetchPromise = ytdlpService.runWithHeavyTaskLock(async () => {
         const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
-        const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
-        const tmpDocxPath = path.join(shmDir, `English_Read_${process.pid}_${Date.now()}.docx`);
+        const tmpDocxPath = path.join(os.tmpdir(), `English_Read_${process.pid}_${Date.now()}.docx`);
         try {
             if (!fs.existsSync(rcloneConf)) {
                 return studyNotebookCache.parsed || null;
@@ -7272,19 +7280,57 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
             const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
             const { execFile } = require('node:child_process');
             const rcloneExecEnv = buildSafeRcloneExecEnv();
-            await new Promise((resolve, reject) => {
-                execFile(
-                    'rclone',
-                    ['--config', rcloneConf, 'copyto', '--retries', '1', remoteTarget, tmpDocxPath],
-                    { timeout: 25000, env: rcloneExecEnv },
-                    (err, _stdout, stderr) => {
-                        if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
-                        resolve();
-                    }
-                );
+            const runRclone = (args, timeout) => new Promise((resolve, reject) => {
+                execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
+                    if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
+                    resolve(stdout);
+                });
             });
+
+            // Only download to /tmp when remote size or ModTime changed (zero unnecessary RAM/network spikes)
+            let remoteModTime = '';
+            let remoteSize = 0;
+            try {
+                const lsRaw = await runRclone(['lsjson', remoteTarget], 15000);
+                const entries = JSON.parse(String(lsRaw || '[]'));
+                if (!Array.isArray(entries) || entries.length === 0) {
+                    return studyNotebookCache.parsed || null;
+                }
+                remoteModTime = String(entries[0].ModTime || '');
+                remoteSize = Number(entries[0].Size) || 0;
+                if (
+                    studyNotebookCache.parsed
+                    && studyNotebookCache.source === 'drive-word'
+                    && remoteModTime
+                    && studyNotebookCache.remoteModTime === remoteModTime
+                    && studyNotebookCache.size === remoteSize
+                ) {
+                    studyNotebookCache.loadedAt = Date.now();
+                    return studyNotebookCache.parsed;
+                }
+            } catch (_) {
+                // Proceed to copyto if lsjson isn't supported or timed out briefly
+            }
+
+            await runRclone(['copyto', '--retries', '1', remoteTarget, tmpDocxPath], 25000);
             const buf = fs.readFileSync(tmpDocxPath);
-            const parsedDrive = updateStudyNotebookCacheFromBuffer(buf, 'drive-word');
+            if (buf.length < 64 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+                return studyNotebookCache.parsed || null;
+            }
+            const bufSha = crypto.createHash('sha256').update(buf).digest('hex');
+            if (
+                studyNotebookCache.parsed
+                && studyNotebookCache.sha256 === bufSha
+                && studyNotebookCache.source === 'drive-word'
+            ) {
+                studyNotebookCache.remoteModTime = remoteModTime || studyNotebookCache.remoteModTime;
+                studyNotebookCache.loadedAt = Date.now();
+                return studyNotebookCache.parsed;
+            }
+            const parsedDrive = updateStudyNotebookCacheFromBuffer(buf, 'drive-word', {
+                remoteModTime,
+                size: remoteSize || buf.length
+            });
             return parsedDrive || studyNotebookCache.parsed || null;
         } catch (_err) {
             return studyNotebookCache.parsed || null;
@@ -7298,12 +7344,43 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
                 } catch (_) {}
             }
         }
-    })();
+    });
 
     try {
         return await _studyNotebookFetchPromise;
     } finally {
         _studyNotebookFetchPromise = null;
+    }
+}
+
+async function syncNotebookSongsOrderToMysql(parsedNotebook, uid) {
+    if (!parsedNotebook || !parsedNotebook.ok || !uid) return 0;
+    const allEntries = (parsedNotebook.allEntries || parsedNotebook.entries || []).filter(e => e && e.section === 'music');
+    if (!allEntries.length) return 0;
+    try {
+        const { albums, songs } = await fetchUserMusicAlbumsAndSongs(uid);
+        if (!Array.isArray(songs) || !songs.length) return 0;
+        const albumsById = new Map((albums || []).map((a) => [Number(a.id), a]));
+        let updatedCount = 0;
+        for (const song of songs) {
+            if (!song || !song.titulo) continue;
+            const albumObj = song.album_id ? albumsById.get(Number(song.album_id)) : null;
+            const match = findNotebookSongEntry(parsedNotebook, {
+                songTitle: song.titulo,
+                artistName: String(albumObj?.artista_principal_nombre || '').trim(),
+                albumTitle: String(song.album_titulo || albumObj?.titulo || '').trim()
+            });
+            if (match && match.trackNumber && !song.numero_pista) {
+                await dbQueryAsync(
+                    'UPDATE MusicaCanciones SET numero_pista = COALESCE(numero_pista, ?) WHERE id = ? AND usuario_id = ?',
+                    [match.trackNumber, song.id, uid]
+                ).catch(() => {});
+                updatedCount += 1;
+            }
+        }
+        return updatedCount;
+    } catch (_) {
+        return 0;
     }
 }
 
@@ -7325,6 +7402,7 @@ app.get('/api/english/study-notebook', apiReadLimiter.middleware, requireAdmin, 
                 entries: []
             });
         }
+        syncNotebookSongsOrderToMysql(parsedBase, req.user.id).catch(() => {});
         const filtered = filterStudyNotebookData(parsedBase, {
             section: req.query.section,
             artist: req.query.artist,
@@ -7530,6 +7608,163 @@ app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verif
             if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
             if (cleanupConf && rcloneConf && fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
         } catch (_) {}
+    }
+});
+
+async function resolveAutonomousSongLyrics({ song, uid, forceExtract = false, preferredLangs = null } = {}) {
+    if (!song || !song.id) {
+        return { ok: false, tier: 4, reason: 'song_not_found', error: 'Song not found.', storedInDb: false };
+    }
+
+    let artistName = String(song.artista_principal_nombre || song.artistName || '').trim();
+    let albumTitle = String(song.album_titulo || song.albumTitle || '').trim();
+    try {
+        const catData = await fetchUserMusicAlbumsAndSongs(uid);
+        const fullSong = Array.isArray(catData?.songs)
+            ? catData.songs.find((s) => Number(s.id) === Number(song.id))
+            : null;
+        if (fullSong) {
+            if (!albumTitle) albumTitle = String(fullSong.album_titulo || '').trim();
+            if (!artistName && fullSong.album_id && Array.isArray(catData?.albums)) {
+                const albumObj = catData.albums.find((a) => Number(a.id) === Number(fullSong.album_id));
+                if (albumObj) {
+                    artistName = String(albumObj.artista_principal_nombre || '').trim();
+                    if (!albumTitle) albumTitle = String(albumObj.titulo || '').trim();
+                }
+            }
+        }
+    } catch (_) {}
+
+    const videoId =
+        ytdlpService.extractValidYouTubeVideoId(song.yt_video_id) ||
+        ytdlpService.extractValidYouTubeVideoId(song.yt_music_url) ||
+        '';
+
+    // Tier 1 — Cloud Cache / Study Word Notebook in Google Drive (0 tokens, works with PC off)
+    if (!forceExtract) {
+        try {
+            const notebookData = await getStudyNotebookDataForUser({ forceRefresh: false });
+            if (notebookData && notebookData.ok) {
+                const nbSong = findNotebookSongEntry(notebookData, {
+                    songTitle: song.titulo || '',
+                    artistName,
+                    albumTitle
+                });
+                if (nbSong && nbSong.lyrics) {
+                    if (nbSong.trackNumber) {
+                        await dbQueryAsync(
+                            'UPDATE MusicaCanciones SET numero_pista = COALESCE(numero_pista, ?) WHERE id = ? AND usuario_id = ?',
+                            [nbSong.trackNumber, song.id, uid]
+                        ).catch(() => {});
+                    }
+                    const tracks = ytdlpService.classifyLyricsIntoFiveTracks(
+                        [{ rawLanguage: 'multi', lyrics: nbSong.lyrics, source: notebookData.source || 'drive-word' }],
+                        { rawOriginal: nbSong.lyrics }
+                    );
+                    return {
+                        ok: true,
+                        tier: 1,
+                        songId: song.id,
+                        videoId,
+                        lyrics: nbSong.lyrics.slice(0, 50000),
+                        tracks,
+                        trackList: [{ language: 'original', lyrics: nbSong.lyrics, source: notebookData.source || 'drive-word' }],
+                        fields: nbSong.fields || null,
+                        trackNumber: nbSong.trackNumber || null,
+                        spanishSource: nbSong.spanishLyrics || tracks?.es ? 'word-cache' : null,
+                        tokensUsed: 0,
+                        source: notebookData.source || 'drive-word',
+                        language: song.idioma || '',
+                        pcOnline: isPcBridgeOnline(),
+                        storedInDb: false
+                    };
+                }
+            }
+        } catch (_) {}
+    }
+
+    if (!videoId) {
+        return {
+            ok: false,
+            tier: 4,
+            songId: song.id,
+            videoId: '',
+            reason: 'invalid_video_id',
+            error: 'This song does not have a valid YouTube / YouTube Music link and was not found in the Drive Word notebook.',
+            canFallbackToPc: isPcBridgeOnline(),
+            pcOnline: isPcBridgeOnline(),
+            storedInDb: false
+        };
+    }
+
+    // Tier 2 (YouTube Music InnerTube WEB_REMIX / MPLYt_) + Tier 3 (Server yt-dlp captionTracks)
+    const extracted = await ytdlpService.extractSongLyrics({
+        videoId,
+        url: song.yt_music_url || '',
+        idioma: song.idioma || '',
+        preferredLangs,
+        useInnerTube: true,
+        trackTitle: song.titulo || '',
+        trackArtist: artistName
+    });
+
+    if (extracted.ok && extracted.lyrics) {
+        const cleanLyrics = String(extracted.lyrics).trim().slice(0, 50000);
+        const cleanSource = String(extracted.source || 'yt-dlp').trim().slice(0, 80) || 'yt-dlp';
+        const isInnerTube = cleanSource.includes('innertube') || cleanSource.includes('ytmusic');
+        return {
+            ok: true,
+            tier: isInnerTube ? 2 : 3,
+            songId: song.id,
+            videoId,
+            lyrics: cleanLyrics,
+            tracks: extracted.tracks || null,
+            trackList: extracted.trackList || [],
+            spanishSource: extracted.tracks?.es ? 'yt-captions' : null,
+            tokensUsed: 0,
+            source: cleanSource,
+            language: extracted.language || '',
+            ytdlpAvailable: Boolean(extracted.ytdlpAvailable),
+            availableLangs: extracted.availableLangs || [],
+            suggestedCommand: extracted.suggestedCommand || '',
+            pcOnline: isPcBridgeOnline(),
+            storedInDb: false
+        };
+    }
+
+    // Tier 4 — Local PC bridge only if Tiers 1-3 failed and PC is online
+    return {
+        ok: false,
+        tier: 4,
+        songId: song.id,
+        videoId,
+        reason: extracted.reason || 'no_subtitles',
+        error: extracted.error || 'Could not extract lyrics automatically on the cloud server.',
+        canFallbackToPc: isPcBridgeOnline(),
+        pcOnline: isPcBridgeOnline(),
+        ytdlpAvailable: Boolean(extracted.ytdlpAvailable),
+        availableLangs: extracted.availableLangs || [],
+        suggestedCommand: extracted.suggestedCommand || '',
+        storedInDb: false
+    };
+}
+
+app.post('/api/english/music/songs/:id/resolve-lyrics', apiWriteLimiter.middleware, requireAdmin, async (req, res) => {
+    const songId = parsePositiveInt(req.params.id);
+    if (!songId) return res.status(400).send('Invalid song ID.');
+
+    const uid = req.user.id;
+    try {
+        const song = await fetchOwnedMusicSongForMediaOrLyrics(songId, uid);
+        if (!song) return res.status(404).send('Song not found.');
+
+        const forceExtract = Boolean(req.body?.forceExtract);
+        const preferredLangs = Array.isArray(req.body?.preferredLangs) ? req.body.preferredLangs : null;
+        const result = await resolveAutonomousSongLyrics({ song, uid, forceExtract, preferredLangs });
+        return res.json(result);
+    } catch (err) {
+        console.error('[AUTONOMOUS_LYRICS_RESOLVE_ERROR]', err);
+        res.status(500).send('Error resolving song lyrics autonomously.');
     }
 });
 

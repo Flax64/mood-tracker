@@ -480,14 +480,19 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         const dockerfile = readText('Dockerfile');
         assert.match(dockerfile, /FROM node:20-alpine/);
         assert.match(dockerfile, /npm ci --omit=dev/);
-        assert.match(dockerfile, /--max-old-space-size=128/);
+        assert.match(dockerfile, /--max-old-space-size=384/);
+        assert.match(dockerfile, /\bffmpeg\b/);
+        assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp/);
+        assert.match(dockerfile, /YTM_INNERTUBE=1/);
 
         const compose = readText('docker-compose.yml');
         assert.match(compose, /mem_limit:\s*512m/);
-        assert.match(compose, /mem_limit:\s*220m/);
+        assert.match(compose, /mem_limit:\s*420m/);
         assert.match(compose, /--performance-schema=OFF/);
         assert.match(compose, /--skip-log-bin/);
         assert.match(compose, /YT_DLP_PATH=\$\{YT_DLP_PATH:-\}/);
+        assert.ok((compose.match(/restart:\s*always/g) || []).length >= 3, 'db, app y proxy deben usar restart: always');
+        assert.ok((compose.match(/healthcheck:/g) || []).length >= 3, 'db, app y proxy deben definir healthcheck');
     });
 
     it('mantiene sincronizadas las variables env y envs en deploy.yml sin dejar .env en disco', () => {
@@ -510,7 +515,13 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(deploy, /cleanup_deploy_env/);
         assert.match(deploy, /git remote set-url origin "https:\/\/github\.com\/\$\{GITHUB_REPO\}\.git"/);
         assert.match(deploy, /\/swapfile/);
+        assert.match(deploy, /fallocate -l 2G \/swapfile/);
         assert.match(deploy, /swapon\s+\/swapfile/);
+        assert.match(deploy, /vm\.swappiness=15/);
+        assert.match(deploy, /vm\.vfs_cache_pressure=50/);
+        assert.match(deploy, /apt-get upgrade -y/);
+        assert.match(deploy, /\bffmpeg\b/);
+        assert.match(deploy, /yt-dlp -U/);
         assert.ok(
             deploy.indexOf('/swapfile') < deploy.indexOf('# 1. Instalar dependencias base'),
             'El paso de activación Swap debe ejecutarse primero al entrar por SSH antes de instalar dependencias'
@@ -831,7 +842,8 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         assert.equal(indexHtml.includes('id="resumenDriveMonthsSelect"'), false, 'La UI no debe exponer selector manual de Drive al usuario');
         assert.equal(indexHtml.includes('id="setDriveStudySyncEnabled"'), false, 'La sincronización Drive debe ser automática, no configurable en UI');
         assert.equal(indexHtml.includes('id="setDriveStudyDir"'), false, 'La carpeta Drive no debe quedar expuesta en Configuración UI');
-        assert.equal(frontendJs.includes('/lyrics/extract'), false, 'frontend no debe caer en extracción bloqueada de EC2');
+        assert.equal(frontendJs.includes('/lyrics/extract'), false, 'frontend no debe depender del endpoint antiguo de extracción bloqueada');
+        assert.ok(frontendJs.includes('/resolve-lyrics'), 'frontend debe usar /resolve-lyrics autónomo en la nube');
         assert.equal(frontendJs.includes('/media'), false, 'frontend debe usar embeds oficiales y nunca descargar audio/video al servidor');
         assert.ok(frontendJs.includes('play_on_pc') && frontendJs.includes('onError'));
 
@@ -869,6 +881,24 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         }, { songTitle: 'Test Track', artistName: 'Test Artist', mode: 'lyrics' });
         assert.equal(synMatch?.hit, true);
         assert.match(synMatch?.spanishLyrics || '', /Hola mundo línea uno/);
+
+        assert.equal(typeof langStudio.findNotebookSongEntry, 'function');
+        const songNbMatch = langStudio.findNotebookSongEntry({
+            allEntries: [{
+                section: 'music',
+                title: 'Track Without ES',
+                artist: 'Test Artist',
+                album: 'Test Album',
+                trackNumber: 4,
+                fields: {
+                    lyrics_study: 'Line one\nLine two',
+                    vocabulary_list: 'fade: desvanecerse'
+                }
+            }]
+        }, { songTitle: 'Track Without ES', artistName: 'Test Artist', albumTitle: 'Test Album' });
+        assert.equal(songNbMatch?.lyrics, 'Line one\nLine two');
+        assert.equal(songNbMatch?.trackNumber, 4);
+        assert.equal(songNbMatch?.fields?.vocabulary_list, 'fade: desvanecerse');
 
         // Regresión Fase Japonés (JP / JP-EN), Romaji y Guía de Comandos en 1ª página
         assert.match(cmdGuide.slice(0, 3200), /Stop-Process[\s\S]*sincronizador\.py/);

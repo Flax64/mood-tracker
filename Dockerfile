@@ -1,6 +1,7 @@
 FROM node:20-alpine
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    YTM_INNERTUBE=1
 
 WORKDIR /app
 
@@ -8,8 +9,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Instalar rclone (respaldo Dual Drive), Python 3 y certificados CA
-RUN apk add --no-cache python3 ca-certificates curl rclone
+# Instalar rclone (respaldo y lectura Drive), Python 3, ffmpeg, unzip, certificados CA y yt-dlp autónomo
+RUN apk add --no-cache python3 ca-certificates curl rclone unzip ffmpeg \
+    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
+    && /usr/local/bin/yt-dlp --version
 
 # Copiar únicamente el código necesario de la app (excluido el resto vía .dockerignore)
 COPY server.js version-history.json CHANGELOG.md ./
@@ -18,5 +22,5 @@ COPY lib ./lib
 
 EXPOSE 3000
 
-# Limitar el heap de V8 a 128 MB para cuidar la RAM en instancias t3.micro (1 GB)
-CMD ["node", "--max-old-space-size=128", "server.js"]
+# Heap de V8 en 384 MB (compatible con container mem_limit 420m y 2 GB Swap en t3.micro)
+CMD ["node", "--max-old-space-size=384", "server.js"]
