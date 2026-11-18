@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.15.2**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.16.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.16.0] - 2026-11-18 (MINOR) · `6fad99d`
+**feat(lyrics,i18n): separa letras en 5 apartados, quita el FAB del traductor y arregla el panel**
+
+### ✨ Features / Nuevas Funciones
+- feat(lyrics,i18n): separa letras en 5 apartados, quita el FAB del traductor y arregla el panel (f23a831)
 
 ## [v1.15.2] - 2026-11-18 (PATCH) · `e892caf`
 **fix: yt-dlp**

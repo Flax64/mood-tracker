@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.15.2",
-  "updatedAt": "2026-11-18T04:15:01.765Z",
+  "currentVersion": "1.16.0",
+  "updatedAt": "2026-11-18T06:03:42.132Z",
   "releases": [
+    {
+      "version": "1.16.0",
+      "tag": "v1.16.0",
+      "bumpType": "minor",
+      "previousVersion": "1.15.2",
+      "releasedAt": "2026-11-18T06:03:42.132Z",
+      "commitSha": "6fad99d",
+      "trigger": "push",
+      "summary": "feat(lyrics,i18n): separa letras en 5 apartados, quita el FAB del traductor y arregla el panel",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(lyrics,i18n): separa letras en 5 apartados, quita el FAB del traductor y arregla el panel (f23a831)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.15.2",
       "tag": "v1.15.2",
