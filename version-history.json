@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.16.0",
-  "updatedAt": "2026-11-18T06:03:42.132Z",
+  "currentVersion": "1.17.0",
+  "updatedAt": "2026-11-18T06:40:49.383Z",
   "releases": [
+    {
+      "version": "1.17.0",
+      "tag": "v1.17.0",
+      "bumpType": "minor",
+      "previousVersion": "1.16.0",
+      "releasedAt": "2026-11-18T06:40:49.383Z",
+      "commitSha": "593ce77",
+      "trigger": "push",
+      "summary": "feat: ntfy",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat: ntfy (593ce77)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.16.0",
       "tag": "v1.16.0",
