@@ -359,12 +359,11 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="musicLyricsMetaBadge"',
             'id="musicPcBridgeBadge"',
             'id="musicLyricsAlbumPlaylistBox"',
-            'id="musicDockedTranslatorPane"',
-            'id="musicDockedTransInput"',
-            'id="btnMusicDockedTranslateRun"',
             'id="btnMusicExtractLyrics"',
             'id="btnMusicCopyLyricsToStudy"',
             'id="btnMusicTranslateLyricsSel"',
+            'id="btnMinimizeFloatingTranslator"',
+            'floating-translate-sel-btn',
             'id="musicSongLyricsViewer"',
             'id="musicLyricsStatusHint"',
             'id="chkAutoSyncAiToWord"',
@@ -377,7 +376,10 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="musicRepertoireNavigator"',
             'id="btnMusicSaveLyrics"',
             'id="btnMusicToggleYtdlpHint"',
-            'id="musicYtdlpHelperBox"'
+            'id="musicYtdlpHelperBox"',
+            'id="musicDockedTranslatorPane"',
+            'id="musicDockedTransInput"',
+            'id="btnMusicDockedTranslateRun"'
         ]) {
             assert.equal(indexHtml.includes(removedId), false, `public/index.html debe retirar el elemento obsoleto ${removedId}`);
         }
@@ -886,5 +888,63 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         const jpEnAnalysis = langStudio.analyzeTextOffline({ text: 'Shining star\n夢を見る', language: 'en_ja', uiLang: 'es' });
         assert.equal(jpEnAnalysis.language, 'en_ja');
         assert.ok(jpEnAnalysis.lines.some((l) => l.script === 'japanese' && /yume/i.test(l.romanization)));
+
+        // Regresión UX Modo Estudio: Traductor flotante movible/minimizable, botón Traducir Selección contextual, OPPO A79 y filtro por idioma
+        assert.ok(styleCss.includes('.floating-translate-sel-btn'), 'style.css debe definir .floating-translate-sel-btn');
+        assert.ok(styleCss.includes('.floating-translator-drawer.is-minimized'), 'style.css debe definir .floating-translator-drawer.is-minimized');
+        assert.match(styleCss, /min\(92vw,\s*360px\)/, 'style.css debe definir ancho responsivo OPPO A79 vertical min(92vw, 360px)');
+        assert.match(styleCss, /70dvh/, 'style.css debe limitar altura en móvil vertical a 70dvh');
+        assert.match(styleCss, /calc\(100dvh\s*-\s*24px\)/, 'style.css debe limitar altura en paisaje a calc(100dvh - 24px)');
+        assert.match(styleCss, /touch-action:\s*none/, 'style.css debe incluir touch-action: none para arrastre táctil fluido');
+        assert.ok(frontendJs.includes('orientationchange'), 'frontend.js debe recalcular coordenadas flotantes en orientationchange');
+        assert.ok(frontendJs.includes('selectionchange'), 'frontend.js debe escuchar selectionchange para mostrar Traducir Selección');
+        assert.ok(frontendJs.includes('extractLyricsForActiveLanguage'), 'frontend.js debe filtrar estrofas por el idioma seleccionado');
+
+        // Verificación funcional en VM de parseAndDivideLyricsByLanguage + extractLyricsForActiveLanguage
+        const vm = require('node:vm');
+        const extractFnBlock = (name, nextFnName) => {
+            const start = frontendJs.indexOf(`function ${name}(`);
+            assert.ok(start >= 0, `Debe existir function ${name} en frontend.js`);
+            const end = frontendJs.indexOf(`function ${nextFnName}(`, start);
+            assert.ok(end > start, `Debe existir límite ${nextFnName} tras ${name}`);
+            return frontendJs.slice(start, end);
+        };
+        const sandbox = {};
+        vm.runInNewContext([
+            extractFnBlock('_isolateHangulLinesClient', 'renderLyricsSectionsIntoContainer'),
+            extractFnBlock('_isStructuralLyricTagClient', 'renderReadonlyLyricsByLanguage')
+        ].join('\n'), sandbox);
+
+        const multiLangSample = [
+            '=== [ORIGINAL] ===',
+            '사랑해 forever',
+            '[saranghae forever]',
+            'Shining night together',
+            '=== [KO] ===',
+            '사랑해',
+            '[saranghae]',
+            '영원히 함께해',
+            '=== [EN] ===',
+            'Shining night together',
+            'Forever by my side',
+            '=== [ES — Traducción IA] ===',
+            'Te amo por siempre',
+            'Noche brillante juntos'
+        ].join('\n');
+
+        const koFiltered = sandbox.extractLyricsForActiveLanguage(multiLangSample, 'ko');
+        assert.equal(koFiltered.langCode, 'ko');
+        assert.ok(koFiltered.text.includes('사랑해') && koFiltered.text.includes('영원히 함께해'));
+        assert.equal(/saranghae|Shining night|Te amo/i.test(koFiltered.text), false, 'El filtro Coreano no debe incluir inglés, español ni romanización');
+
+        const enFiltered = sandbox.extractLyricsForActiveLanguage(multiLangSample, 'en');
+        assert.equal(enFiltered.langCode, 'en');
+        assert.ok(enFiltered.text.includes('Shining night together') && enFiltered.text.includes('Forever by my side'));
+        assert.equal(/사랑해|Te amo/i.test(enFiltered.text), false, 'El filtro Inglés no debe incluir coreano ni español');
+
+        const origFiltered = sandbox.extractLyricsForActiveLanguage(multiLangSample, 'original');
+        assert.equal(origFiltered.langCode, 'original');
+        assert.ok(origFiltered.text.includes('사랑해 forever') && origFiltered.text.includes('Shining night together'));
+        assert.equal(/Te amo por siempre/.test(origFiltered.text), false, 'El filtro Original no debe incluir el bloque de traducción al español');
     });
 });

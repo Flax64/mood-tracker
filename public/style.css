@@ -4578,6 +4578,7 @@ select,
     border: 1px solid var(--border-color, #cbd5e1);
     background: var(--bg-soft, #f8fafc);
     max-width: 100%;
+    overflow-x: hidden;
     box-sizing: border-box;
 }
 
@@ -4588,6 +4589,7 @@ select,
     justify-content: space-between;
     gap: 0.5rem;
     margin-bottom: 0.55rem;
+    max-width: 100%;
 }
 
 .music-lyrics-viewer-title-wrap {
@@ -4609,6 +4611,11 @@ select,
     flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
+    max-width: 100%;
+}
+
+.music-lyrics-viewer-actions .select-input {
+    max-width: 100%;
 }
 
 .music-lyrics-textarea {
@@ -7236,14 +7243,55 @@ body {
     display: none;
 }
 
+.floating-translate-sel-btn {
+    position: fixed;
+    left: 16px;
+    top: 16px;
+    z-index: 985;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(56, 189, 248, 0.55);
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    color: #f8fafc;
+    font-size: 0.82rem;
+    font-weight: 600;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.45);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+    max-width: calc(100vw - 16px);
+}
+
+.floating-translate-sel-btn[hidden] {
+    display: none !important;
+}
+
+.floating-translate-sel-btn.is-dragging {
+    cursor: grabbing;
+    opacity: 0.94;
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.6);
+}
+
+.floating-translate-sel-grip {
+    font-weight: 800;
+    letter-spacing: -1px;
+    opacity: 0.78;
+}
+
 .floating-translator-drawer {
     position: fixed;
     right: 20px;
     bottom: 76px;
     z-index: 980;
-    width: min(500px, calc(100vw - 24px));
-    max-height: min(86vh, 720px);
+    width: clamp(380px, 34vw, 440px);
+    max-width: calc(100vw - 16px);
+    max-height: 80vh;
     overflow-y: auto;
+    box-sizing: border-box;
     padding: 15px 17px;
     border-radius: 16px;
     border: 1px solid rgba(16, 185, 129, 0.36);
@@ -7261,6 +7309,28 @@ body {
 
 .floating-translator-drawer.is-dragging {
     box-shadow: 0 28px 64px rgba(15, 23, 42, 0.5);
+}
+
+.floating-translator-drawer.is-minimized {
+    max-height: none;
+    overflow: hidden;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    gap: 0;
+}
+
+.floating-translator-drawer.is-minimized > :not(.floating-translator-header) {
+    display: none !important;
+}
+
+.floating-translator-drawer.is-minimized .floating-translator-header {
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.floating-translator-drawer .lang-translator-result {
+    max-height: 38vh;
+    overflow-y: auto;
 }
 
 .floating-translator-header {
@@ -7397,19 +7467,47 @@ body {
     }
 
     .floating-translator-drawer {
-        left: 10px;
-        right: 10px;
+        left: 4vw;
+        right: auto;
         bottom: 62px;
-        width: auto;
-        max-height: 78vh;
+        width: min(92vw, 360px);
+        max-height: 70dvh;
         padding: 12px;
+        gap: 8px;
+    }
+
+    .floating-translator-drawer.is-minimized {
+        max-height: none;
+    }
+
+    .floating-translator-drawer .lang-dir-pill {
+        padding: 4px 8px;
+        font-size: 0.72rem;
+    }
+
+    .floating-translator-drawer .translator-extension-textarea {
+        min-height: 68px;
+        font-size: 0.88rem;
+        padding: 8px 10px;
+    }
+
+    .floating-translator-drawer .lang-translator-result {
+        max-height: 34dvh;
+        overflow-y: auto;
+        padding: 10px;
     }
 
     .floating-translator-input-row {
         flex-direction: column;
     }
 
-    .floating-translator-input-row button {
+    .floating-translator-drawer .lang-translator-actions {
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+    }
+
+    .floating-translator-drawer .lang-translator-actions button {
+        grid-column: 1 / -1;
         width: 100%;
     }
 
@@ -7421,6 +7519,84 @@ body {
     .settings-inline-actions input,
     .settings-inline-actions button {
         width: 100%;
+    }
+}
+
+/* OPPO A79 Portrait (~360px-480px) - sin scroll horizontal */
+@media (max-width: 480px) and (orientation: portrait) {
+    .floating-translator-drawer {
+        width: min(92vw, 360px);
+        max-height: 70dvh;
+    }
+
+    .music-lyrics-viewer-actions,
+    .lyrics-lang-tabs {
+        flex-wrap: wrap;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+}
+
+/* OPPO A79 Horizontal / Landscape (~800px-873px x 360px-480px) - altura compacta segura */
+@media (max-height: 500px) and (orientation: landscape) {
+    .floating-translator-drawer {
+        right: 12px;
+        bottom: 12px;
+        width: min(56vw, 380px);
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+        padding: 8px 12px;
+        gap: 6px;
+    }
+
+    .floating-translator-drawer.is-minimized {
+        max-height: none;
+    }
+
+    .floating-translator-drawer .floating-translator-header {
+        padding-bottom: 4px;
+    }
+
+    .floating-translator-drawer .lang-translator-dirs {
+        gap: 4px;
+    }
+
+    .floating-translator-drawer .lang-dir-pill {
+        padding: 3px 7px;
+        font-size: 0.7rem;
+    }
+
+    .floating-translator-drawer .translator-popup-toolbar {
+        gap: 4px;
+    }
+
+    .floating-translator-drawer .translator-extension-textarea {
+        min-height: 44px;
+        max-height: 58px;
+        padding: 6px 8px;
+        font-size: 0.84rem;
+    }
+
+    .floating-translator-drawer .lang-translator-actions {
+        grid-template-columns: 1fr 1fr auto;
+        gap: 6px;
+    }
+
+    .floating-translator-drawer .lang-translator-actions button {
+        grid-column: auto;
+        width: auto;
+        padding: 6px 10px;
+    }
+
+    .floating-translator-drawer .translator-context-input {
+        padding: 5px 8px;
+        font-size: 0.8rem;
+    }
+
+    .floating-translator-drawer .lang-translator-result {
+        max-height: calc(100dvh - 185px);
+        overflow-y: auto;
+        padding: 8px 10px;
     }
 }
 
@@ -8124,40 +8300,16 @@ input[type="password"] {
 }
 
 .music-lyrics-docked-workspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.95fr);
-    gap: 14px;
-    align-items: start;
+    display: block;
+    width: 100%;
+    max-width: 100%;
     margin-top: 10px;
 }
 
-.music-docked-translator {
-    border: 1px solid rgba(56, 189, 248, 0.25);
-    border-radius: 12px;
-    background: #0f172a;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    position: sticky;
-    top: 70px;
-}
-
-.music-docked-translator-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-}
-
-.music-docked-translator-controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.music-docked-translator-controls .select-input {
-    flex: 1 1 auto;
+.music-lyrics-pane {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .music-embed-blocked-banner {
@@ -8218,11 +8370,7 @@ input[type="password"] {
 
 @media (max-width: 900px) {
     .music-lyrics-docked-workspace {
-        grid-template-columns: 1fr;
-    }
-
-    .music-docked-translator {
-        position: static;
+        width: 100%;
     }
 
     .resumen-visual-week-days {
@@ -8351,6 +8499,8 @@ input[type="password"] {
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 10px;
+    max-width: 100%;
+    overflow-x: hidden;
 }
 
 .lyrics-lang-tab {

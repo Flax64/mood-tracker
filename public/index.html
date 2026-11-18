@@ -1447,12 +1447,8 @@
                                             📄 Extraer letra
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy"
-                                            title="Enviar esta letra al analizador para estudiarla por estrofas">
+                                            title="Enviar únicamente los versos del idioma seleccionado al analizador por estrofas">
                                             ✨ Analizar Estrofas
-                                        </button>
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateLyricsSel"
-                                            title="Traducir la frase seleccionada en el panel lateral/inferior">
-                                            🌐 Traducir Selección
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateFullLyricsEs"
                                             title="Traducir toda la canción al español y guardarla en tu cuaderno">
@@ -1462,7 +1458,7 @@
                                 </div>
                                 <div id="musicLyricsAlbumPlaylistBox" class="music-album-tracklist-box" hidden></div>
 
-                                <!-- Vista Acoplada: Letra a la izquierda/arriba + Traductor acoplado a la derecha/abajo sin tapar la interfaz -->
+                                <!-- Visor completo 100% ancho (el traductor funciona exclusivamente en ventana flotante arrastrable) -->
                                 <div class="music-lyrics-docked-workspace">
                                     <div class="music-lyrics-pane">
                                         <div id="musicLyricsReadonlyBlocks" class="lyrics-readonly-full-view" data-no-i18n="true"></div>
@@ -1470,36 +1466,10 @@
                                             readonly spellcheck="false" data-no-i18n="true" hidden
                                             placeholder="Presiona 'Extraer letra' para cargar la letra completa..."></textarea>
                                     </div>
-
-                                    <aside id="musicDockedTranslatorPane" class="music-docked-translator" aria-label="Panel acoplado de traducción">
-                                        <div class="music-docked-translator-head">
-                                            <strong>🌐 Traductor Acoplado</strong>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicOpenFloatingTranslator"
-                                                title="Abrir además el traductor en ventana flotante móvil">🪟 Ventana</button>
-                                        </div>
-                                        <div class="music-docked-translator-controls">
-                                            <select id="musicDockedTransDir" class="select-input select-compact" title="Dirección de traducción">
-                                                <option value="auto">🌐 Auto (Detectar)</option>
-                                                <option value="en_es">🇺🇸 → 🇪🇸 Inglés a Español</option>
-                                                <option value="ko_en">🇰🇷 → 🇺🇸 Coreano a Inglés</option>
-                                                <option value="ko_es">🇰🇷 → 🇪🇸 Coreano a Español</option>
-                                                <option value="ja_es">🇯🇵 → 🇪🇸 Japonés a Español</option>
-                                                <option value="ja_en">🇯🇵 → 🇺🇸 Japonés a Inglés</option>
-                                                <option value="en_ja">🎌 JP-EN → 🇪🇸 Híbrido a Español</option>
-                                                <option value="es_en">🇪🇸 → 🇺🇸 Español a Inglés</option>
-                                                <option value="es_ja">🇪🇸 → 🇯🇵 Español a Japonés</option>
-                                            </select>
-                                            <button type="button" class="btn-primary btn-small" id="btnMusicDockedTranslateRun"
-                                                title="Traducir y explicar esta línea o palabra">Traducir</button>
-                                        </div>
-                                        <textarea id="musicDockedTransInput" class="english-textarea" rows="2" maxlength="1500"
-                                            placeholder="Selecciona un verso o escribe una palabra para traducir sin salir de la canción..."></textarea>
-                                        <div id="musicDockedTransResult" class="lang-ai-result" hidden aria-live="polite"></div>
-                                    </aside>
                                 </div>
 
                                 <div class="music-lyrics-viewer-foot">
-                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Selecciona cualquier verso o frase para traducirlo en el panel acoplado o analiza la canción por estrofas.</span>
+                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Sombrea cualquier verso o frase para que aparezca el botón flotante «🌐 Traducir Selección», o abre el traductor flotante con Alt+T.</span>
                                 </div>
                             </section>
 
@@ -3061,6 +3031,13 @@
         </div>
     </div>
 
+    <!-- Contextual Floating & Draggable Lyrics Selection Translate Button -->
+    <button type="button" id="btnMusicTranslateLyricsSel" class="btn-secondary btn-small floating-translate-sel-btn" hidden
+        title="Traducir el texto seleccionado en el traductor flotante (arrastrable)">
+        <span class="floating-translate-sel-grip" aria-hidden="true">⋮⋮</span>
+        <span>🌐 Traducir Selección</span>
+    </button>
+
     <!-- Global Extension-Style Floating Translator Trigger & Drawer (Accessible on any tab / Alt+T) -->
     <button type="button" class="translator-fab admin-only-nav" id="btnFloatingTranslatorFab" hidden
         title="Open Quick Translator anywhere (Alt+T)" aria-label="Open Quick Translator">
@@ -3081,6 +3058,9 @@
                     title="Reset window position to bottom-right">↺</button>
                 <button type="button" class="btn-secondary btn-small" id="btnFloatPopoutTranslator"
                     title="Open in separate mini browser window alongside YouTube / PDFs">🪟 Window</button>
+                <button type="button" class="btn-secondary btn-small" id="btnMinimizeFloatingTranslator"
+                    aria-expanded="true" aria-label="Minimize or compact translator window"
+                    title="Minimizar / Compactar traductor flotante">—</button>
                 <button type="button" class="modal-close-btn" id="btnCloseFloatingTranslator" aria-label="Close translator">✕</button>
             </div>
         </div>
