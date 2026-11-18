@@ -20,7 +20,7 @@
                 <span aria-hidden="true">🌐</span>
                 <div>
                     <h1>Daily Hub Translator</h1>
-                    <small class="muted-text">EN ↔ ES · 한국어 ↔ EN/ES (Instant Study Mode)</small>
+                    <small class="muted-text">EN ↔ ES · 한국어 · 日本語 (Instant Study Mode)</small>
                 </div>
             </div>
             <div class="translator-popup-head-actions">
@@ -43,9 +43,13 @@
                 <button type="button" class="lang-dir-pill active" data-dir="en_es">🇺🇸 → 🇪🇸 EN → ES</button>
                 <button type="button" class="lang-dir-pill" data-dir="ko_en">🇰🇷 → 🇺🇸 KO → EN</button>
                 <button type="button" class="lang-dir-pill" data-dir="ko_es">🇰🇷 → 🇪🇸 KO → ES</button>
+                <button type="button" class="lang-dir-pill" data-dir="ja_es">🇯🇵 → 🇪🇸 JP → ES</button>
+                <button type="button" class="lang-dir-pill" data-dir="ja_en">🇯🇵 → 🇺🇸 JP → EN</button>
+                <button type="button" class="lang-dir-pill" data-dir="en_ja">🎌 JP-EN → ES</button>
                 <button type="button" class="lang-dir-pill" data-dir="auto">🌐 Auto</button>
                 <button type="button" class="lang-dir-pill" data-dir="es_en">🇪🇸 → 🇺🇸 ES → EN</button>
                 <button type="button" class="lang-dir-pill" data-dir="es_ko">🇪🇸 → 🇰🇷 ES → KO</button>
+                <button type="button" class="lang-dir-pill" data-dir="es_ja">🇪🇸 → 🇯🇵 ES → JP</button>
             </div>
 
             <div class="translator-popup-toolbar">
@@ -62,9 +66,13 @@
                         <option value="en_es" selected>English → Spanish</option>
                         <option value="ko_en">Korean → English</option>
                         <option value="ko_es">Korean → Spanish</option>
-                        <option value="auto">Auto Detect (EN/KO)</option>
+                        <option value="ja_es">Japanese → Spanish</option>
+                        <option value="ja_en">Japanese → English</option>
+                        <option value="en_ja">Japanese + English (JP-EN) → Spanish</option>
+                        <option value="auto">Auto Detect (EN/KO/JP)</option>
                         <option value="es_en">Spanish → English</option>
                         <option value="es_ko">Spanish → Korean</option>
+                        <option value="es_ja">Spanish → Japanese</option>
                     </select>
                     <select id="popupEngineSelect" class="select-input select-compact" aria-label="Translator engine">
                         <option value="auto">Auto (Gemini / Local)</option>

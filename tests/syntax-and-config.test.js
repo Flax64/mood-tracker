@@ -345,7 +345,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnMusicCleanTimestamps"',
             'id="btnTestGeminiConnection"',
             'id="settingsGeminiTestResult"',
-            'id="btnFloatingTranslatorFab"',
             'id="floatingTranslatorModal"',
             'id="floatingTranslatorDragHandle"',
             'floating-translator-drag-grip',
@@ -435,7 +434,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             '.music-embed-fallback-note',
             '.music-lyrics-label-actions',
             '.music-ytdlp-helper',
-            '.translator-fab',
             '.floating-translator-drawer',
             '.translator-popup-shell',
             '.music-html5-player',
@@ -669,7 +667,7 @@ describe('Modo Oscuro Permanente, Motor Bilingüe EN/ES y Guía Visual Interacti
         assert.equal(langStudio.normalizeUiLang(undefined), 'es');
 
         const offlineEs = langStudio.translateOffline({ text: 'not_in_dict_xyz', direction: 'en_es' });
-        assert.match(offlineEs.explanationEs, /Google Gemini API en Settings/i);
+        assert.match(offlineEs.explanationEs, /Google Gemini API en Ajustes/i);
         assert.equal(langStudio.isPoisonedMemoryMeaning(offlineEs.explanationEs), true);
 
         const offlineEn = langStudio.translateOffline({ text: 'not_in_dict_xyz', direction: 'en_es', uiLang: 'en' });
@@ -977,6 +975,16 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         assert.ok(origFiltered.text.includes('사랑해 forever') && origFiltered.text.includes('Shining night together'));
         assert.equal(/Te amo por siempre/.test(origFiltered.text), false, 'El filtro Original no debe incluir el bloque de traducción al español');
 
+        // K-Pop mixto sin etiqueta [EN] explícita ni etiquetas [ORIGINAL] visibles; y coreano puro sin pestaña Original redundante
+        const dividedMixed = Array.from(sandbox.parseAndDivideLyricsByLanguage(
+            '[ORIGINAL]\n끝없는 가치\nWhen I dress I don\'t think so much\n\n[KO]\n끝없는 가치\n\n[EN]\nWhen I dress I don\'t think so much'
+        ));
+        assert.deepEqual(dividedMixed.map(s => s.code), ['original', 'ko', 'en']);
+        assert.equal(dividedMixed[0].lines.some(l => /^\[(?:ORIGINAL|EN|KO)\]$/i.test(l)), false, 'No deben quedar cabeceras [ORIGINAL]/[EN] en el cuerpo');
+
+        const dividedPureKo = Array.from(sandbox.parseAndDivideLyricsByLanguage('', { original: '사랑해\n영원히', ko: '사랑해\n영원히', en: '', ja: '', es: '' }));
+        assert.deepEqual(dividedPureKo.map(s => s.code), ['ko'], 'Canción en coreano puro debe renderizarse únicamente en Coreano puro');
+
         // Regresión Planificador Semanal V2: orden Título/Descripción arriba, Posponer, Skip, Repeticiones y Calendarios
         for (const reqAgendaSel of [
             'id="btnToggleAgendaCalendar"',
@@ -1026,5 +1034,95 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
             ['2026-11-16', '2026-11-18', '2026-11-20', '2026-11-23']
         );
         assert.equal(agendaSandbox.buildMonthCalendarMatrix(2026, 10).length >= 35, true);
+    });
+});
+
+describe('Traductor Global por Selección e Integridad Bilingüe EN/ES', () => {
+    it('elimina el pill flotante fijo (#btnFloatingTranslatorFab), habilita selección global y soporta japonés en popup', () => {
+        const indexHtml = readText('public/index.html');
+        const styleCss = readText('public/style.css');
+        const frontendJs = readText('public/frontend.js');
+        const popupHtml = readText('public/translator-popup.html');
+
+        assert.equal(indexHtml.includes('id="btnFloatingTranslatorFab"'), false, 'public/index.html no debe renderizar #btnFloatingTranslatorFab');
+        assert.equal(/\.translator-fab\b/.test(styleCss), false, 'public/style.css no debe definir .translator-fab');
+        assert.equal(frontendJs.includes('btnFloatingTranslatorFab'), false, 'public/frontend.js no debe referenciar btnFloatingTranslatorFab');
+
+        assert.ok(frontendJs.includes('function initGlobalSelectionTranslator('), 'frontend.js debe definir initGlobalSelectionTranslator');
+        assert.ok(frontendJs.includes("document.addEventListener('selectionchange'"), 'frontend.js debe escuchar selectionchange globalmente');
+        assert.ok(
+            frontendJs.includes("activeEl.tagName === 'TEXTAREA'") &&
+            frontendJs.includes('#floatingTranslatorModal, #btnMusicTranslateLyricsSel, #authOverlay, #singleTabGuardModal'),
+            'initGlobalSelectionTranslator debe soportar selección global y textarea/input excluyendo auth/traductor'
+        );
+
+        for (const jaDir of ['data-dir="ja_es"', 'data-dir="ja_en"', 'data-dir="en_ja"', 'data-dir="es_ja"']) {
+            assert.ok(popupHtml.includes(jaDir), `public/translator-popup.html debe incluir opción de dirección ${jaDir}`);
+        }
+    });
+
+    it('garantiza traducciones bidireccionales EN <-> ES consistentes en public/i18n.js sin llaves ES autorreferenciales', () => {
+        const i18nSrc = readText('public/i18n.js');
+        const mockDoc = {
+            readyState: 'loading',
+            title: '',
+            documentElement: { lang: 'es', style: {}, setAttribute() {}, querySelector() { return null; } },
+            getElementById() { return null; },
+            querySelector() { return null; },
+            querySelectorAll() { return []; },
+            addEventListener() {},
+            dispatchEvent() {}
+        };
+        const sandbox = {
+            window: {},
+            document: mockDoc,
+            localStorage: { getItem: () => 'en', setItem() {} },
+            CustomEvent: function CustomEvent(name, opts) { this.type = name; this.detail = opts && opts.detail; },
+            NodeFilter: { SHOW_TEXT: 4 },
+            dispatchEvent() {}
+        };
+        sandbox.window = sandbox;
+        vm.runInNewContext(i18nSrc, sandbox);
+        const i18n = sandbox.DailyHubI18n;
+        assert.ok(i18n && typeof i18n.translateText === 'function', 'DailyHubI18n debe exponerse en sandbox');
+
+        i18n.setLang('en');
+        assert.equal(i18n.translateText('📄 Extraer letra'), '📄 Extract lyrics');
+        assert.equal(i18n.translateText('🌐 Traducir selección'), '🌐 Translate selection');
+        assert.equal(i18n.translateText('Por hacer'), 'To Do');
+        assert.equal(i18n.translateText('🏢 Residencias Profesionales'), '🏢 Professional Internships');
+        assert.equal(i18n.translateText('0 / 250 máx.'), '0 / 250 max');
+        assert.equal(i18n.translateText('Página 2'), 'Page 2');
+        assert.equal(i18n.translateText('12 líneas · Solo lectura'), '12 lines · Read-only');
+        assert.equal(i18n.translateText('🎵 Original (Mezcla Nativa)'), '🎵 Original (Native Mix)');
+        assert.equal(i18n.translateText('🌐 Switch to Español'), '🌐 Switch to Español');
+
+        i18n.setLang('es');
+        assert.equal(i18n.translateText('📄 Extract lyrics'), '📄 Extraer letra');
+        assert.equal(i18n.translateText('🌐 Translate selection'), '🌐 Traducir selección');
+        assert.equal(i18n.translateText('To Do'), 'Por hacer');
+        assert.equal(i18n.translateText('🏢 Professional Internships'), '🏢 Residencias Profesionales');
+        assert.equal(i18n.translateText('0 / 250 max'), '0 / 250 máx.');
+        assert.equal(i18n.translateText('Page 2'), 'Página 2');
+        assert.equal(i18n.translateText('12 lines · Read-only'), '12 líneas · Solo lectura');
+        assert.equal(i18n.translateText('🎵 Original (Native Mix)'), '🎵 Original (Mezcla Nativa)');
+        assert.equal(i18n.translateText('🌐 Switch to Español'), '🌐 Cambiar a Inglés');
+
+        // Verificar que ninguna pareja no-idéntica en PAIRS quede atrapada en español al traducir a EN
+        const pairsMatch = i18nSrc.match(/var\s+PAIRS\s*=\s*(\[[\s\S]*?\n\s*\]);/);
+        assert.ok(pairsMatch, 'public/i18n.js debe declarar var PAIRS = [...]');
+        const pairs = vm.runInNewContext(pairsMatch[1], {});
+        const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        i18n.setLang('en');
+        const trappedEs = [];
+        for (const [enText, esText] of pairs) {
+            if (norm(enText) !== norm(esText)) {
+                const backToEn = i18n.translateText(esText);
+                if (norm(backToEn) === norm(esText)) {
+                    trappedEs.push({ enText, esText, backToEn });
+                }
+            }
+        }
+        assert.deepEqual(trappedEs, [], `Entradas de PAIRS que no regresan a inglés: ${JSON.stringify(trappedEs.slice(0, 5))}`);
     });
 });

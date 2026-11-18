@@ -7217,35 +7217,6 @@ body {
     gap: 8px;
 }
 
-.translator-fab {
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    z-index: 950;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border: 1px solid rgba(52, 211, 153, 0.45);
-    border-radius: 999px;
-    background: linear-gradient(135deg, #059669, #0d9488);
-    color: #ffffff;
-    font-weight: 700;
-    font-size: 0.88rem;
-    cursor: pointer;
-    box-shadow: 0 10px 26px rgba(5, 150, 105, 0.35);
-    transition: transform 0.16s ease, box-shadow 0.16s ease;
-}
-
-.translator-fab:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 14px 30px rgba(5, 150, 105, 0.45);
-}
-
-.translator-fab[hidden] {
-    display: none;
-}
-
 .floating-translate-sel-btn {
     position: fixed;
     left: 16px;
@@ -7288,7 +7259,7 @@ body {
 .floating-translator-drawer {
     position: fixed;
     right: 20px;
-    bottom: 76px;
+    bottom: 20px;
     z-index: 980;
     width: clamp(380px, 34vw, 440px);
     max-width: calc(100vw - 16px);
@@ -7331,9 +7302,30 @@ body {
     border-bottom: none;
 }
 
+/* Evita que el flex-column comprima resultado/textarea/controles (el resultado quedaba como una franja diminuta con scroll interno) */
+.floating-translator-drawer > * {
+    flex-shrink: 0;
+    min-width: 0;
+}
+
 .floating-translator-drawer .lang-translator-result {
-    max-height: 38vh;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
+}
+
+.floating-translator-drawer .lang-translator-actions {
+    grid-template-columns: 1fr 1fr;
+}
+
+.floating-translator-drawer .lang-translator-actions select {
+    min-width: 0;
+    width: 100%;
+    text-overflow: ellipsis;
+}
+
+.floating-translator-drawer .lang-translator-actions button {
+    grid-column: 1 / -1;
+    width: 100%;
 }
 
 .floating-translator-header {
@@ -7462,17 +7454,10 @@ body {
 }
 
 @media (max-width: 640px) {
-    .translator-fab {
-        right: 12px;
-        bottom: 12px;
-        padding: 9px 13px;
-        font-size: 0.82rem;
-    }
-
     .floating-translator-drawer {
         left: 4vw;
         right: auto;
-        bottom: 62px;
+        bottom: 16px;
         width: min(92vw, 360px);
         max-height: 70dvh;
         padding: 12px;

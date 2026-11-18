@@ -458,11 +458,11 @@
                             </div>
                         </button>
 
-                        <button type="button" class="shortcut-card" data-go-view="english" title="Practicar inglés, coreano y estudiar letras de canciones">
+                        <button type="button" class="shortcut-card" data-go-view="english" title="Practice English, Korean, Japanese &amp; study song lyrics">
                             <span class="shortcut-emoji">📖</span>
                             <div>
                                 <strong>Language &amp; Music Studio</strong>
-                                <p>Practice English &amp; Korean vocabulary, pronunciation, and song lyrics saved to your Word notebook.</p>
+                                <p>Practice English, Korean &amp; Japanese vocabulary, pronunciation, and song lyrics saved to your Word notebook.</p>
                             </div>
                         </button>
 
@@ -643,7 +643,7 @@
                         <div class="view-header-main">
                             <span class="view-header-icon" aria-hidden="true">⚠️</span>
                             <div>
-                                <h2>Crisis &amp; Episode Log (Bitácora Clínica)</h2>
+                                <h2>Crisis &amp; Episode Log (Clinical Journal)</h2>
                                 <p class="view-header-subtitle">Registra fecha, hora exacta y motivo en español si tuviste una crisis de estrés, ira, rabia o ansiedad. Tu psiquiatra o psicóloga podrá consultarlo en modo solo lectura en el Resumen Semanal.</p>
                             </div>
                         </div>
@@ -661,7 +661,7 @@
                                         <input type="date" id="crisisFecha" required>
                                     </div>
                                     <div class="form-group">
-                                        <label for="crisisHora">Time (Hora exacta):</label>
+                                        <label for="crisisHora">Exact Time:</label>
                                         <div class="music-inline-input">
                                             <input type="time" id="crisisHora" required>
                                             <button type="button" class="btn-secondary btn-small" id="btnCrisisUseNow">⏱️ Now</button>
@@ -670,7 +670,7 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label>Crisis Type (Tipo de episodio):</label>
+                                    <label>Crisis Type:</label>
                                     <input type="hidden" id="crisisTipo" value="Estrés">
                                     <div class="crisis-type-pills" id="crisisTipoPills" role="group" aria-label="Tipo de crisis">
                                         <button type="button" class="crisis-pill active" data-crisis-type="Estrés" title="Episodio de estrés agudo o sobrecarga">😣 Estrés</button>
@@ -694,9 +694,9 @@
                                 </div>
 
                                 <div class="form-group">
-                                    <label>Intensity Level (Nivel de intensidad 1–5):</label>
+                                    <label>Intensity Level (1–5):</label>
                                     <input type="hidden" id="crisisIntensidad" value="3">
-                                    <div class="crisis-intensity-pills" id="crisisIntensityPills" role="group" aria-label="Intensidad de crisis">
+                                    <div class="crisis-intensity-pills" id="crisisIntensityPills" role="group" aria-label="Crisis intensity">
                                         <button type="button" class="crisis-int-pill" data-crisis-intensity="1">1 · Leve</button>
                                         <button type="button" class="crisis-int-pill" data-crisis-intensity="2">2 · Moderada</button>
                                         <button type="button" class="crisis-int-pill active" data-crisis-intensity="3">3 · Fuerte</button>
@@ -708,7 +708,7 @@
                                 <div class="form-group">
                                     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
                                         <label for="crisisMotivo">Descripción breve opcional (Motivo y detonante):</label>
-                                        <small id="crisisCharCounter" class="muted-text">0 / 250 máx.</small>
+                                        <small id="crisisCharCounter" class="muted-text">0 / 250 max</small>
                                     </div>
                                     <textarea id="crisisMotivo" class="english-textarea" rows="3" maxlength="250"
                                         placeholder="Opcional (máx. 250 caracteres para cuidar la base de datos): describe brevemente qué detonó el episodio o cómo te sentiste..."></textarea>
@@ -933,8 +933,8 @@
                         <div class="view-header-main">
                             <span class="view-header-icon" aria-hidden="true">📖</span>
                             <div>
-                                <h2>Language Learning Studio (EN · 한국어 · K-Pop)</h2>
-                                <p class="view-header-subtitle">Estudia Inglés (Inglés → Español), Coreano (Coreano → Inglés) o letras de canciones K-Pop con práctica activa y sincronización privada en tu cuaderno de Word.</p>
+                                <h2>Language Learning Studio (EN · 한국어 · 日本語 · K-Pop)</h2>
+                                <p class="view-header-subtitle">Study English (EN → ES), Korean (KO → EN), Japanese (JP), or K-Pop/J-Pop song lyrics with active practice and private sync to your Word notebook.</p>
                             </div>
                         </div>
                         <div class="view-header-actions">
@@ -1096,13 +1096,13 @@
                             <div class="form-group">
                                 <label for="engNoteTitle">Topic / Note Title *</label>
                                 <input type="text" id="engNoteTitle" maxlength="150"
-                                    placeholder="e.g. Diferencia entre nuance de 'actually' vs 'currently' / Reflexión de pronunciación">
+                                    placeholder="e.g. Difference between 'actually' and 'currently' / Pronunciation tip">
                             </div>
 
                             <div class="form-group">
                                 <label for="engNoteBody">Personal Notes, Reflections or Learning Rules *</label>
                                 <textarea id="engNoteBody" class="english-textarea" rows="5" maxlength="4000"
-                                    placeholder="Escribe tus apuntes personales, reflexiones, reglas propias o trucos de memoria... Se guardarán en su propia sección en tu cuaderno Word sin mezclarse con las letras."></textarea>
+                                    placeholder="Write your personal notes, reflections, own rules, or memory tricks... They will be saved in their own section of your Word notebook without mixing with lyrics."></textarea>
                             </div>
 
                             <div class="form-group">
@@ -1429,7 +1429,7 @@
                                     <div class="music-lyrics-viewer-title-wrap">
                                         <h4>📄 Letra de la Canción (Modo Estudio)</h4>
                                         <span id="musicLyricsMetaBadge" class="badge-pill">Cuaderno Word</span>
-                                        <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle" title="Indica si tu computadora está encendida para extraer letras o guardar en Word">⚪ Verificando PC...</span>
+                                        <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle" title="Indicates whether your computer is online for local fallback or saving to Word">⚪ Checking PC...</span>
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
                                         <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
@@ -1469,7 +1469,7 @@
                                 </div>
 
                                 <div class="music-lyrics-viewer-foot">
-                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Sombrea cualquier verso o frase para que aparezca el botón flotante «🌐 Traducir Selección», o abre el traductor flotante con Alt+T.</span>
+                                    <span id="musicLyricsStatusHint" class="muted-text small-note">Selecciona cualquier texto en la aplicación para traducirlo al instante, o abre el traductor flotante con Alt+T.</span>
                                 </div>
                             </section>
 
@@ -1484,7 +1484,7 @@
                                         </div>
                                     </div>
                                     <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
-                                        placeholder="La letra aparecerá aquí al presionar 'Extraer letra' o 'Analizar Estrofas' para generar tu guía frase por frase..."></textarea>
+                                        placeholder="La letra aparecerá aquí al presionar 'Extraer letra' o 'Desglosar por Estrofas' para generar tu guía frase por frase..."></textarea>
                                     <div class="ai-autosync-bar">
                                         <label class="ai-autosync-toggle" title="Guarda el análisis directamente en tu cuaderno de Word organizado por álbum y pista">
                                             <input type="checkbox" id="chkAutoSyncAiToWord" checked>
@@ -1828,9 +1828,9 @@
                                     <div class="form-group">
                                         <label for="resModality">Modality:</label>
                                         <select id="resModality" class="select-input">
-                                            <option value="presencial">Presencial (Car commute + traffic alert)</option>
-                                            <option value="hibrido">Híbrido (Car commute + traffic alert)</option>
-                                            <option value="remoto">Remoto (10 min before login alert)</option>
+                                            <option value="presencial">In-Person (Car commute + traffic alert)</option>
+                                            <option value="hibrido">Hybrid (Car commute + traffic alert)</option>
+                                            <option value="remoto">Remote (10 min before login alert)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -1921,9 +1921,9 @@
                                     <div class="form-group">
                                         <label for="workModality">Modality:</label>
                                         <select id="workModality" class="select-input">
-                                            <option value="presencial">Presencial (Car commute + traffic alert)</option>
-                                            <option value="hibrido">Híbrido (Car commute + traffic alert)</option>
-                                            <option value="remoto">Remoto / Home Office (10 min before)</option>
+                                            <option value="presencial">In-Person (Car commute + traffic alert)</option>
+                                            <option value="hibrido">Hybrid (Car commute + traffic alert)</option>
+                                            <option value="remoto">Remote / Home Office (10 min before)</option>
                                         </select>
                                     </div>
                                 </div>
@@ -3163,19 +3163,14 @@
         </div>
     </div>
 
-    <!-- Contextual Floating & Draggable Lyrics Selection Translate Button -->
+    <!-- Global Contextual Floating & Draggable Selection Translate Button -->
     <button type="button" id="btnMusicTranslateLyricsSel" class="btn-secondary btn-small floating-translate-sel-btn" hidden
         title="Traducir el texto seleccionado en el traductor flotante (arrastrable)">
         <span class="floating-translate-sel-grip" aria-hidden="true">⋮⋮</span>
-        <span>🌐 Traducir Selección</span>
+        <span>🌐 Traducir selección</span>
     </button>
 
-    <!-- Global Extension-Style Floating Translator Trigger & Drawer (Accessible on any tab / Alt+T) -->
-    <button type="button" class="translator-fab admin-only-nav" id="btnFloatingTranslatorFab" hidden
-        title="Open Quick Translator anywhere (Alt+T)" aria-label="Open Quick Translator">
-        <span aria-hidden="true">🌐</span>
-        <span class="translator-fab-label">Translator</span>
-    </button>
+    <!-- Global Extension-Style Floating Translator Drawer (Accessible on any tab / Alt+T) -->
 
     <aside class="floating-translator-drawer" id="floatingTranslatorModal" hidden aria-label="Quick Extension Translator">
         <div class="floating-translator-header" id="floatingTranslatorDragHandle" title="Drag to move window">

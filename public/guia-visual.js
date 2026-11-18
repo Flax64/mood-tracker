@@ -37,8 +37,8 @@
                     icon: '⚠️',
                     titleEn: 'Compact Crisis Log (250 chars)',
                     titleEs: 'Bitácora de Crisis Compacta',
-                    flowEn: ['1. Tap ⏱️ Now + emotion (or "Otro") + 1–5', '2. Optional Spanish trigger (max 250 chars)', '3. Read-only visible to psychiatrist'],
-                    flowEs: ['1. Elige fecha/hora (⏱️ Now), emoción (u Otro) y 1–5', '2. Descripción opcional máx. 250 caracteres (Ctrl+Enter)', '3. Visible en solo lectura para psiquiatra/psicóloga'],
+                    flowEn: ['1. Tap ⏱️ Now + emotion (or "Other") + 1–5', '2. Optional Spanish trigger (max 250 chars)', '3. Read-only visible to psychiatrist'],
+                    flowEs: ['1. Elige fecha/hora (⏱️ Ahora), emoción (u Otro) y 1–5', '2. Descripción opcional máx. 250 caracteres (Ctrl+Enter)', '3. Visible en solo lectura para psiquiatra/psicóloga'],
                     targetView: 'crisis',
                     tagEn: 'Ctrl + Enter saves instantly',
                     tagEs: 'Solo lectura para especialista'
@@ -106,18 +106,18 @@
                     icon: '📂',
                     titleEn: 'Win11 Music Folders & Read-Only Lyrics',
                     titleEs: 'Carpetas Musicales Win11 y Letras',
-                    flowEn: ['1. Yellow folders: Artist -> Album -> Song', '2. Extract Lyrics checks PC live & splits langs', '3. Translate ES appends & saves to Word + Drive'],
-                    flowEs: ['1. Carpeta Artista → carpeta Álbum → canción', '2. Extraer Letra verifica PC y divide por idioma', '3. Traducir ES / Estrofas IA guarda en Word y Drive'],
+                    flowEn: ['1. Folders: Artist → Album → Song', '2. Extract Lyrics loads from Cloud / Word / PC & splits langs', '3. Translate ES / AI Stanzas saves to Word + Drive'],
+                    flowEs: ['1. Carpeta Artista → carpeta Álbum → canción', '2. Extraer letra carga desde Nube / Word / PC y divide idiomas', '3. Traducir ES / Estrofas IA guarda en Word y Drive'],
                     targetView: 'english',
                     tagEn: '0 KB lyrics in DB · gdrive:NotasIdiomas',
                     tagEs: '0 KB en BD · Respaldo gdrive:NotasIdiomas'
                 },
                 {
                     icon: '🌐',
-                    titleEn: 'Floating Translator (Alt+T)',
-                    titleEs: 'Traductor Flotante (Alt+T)',
-                    flowEn: ['1. Press Alt+T anywhere or drag window', '2. EN↔ES · KO↔EN/ES + Romanization', '3. Click Window 🪟 for Chrome/YT dock'],
-                    flowEs: ['1. Presiona Alt+T o arrastra cabecera', '2. EN↔ES · KO↔EN/ES + Romanización', '3. Ventana 🪟 aparte junto a YouTube'],
+                    titleEn: 'Floating Translator (Alt+T & Select Text)',
+                    titleEs: 'Traductor Flotante (Alt+T y Seleccionar Texto)',
+                    flowEn: ['1. Select any text anywhere or press Alt+T', '2. EN↔ES · KO↔EN/ES · JP↔EN/ES + Romanization / Romaji', '3. Click Window 🪟 for Chrome/YT dock'],
+                    flowEs: ['1. Selecciona cualquier texto en la app o presiona Alt+T', '2. EN↔ES · KO↔EN/ES · JP↔EN/ES + Romanización / Romaji', '3. Ventana 🪟 aparte junto a YouTube'],
                     targetAction: 'translator',
                     tagEn: 'Remembers position on screen',
                     tagEs: 'Recuerda su posición al moverlo'
@@ -375,9 +375,11 @@
                     if (card.targetAction === 'translator') {
                         if (isStandalone) {
                             root.location.href = '/translator-popup.html';
+                        } else if (typeof root.DailyHubOpenTranslator === 'function') {
+                            root.DailyHubOpenTranslator({ toggle: false });
                         } else {
-                            var fab = document.getElementById('btnFloatingTranslatorFab');
-                            if (fab) fab.click();
+                            var navTr = document.getElementById('btnMobileTranslator') || document.getElementById('btnSidebarOpenTranslator');
+                            if (navTr) navTr.click();
                         }
                         return;
                     }

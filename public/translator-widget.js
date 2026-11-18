@@ -339,7 +339,7 @@
                 const cfgBtn = document.createElement('button');
                 cfgBtn.type = 'button';
                 cfgBtn.className = 'btn-secondary btn-small';
-                cfgBtn.textContent = tr('⚙️ Configure / Test AI in Settings', '⚙️ Configurar / Probar IA en Settings');
+                cfgBtn.textContent = tr('⚙️ Configure / Test AI in Settings', '⚙️ Configurar / Probar IA en Ajustes');
                 cfgBtn.addEventListener('click', () => {
                     if (typeof onOpenAiSettings === 'function') {
                         onOpenAiSettings();

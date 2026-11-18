@@ -400,4 +400,109 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.equal(settled[2].status, 'fulfilled');
         assert.equal(settled[2].value, 3);
     });
+
+    it('separa [ORIGINAL]/[KO]/[EN]/[JA]/[ES] sin filtrar etiquetas, aisla coreano/japonés puros, extrae inglés mixto y enriquece ES desde YT sin IA', async () => {
+        const { classifyLyricsIntoFiveTracks, cleanSubtitleText: cleanSub } = require('../lib/ytdlp-service');
+        const { segmentLyricsIntoStanzas } = require('../lib/youtube-metadata');
+
+        // 1. Etiquetas [ORIGINAL]/[KO]/[EN]/[ES] de Word no deben filtrarse como versos visibles ni perder [EN]/[ES]
+        const fromWordTagged = classifyLyricsIntoFiveTracks([
+            {
+                rawLanguage: 'multi',
+                lyrics: [
+                    '[ORIGINAL]',
+                    '끝없는 가치',
+                    '[kkeut-eop-neun ga-chi]',
+                    "When I dress I don't think so much",
+                    '',
+                    '[KO]',
+                    '끝없는 가치',
+                    '난 보란 듯이 forever',
+                    '',
+                    '[EN]',
+                    "When I dress I don't think so much",
+                    'I could be the GOAT',
+                    '',
+                    '[ES]',
+                    'Cuando me visto no lo pienso tanto',
+                    'Podría ser la mejor'
+                ].join('\n')
+            }
+        ]);
+        assert.doesNotMatch(fromWordTagged.original, /\[ORIGINAL\]|\[KO\]|\[EN\]|\[ES\]/);
+        assert.equal(fromWordTagged.ko, '끝없는 가치\n난 보란 듯이');
+        assert.equal(fromWordTagged.en, "When I dress I don't think so much\nI could be the GOAT");
+        assert.doesNotMatch(fromWordTagged.en, /kkeut-eop-neun|끝없는/);
+        assert.equal(fromWordTagged.es, 'Cuando me visto no lo pienso tanto\nPodría ser la mejor');
+
+        // 2. K-Pop mixto sin pista EN separada debe poblar original (mixto), ko (coreano puro) y en (inglés)
+        const kpopMixedSingle = classifyLyricsIntoFiveTracks([
+            {
+                rawLanguage: 'ko',
+                lyrics: "When I dress I don't think so much\n끝없는 가치\n[kkeut-eop-neun ga-chi]\n난 보란 듯이 forever"
+            }
+        ]);
+        assert.ok(kpopMixedSingle.original.includes('끝없는 가치') && kpopMixedSingle.original.includes("When I dress"));
+        assert.equal(kpopMixedSingle.ko, '끝없는 가치\n난 보란 듯이');
+        assert.equal(kpopMixedSingle.en, "When I dress I don't think so much");
+
+        // 3. Monolingües puros (Coreano puro, Japonés puro) van directo a su idioma sin duplicar original
+        const pureKo = classifyLyricsIntoFiveTracks([{ rawLanguage: 'ko', lyrics: '사랑해\n영원히 함께해' }]);
+        assert.equal(pureKo.original, '');
+        assert.equal(pureKo.ko, '사랑해\n영원히 함께해');
+        assert.equal(pureKo.en, '');
+
+        const pureJa = classifyLyricsIntoFiveTracks([{ rawLanguage: 'ja', lyrics: '夜空に光る星\nずっと忘れない' }]);
+        assert.equal(pureJa.original, '');
+        assert.equal(pureJa.ja, '夜空に光る星\nずっと忘れない');
+
+        // 4. Saltos de línea (<br/>, \N) y estrofas en bloques largos aunque haya encabezado previo
+        assert.equal(
+            cleanSub('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nLine one<br/>Line two\n00:00:03.200 --> 00:00:05.000\nLine three\\NLine four'),
+            'Line one\nLine two\nLine three\nLine four'
+        );
+        const longVerseWithHeader = `[Verse 1]\n\n${Array.from({ length: 10 }, (_, i) => `Line ${i + 1}`).join('\n')}`;
+        const segHeader = segmentLyricsIntoStanzas(longVerseWithHeader);
+        assert.ok(segHeader.split('\n\n').length >= 3, 'Bloques largos de >=10 líneas deben dividirse en estrofas aun tras encabezado');
+
+        // 5. InnerTube con enrichCaptions=true combina letra original con subtítulos oficiales en español sin gastar IA
+        const fakeFetch = async (url) => {
+            if (url.includes('/v1/next')) {
+                return { ok: true, status: 200, json: async () => ({ tabs: [{ tabRenderer: { endpoint: { browseEndpoint: { browseId: 'MPLYt_kpop' } } } }] }) };
+            }
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    contents: {
+                        musicDescriptionShelfRenderer: {
+                            description: { runs: [{ text: "Baby got no chill\n눈을 감고 느껴봐" }] }
+                        }
+                    }
+                })
+            };
+        };
+        const mockExecEs = async (_bin, args) => {
+            const outIdx = args.indexOf('--output');
+            const tpl = args[outIdx + 1];
+            await fs.promises.writeFile(
+                tpl.replace('%(id)s.%(ext)s', 'Zp-Jhuhq0bQ.es-419.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nLa nena no se calma\nCierra los ojos y siente\n',
+                'utf8'
+            );
+            return { stdout: '', stderr: '' };
+        };
+        const enriched = await extractSongLyrics({
+            videoId: 'Zp-Jhuhq0bQ',
+            useInnerTube: true,
+            enrichCaptions: true,
+            ytdlpPath: '/usr/local/bin/yt-dlp',
+            execFileImpl: mockExecEs,
+            fetchImpl: fakeFetch
+        });
+        assert.equal(enriched.ok, true);
+        assert.equal(enriched.tracks.ko, '눈을 감고 느껴봐');
+        assert.equal(enriched.tracks.en, 'Baby got no chill');
+        assert.equal(enriched.tracks.es, 'La nena no se calma\nCierra los ojos y siente');
+    });
 });

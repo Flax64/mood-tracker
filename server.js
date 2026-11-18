@@ -7699,6 +7699,7 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
                         [{ rawLanguage: 'multi', lyrics: nbSong.lyrics, source: notebookData.source || 'drive-word' }],
                         { rawOriginal: nbSong.lyrics }
                     );
+                    const spanishFromTracksOrWord = String(tracks?.es || nbSong.spanishLyrics || '').trim();
                     return {
                         ok: true,
                         tier: 1,
@@ -7709,7 +7710,7 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
                         trackList: [{ language: 'original', lyrics: nbSong.lyrics, source: notebookData.source || 'drive-word' }],
                         fields: nbSong.fields || null,
                         trackNumber: nbSong.trackNumber || null,
-                        spanishSource: nbSong.spanishLyrics || tracks?.es ? 'word-cache' : null,
+                        spanishSource: spanishFromTracksOrWord ? 'word-cache' : null,
                         tokensUsed: 0,
                         source: notebookData.source || 'drive-word',
                         language: song.idioma || '',
@@ -7742,7 +7743,8 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
         idioma: song.idioma || '',
         preferredLangs,
         useInnerTube: true,
-        budgetMs: 20000,
+        enrichCaptions: true,
+        budgetMs: 22000,
         trackTitle: song.titulo || '',
         trackArtist: artistName
     });
@@ -7828,7 +7830,11 @@ app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middlewa
             videoId,
             url: song.yt_music_url || '',
             idioma: song.idioma || '',
-            preferredLangs
+            preferredLangs,
+            useInnerTube: true,
+            enrichCaptions: true,
+            trackTitle: song.titulo || '',
+            trackArtist: song.artista_principal_nombre || ''
         });
 
         if (extracted.ok && extracted.lyrics) {
@@ -8901,27 +8907,79 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
                         : 'Traducción al español recuperada directamente del cuaderno Word (0 tokens de Gemini).'
                 };
                 lyricsTranslationCache.set(cacheKey, result);
-            } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
-                result = translateLyricsToSpanishOffline({
-                    lyrics: baseLyrics,
-                    songTitle,
-                    artistName,
-                    learningMemory: currentMemory,
-                    uiLang
-                });
             } else {
-                result = await translateLyricsToSpanishWithGemini({
-                    apiKey: effectiveKey,
-                    model,
-                    lyrics: baseLyrics,
-                    songTitle,
-                    artistName,
-                    language,
-                    learningMemory: currentMemory,
-                    uiLang
-                });
-                if (result && result.ok !== false && result.spanishLyrics) {
+                let ytEsCaptionText = '';
+                if (!forceRefresh && mode === 'auto') {
+                    try {
+                        let capVideoId = ytdlpService.extractValidYouTubeVideoId(req.body.videoId)
+                            || ytdlpService.extractValidYouTubeVideoId(req.body.ytMusicUrl)
+                            || '';
+                        let capUrl = String(req.body.ytMusicUrl || '').trim();
+                        const reqSongId = parsePositiveInt(req.body.songId);
+                        if (!capVideoId && reqSongId) {
+                            const dbSong = await fetchOwnedMusicSongForMediaOrLyrics(reqSongId, req.user.id).catch(() => null);
+                            if (dbSong) {
+                                capVideoId = ytdlpService.extractValidYouTubeVideoId(dbSong.yt_video_id)
+                                    || ytdlpService.extractValidYouTubeVideoId(dbSong.yt_music_url)
+                                    || '';
+                                if (!capUrl) capUrl = String(dbSong.yt_music_url || '').trim();
+                            }
+                        }
+                        if (capVideoId) {
+                            const capTry = await ytdlpService.extractSongLyrics({
+                                videoId: capVideoId,
+                                url: capUrl,
+                                preferredLangs: ['es', 'en', 'ko', 'ja'],
+                                useInnerTube: false,
+                                budgetMs: 12000
+                            });
+                            if (capTry?.ok && capTry.tracks?.es) {
+                                ytEsCaptionText = String(capTry.tracks.es).trim();
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                if (ytEsCaptionText) {
+                    result = {
+                        ok: true,
+                        usedGemini: false,
+                        cached: true,
+                        cacheHit: true,
+                        source: 'yt-captions',
+                        provider: 'yt-captions',
+                        tokensUsed: 0,
+                        songTitle,
+                        artistName,
+                        language: language || 'yt-captions',
+                        spanishLyrics: ytEsCaptionText,
+                        summary: uiLang === 'en'
+                            ? 'Official Spanish captions loaded directly from YouTube (0 AI tokens).'
+                            : 'Subtítulos oficiales en español cargados directamente desde YouTube (0 tokens de IA).'
+                    };
                     lyricsTranslationCache.set(cacheKey, result);
+                } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+                    result = translateLyricsToSpanishOffline({
+                        lyrics: baseLyrics,
+                        songTitle,
+                        artistName,
+                        learningMemory: currentMemory,
+                        uiLang
+                    });
+                } else {
+                    result = await translateLyricsToSpanishWithGemini({
+                        apiKey: effectiveKey,
+                        model,
+                        lyrics: baseLyrics,
+                        songTitle,
+                        artistName,
+                        language,
+                        learningMemory: currentMemory,
+                        uiLang
+                    });
+                    if (result && result.ok !== false && result.spanishLyrics) {
+                        lyricsTranslationCache.set(cacheKey, result);
+                    }
                 }
             }
         }

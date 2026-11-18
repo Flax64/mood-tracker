@@ -116,6 +116,11 @@ def segment_lyrics_into_stanzas(text: str, max_lines_per_stanza: int = 4) -> str
         return ""
     lines = [ln.rstrip() for ln in raw.split("\n")]
     existing_breaks = sum(1 for ln in lines if not ln.strip())
+    block_limit = (
+        max(max_lines_per_stanza * 2 + 2, 10)
+        if existing_breaks >= 3
+        else max_lines_per_stanza * 2
+    )
     out: List[str] = []
     block: List[str] = []
 
@@ -123,7 +128,7 @@ def segment_lyrics_into_stanzas(text: str, max_lines_per_stanza: int = 4) -> str
         non_empty = [l for l in blk if l.strip()]
         if not non_empty:
             return
-        if existing_breaks > 0 or len(non_empty) < max_lines_per_stanza * 2:
+        if len(non_empty) < block_limit:
             out.extend(non_empty)
             return
         for idx in range(0, len(non_empty), max_lines_per_stanza):
@@ -193,8 +198,12 @@ def extract_video_id(raw_url: str) -> Optional[str]:
 def clean_caption_text(raw_text: str) -> str:
     """Strip .srt, .vtt, .ttml, and .lrc timestamps/markup into clean stanza-segmented lyrics."""
     normalized = (
-        str(raw_text or "").lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+        re.sub(r"[\ufeff\u200b-\u200d\u2060]", "", str(raw_text or ""))
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
     )
+    normalized = re.sub(r"<br\s*/?>", "\n", normalized, flags=re.IGNORECASE)
+    normalized = normalized.replace("\\N", "\n")
     if not normalized.strip():
         return ""
 
@@ -355,6 +364,114 @@ def base_language_code(lang_tag: str) -> str:
     return _LANG_ALIASES.get(base, base)
 
 
+_LANG_SECTION_HEADER_RE = re.compile(
+    r"^(?:===\s*\[([^\]]+)\]\s*===|\[((?:ORIGINAL|ORIG|FULL|MULTI|MIX|WORD|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|SUB|UND)(?:[-_][A-Za-z0-9]+)*(?:\s*[—\-]\s*[^\]]*)?)\])$",
+    re.IGNORECASE,
+)
+_NOISE_LYRIC_LINE_RE = re.compile(
+    r"^\[(?:음악|박수|音楽|歌|music|applause|laughter|cheering|instrumental|singing|música|aplausos|risas)\]$",
+    re.IGNORECASE,
+)
+_SPANISH_LEXICAL_CUE_RE = re.compile(
+    r"\b(?:que|para|pero|una|unas|unos|los|las|del|estoy|estás|estas|quiero|quieres|siempre|noche|dime|tengo|puedo|nada|cuando|eres|porque|contigo|conmigo|corazón|corazon|también|tambien|aquí|aqui)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_romanization_bracket_line(line: str) -> bool:
+    t = str(line or "").strip()
+    if not (t.startswith("[") and t.endswith("]")):
+        return False
+    if STRUCTURAL_TAG_RE.match(t) or _LANG_SECTION_HEADER_RE.match(t) or _NOISE_LYRIC_LINE_RE.match(t):
+        return False
+    return bool(re.match(r"^\s*\[[a-z][a-z0-9\s,'’.\-?!~()]{1,140}\]\s*$", t))
+
+
+def _is_likely_spanish_line(line: str) -> bool:
+    t = str(line or "").strip()
+    if not t or _HANGUL_RE.search(t) or _JAPANESE_RE.search(t):
+        return False
+    if re.search(r"[áéíóúüñ¿¡]", t, re.IGNORECASE):
+        return True
+    return bool(_SPANISH_LEXICAL_CUE_RE.search(t))
+
+
+def _is_predominantly_spanish_text(text: str) -> bool:
+    lines = [
+        l.strip()
+        for l in str(text or "").splitlines()
+        if l.strip()
+        and not _LANG_SECTION_HEADER_RE.match(l.strip())
+        and not STRUCTURAL_TAG_RE.match(l.strip())
+        and re.search(r"[A-Za-záéíóúüñ]", l)
+    ]
+    if not lines or _HANGUL_RE.search(text or "") or _JAPANESE_RE.search(text or ""):
+        return False
+    es_count = sum(1 for l in lines if _is_likely_spanish_line(l))
+    return (es_count >= 2 and es_count / len(lines) >= 0.3) or (len(lines) == 1 and es_count == 1)
+
+
+def _strip_standalone_latin_from_cjk(line: str) -> str:
+    cleaned = re.sub(r"(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)", " ", str(line or ""))
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return re.sub(r"^[\s/|·,–—-]+|[\s/|·,–—-]+$", "", cleaned).strip()
+
+
+def _strip_language_header_lines(text: str) -> str:
+    kept: List[str] = []
+    for raw in str(text or "").replace("\r", "").split("\n"):
+        trimmed = raw.strip()
+        if _LANG_SECTION_HEADER_RE.match(trimmed) or _NOISE_LYRIC_LINE_RE.match(trimmed):
+            continue
+        kept.append(raw.rstrip())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def parse_tagged_lyrics_sections(raw_text: str) -> Dict[str, Any]:
+    clean = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not clean:
+        return {"has_tags": False, "original": "", "ko": "", "en": "", "ja": "", "es": ""}
+
+    buckets: Dict[str, List[str]] = {"original": [], "ko": [], "en": [], "ja": [], "es": []}
+    current_key = "original"
+    has_tags = False
+
+    def map_tag(raw_tag: str) -> str:
+        up = str(raw_tag or "").strip().upper()
+        if up == "WORD":
+            return "__ignore__"
+        if up.startswith(("ORIGINAL", "ORIG", "FULL", "MULTI", "MIX")) or "JP-EN" in up or "EN-JP" in up:
+            return "original"
+        if up.startswith(("KO", "KR")) or "COREANO" in up or "KOREAN" in up:
+            return "ko"
+        if up.startswith(("JA", "JP")) or "JAPON" in up:
+            return "ja"
+        if up.startswith("ES") or "ESPAÑOL" in up or "ESPANOL" in up or "SPANISH" in up or "TRADUCCI" in up:
+            return "es"
+        if up.startswith("EN") or "INGL" in up or "ENGLISH" in up:
+            return "en"
+        return ""
+
+    for raw in clean.split("\n"):
+        trimmed = raw.strip()
+        hm = _LANG_SECTION_HEADER_RE.match(trimmed)
+        if hm:
+            mapped = map_tag(hm.group(1) or hm.group(2) or "")
+            if mapped == "__ignore__":
+                has_tags = True
+                continue
+            if mapped:
+                has_tags = True
+                current_key = mapped
+                continue
+        buckets[current_key].append(raw.rstrip())
+
+    out: Dict[str, Any] = {"has_tags": has_tags}
+    for k, lines in buckets.items():
+        out[k] = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return out
+
+
 def isolate_korean_only_lyrics(text: str) -> str:
     """Extrae únicamente las líneas que contienen Hangul (Coreano puro), preservando estrofas y filtrando líneas en inglés."""
     kept: List[str] = []
@@ -365,13 +482,14 @@ def isolate_korean_only_lyrics(text: str) -> str:
             if kept:
                 pending_break = True
             continue
-        if re.fullmatch(
-            r"\[(?:음악|music|applause|laughter|cheering|instrumental)\]",
-            line,
-            re.IGNORECASE,
-        ):
+        if _LANG_SECTION_HEADER_RE.match(line) or _NOISE_LYRIC_LINE_RE.match(line) or _is_romanization_bracket_line(line):
             continue
+        if " → " in line:
+            line = line.split(" → ", 1)[0].strip()
         if _HANGUL_RE.search(line):
+            line = _strip_standalone_latin_from_cjk(line)
+            if not _HANGUL_RE.search(line):
+                continue
             if pending_break and kept and kept[-1] != "":
                 kept.append("")
             pending_break = False
@@ -393,19 +511,70 @@ def isolate_japanese_lyrics(text: str) -> str:
             if kept:
                 pending_break = True
             continue
-        if re.fullmatch(
-            r"\[(?:音楽|歌|music|applause|laughter|cheering|instrumental)\]",
-            line,
-            re.IGNORECASE,
-        ):
+        if _LANG_SECTION_HEADER_RE.match(line) or _NOISE_LYRIC_LINE_RE.match(line) or _is_romanization_bracket_line(line):
             continue
+        if " → " in line:
+            line = line.split(" → ", 1)[0].strip()
         if _JAPANESE_RE.search(line) and not _HANGUL_RE.search(line):
+            line = _strip_standalone_latin_from_cjk(line)
+            if not _JAPANESE_RE.search(line):
+                continue
             if pending_break and kept and kept[-1] != "":
                 kept.append("")
             pending_break = False
             last_non_empty = next((x for x in reversed(kept) if x != ""), None)
             if last_non_empty != line:
                 kept.append(line)
+    while kept and kept[-1] == "":
+        kept.pop()
+    return segment_lyrics_into_stanzas("\n".join(kept).strip())
+
+
+def isolate_english_only_lyrics(text: str) -> str:
+    """Extrae versos puros en inglés evitando Hangul, japonés, español y romanizaciones entre corchetes."""
+    kept: List[str] = []
+    pending_break = False
+    pending_tag = ""
+    for raw in str(text or "").replace("\r", "").split("\n"):
+        line = raw.strip()
+        if not line:
+            if kept:
+                pending_break = True
+            continue
+        if _LANG_SECTION_HEADER_RE.match(line) or _NOISE_LYRIC_LINE_RE.match(line) or _is_romanization_bracket_line(line):
+            continue
+        if " → " in line:
+            line = line.split(" → ", 1)[0].strip()
+        if not line:
+            continue
+        if STRUCTURAL_TAG_RE.match(line):
+            pending_tag = line
+            continue
+        if _HANGUL_RE.search(line) or _JAPANESE_RE.search(line):
+            ascii_chunk = re.sub(
+                r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]+",
+                " ",
+                line,
+            )
+            ascii_chunk = re.sub(r"\s+", " ", ascii_chunk)
+            ascii_chunk = re.sub(r"^[\s/|·,–—-]+|[\s/|·,–—-]+$", "", ascii_chunk).strip()
+            if not re.search(r"[A-Za-z]{2,}\s+[A-Za-z'’]{1,}", ascii_chunk) or _is_likely_spanish_line(ascii_chunk):
+                continue
+            line = ascii_chunk
+        else:
+            if not re.search(r"[A-Za-z]", line) or _is_likely_spanish_line(line):
+                continue
+        if pending_break and kept and kept[-1] != "":
+            kept.append("")
+        pending_break = False
+        if pending_tag:
+            last_non_empty = next((x for x in reversed(kept) if x != ""), None)
+            if last_non_empty != pending_tag:
+                kept.append(pending_tag)
+            pending_tag = ""
+        last_non_empty = next((x for x in reversed(kept) if x != ""), None)
+        if last_non_empty != line:
+            kept.append(line)
     while kept and kept[-1] == "":
         kept.pop()
     return segment_lyrics_into_stanzas("\n".join(kept).strip())
@@ -512,6 +681,7 @@ def deduplicate_tracks(
                     for e in chosen
                 )
             )
+            or base == "es"
         )
         if not adds_distinct_script and any(
             tracks_are_redundant(existing["lyrics"], lyr) for existing in chosen
@@ -541,6 +711,14 @@ def deduplicate_tracks(
     return chosen
 
 
+def _norm_comp_lyrics(txt: str) -> str:
+    return "\n".join(
+        re.sub(r"\s+", " ", ln.strip()).lower()
+        for ln in str(txt or "").replace("\r", "").split("\n")
+        if ln.strip()
+    )
+
+
 def build_structured_tracks(
     tracks_list: Optional[List[Dict[str, Any]]],
     preferred_langs: Optional[List[str]] = None,
@@ -548,7 +726,29 @@ def build_structured_tracks(
 ) -> Dict[str, str]:
     """Clasifica las pistas en los 5 apartados independientes: original, ko, en, ja, es."""
     by_lang: Dict[str, str] = {}
-    orig_txt = str(raw_original or "").strip()
+    parsed_orig = ""
+
+    def absorb(raw_body: str, fallback_key: str = "") -> None:
+        nonlocal parsed_orig
+        parsed = parse_tagged_lyrics_sections(raw_body)
+        if parsed.get("has_tags"):
+            if parsed.get("original") and not parsed_orig:
+                parsed_orig = parsed["original"]
+            for k in ("ko", "en", "ja", "es"):
+                if parsed.get(k) and k not in by_lang:
+                    by_lang[k] = parsed[k]
+            return
+        stripped = _strip_language_header_lines(raw_body)
+        if not stripped:
+            return
+        if fallback_key in ("multi", "original", "orig", "word", "drive-word"):
+            if not parsed_orig:
+                parsed_orig = stripped
+        elif fallback_key and fallback_key not in by_lang:
+            by_lang[fallback_key] = stripped
+
+    if raw_original:
+        absorb(raw_original, "original")
 
     for item in tracks_list or []:
         if not isinstance(item, dict):
@@ -557,25 +757,24 @@ def build_structured_tracks(
         if not txt:
             continue
         b = base_language_code(item.get("raw_lang") or item.get("lang") or "")
-        if b in ("multi", "original", "orig"):
-            if not orig_txt:
-                orig_txt = txt
-            continue
-        if b and b not in by_lang:
-            by_lang[b] = txt
+        absorb(txt, b or "original")
 
     ko_raw = by_lang.get("ko", "")
     en_raw = by_lang.get("en", "")
     ja_raw = by_lang.get("ja", "")
     es_raw = by_lang.get("es", "")
+    en_has_cjk = bool(en_raw and (_HANGUL_RE.search(en_raw) or _JAPANESE_RE.search(en_raw)))
 
+    orig_txt = parsed_orig
     if not orig_txt:
-        ko_mixed = bool(ko_raw and _HANGUL_RE.search(ko_raw) and re.search(r"[A-Za-z]{2,}", ko_raw))
-        ja_mixed = bool(ja_raw and _JAPANESE_RE.search(ja_raw) and re.search(r"[A-Za-z]{2,}", ja_raw))
+        ko_mixed = bool(ko_raw and _HANGUL_RE.search(ko_raw) and re.search(r"[A-Za-z]{2,}", _strip_language_header_lines(ko_raw)))
+        ja_mixed = bool(ja_raw and _JAPANESE_RE.search(ja_raw) and re.search(r"[A-Za-z]{2,}", _strip_language_header_lines(ja_raw)))
         if ko_mixed:
             orig_txt = ko_raw
         elif ja_mixed:
             orig_txt = ja_raw
+        elif en_has_cjk:
+            orig_txt = en_raw
         else:
             for pref in preferred_langs or ["ko", "en", "ja", "es"]:
                 pb = base_language_code(pref)
@@ -585,31 +784,55 @@ def build_structured_tracks(
             if not orig_txt:
                 orig_txt = ko_raw or en_raw or ja_raw or es_raw or ""
 
-    ko_only = isolate_korean_only_lyrics(
-        ko_raw or (orig_txt if _HANGUL_RE.search(orig_txt) else "")
-    )
-    if ja_raw and _JAPANESE_RE.search(ja_raw) and re.search(r"[A-Za-z]{2,}", ja_raw):
-        ja_clean = isolate_japanese_lyrics(ja_raw)
-    else:
-        ja_clean = ja_raw or (
-            isolate_japanese_lyrics(orig_txt) if _JAPANESE_RE.search(orig_txt) else ""
-        )
-    en_clean = en_raw or (
+    ko_source = ko_raw or (
         orig_txt
-        if (
-            orig_txt
-            and not _HANGUL_RE.search(orig_txt)
-            and not _JAPANESE_RE.search(orig_txt)
-            and orig_txt != es_raw
-        )
-        else ""
+        if _HANGUL_RE.search(orig_txt)
+        else (en_raw if en_has_cjk and _HANGUL_RE.search(en_raw) else "")
     )
+    ko_only = isolate_korean_only_lyrics(ko_source)
+
+    ja_source = ja_raw or (
+        orig_txt
+        if _JAPANESE_RE.search(orig_txt)
+        else (en_raw if en_has_cjk and _JAPANESE_RE.search(en_raw) else "")
+    )
+    ja_clean = isolate_japanese_lyrics(ja_source) if ja_source else ""
+
+    es_clean = segment_lyrics_into_stanzas(_strip_language_header_lines(es_raw)) if es_raw else ""
+    if not es_clean and not ko_raw and not ja_raw and not en_raw and _is_predominantly_spanish_text(orig_txt):
+        es_clean = segment_lyrics_into_stanzas(_strip_language_header_lines(orig_txt))
+
+    if en_raw and not en_has_cjk:
+        en_clean = segment_lyrics_into_stanzas(_strip_language_header_lines(en_raw))
+    elif en_raw and en_has_cjk:
+        en_clean = isolate_english_only_lyrics(en_raw)
+    elif orig_txt and not _is_predominantly_spanish_text(orig_txt):
+        en_clean = isolate_english_only_lyrics(orig_txt)
+    else:
+        en_clean = ""
+
+    orig_seg = segment_lyrics_into_stanzas(_strip_language_header_lines(orig_txt))
+    norm_orig = _norm_comp_lyrics(orig_seg)
+    has_ko_en = bool(_HANGUL_RE.search(orig_seg) and re.search(r"[A-Za-z]{2,}", orig_seg) and isolate_english_only_lyrics(orig_seg))
+    has_ja_en = bool(_JAPANESE_RE.search(orig_seg) and re.search(r"[A-Za-z]{2,}", orig_seg) and isolate_english_only_lyrics(orig_seg))
+    has_ko_ja = bool(_HANGUL_RE.search(orig_seg) and _JAPANESE_RE.search(orig_seg))
+    matches_single = bool(
+        norm_orig
+        and norm_orig in (
+            _norm_comp_lyrics(ko_only),
+            _norm_comp_lyrics(en_clean),
+            _norm_comp_lyrics(ja_clean),
+            _norm_comp_lyrics(es_clean),
+        )
+    )
+    original_out = orig_seg if (orig_seg and (has_ko_en or has_ja_en or has_ko_ja or not matches_single)) else ""
+
     return {
-        "original": segment_lyrics_into_stanzas(orig_txt),
+        "original": original_out,
         "ko": ko_only,
-        "en": segment_lyrics_into_stanzas(en_clean),
+        "en": en_clean,
         "ja": ja_clean,
-        "es": segment_lyrics_into_stanzas(es_raw),
+        "es": es_clean,
     }
 
 
@@ -627,7 +850,7 @@ def format_structured_tracks_text(
     es = str(structured.get("es") or "").strip()
 
     sections: List[Tuple[str, str]] = []
-    if orig and orig not in (ko, en, ja):
+    if orig and _norm_comp_lyrics(orig) not in (_norm_comp_lyrics(ko), _norm_comp_lyrics(en), _norm_comp_lyrics(ja)):
         sections.append(("ORIGINAL", orig))
     if ko:
         sections.append(("KO", ko))

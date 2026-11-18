@@ -82,7 +82,7 @@ function updateTransportStatusBadges() {
             authPill.textContent = tUi('🔓 Standard Connection', '🔓 Conexión Estándar');
             authPill.classList.add('is-pending');
         }
-        setSidebarBadge('🔓', tUi('Privacidad: Estándar', 'Privacidad: Estándar'));
+        setSidebarBadge('🔓', tUi('Privacy: Standard', 'Privacidad: Estándar'));
         return;
     }
 
@@ -96,10 +96,10 @@ function updateTransportStatusBadges() {
             authPill.classList.remove('is-pending');
         }
         if (mobilePill) {
-            mobilePill.textContent = tUi('🔐 Seguro', '🔐 Seguro');
+            mobilePill.textContent = tUi('🔐 Secure', '🔐 Seguro');
             mobilePill.classList.remove('is-pending');
         }
-        setSidebarBadge('🔐', tUi('Cifrado: Activo', 'Cifrado: Activo'));
+        setSidebarBadge('🔐', tUi('Encryption: Active', 'Cifrado: Activo'));
         if (diagKid) diagKid.textContent = `${diag.kid.slice(0, 12)}… (${diag.metrics.lastHandshakeMs} ms)`;
         if (diagStats) {
             diagStats.textContent = tUi(
@@ -112,7 +112,7 @@ function updateTransportStatusBadges() {
             authPill.textContent = tUi('🔐 Securing Connection...', '🔐 Protegiendo Conexión...');
             authPill.classList.add('is-pending');
         }
-        setSidebarBadge('🔐', tUi('Cifrado: Conectando...', 'Cifrado: Conectando...'));
+        setSidebarBadge('🔐', tUi('Encryption: Connecting...', 'Cifrado: Conectando...'));
         if (diagKid) diagKid.textContent = tUi('Establishing private key...', 'Preparando sesión segura...');
     }
 }
@@ -632,7 +632,7 @@ function kanaToRomajiClient(text = '') {
     return out.replace(/\s+/g, ' ').trim();
 }
 
-function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin red', message = '', sampleText = '', onRetry = null, onInsertOfflineRom = null } = {}) {
+function renderAiNetworkFallback(container, { title = '', message = '', sampleText = '', onRetry = null, onInsertOfflineRom = null } = {}) {
     if (!container) return;
     container.replaceChildren();
     container.hidden = false;
@@ -641,11 +641,14 @@ function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin
     card.className = 'ai-network-fallback';
 
     const strong = document.createElement('strong');
-    strong.textContent = `⚠️ ${title}`;
+    strong.textContent = `⚠️ ${title || tUi('Unstable or offline connection', 'Conexión inestable o sin red')}`;
     const desc = document.createElement('p');
     desc.className = 'muted-text';
     desc.style.margin = '0';
-    desc.textContent = message || 'No se pudo completar la consulta en línea. Tus notas escritas permanecen intactas.';
+    desc.textContent = message || tUi(
+        'Could not complete the online request. Your written notes remain intact.',
+        'No se pudo completar la consulta en línea. Tus notas escritas permanecen intactas.'
+    );
     card.append(strong, desc);
 
     const hasHangul = /[\uAC00-\uD7A3]/.test(String(sampleText || ''));
@@ -656,7 +659,7 @@ function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin
     if (offlineRom) {
         const romBox = document.createElement('div');
         romBox.className = 'ai-line-rom';
-        romBox.textContent = `Romanización local sin internet: ${offlineRom}`;
+        romBox.textContent = `${tUi('Offline local romanization', 'Romanización local sin internet')}: ${offlineRom}`;
         card.appendChild(romBox);
     }
 
@@ -666,7 +669,7 @@ function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin
         const retryBtn = document.createElement('button');
         retryBtn.type = 'button';
         retryBtn.className = 'btn-secondary btn-small';
-        retryBtn.textContent = '🔄 Reintentar conexión';
+        retryBtn.textContent = tUi('🔄 Retry connection', '🔄 Reintentar conexión');
         retryBtn.addEventListener('click', () => onRetry());
         actions.appendChild(retryBtn);
     }
@@ -674,7 +677,7 @@ function renderAiNetworkFallback(container, { title = 'Conexión inestable o sin
         const useRomBtn = document.createElement('button');
         useRomBtn.type = 'button';
         useRomBtn.className = 'btn-mini-add';
-        useRomBtn.textContent = '↘ Usar romanización local en notas';
+        useRomBtn.textContent = tUi('↘ Use local romanization in notes', '↘ Usar romanización local en notas');
         useRomBtn.addEventListener('click', () => onInsertOfflineRom(offlineRom));
         actions.appendChild(useRomBtn);
     }
@@ -1110,14 +1113,17 @@ async function autoQueueAiLearningToWord({ entry, hintEl, songToMarkSynced = nul
             const pcOnline = Boolean(musicState?.ytdlpStatus?.pcOnline);
             hintEl.hidden = false;
             hintEl.textContent = pcOnline
-                ? '✅ Aprendizaje cifrado E2EE y enviado a tu Word PC automáticamente.'
-                : '☁️ PC offline: aprendizaje guardado cifrado E2EE en la RAM de EC2 (se escribirá en Word al conectar tu PC).';
+                ? tUi('✅ Learning notes encrypted E2EE and sent to your PC Word automatically.', '✅ Aprendizaje cifrado E2EE y enviado a tu Word PC automáticamente.')
+                : tUi('☁️ PC offline: learning notes saved E2EE encrypted in server RAM (queued for Word when PC connects).', '☁️ PC apagada: aprendizaje guardado cifrado E2EE en la nube (se escribirá en Word al conectar tu PC).');
         }
         return true;
     } catch (err) {
         if (hintEl) {
             hintEl.hidden = false;
-            hintEl.textContent = `⚠️ No se pudo encolar a Word automáticamente: ${err.message || 'error de red'}`;
+            hintEl.textContent = tUi(
+                `⚠️ Could not queue to Word automatically: ${tServer(err.message) || 'network error'}`,
+                `⚠️ No se pudo encolar a Word automáticamente: ${tServer(err.message) || 'error de red'}`
+            );
         }
         return false;
     }
@@ -3805,14 +3811,14 @@ function renderAiAnalysisIntoBox(container, analysis) {
             sum.style.cursor = 'pointer';
             sum.style.fontWeight = '700';
             protectUserNode(sum);
-            sum.textContent = `🎵 [${stanza.section || `Estrofa ${sIdx + 1}`}] — ${stanza.meaningSummary || ''}`;
+            sum.textContent = `🎵 [${stanza.section || tUi(`Stanza ${sIdx + 1}`, `Estrofa ${sIdx + 1}`)}] — ${stanza.meaningSummary || ''}`;
             det.appendChild(sum);
 
             if (stanza.phoneticGuide) {
                 const ph = document.createElement('div');
                 ph.className = 'ai-line-rom';
                 protectUserNode(ph);
-                ph.textContent = `🗣️ Fonética de estrofa: [${stanza.phoneticGuide}]`;
+                ph.textContent = `🗣️ ${tUi('Stanza phonetics', 'Fonética de estrofa')}: [${stanza.phoneticGuide}]`;
                 det.appendChild(ph);
             }
 
@@ -3999,12 +4005,12 @@ function initLanguageAiStudio() {
 
             if (!resp.ok || !resp.data) {
                 renderAiNetworkFallback(quickBox, {
-                    title: 'No se pudo completar el análisis con IA',
+                    title: tUi('Could not complete AI analysis', 'No se pudo completar el análisis con IA'),
                     message: resp.errorMessage,
                     sampleText: query,
                     onRetry: triggerQuickAi
                 });
-                if (quickModeBadge) quickModeBadge.textContent = '⚠️ Sin conexión';
+                if (quickModeBadge) quickModeBadge.textContent = tUi('⚠️ Offline', '⚠️ Sin conexión');
                 showToast('err', resp.errorMessage);
                 return;
             }
@@ -4191,7 +4197,7 @@ function initLanguageAiStudio() {
 
             if (!resp.ok || !resp.data) {
                 renderAiNetworkFallback(musicAiBox, {
-                    title: 'Red inestable o sin conexión al analizar letra',
+                    title: tUi('Unstable or offline connection while analyzing lyrics', 'Red inestable o sin conexión al analizar la letra'),
                     message: resp.errorMessage,
                     sampleText: lyrics,
                     onRetry: triggerMusicLyricsAi,
@@ -4200,7 +4206,10 @@ function initLanguageAiStudio() {
                         if (pronEl && romText && !pronEl.value.includes(romText)) {
                             pronEl.value = [pronEl.value.trim(), romText].filter(Boolean).join('\n');
                             syncStudyDraftForId('musicStudyPronunciation');
-                            showToast('ok', 'Romanización local agregada a tus notas de pronunciación.');
+                            showToast('ok', tUi(
+                                'Local romanization added to your pronunciation notes.',
+                                'Romanización local agregada a tus notas de pronunciación.'
+                            ));
                         }
                     }
                 });
@@ -4423,8 +4432,13 @@ function initLanguageAiStudio() {
                 btnDone.type = 'button';
                 btnDone.className = 'btn-primary btn-small';
                 btnDone.disabled = lesson.locked || lesson.completada;
-                btnDone.title = 'Marca esta lección como completada después de practicar para avanzar a la siguiente';
-                btnDone.textContent = lesson.completada ? 'Completada' : '✓ Completar';
+                btnDone.title = tUi(
+                    'Mark this lesson as completed after practicing to unlock the next one',
+                    'Marca esta lección como completada después de practicar para avanzar a la siguiente'
+                );
+                btnDone.textContent = lesson.completada
+                    ? tUi('Completed', 'Completada')
+                    : tUi('✓ Complete', '✓ Completar');
                 btnDone.addEventListener('click', () => {
                     runWithButtonLock(btnDone, async () => {
                         const cRes = await fetch(`/api/language/lessons/${lesson.id}/complete`, {
@@ -4433,10 +4447,13 @@ function initLanguageAiStudio() {
                             body: JSON.stringify({ wordReadConfirmed: true })
                         });
                         if (!cRes.ok) {
-                            showToast('err', await cRes.text());
+                            showToast('err', tServer(await cRes.text()));
                             return;
                         }
-                        showToast('ok', '¡Lección completada! Se desbloqueó la siguiente lección.');
+                        showToast('ok', tUi(
+                            'Lesson completed! The next lesson is now unlocked.',
+                            '¡Lección completada! Se desbloqueó la siguiente lección.'
+                        ));
                         await cargarLeccionesSecuencialesUI();
                     });
                 });
@@ -4460,7 +4477,10 @@ function initLanguageAiStudio() {
                 signature: String(Date.now()),
                 buildBody: () => ({
                     active: nextState,
-                    topic: 'Dedica 10 a 15 minutos a tu lección activa de Inglés / Coreano en tu cuaderno Word'
+                    topic: tUi(
+                        'Spend 10 to 15 minutes on your active study lesson in your Word notebook',
+                        'Dedica 10 a 15 minutos a tu lección activa de idiomas en tu cuaderno Word'
+                    )
                 }),
                 parseJson: true
             });
@@ -4479,7 +4499,10 @@ function initLanguageAiStudio() {
             if (resultBox) {
                 resultBox.hidden = false;
                 resultBox.className = 'inline-status-banner is-error';
-                resultBox.textContent = '⚠️ Tu navegador bloqueó el micrófono por usar HTTP plano o no soporta Web Speech API. En tu OPPO A79 habilita el origen en chrome://flags/#unsafely-treat-insecure-origin-as-secure o usa HTTPS.';
+                resultBox.textContent = tUi(
+                    '⚠️ Your browser blocked the microphone over plain HTTP or does not support the Web Speech API. On OPPO A79 enable this origin in chrome://flags/#unsafely-treat-insecure-origin-as-secure or use HTTPS.',
+                    '⚠️ Tu navegador bloqueó el micrófono por usar HTTP plano o no soporta Web Speech API. En tu OPPO A79 habilita este origen en chrome://flags/#unsafely-treat-insecure-origin-as-secure o usa HTTPS.'
+                );
             }
             return;
         }
@@ -4491,19 +4514,28 @@ function initLanguageAiStudio() {
         ).trim().slice(0, 200);
 
         if (!targetText) {
-            showToast('info', 'Escribe primero una palabra en Glosario o una frase en el cuadro de IA para evaluar tu pronunciación.');
+            showToast('info', tUi(
+                'Type a word in Glossary or a phrase in the AI Tutor box first to check your pronunciation.',
+                'Escribe primero una palabra en Glosario o una frase en el cuadro de IA para evaluar tu pronunciación.'
+            ));
             return;
         }
 
         const langCode = document.getElementById('studyLanguageInput')?.value || 'en';
+        const hasJapaneseChars = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(targetText) && !/[\uAC00-\uD7A3]/.test(targetText);
         const rec = new SpeechRec();
-        rec.lang = langCode === 'ko' || /[\uAC00-\uD7A3]/.test(targetText) ? 'ko-KR' : 'en-US';
+        rec.lang = (langCode === 'ko' || /[\uAC00-\uD7A3]/.test(targetText))
+            ? 'ko-KR'
+            : ((langCode === 'ja' || hasJapaneseChars) ? 'ja-JP' : 'en-US');
         rec.interimResults = false;
 
         if (resultBox) {
             resultBox.hidden = false;
             resultBox.className = 'inline-status-banner is-info';
-            resultBox.textContent = `🎙️ Escuchando (${rec.lang})... Pronuncia en voz alta: "${targetText}"`;
+            resultBox.textContent = tUi(
+                `🎙️ Listening (${rec.lang})... Say aloud: "${targetText}"`,
+                `🎙️ Escuchando (${rec.lang})... Pronuncia en voz alta: "${targetText}"`
+            );
         }
 
         rec.onresult = async (event) => {
@@ -4517,14 +4549,20 @@ function initLanguageAiStudio() {
             if (evalRes.ok && evalRes.data && resultBox) {
                 const d = evalRes.data;
                 resultBox.className = d.score >= 75 ? 'inline-status-banner is-ok' : 'inline-status-banner is-info';
-                resultBox.textContent = `🎯 Puntaje: ${d.score}% · Captado: "${d.spokenText}" · Fonética: [${d.phoneticTarget}] — ${d.feedback} (${d.mouthTip})`;
+                resultBox.textContent = tUi(
+                    `🎯 Score: ${d.score}% · Heard: "${d.spokenText}" · Phonetics: [${d.phoneticTarget}] — ${d.feedback} (${d.mouthTip})`,
+                    `🎯 Puntaje: ${d.score}% · Captado: "${d.spokenText}" · Fonética: [${d.phoneticTarget}] — ${d.feedback} (${d.mouthTip})`
+                );
             }
         };
         rec.onerror = (e) => {
             if (resultBox) {
                 resultBox.hidden = false;
                 resultBox.className = 'inline-status-banner is-error';
-                resultBox.textContent = `⚠️ No se pudo capturar el micrófono (${e.error || 'permiso denegado'}).`;
+                resultBox.textContent = tUi(
+                    `⚠️ Could not capture microphone audio (${e.error || 'permission denied'}).`,
+                    `⚠️ No se pudo capturar el micrófono (${e.error || 'permiso denegado'}).`
+                );
             }
         };
         rec.start();
@@ -4858,6 +4896,276 @@ function closeFloatingTranslator() {
     if (drawer) drawer.hidden = true;
 }
 
+if (typeof window !== 'undefined') {
+    window.DailyHubOpenTranslator = openFloatingTranslator;
+}
+
+function initGlobalSelectionTranslator() {
+    const selBtn = document.getElementById('btnMusicTranslateLyricsSel');
+    if (!selBtn || selBtn.dataset.globalSelWired === 'true') return;
+    selBtn.dataset.globalSelWired = 'true';
+
+    let lastSelectedText = '';
+    let lastSelectionFromMusic = false;
+    let manualPos = false;
+    let dragState = null;
+    let suppressNextClick = false;
+    let updateRaf = 0;
+    let lastPointer = { x: 0, y: 0, at: 0 };
+
+    const isEligibleSession = () => {
+        if (!currentUser || currentUser.rol !== 'admin') return false;
+        const authEl = document.getElementById('authOverlay');
+        if (authEl && !authEl.hidden) return false;
+        const shellEl = document.getElementById('appShell');
+        return Boolean(shellEl && !shellEl.hidden);
+    };
+
+    const isExcludedContainer = (node) => {
+        const el = node && node.nodeType === 1 ? node : node?.parentElement;
+        if (!el || typeof el.closest !== 'function') return true;
+        if (el.closest('#floatingTranslatorModal, #btnMusicTranslateLyricsSel, #authOverlay, #singleTabGuardModal, [data-no-translate-popup="true"]')) {
+            return true;
+        }
+        return false;
+    };
+
+    const isInsideMusicStudyArea = (node) => {
+        const el = node && node.nodeType === 1 ? node : node?.parentElement;
+        return Boolean(el && typeof el.closest === 'function' && el.closest('#musicLyricsViewerCard, #musicWordStudyCard'));
+    };
+
+    const getSelectionInfo = () => {
+        if (!isEligibleSession()) return null;
+
+        const activeEl = document.activeElement;
+        if (
+            activeEl &&
+            (activeEl.tagName === 'TEXTAREA' || (activeEl.tagName === 'INPUT' && !/^(?:password|checkbox|radio|file|range|color|date|time|submit|button|reset|hidden)$/i.test(activeEl.type || 'text'))) &&
+            !isExcludedContainer(activeEl) &&
+            typeof activeEl.selectionStart === 'number' &&
+            typeof activeEl.selectionEnd === 'number' &&
+            activeEl.selectionEnd > activeEl.selectionStart
+        ) {
+            const text = String(activeEl.value || '').slice(activeEl.selectionStart, activeEl.selectionEnd).trim();
+            if (text) {
+                const elRect = activeEl.getBoundingClientRect();
+                let rect = elRect;
+                if (Date.now() - lastPointer.at < 2000 && lastPointer.x >= elRect.left && lastPointer.x <= elRect.right && lastPointer.y >= elRect.top && lastPointer.y <= elRect.bottom) {
+                    rect = {
+                        left: Math.max(elRect.left, lastPointer.x - 24),
+                        right: Math.min(elRect.right, lastPointer.x + 24),
+                        top: Math.max(elRect.top, lastPointer.y - 12),
+                        bottom: Math.min(elRect.bottom, lastPointer.y + 12),
+                        width: 48,
+                        height: 24
+                    };
+                }
+                return { text: text.slice(0, 1500), rect, fromMusic: isInsideMusicStudyArea(activeEl) };
+            }
+        }
+
+        const sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        const text = String(sel.toString() || '').trim();
+        if (!text) return null;
+
+        const anchorNode = sel.anchorNode;
+        const focusNode = sel.focusNode;
+        if (isExcludedContainer(anchorNode) && isExcludedContainer(focusNode)) return null;
+
+        let rect = null;
+        try {
+            const range = sel.getRangeAt(0);
+            const rects = typeof range.getClientRects === 'function' ? range.getClientRects() : null;
+            if (rects && rects.length > 0) {
+                rect = rects[rects.length - 1];
+            } else {
+                rect = range.getBoundingClientRect();
+            }
+        } catch (_) {
+            rect = null;
+        }
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
+            const fallbackEl = (anchorNode && anchorNode.nodeType === 1 ? anchorNode : anchorNode?.parentElement) || document.body;
+            rect = fallbackEl.getBoundingClientRect();
+        }
+        const fromMusic = isInsideMusicStudyArea(anchorNode) || isInsideMusicStudyArea(focusNode);
+        return { text: text.slice(0, 1500), rect, fromMusic };
+    };
+
+    const positionNearRect = (rect) => {
+        if (!rect) return;
+        const btnRect = selBtn.getBoundingClientRect();
+        const vp = typeof getSafeViewportBounds === 'function'
+            ? getSafeViewportBounds()
+            : { width: window.innerWidth || 360, height: window.innerHeight || 640 };
+        const btnWidth = btnRect.width || 168;
+        const btnHeight = btnRect.height || 36;
+        const margin = 8;
+        let preferredTop = rect.bottom + 10;
+        if (preferredTop + btnHeight + margin > vp.height) {
+            preferredTop = rect.top - btnHeight - 10;
+        }
+        const preferredLeft = rect.left + Math.max(0, (rect.width - btnWidth) / 2);
+        const clamped = typeof clampFixedElementCoords === 'function'
+            ? clampFixedElementCoords(selBtn, preferredLeft, preferredTop, margin)
+            : {
+                left: Math.round(Math.min(Math.max(margin, preferredLeft), Math.max(margin, vp.width - btnWidth - margin))),
+                top: Math.round(Math.min(Math.max(margin, preferredTop), Math.max(margin, vp.height - btnHeight - margin)))
+            };
+        selBtn.style.left = `${clamped.left}px`;
+        selBtn.style.top = `${clamped.top}px`;
+    };
+
+    const updateButton = () => {
+        if (dragState) return;
+        const selInfo = getSelectionInfo();
+        if (!selInfo || !selInfo.text) {
+            lastSelectedText = '';
+            lastSelectionFromMusic = false;
+            manualPos = false;
+            selBtn.hidden = true;
+            return;
+        }
+        lastSelectedText = selInfo.text;
+        lastSelectionFromMusic = Boolean(selInfo.fromMusic);
+        selBtn.hidden = false;
+        if (!manualPos) {
+            positionNearRect(selInfo.rect);
+        } else if (typeof clampFloatingElementIntoViewport === 'function') {
+            clampFloatingElementIntoViewport(selBtn, 8);
+        }
+    };
+
+    const scheduleUpdate = () => {
+        if (updateRaf) cancelAnimationFrame(updateRaf);
+        updateRaf = requestAnimationFrame(() => {
+            updateRaf = 0;
+            updateButton();
+        });
+    };
+
+    const recordPointerAndRefresh = (ev) => {
+        if (ev && typeof ev.clientX === 'number' && typeof ev.clientY === 'number') {
+            lastPointer = { x: ev.clientX, y: ev.clientY, at: Date.now() };
+        } else if (ev && ev.changedTouches && ev.changedTouches[0]) {
+            lastPointer = { x: ev.changedTouches[0].clientX, y: ev.changedTouches[0].clientY, at: Date.now() };
+        }
+        setTimeout(updateButton, 25);
+    };
+
+    document.addEventListener('selectionchange', scheduleUpdate);
+    document.addEventListener('mouseup', recordPointerAndRefresh, true);
+    document.addEventListener('touchend', recordPointerAndRefresh, true);
+    document.addEventListener('keyup', () => setTimeout(updateButton, 20), true);
+    window.addEventListener('scroll', () => {
+        if (!selBtn.hidden && !manualPos) scheduleUpdate();
+    }, true);
+    window.addEventListener('resize', () => {
+        if (!selBtn.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+            clampFloatingElementIntoViewport(selBtn, 8);
+        }
+    });
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            if (!selBtn.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+                clampFloatingElementIntoViewport(selBtn, 8);
+            }
+        }, 80);
+    });
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+        window.visualViewport.addEventListener('resize', () => {
+            if (!selBtn.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+                clampFloatingElementIntoViewport(selBtn, 8);
+            }
+        });
+    }
+
+    selBtn.addEventListener('mousedown', ev => {
+        ev.preventDefault();
+    });
+
+    selBtn.addEventListener('pointerdown', ev => {
+        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+        const liveSel = getSelectionInfo();
+        if (liveSel && liveSel.text) {
+            lastSelectedText = liveSel.text;
+            lastSelectionFromMusic = Boolean(liveSel.fromMusic);
+        }
+        const rect = selBtn.getBoundingClientRect();
+        dragState = {
+            pointerId: ev.pointerId,
+            startX: ev.clientX,
+            startY: ev.clientY,
+            origLeft: rect.left,
+            origTop: rect.top,
+            moved: false
+        };
+        suppressNextClick = false;
+        if (typeof selBtn.setPointerCapture === 'function') {
+            try { selBtn.setPointerCapture(ev.pointerId); } catch (_) { }
+        }
+    });
+
+    const onPointerMove = ev => {
+        if (!dragState || ev.pointerId !== dragState.pointerId) return;
+        const dx = ev.clientX - dragState.startX;
+        const dy = ev.clientY - dragState.startY;
+        if (!dragState.moved && Math.hypot(dx, dy) > 5) {
+            dragState.moved = true;
+            manualPos = true;
+            suppressNextClick = true;
+            selBtn.classList.add('is-dragging');
+        }
+        if (!dragState.moved) return;
+        ev.preventDefault();
+        const clamped = typeof clampFixedElementCoords === 'function'
+            ? clampFixedElementCoords(selBtn, dragState.origLeft + dx, dragState.origTop + dy, 8)
+            : { left: dragState.origLeft + dx, top: dragState.origTop + dy };
+        selBtn.style.left = `${clamped.left}px`;
+        selBtn.style.top = `${clamped.top}px`;
+    };
+
+    const onPointerEnd = ev => {
+        if (!dragState || (ev.pointerId !== undefined && ev.pointerId !== dragState.pointerId)) return;
+        const wasDragged = dragState.moved;
+        selBtn.classList.remove('is-dragging');
+        if (typeof selBtn.releasePointerCapture === 'function') {
+            try { selBtn.releasePointerCapture(dragState.pointerId); } catch (_) { }
+        }
+        dragState = null;
+        if (wasDragged) {
+            setTimeout(() => { suppressNextClick = false; }, 60);
+        }
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+
+    selBtn.addEventListener('click', () => {
+        if (suppressNextClick) {
+            suppressNextClick = false;
+            return;
+        }
+        const liveSel = getSelectionInfo();
+        const selectedText = String((liveSel && liveSel.text) || lastSelectedText || '').trim();
+        if (!selectedText) {
+            selBtn.hidden = true;
+            return;
+        }
+        const isMusic = liveSel ? liveSel.fromMusic : lastSelectionFromMusic;
+        const selSong = isMusic && typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+        const contextStr = selSong ? `${formatSongArtistsSummary(selSong)} - ${selSong.titulo}` : '';
+        if (floatingTranslatorController && typeof floatingTranslatorController.setDirection === 'function') {
+            floatingTranslatorController.setDirection('auto');
+        }
+        openFloatingTranslator({ text: selectedText, toggle: false, context: contextStr });
+        selBtn.hidden = true;
+    });
+}
+
 function consumePendingPopupTranslatorVocab() {
     try {
         const raw = localStorage.getItem('pdh_pending_translator_vocab');
@@ -4906,18 +5214,18 @@ function initGlobalFloatingTranslator() {
 
     const getSelectionText = () => {
         try {
+            const active = document.activeElement;
+            if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type !== 'password')) && typeof active.selectionStart === 'number' && active.selectionEnd > active.selectionStart) {
+                const txt = String(active.value || '').slice(active.selectionStart, active.selectionEnd).trim();
+                if (txt) return txt.slice(0, 600);
+            }
             return String(window.getSelection ? window.getSelection().toString() : '').trim().slice(0, 600);
         } catch (_) {
             return '';
         }
     };
 
-    const btnFab = document.getElementById('btnFloatingTranslatorFab');
-    if (btnFab) {
-        btnFab.addEventListener('click', () => {
-            openFloatingTranslator({ text: getSelectionText(), toggle: true });
-        });
-    }
+    initGlobalSelectionTranslator();
 
     const btnSidebar = document.getElementById('btnSidebarOpenTranslator');
     if (btnSidebar) {
@@ -4951,7 +5259,7 @@ function initGlobalFloatingTranslator() {
         btnResetPos.addEventListener('click', () => {
             setFloatingTranslatorMinimized(drawer, false);
             resetFloatingTranslatorPosition(drawer);
-            showToast('ok', 'Translator window position reset.');
+            showToast('ok', tUi('Translator window position reset.', 'Posición de la ventana del traductor restablecida.'));
         });
     }
 
@@ -5035,7 +5343,11 @@ const musicState = {
 };
 
 function cleanCaptionTextToLyricsClient(rawText) {
-    const normalized = String(rawText || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+    const normalized = String(rawText || '')
+        .replace(/[\uFEFF\u200B-\u200D\u2060]/g, '')
+        .replace(/\r\n?/g, '\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/\\N/g, '\n');
     if (!normalized.trim()) return '';
     const out = [];
     let skippingBlock = false;
@@ -5588,13 +5900,18 @@ function _isolateHangulLinesClient(linesArr) {
     const out = [];
     let pendingBreak = false;
     for (const raw of Array.isArray(linesArr) ? linesArr : []) {
-        const line = String(raw || '').trim();
+        let line = String(raw || '').trim();
         if (!line) {
             if (out.length) pendingBreak = true;
             continue;
         }
-        if (/^\[(?:음악|music|applause|laughter|cheering|instrumental)\]$/i.test(line)) continue;
+        if (_isSectionHeaderLineClient(line) || _isRomanizationBracketLineClient(line)) continue;
+        if (/^\[(?:음악|박수|music|applause|laughter|cheering|instrumental)\]$/i.test(line)) continue;
+        const arrowIdx = line.indexOf(' → ');
+        if (arrowIdx > 0) line = line.slice(0, arrowIdx).trim();
         if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line)) {
+            line = _stripStandaloneLatinFromCjkClient(line);
+            if (!/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line)) continue;
             if (pendingBreak && out.length && out[out.length - 1] !== '') out.push('');
             pendingBreak = false;
             const lastNonEmpty = [...out].reverse().find(x => x !== '');
@@ -5605,22 +5922,100 @@ function _isolateHangulLinesClient(linesArr) {
     return out;
 }
 
+function _isSectionHeaderLineClient(line) {
+    return /^(?:===\s*\[[^\]]+\]\s*===|\[(?:ORIGINAL|ORIG|FULL|MULTI|MIX|WORD|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|SUB|UND)(?:[-_][A-Za-z0-9]+)*(?:\s*[—\-]\s*[^\]]*)?\])$/i.test(String(line || '').trim());
+}
+
+function _isRomanizationBracketLineClient(line) {
+    const t = String(line || '').trim();
+    if (!t.startsWith('[') || !t.endsWith(']')) return false;
+    if (/^\s*\[(?:intro|verse(?:\s*\d+)?|pre-?chorus|post-?chorus|chorus|refrain|bridge|rap(?:\s*part)?|interlude|outro|hook|solo|breakdown|instrumental|coro|verso(?:\s*\d+)?|estrofa(?:\s*\d+)?|puente|estribillo|final)(?:\s+[^\]]*|\s*\d*)?\]\s*$/i.test(t)) return false;
+    if (_isSectionHeaderLineClient(t)) return false;
+    return /^\s*\[[a-z][a-z0-9\s,'’.\-?!~()]{1,140}\]\s*$/.test(t);
+}
+
+function _isLikelySpanishLineClient(line) {
+    const t = String(line || '').trim();
+    if (!t || /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(t)) return false;
+    if (/[áéíóúüñ¿¡]/i.test(t)) return true;
+    return /\b(?:que|para|pero|una|unas|unos|los|las|del|estoy|estás|estas|quiero|quieres|siempre|noche|dime|tengo|puedo|nada|cuando|eres|porque|contigo|conmigo|corazón|corazon|también|tambien|aquí|aqui)\b/i.test(t);
+}
+
+function _stripStandaloneLatinFromCjkClient(line) {
+    return String(line || '')
+        .replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '')
+        .trim();
+}
+
 function _isolateJapaneseLinesClient(linesArr) {
     const out = [];
     let pendingBreak = false;
     for (const raw of Array.isArray(linesArr) ? linesArr : []) {
-        const line = String(raw || '').trim();
+        let line = String(raw || '').trim();
         if (!line) {
             if (out.length) pendingBreak = true;
             continue;
         }
+        if (_isSectionHeaderLineClient(line) || _isRomanizationBracketLineClient(line)) continue;
         if (/^\[(?:音楽|歌|music|applause|laughter|cheering|instrumental)\]$/i.test(line)) continue;
+        const arrowIdx = line.indexOf(' → ');
+        if (arrowIdx > 0) line = line.slice(0, arrowIdx).trim();
         if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line)) {
+            line = _stripStandaloneLatinFromCjkClient(line);
+            if (!/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line)) continue;
             if (pendingBreak && out.length && out[out.length - 1] !== '') out.push('');
             pendingBreak = false;
             const lastNonEmpty = [...out].reverse().find(x => x !== '');
             if (lastNonEmpty !== line) out.push(line);
         }
+    }
+    while (out.length && out[out.length - 1] === '') out.pop();
+    return out;
+}
+
+function _isolateEnglishLinesClient(linesArr) {
+    const out = [];
+    let pendingBreak = false;
+    let pendingTag = '';
+    const isStruct = ln => /^\s*\[(?:intro|verse(?:\s*\d+)?|pre-?chorus|post-?chorus|chorus|refrain|bridge|rap(?:\s*part)?|interlude|outro|hook|solo|breakdown|instrumental|coro|verso(?:\s*\d+)?|estrofa(?:\s*\d+)?|puente|estribillo|final)(?:\s+[^\]]*|\s*\d*)?\]\s*$/i.test(ln);
+    for (const raw of Array.isArray(linesArr) ? linesArr : []) {
+        let line = String(raw || '').trim();
+        if (!line) {
+            if (out.length) pendingBreak = true;
+            continue;
+        }
+        if (_isSectionHeaderLineClient(line) || _isRomanizationBracketLineClient(line)) continue;
+        if (/^\[(?:음악|박수|音楽|歌|music|applause|laughter|cheering|instrumental|singing|música)\]$/i.test(line)) continue;
+        const arrowIdx = line.indexOf(' → ');
+        if (arrowIdx > 0) line = line.slice(0, arrowIdx).trim();
+        if (!line) continue;
+        if (isStruct(line)) {
+            pendingTag = line;
+            continue;
+        }
+        const hasCjk = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line);
+        if (hasCjk) {
+            const asciiChunk = line
+                .replace(/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '')
+                .trim();
+            if (!/[A-Za-z]{2,}\s+[A-Za-z'’]{1,}/.test(asciiChunk) || _isLikelySpanishLineClient(asciiChunk)) continue;
+            line = asciiChunk;
+        } else {
+            if (!/[A-Za-z]/.test(line) || _isLikelySpanishLineClient(line)) continue;
+        }
+        if (pendingBreak && out.length && out[out.length - 1] !== '') out.push('');
+        pendingBreak = false;
+        if (pendingTag) {
+            const lastNonEmpty = [...out].reverse().find(x => x !== '');
+            if (lastNonEmpty !== pendingTag) out.push(pendingTag);
+            pendingTag = '';
+        }
+        const lastNonEmpty = [...out].reverse().find(x => x !== '');
+        if (lastNonEmpty !== line) out.push(line);
     }
     while (out.length && out[out.length - 1] === '') out.pop();
     return out;
@@ -5635,16 +6030,48 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         es: { code: 'es', tabLabel: '🇪🇸 Español', title: '🇪🇸 Español (Traducción)' }
     };
 
+    const stripHeaderLinesFromArr = linesArr => {
+        const cleanOut = [];
+        for (const rawLn of linesArr) {
+            const trimmed = String(rawLn || '').trim();
+            if (_isSectionHeaderLineClient(trimmed)) continue;
+            cleanOut.push(String(rawLn || '').trimEnd());
+        }
+        while (cleanOut.length && !cleanOut[0].trim()) cleanOut.shift();
+        while (cleanOut.length && !cleanOut[cleanOut.length - 1].trim()) cleanOut.pop();
+        return cleanOut;
+    };
+
+    const normLineKey = linesArr => linesArr
+        .map(l => String(l || '').trim().replace(/\s+/g, ' ').toLowerCase())
+        .filter(Boolean)
+        .join('\n');
+
     if (structuredTracks && typeof structuredTracks === 'object' && !Array.isArray(structuredTracks)) {
-        const orderedKeys = ['original', 'ko', 'en', 'ja', 'es'];
-        const out = [];
-        for (const k of orderedKeys) {
+        const cleanStructured = {};
+        for (const k of ['original', 'ko', 'en', 'ja', 'es']) {
             const val = String(structuredTracks[k] || '').trim();
             if (!val) continue;
-            let lines = val.split(/\r?\n/);
-            if (k === 'ko') lines = _isolateHangulLinesClient(lines);
-            else if (k === 'ja' && lines.some(ln => /[A-Za-z]{2,}/.test(ln))) lines = _isolateJapaneseLinesClient(lines);
-            if (!lines.some(l => l.trim())) continue;
+            const rawArr = stripHeaderLinesFromArr(val.split(/\r?\n/));
+            if (k === 'ko') cleanStructured[k] = _isolateHangulLinesClient(rawArr);
+            else if (k === 'ja') cleanStructured[k] = _isolateJapaneseLinesClient(rawArr);
+            else if (k === 'en') cleanStructured[k] = rawArr.some(ln => /[\uAC00-\uD7A3\u3040-\u30FF\u4E00-\u9FFF]/.test(ln)) ? _isolateEnglishLinesClient(rawArr) : rawArr;
+            else cleanStructured[k] = rawArr;
+        }
+        if (cleanStructured.original && (!cleanStructured.en || !cleanStructured.en.some(l => l.trim()))) {
+            const isoEn = _isolateEnglishLinesClient(cleanStructured.original);
+            if (isoEn.some(l => l.trim())) cleanStructured.en = isoEn;
+        }
+        const normOrig = cleanStructured.original ? normLineKey(cleanStructured.original) : '';
+        if (
+            normOrig && ['ko', 'en', 'ja', 'es'].some(singleKey => cleanStructured[singleKey] && normLineKey(cleanStructured[singleKey]) === normOrig)
+        ) {
+            delete cleanStructured.original;
+        }
+        const out = [];
+        for (const k of ['original', 'ko', 'en', 'ja', 'es']) {
+            const lines = cleanStructured[k];
+            if (!lines || !lines.some(l => l.trim())) continue;
             const meta = SECTION_META[k];
             out.push({
                 code: meta.code,
@@ -5659,7 +6086,7 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
     const clean = String(rawLyrics || '').replace(/\r\n/g, '\n').trim();
     if (!clean) return [];
 
-    const headerPattern = /(?:^|\n)(?:===\s*\[([^\]]+)\]\s*===|\[((?:ORIGINAL|ORIG|FULL|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|ZH|FR|PT|DE|IT|RU|SUB)(?:\s*[—\-][^\]]*)?)\])\s*\n/gi;
+    const headerPattern = /(?:^|\n)(?:===\s*\[([^\]]+)\]\s*===|\[((?:ORIGINAL|ORIG|FULL|MULTI|MIX|WORD|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|ZH|FR|PT|DE|IT|RU|SUB|UND)(?:[-_][A-Za-z0-9]+)*(?:\s*[—\-][^\]]*)?)\])\s*\n/gi;
     const matches = [];
     let m;
     while ((m = headerPattern.exec(clean)) !== null) {
@@ -5671,8 +6098,9 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         });
     }
 
-    const classifyTag = (rawTag) => {
-        if (rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL') || rawTag.includes('JP-EN') || rawTag.includes('EN-JP')) {
+    const classifyTag = rawTag => {
+        if (rawTag === 'WORD') return null;
+        if (rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL') || rawTag.startsWith('MULTI') || rawTag.startsWith('MIX') || rawTag.includes('JP-EN') || rawTag.includes('EN-JP')) {
             return SECTION_META.original;
         }
         if (rawTag.startsWith('KO') || rawTag.startsWith('KR') || rawTag.includes('COREANO') || rawTag.includes('KOREAN')) {
@@ -5690,34 +6118,24 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         return { code: 'original', tabLabel: '🎵 Original', title: `🎵 ${rawTag || 'Original'}` };
     };
 
-    const splitLinesByScript = (linesArr) => {
-        const koLines = [];
-        const jaLines = [];
-        const enLines = [];
+    const splitLinesByScript = linesArr => {
+        const koLines = _isolateHangulLinesClient(linesArr);
+        const jaLines = _isolateJapaneseLinesClient(linesArr);
+        const enLines = _isolateEnglishLinesClient(linesArr);
         const esLines = [];
-        const hasSpanishCues = /\b(que|para|como|pero|por|con|una|los|las|del|estoy|quiero|corazón|amor|siempre|noche|dime|todo|nada)\b/i;
 
         linesArr.forEach(line => {
             const t = line.trim();
             if (!t) {
-                [koLines, jaLines, enLines, esLines].forEach(arr => {
-                    if (arr.length && arr[arr.length - 1] !== '') arr.push('');
-                });
+                if (esLines.length && esLines[esLines.length - 1] !== '') esLines.push('');
                 return;
             }
-            if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(t)) {
-                koLines.push(t);
-            } else if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(t)) {
-                jaLines.push(t);
-            } else if (/[áéíóúñ¿¡]/i.test(t) || hasSpanishCues.test(t)) {
+            if (_isSectionHeaderLineClient(t) || _isRomanizationBracketLineClient(t)) return;
+            if (!/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(t) && _isLikelySpanishLineClient(t)) {
                 esLines.push(t);
-            } else {
-                enLines.push(t);
             }
         });
-        [koLines, jaLines, enLines, esLines].forEach(arr => {
-            while (arr.length && arr[arr.length - 1] === '') arr.pop();
-        });
+        while (esLines.length && esLines[esLines.length - 1] === '') esLines.pop();
         return { koLines, jaLines, enLines, esLines };
     };
 
@@ -5727,7 +6145,7 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
         if (leadingText) {
             rawBlocks.push({
                 ...SECTION_META.original,
-                lines: leadingText.split('\n')
+                lines: stripHeaderLinesFromArr(leadingText.split('\n'))
             });
         }
         for (let i = 0; i < matches.length; i += 1) {
@@ -5736,32 +6154,40 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
             const body = clean.slice(cur.bodyStart, nextStart).trim();
             if (!body) continue;
             const meta = classifyTag(cur.rawTag);
+            if (!meta) continue;
             rawBlocks.push({
                 code: meta.code,
                 tabLabel: meta.tabLabel,
                 title: meta.title,
-                lines: body.split('\n')
+                lines: stripHeaderLinesFromArr(body.split('\n'))
             });
         }
     } else {
-        const allLines = clean.split('\n');
+        const allLines = stripHeaderLinesFromArr(clean.split('\n'));
         const { koLines, jaLines, enLines, esLines } = splitLinesByScript(allLines);
-        rawBlocks.push({ ...SECTION_META.original, lines: allLines });
-        if (koLines.some(l => l.trim())) rawBlocks.push({ ...SECTION_META.ko, lines: koLines });
-        if (enLines.some(l => l.trim()) && !koLines.some(l => l.trim()) && !jaLines.some(l => l.trim())) {
-            rawBlocks.push({ ...SECTION_META.en, lines: enLines });
+        const hasKo = koLines.some(l => l.trim());
+        const hasJa = jaLines.some(l => l.trim());
+        const hasEn = enLines.some(l => l.trim());
+        const hasEs = esLines.some(l => l.trim());
+        const scriptCount = [hasKo, hasJa, hasEn, hasEs].filter(Boolean).length;
+        if (scriptCount > 1 || (!hasKo && !hasJa && !hasEn && !hasEs)) {
+            rawBlocks.push({ ...SECTION_META.original, lines: allLines });
         }
-        if (jaLines.some(l => l.trim())) rawBlocks.push({ ...SECTION_META.ja, lines: jaLines });
-        if (esLines.some(l => l.trim())) rawBlocks.push({ ...SECTION_META.es, lines: esLines });
+        if (hasKo) rawBlocks.push({ ...SECTION_META.ko, lines: koLines });
+        if (hasEn) rawBlocks.push({ ...SECTION_META.en, lines: enLines });
+        if (hasJa) rawBlocks.push({ ...SECTION_META.ja, lines: jaLines });
+        if (hasEs) rawBlocks.push({ ...SECTION_META.es, lines: esLines });
     }
 
-    // Si existe [KO] o [JA] con mezcla EN+KR / EN+JP sin apartado original explícito, separar original + pista pura
+    // Si existe [KO] o [JA] con mezcla EN+KR / EN+JP sin apartado original explícito, separar original + pista pura + inglés
     let hasOriginal = rawBlocks.some(b => b.code === 'original');
+    const hasExplicitEn = rawBlocks.some(b => b.code === 'en');
     const normalized = [];
     for (const b of rawBlocks) {
         if (b.code === 'ko') {
             const hangulOnly = _isolateHangulLinesClient(b.lines);
-            const hasLatin = b.lines.some(ln => /[A-Za-z]{2,}/.test(ln));
+            const englishIso = !hasExplicitEn ? _isolateEnglishLinesClient(b.lines) : [];
+            const hasLatin = englishIso.some(l => l.trim());
             if (!hasOriginal && hasLatin && hangulOnly.some(l => l.trim())) {
                 normalized.push({
                     ...SECTION_META.original,
@@ -5775,9 +6201,16 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
                     lines: hangulOnly
                 });
             }
+            if (hasLatin && !hasExplicitEn) {
+                normalized.push({
+                    ...SECTION_META.en,
+                    lines: englishIso
+                });
+            }
         } else if (b.code === 'ja') {
             const jaOnly = _isolateJapaneseLinesClient(b.lines);
-            const hasLatin = b.lines.some(ln => /[A-Za-z]{2,}/.test(ln));
+            const englishIso = !hasExplicitEn ? _isolateEnglishLinesClient(b.lines) : [];
+            const hasLatin = englishIso.some(l => l.trim());
             if (!hasOriginal && hasLatin && jaOnly.some(l => l.trim())) {
                 normalized.push({
                     ...SECTION_META.original,
@@ -5785,10 +6218,30 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
                 });
                 hasOriginal = true;
             }
-            normalized.push({
-                ...b,
-                lines: hasLatin && jaOnly.some(l => l.trim()) ? jaOnly : b.lines
-            });
+            if (jaOnly.some(l => l.trim()) || !hasLatin) {
+                normalized.push({
+                    ...b,
+                    lines: hasLatin && jaOnly.some(l => l.trim()) ? jaOnly : b.lines
+                });
+            }
+            if (hasLatin && !hasExplicitEn) {
+                normalized.push({
+                    ...SECTION_META.en,
+                    lines: englishIso
+                });
+            }
+        } else if (b.code === 'original') {
+            normalized.push(b);
+            if (!hasExplicitEn) {
+                const englishFromOrig = _isolateEnglishLinesClient(b.lines);
+                const hasCjkInOrig = b.lines.some(ln => /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(ln));
+                if (hasCjkInOrig && englishFromOrig.some(l => l.trim())) {
+                    normalized.push({
+                        ...SECTION_META.en,
+                        lines: englishFromOrig
+                    });
+                }
+            }
         } else {
             normalized.push(b);
         }
@@ -5797,6 +6250,7 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
     const orderRank = { original: 0, ko: 1, en: 2, ja: 3, es: 4 };
     const mergedByCode = new Map();
     for (const sec of normalized) {
+        if (!sec.lines || !sec.lines.some(l => l.trim())) continue;
         if (!mergedByCode.has(sec.code)) {
             mergedByCode.set(sec.code, {
                 code: sec.code,
@@ -5804,6 +6258,16 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
                 title: sec.title || SECTION_META[sec.code]?.title || sec.code.toUpperCase(),
                 lines: [...sec.lines]
             });
+        }
+    }
+
+    if (mergedByCode.has('original')) {
+        const origNorm = normLineKey(mergedByCode.get('original').lines);
+        const dupSingle = ['ko', 'en', 'ja', 'es'].some(
+            k => mergedByCode.has(k) && normLineKey(mergedByCode.get(k).lines) === origNorm
+        );
+        if (dupSingle) {
+            mergedByCode.delete('original');
         }
     }
 
@@ -5834,17 +6298,25 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
     const sections = parseAndDivideLyricsByLanguage(clean, structuredTracks);
     let activeLang = filterLang || 'all';
     if (activeLang === 'en_ko') {
-        activeLang = sections.some(s => s.code === 'original') ? 'original' : 'ko';
+        activeLang = sections.some(s => s.code === 'original') ? 'original' : (sections.some(s => s.code === 'ko') ? 'ko' : (sections[0]?.code || 'ko'));
     } else if (activeLang === 'en_ja') {
-        activeLang = sections.some(s => s.code === 'original') ? 'original' : 'ja';
+        activeLang = sections.some(s => s.code === 'original') ? 'original' : (sections.some(s => s.code === 'ja') ? 'ja' : (sections[0]?.code || 'ja'));
+    } else if (activeLang === 'original' && !sections.some(s => s.code === 'original') && sections.length) {
+        activeLang = sections.find(s => s.code !== 'es')?.code || sections[0].code;
     }
 
     if (sections.length > 1) {
         const tabBar = document.createElement('div');
         tabBar.className = 'lyrics-lang-tabs';
         const tabs = [
-            { code: 'all', label: '🌐 Todos' },
-            ...sections.map(s => ({ code: s.code, label: s.tabLabel || s.code.toUpperCase() }))
+            { code: 'all', label: tUi('🌐 All', '🌐 Todos') },
+            ...sections.map(s => {
+                const rawLbl = s.tabLabel || s.code.toUpperCase();
+                const trLbl = window.DailyHubI18n && typeof window.DailyHubI18n.translateText === 'function'
+                    ? window.DailyHubI18n.translateText(rawLbl)
+                    : rawLbl;
+                return { code: s.code, label: trLbl };
+            })
         ];
         tabs.forEach(tab => {
             const btn = document.createElement('button');
@@ -5870,7 +6342,10 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
     if (!listToRender.length) {
         const emptyLangBox = document.createElement('div');
         emptyLangBox.className = 'lyrics-lang-section muted-text';
-        emptyLangBox.textContent = `No hay apartado disponible en "${activeLang.toUpperCase()}" para esta canción. Cambia de pestaña o selecciona "Todos".`;
+        emptyLangBox.textContent = tUi(
+            `No section available in "${activeLang.toUpperCase()}" for this song. Switch tabs or choose "All".`,
+            `No hay apartado disponible en "${activeLang.toUpperCase()}" para esta canción. Cambia de pestaña o selecciona "Todos".`
+        );
         host.appendChild(emptyLangBox);
         return;
     }
@@ -5882,10 +6357,14 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
         const head = document.createElement('div');
         head.className = 'lyrics-lang-section-head';
         const titleSpan = document.createElement('span');
-        titleSpan.textContent = sec.title;
+        const trTitle = window.DailyHubI18n && typeof window.DailyHubI18n.translateText === 'function'
+            ? window.DailyHubI18n.translateText(sec.title)
+            : sec.title;
+        titleSpan.textContent = trTitle;
         const countSpan = document.createElement('small');
         countSpan.className = 'muted-text';
-        countSpan.textContent = `${sec.lines.filter(l => l.trim()).length} líneas · Solo lectura`;
+        const nLines = sec.lines.filter(l => l.trim()).length;
+        countSpan.textContent = tUi(`${nLines} lines · Read-only`, `${nLines} líneas · Solo lectura`);
         head.append(titleSpan, countSpan);
 
         const body = document.createElement('div');
@@ -5975,8 +6454,8 @@ function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
             if (out.length) pendingBreak = true;
             continue;
         }
-        // Omitir cabeceras de sección ([KO], [EN], === [ES — ...] ===, etc.)
-        if (/^(?:===\s*\[[^\]]+\]\s*===|\[(?:ORIGINAL|ORIG|FULL|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|SUB)(?:\s*[—\-][^\]]*)?\])$/i.test(line)) {
+        // Omitir cabeceras de sección ([KO], [EN], [ES-419], === [ES — ...] ===, etc.)
+        if (/^(?:===\s*\[[^\]]+\]\s*===|\[(?:ORIGINAL|ORIG|FULL|MULTI|MIX|WORD|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|SUB|UND)(?:[-_][A-Za-z0-9]+)*(?:\s*[—\-][^\]]*)?\])$/i.test(line)) {
             continue;
         }
         // Omitir líneas de romanización o notas entre corchetes (conservando etiquetas estructurales como [Chorus])
@@ -5994,10 +6473,23 @@ function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
 
         let keep = true;
         if (langCode === 'ko') {
-            keep = _isStructuralLyricTagClient(line) || /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line);
+            if (_isStructuralLyricTagClient(line)) {
+                keep = true;
+            } else if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line)) {
+                line = line.replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '').trim();
+                keep = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line);
+            } else {
+                keep = false;
+            }
         } else if (langCode === 'ja') {
-            keep = _isStructuralLyricTagClient(line)
-                || (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line));
+            if (_isStructuralLyricTagClient(line)) {
+                keep = true;
+            } else if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line)) {
+                line = line.replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '').trim();
+                keep = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line);
+            } else {
+                keep = false;
+            }
         } else if (langCode === 'en') {
             keep = _isStructuralLyricTagClient(line) || isLatinOnlyEnglish(line);
         }
@@ -6135,7 +6627,7 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         viewer.value = '';
         viewer.dataset.loadedSongId = '';
         renderReadonlyLyricsByLanguage('', 'all');
-        if (badge) badge.textContent = tUi('Cuaderno Word', 'Cuaderno Word');
+        if (badge) badge.textContent = tUi('Word Notebook', 'Cuaderno Word');
         renderMusicLyricsAlbumPlaylist(null);
         if (typeof updateMobileLandscapeSongStudyClass === 'function') updateMobileLandscapeSongStudyClass();
         return;
@@ -6162,7 +6654,7 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         } else {
             badge.textContent = song.word_sincronizado
                 ? tUi('Saved in Word (click Extract)', 'Guardada en Word (pulsa Extraer)')
-                : tUi('Cuaderno Word', 'Cuaderno Word');
+                : tUi('Word Notebook', 'Cuaderno Word');
         }
     }
 
@@ -6174,8 +6666,8 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
 
     if (hint && !savedLyrics.trim()) {
         hint.textContent = tUi(
-            'Highlight any verse or phrase to show the floating «🌐 Translate selection» button, or open the floating translator with Alt+T.',
-            'Sombrea cualquier verso o frase para que aparezca el botón flotante «🌐 Traducir selección», o abre el traductor flotante con Alt+T.'
+            'Select any text anywhere in the app to translate it instantly, or open the floating translator with Alt+T.',
+            'Selecciona cualquier texto en la aplicación para traducirlo al instante, o abre el traductor flotante con Alt+T.'
         );
     }
     if (typeof updateMobileLandscapeSongStudyClass === 'function') updateMobileLandscapeSongStudyClass();
@@ -7177,7 +7669,10 @@ function renderMusicCatalog() {
         head.className = 'win-folder-expanded-head';
         const hTitle = document.createElement('strong');
         protectUserNode(hTitle);
-        hTitle.textContent = `📂 ${artistGroup.nombre} — Haz clic en una carpeta de Álbum para desplegar sus canciones`;
+        hTitle.textContent = tUi(
+            `📂 ${artistGroup.nombre} — Click an Album folder to expand its songs`,
+            `📂 ${artistGroup.nombre} — Haz clic en una carpeta de Álbum para desplegar sus canciones`
+        );
 
         const headActions = document.createElement('div');
         headActions.className = 'music-artist-head-actions';
@@ -7185,7 +7680,7 @@ function renderMusicCatalog() {
             const newAlbBtn = document.createElement('button');
             newAlbBtn.type = 'button';
             newAlbBtn.className = 'btn-mini-add';
-            newAlbBtn.textContent = '💿 + Álbum';
+            newAlbBtn.textContent = tUi('💿 + Album', '💿 + Álbum');
             newAlbBtn.addEventListener('click', () => openMusicAlbumCreateModal({
                 artistName: artistGroup.nombre,
                 artistType: artistRecord?.tipo_artista || 'group'
@@ -7194,7 +7689,7 @@ function renderMusicCatalog() {
             const addSongBtn = document.createElement('button');
             addSongBtn.type = 'button';
             addSongBtn.className = 'btn-mini-add';
-            addSongBtn.textContent = '➕ Agregar Canción';
+            addSongBtn.textContent = tUi('➕ Add Song', '➕ Agregar Canción');
             addSongBtn.addEventListener('click', () => prepararAgregarCancionAAlbum({
                 mainArtist: artistGroup.nombre,
                 artistType: artistRecord?.tipo_artista || 'group',
@@ -7205,7 +7700,7 @@ function renderMusicCatalog() {
             const editArtBtn = document.createElement('button');
             editArtBtn.type = 'button';
             editArtBtn.className = 'btn-mini-edit';
-            editArtBtn.textContent = '✏️ Editar Artista';
+            editArtBtn.textContent = tUi('✏️ Edit Artist', '✏️ Editar Artista');
             editArtBtn.addEventListener('click', () => openMusicEntityEditModal('artist', {
                 id: artistGroup.id,
                 nombre: artistGroup.nombre,
@@ -7222,17 +7717,17 @@ function renderMusicCatalog() {
         const releaseGroupDefs = [
             {
                 key: 'albums',
-                heading: '💿 Álbumes',
+                heading: tUi('💿 Albums', '💿 Álbumes'),
                 match: al => al.tipo === 'album'
             },
             {
                 key: 'mini',
-                heading: '📀 Mini Álbumes y EPs',
+                heading: tUi('📀 Mini Albums & EPs', '📀 Mini Álbumes y EPs'),
                 match: al => al.tipo === 'mini_album' || al.tipo === 'ep'
             },
             {
                 key: 'singles',
-                heading: '🎵 Sencillos y Otras Pistas',
+                heading: tUi('🎵 Singles & Other Tracks', '🎵 Sencillos y Otras Pistas'),
                 match: al => !['album', 'mini_album', 'ep'].includes(String(al.tipo || '').toLowerCase())
             }
         ];
@@ -7249,9 +7744,10 @@ function renderMusicCatalog() {
                 ? String(album.fecha_lanzamiento).slice(0, 10)
                 : (album.anio ? String(album.anio) : '');
 
+            const trackWord = album.songs.length === 1 ? tUi('track', 'pista') : tUi('tracks', 'pistas');
             return createWinFolderTile({
                 title: dateTag ? `${displayAlbTitle} (${dateTag})` : displayAlbTitle,
-                subtitle: `${relTypeLabel} · ${album.songs.length} pista(s)`,
+                subtitle: `${relTypeLabel} · ${album.songs.length} ${trackWord}`,
                 thumbUrl: firstThumb,
                 isOpen: isAlbumOpen,
                 onClick: () => {
@@ -7306,7 +7802,7 @@ function renderMusicCatalog() {
             const addTrackBtn = document.createElement('button');
             addTrackBtn.type = 'button';
             addTrackBtn.className = 'btn-mini-add';
-            addTrackBtn.textContent = '➕ Agregar Canción';
+            addTrackBtn.textContent = tUi('➕ Add Song', '➕ Agregar Canción');
             addTrackBtn.addEventListener('click', () => prepararAgregarCancionAAlbum({
                 mainArtist: artistGroup.id > 0 ? artistGroup.nombre : '',
                 artistType: artistRecord?.tipo_artista || 'group',
@@ -7320,7 +7816,7 @@ function renderMusicCatalog() {
                 const editAlbumBtn = document.createElement('button');
                 editAlbumBtn.type = 'button';
                 editAlbumBtn.className = 'btn-mini-edit';
-                editAlbumBtn.textContent = '✏️ Editar Álbum';
+                editAlbumBtn.textContent = tUi('✏️ Edit Album', '✏️ Editar Álbum');
                 editAlbumBtn.addEventListener('click', () => openMusicEntityEditModal('album', {
                     id: album.albumId,
                     titulo: album.titulo,
@@ -7561,14 +8057,17 @@ if (englishMusicStudioRoot) {
 
             if (!resultsBox) return;
             resultsBox.hidden = false;
-            resultsBox.replaceChildren(createLoadingBanner('Buscando resultados en YouTube...', 'sm'));
+            resultsBox.replaceChildren(createLoadingBanner(tUi('Searching YouTube results...', 'Buscando resultados en YouTube...'), 'sm'));
 
             runWithButtonLock(btnSearchYt, async () => {
                 const resp = await resilientFetchJson(`/api/english/music/search?q=${encodeURIComponent(q)}`, {}, { timeoutMs: 10000 });
                 if (!resp.ok || !resp.data) {
                     const hint = document.createElement('div');
                     hint.className = 'music-yt-search-hint';
-                    hint.textContent = `No se pudieron cargar vistas previas dentro de la app (${resp.errorMessage}). Se abrió la búsqueda externa; pega el enlace encontrado abajo y presiona "Auto-fill".`;
+                    hint.textContent = tUi(
+                        `Could not load in-app previews (${resp.errorMessage}). External search opened — paste the link below and click "Auto-fill".`,
+                        `No se pudieron cargar vistas previas dentro de la app (${resp.errorMessage}). Se abrió la búsqueda externa; pega el enlace encontrado abajo y presiona "Autocompletar".`
+                    );
                     resultsBox.replaceChildren(hint);
                     resultsBox.hidden = false;
                     return;
@@ -7580,10 +8079,19 @@ if (englishMusicStudioRoot) {
                     const hint = document.createElement('div');
                     hint.className = 'music-yt-search-hint';
                     hint.textContent = data.configured === false
-                        ? 'YouTube Data API no configurada en servidor: usa la pestaña que se abrió arriba, copia el link de YouTube / YT Music, pégalo en el formulario y presiona "Auto-fill".'
+                        ? tUi(
+                            'YouTube Data API is not configured on the server: use the opened tab above, copy the YouTube / YT Music link, paste it in the form, and click "Auto-fill".',
+                            'YouTube Data API no está configurada en el servidor: usa la pestaña que se abrió arriba, copia el enlace de YouTube / YT Music, pégalo en el formulario y presiona "Autocompletar".'
+                        )
                         : (data.apiUnavailable
-                            ? 'La API de YouTube no respondió en este momento. Copia el enlace desde la pestaña externa y presiona "Auto-fill".'
-                            : `No direct preview results for "${q}". Copy the track link from the opened YouTube tab and click "Auto-fill".`);
+                            ? tUi(
+                                'YouTube API did not respond right now. Copy the link from the external tab and click "Auto-fill".',
+                                'La API de YouTube no respondió en este momento. Copia el enlace desde la pestaña externa y presiona "Autocompletar".'
+                            )
+                            : tUi(
+                                `No direct preview results for "${q}". Copy the track link from the opened YouTube tab and click "Auto-fill".`,
+                                `Sin resultados directos de vista previa para "${q}". Copia el enlace de la pista desde la pestaña abierta y presiona "Autocompletar".`
+                            ));
                     resultsBox.replaceChildren(hint);
                     resultsBox.hidden = false;
                     return;
@@ -7737,7 +8245,7 @@ if (englishMusicStudioRoot) {
 
     function extractExistingSpanishLyricsSection(rawLyrics) {
         const clean = String(rawLyrics || '').replace(/\r\n/g, '\n');
-        const ytMatch = clean.match(/(?:^|\n)\[ES\]\s*\n([\s\S]*?)(?=\n(?:\[[A-Z]{2,}(?:\s*[—-][^\]]*)?\]|===\s*\[)|$)/i);
+        const ytMatch = clean.match(/(?:^|\n)\[ES(?:[-_][^\]]+)?\]\s*\n([\s\S]*?)(?=\n(?:\[(?:ORIGINAL|ORIG|FULL|MULTI|MIX|WORD|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|ZH|FR|PT|DE|IT|RU|SUB)(?:[-_][A-Za-z0-9]+)*(?:\s*[—-][^\]]*)?\]|===\s*\[)|$)/i);
         if (ytMatch && ytMatch[1] && ytMatch[1].trim().length >= 8) {
             return { kind: 'youtube-es', text: ytMatch[1].trim() };
         }
@@ -7878,232 +8386,11 @@ if (englishMusicStudioRoot) {
         });
     }
 
-    // =========================================================================
-    // BOTÓN FLOTANTE CONTEXTUAL Y MOVIBLE "🌐 Traducir Selección" (MODO ESTUDIO)
-    // =========================================================================
-    const lyricsViewerCardEl = document.getElementById('musicLyricsViewerCard');
-    const readonlyBlocksEl = document.getElementById('musicLyricsReadonlyBlocks');
-    let lastSelectedLyricsText = '';
-    let translateSelManualPos = false;
-    let translateSelDragState = null;
-    let suppressNextTranslateSelClick = false;
-    let selectionUpdateRaf = 0;
-
-    const getSelectedLyricsTextAndRect = () => {
-        if (!lyricsViewerCardEl || lyricsViewerCardEl.hidden) return null;
-        if (songLyricsViewerEl && !songLyricsViewerEl.hidden && typeof songLyricsViewerEl.selectionStart === 'number' && songLyricsViewerEl.selectionEnd > songLyricsViewerEl.selectionStart) {
-            const text = songLyricsViewerEl.value.slice(songLyricsViewerEl.selectionStart, songLyricsViewerEl.selectionEnd).trim();
-            if (text) {
-                return { text: text.slice(0, 1500), rect: songLyricsViewerEl.getBoundingClientRect() };
-            }
-        }
-        const sel = window.getSelection ? window.getSelection() : null;
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-        const text = String(sel.toString() || '').trim();
-        if (!text) return null;
-        const anchorNode = sel.anchorNode;
-        const focusNode = sel.focusNode;
-        const containerScope = readonlyBlocksEl || lyricsViewerCardEl;
-        const insideViewer = (node) => Boolean(
-            node && (containerScope.contains(node) || (songLyricsViewerEl && songLyricsViewerEl.contains(node)))
-        );
-        if (!insideViewer(anchorNode) && !insideViewer(focusNode)) return null;
-
-        let rect = null;
-        try {
-            const range = sel.getRangeAt(0);
-            const rects = typeof range.getClientRects === 'function' ? range.getClientRects() : null;
-            if (rects && rects.length > 0) {
-                rect = rects[rects.length - 1];
-            } else {
-                rect = range.getBoundingClientRect();
-            }
-        } catch (_) {
-            rect = null;
-        }
-        if (!rect || (rect.width === 0 && rect.height === 0)) {
-            rect = containerScope.getBoundingClientRect();
-        }
-        return { text: text.slice(0, 1500), rect };
-    };
-
-    const positionTranslateSelBtnNearRect = (rect) => {
-        if (!btnMusicTranslateLyricsSel || !rect) return;
-        const btnRect = btnMusicTranslateLyricsSel.getBoundingClientRect();
-        const vp = typeof getSafeViewportBounds === 'function'
-            ? getSafeViewportBounds()
-            : { width: window.innerWidth || 360, height: window.innerHeight || 640 };
-        const btnWidth = btnRect.width || 168;
-        const btnHeight = btnRect.height || 36;
-        const margin = 8;
-        let preferredTop = rect.bottom + 10;
-        if (preferredTop + btnHeight + margin > vp.height) {
-            preferredTop = rect.top - btnHeight - 10;
-        }
-        const preferredLeft = rect.left + Math.max(0, (rect.width - btnWidth) / 2);
-        const clamped = typeof clampFixedElementCoords === 'function'
-            ? clampFixedElementCoords(btnMusicTranslateLyricsSel, preferredLeft, preferredTop, margin)
-            : {
-                left: Math.round(Math.min(Math.max(margin, preferredLeft), Math.max(margin, vp.width - btnWidth - margin))),
-                top: Math.round(Math.min(Math.max(margin, preferredTop), Math.max(margin, vp.height - btnHeight - margin)))
-            };
-        btnMusicTranslateLyricsSel.style.left = `${clamped.left}px`;
-        btnMusicTranslateLyricsSel.style.top = `${clamped.top}px`;
-    };
-
-    const updateFloatingTranslateSelButton = () => {
-        if (!btnMusicTranslateLyricsSel || translateSelDragState) return;
-        const selInfo = getSelectedLyricsTextAndRect();
-        if (!selInfo || !selInfo.text) {
-            lastSelectedLyricsText = '';
-            translateSelManualPos = false;
-            btnMusicTranslateLyricsSel.hidden = true;
-            return;
-        }
-        lastSelectedLyricsText = selInfo.text;
-        btnMusicTranslateLyricsSel.hidden = false;
-        if (!translateSelManualPos) {
-            positionTranslateSelBtnNearRect(selInfo.rect);
-        } else if (typeof clampFloatingElementIntoViewport === 'function') {
-            clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
-        }
-    };
-
-    const scheduleTranslateSelUpdate = () => {
-        if (selectionUpdateRaf) cancelAnimationFrame(selectionUpdateRaf);
-        selectionUpdateRaf = requestAnimationFrame(() => {
-            selectionUpdateRaf = 0;
-            updateFloatingTranslateSelButton();
-        });
-    };
-
-    if (btnMusicTranslateLyricsSel) {
-        document.addEventListener('selectionchange', scheduleTranslateSelUpdate);
-        if (lyricsViewerCardEl) {
-            ['mouseup', 'touchend', 'keyup'].forEach(evtName => {
-                lyricsViewerCardEl.addEventListener(evtName, () => {
-                    setTimeout(updateFloatingTranslateSelButton, 20);
-                });
-            });
-        }
-        window.addEventListener('scroll', () => {
-            if (!btnMusicTranslateLyricsSel.hidden && !translateSelManualPos) {
-                scheduleTranslateSelUpdate();
-            }
-        }, { passive: true });
-        window.addEventListener('resize', () => {
-            if (!btnMusicTranslateLyricsSel.hidden && typeof clampFloatingElementIntoViewport === 'function') {
-                clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
-            }
-        });
-        window.addEventListener('orientationchange', () => {
-            setTimeout(() => {
-                if (!btnMusicTranslateLyricsSel.hidden && typeof clampFloatingElementIntoViewport === 'function') {
-                    clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
-                }
-            }, 80);
-        });
-        if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
-            window.visualViewport.addEventListener('resize', () => {
-                if (!btnMusicTranslateLyricsSel.hidden && typeof clampFloatingElementIntoViewport === 'function') {
-                    clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
-                }
-            });
-        }
-
-        // Evitar que el mouse/tap colapse la selección de texto en Chrome/Android antes de leerla
-        btnMusicTranslateLyricsSel.addEventListener('mousedown', ev => {
-            ev.preventDefault();
-        });
-
-        btnMusicTranslateLyricsSel.addEventListener('pointerdown', ev => {
-            if (ev.pointerType === 'mouse' && ev.button !== 0) return;
-            const liveSel = getSelectedLyricsTextAndRect();
-            if (liveSel && liveSel.text) lastSelectedLyricsText = liveSel.text;
-            const rect = btnMusicTranslateLyricsSel.getBoundingClientRect();
-            translateSelDragState = {
-                pointerId: ev.pointerId,
-                startX: ev.clientX,
-                startY: ev.clientY,
-                origLeft: rect.left,
-                origTop: rect.top,
-                moved: false
-            };
-            suppressNextTranslateSelClick = false;
-            if (typeof btnMusicTranslateLyricsSel.setPointerCapture === 'function') {
-                try { btnMusicTranslateLyricsSel.setPointerCapture(ev.pointerId); } catch (_) { }
-            }
-        });
-
-        const onTranslateSelPointerMove = ev => {
-            if (!translateSelDragState || ev.pointerId !== translateSelDragState.pointerId) return;
-            const dx = ev.clientX - translateSelDragState.startX;
-            const dy = ev.clientY - translateSelDragState.startY;
-            if (!translateSelDragState.moved && Math.hypot(dx, dy) > 5) {
-                translateSelDragState.moved = true;
-                translateSelManualPos = true;
-                suppressNextTranslateSelClick = true;
-                btnMusicTranslateLyricsSel.classList.add('is-dragging');
-            }
-            if (!translateSelDragState.moved) return;
-            ev.preventDefault();
-            const clamped = typeof clampFixedElementCoords === 'function'
-                ? clampFixedElementCoords(
-                    btnMusicTranslateLyricsSel,
-                    translateSelDragState.origLeft + dx,
-                    translateSelDragState.origTop + dy,
-                    8
-                )
-                : { left: translateSelDragState.origLeft + dx, top: translateSelDragState.origTop + dy };
-            btnMusicTranslateLyricsSel.style.left = `${clamped.left}px`;
-            btnMusicTranslateLyricsSel.style.top = `${clamped.top}px`;
-        };
-
-        const onTranslateSelPointerEnd = ev => {
-            if (!translateSelDragState || (ev.pointerId !== undefined && ev.pointerId !== translateSelDragState.pointerId)) return;
-            const wasDragged = translateSelDragState.moved;
-            btnMusicTranslateLyricsSel.classList.remove('is-dragging');
-            if (typeof btnMusicTranslateLyricsSel.releasePointerCapture === 'function') {
-                try { btnMusicTranslateLyricsSel.releasePointerCapture(translateSelDragState.pointerId); } catch (_) { }
-            }
-            translateSelDragState = null;
-            if (wasDragged) {
-                setTimeout(() => { suppressNextTranslateSelClick = false; }, 60);
-            }
-        };
-
-        window.addEventListener('pointermove', onTranslateSelPointerMove);
-        window.addEventListener('pointerup', onTranslateSelPointerEnd);
-        window.addEventListener('pointercancel', onTranslateSelPointerEnd);
-
-        btnMusicTranslateLyricsSel.addEventListener('click', () => {
-            if (suppressNextTranslateSelClick) {
-                suppressNextTranslateSelClick = false;
-                return;
-            }
-            const liveSel = getSelectedLyricsTextAndRect();
-            const selectedText = String((liveSel && liveSel.text) || lastSelectedLyricsText || '').trim();
-            if (!selectedText) {
-                btnMusicTranslateLyricsSel.hidden = true;
-                return;
-            }
-            const selSong = getCancionSeleccionada();
-            const songContext = selSong ? `${formatSongArtistsSummary(selSong)} - ${selSong.titulo}` : '';
-            if (typeof floatingTranslatorController === 'object' && floatingTranslatorController && typeof floatingTranslatorController.setDirection === 'function') {
-                floatingTranslatorController.setDirection('auto');
-            }
-            if (typeof openFloatingTranslator === 'function') {
-                openFloatingTranslator({ text: selectedText, toggle: false, context: songContext });
-            }
-            btnMusicTranslateLyricsSel.hidden = true;
-        });
-    }
-
     if (btnMusicTranslateFullLyricsEs) {
         btnMusicTranslateFullLyricsEs.addEventListener('click', ev => {
             const song = getCancionSeleccionada();
             if (!song || !songLyricsViewerEl) {
-                showToast('err', tUi('Select a song from the catalog first ("Study → Word").', 'Selecciona primero una canción del catálogo ("Study → Word").'));
+                showToast('err', tUi('Select a song from the catalog first ("Study → Word").', 'Selecciona primero una canción del catálogo ("Estudiar → Word").'));
                 return;
             }
             runWithButtonLock(btnMusicTranslateFullLyricsEs, async () => {
@@ -8149,6 +8436,9 @@ if (englishMusicStudioRoot) {
                         body: JSON.stringify({
                             lyrics: rawLyrics.slice(0, 12000),
                             tracks: cachedTracks || undefined,
+                            songId: song.id,
+                            videoId: song.yt_video_id || '',
+                            ytMusicUrl: song.yt_music_url || song.youtube_url || '',
                             songTitle: song.titulo || '',
                             artistName: formatSongArtistsSummary(song),
                             language: song.idioma || '',
@@ -9270,7 +9560,13 @@ function toggleAgendaItem(item, ui = {}, targetEstado = null) {
             cargarRecordatoriosActivos();
             const movedLabel = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaStatusLabel === 'function')
                 ? window.DailyHubI18n.agendaStatusLabel(nextEstado)
-                : (nextEstado === 'done' ? 'Done' : nextEstado === 'skipped' ? 'Omitida (Skip)' : nextEstado === 'in_progress' ? 'In Progress' : 'To Do');
+                : (nextEstado === 'done'
+                    ? tUi('Done', 'Completado')
+                    : nextEstado === 'skipped'
+                        ? tUi('Skipped', 'Omitida (Skip)')
+                        : nextEstado === 'in_progress'
+                            ? tUi('In Progress', 'En progreso')
+                            : tUi('To Do', 'Por hacer'));
             showToast('ok', tUi(`Activity moved to ${movedLabel}.`, `Actividad movida a ${movedLabel}.`));
         } catch (err) {
             if (ui.statusSelect) ui.statusSelect.value = prevEstado;
@@ -10439,8 +10735,8 @@ function showAuthScreen(defaultForm = 'authLoginForm') {
     showAuthForm(defaultForm, subtitles[defaultForm]);
 
     if (appShell) appShell.hidden = true;
-    const fabEl = document.getElementById('btnFloatingTranslatorFab');
-    if (fabEl) fabEl.hidden = true;
+    const selTransEl = document.getElementById('btnMusicTranslateLyricsSel');
+    if (selTransEl) selTransEl.hidden = true;
     closeFloatingTranslator();
     hideBootScreen();
     if (authOverlay) authOverlay.hidden = false;
@@ -14057,7 +14353,7 @@ function initCrisisHandlers() {
     const updateCharCount = () => {
         if (!motivoEl || !counterEl) return;
         const len = motivoEl.value.length;
-        counterEl.textContent = `${len} / 250 máx.`;
+        counterEl.textContent = tUi(`${len} / 250 max`, `${len} / 250 máx.`);
         counterEl.style.color = len >= 240 ? '#ef4444' : '';
     };
     if (motivoEl) {
@@ -14767,24 +15063,24 @@ function initStudyNotebookViewer() {
         lastResult: null
     };
 
-    const SECTION_LABELS = {
-        vocabulary: '1. Vocabulario',
-        grammar: '2. Gramática',
-        phrasal_verb: '3. Phrasal Verbs',
-        music: '4. Música y Letras',
-        notes: '5. Notas Manuales'
-    };
+    const getSectionLabels = () => ({
+        vocabulary: tUi('1. Vocabulary', '1. Vocabulario'),
+        grammar: tUi('2. Grammar', '2. Gramática'),
+        phrasal_verb: tUi('3. Phrasal Verbs', '3. Phrasal Verbs'),
+        music: tUi('4. Music & Lyrics', '4. Música y Letras'),
+        notes: tUi('5. Manual Notes', '5. Notas Manuales')
+    });
 
-    const FIELD_LABELS = {
-        focus_summary: 'Enfoque',
-        lyrics_study: 'Letra y Estudio',
-        stanzas_breakdown: 'Desglose por Estrofas',
-        vocabulary_list: 'Vocabulario',
-        pronunciation_notes: 'Pronunciación',
-        practice_quiz: 'Práctica / Quiz',
-        notes: 'Notas',
+    const getFieldLabels = () => ({
+        focus_summary: tUi('Focus', 'Enfoque'),
+        lyrics_study: tUi('Lyrics & Study', 'Letra y Estudio'),
+        stanzas_breakdown: tUi('Stanza Breakdown', 'Desglose por Estrofas'),
+        vocabulary_list: tUi('Vocabulary', 'Vocabulario'),
+        pronunciation_notes: tUi('Pronunciation', 'Pronunciación'),
+        practice_quiz: tUi('Practice / Quiz', 'Práctica / Quiz'),
+        notes: tUi('Notes', 'Notas'),
         yt_music_url: 'YouTube Music'
-    };
+    });
 
     const SKIP_DETAIL_FIELDS = new Set([
         'song_title',
@@ -14821,10 +15117,15 @@ function initStudyNotebookViewer() {
         if (!entries.length) {
             const empty = document.createElement('p');
             empty.className = 'muted-text';
-            empty.textContent = 'No se encontraron entradas con estos filtros en tu cuaderno Word.';
+            empty.textContent = tUi(
+                'No entries found matching these filters in your Word notebook.',
+                'No se encontraron entradas con estos filtros en tu cuaderno Word.'
+            );
             bodyEl.appendChild(empty);
             return;
         }
+        const SECTION_LABELS = getSectionLabels();
+        const FIELD_LABELS = getFieldLabels();
 
         entries.forEach((entry) => {
             const card = document.createElement('article');
@@ -14834,11 +15135,11 @@ function initStudyNotebookViewer() {
             head.className = 'study-viewer-card-head';
 
             const title = document.createElement('h4');
-            title.textContent = entry.heading || entry.song || entry.title || 'Entrada';
+            title.textContent = entry.heading || entry.song || entry.title || tUi('Entry', 'Entrada');
 
             const badge = document.createElement('span');
             badge.className = 'english-badge';
-            badge.textContent = SECTION_LABELS[entry.section] || entry.section || 'Nota';
+            badge.textContent = SECTION_LABELS[entry.section] || entry.section || tUi('Note', 'Nota');
 
             head.append(title, badge);
             card.appendChild(head);
@@ -14895,7 +15196,7 @@ function initStudyNotebookViewer() {
                 if (entry.added) {
                     const addedEl = document.createElement('p');
                     addedEl.className = 'study-viewer-meta muted-text';
-                    addedEl.textContent = `Agregado: ${entry.added}`;
+                    addedEl.textContent = `${tUi('Added', 'Agregado')}: ${entry.added}`;
                     card.appendChild(addedEl);
                 }
             }
@@ -14934,7 +15235,7 @@ function initStudyNotebookViewer() {
         if (viewerState.loading) return;
 
         viewerState.loading = true;
-        if (statusBar) statusBar.textContent = 'Cargando cuaderno Word (solo lectura)...';
+        if (statusBar) statusBar.textContent = tUi('Loading Word notebook (read-only)...', 'Cargando cuaderno Word (solo lectura)...');
         try {
             const sectionVal = sectionSel?.value || 'all';
             const artistVal = artistSel?.value || '';
@@ -14952,7 +15253,7 @@ function initStudyNotebookViewer() {
             if (forceRefresh) params.set('refresh', '1');
 
             let result = null;
-            let sourceLabel = 'Cuaderno Word';
+            let sourceLabel = tUi('Word Notebook', 'Cuaderno Word');
 
             if (!forceRefresh) {
                 const serverResp = await resilientFetchJson(
@@ -14962,13 +15263,15 @@ function initStudyNotebookViewer() {
                 );
                 if (serverResp.ok && serverResp.data?.ok && serverResp.data.available) {
                     result = serverResp.data;
-                    sourceLabel = serverResp.data.source === 'drive-word' ? 'Google Drive (Solo lectura)' : 'Archivo Word';
+                    sourceLabel = serverResp.data.source === 'drive-word'
+                        ? tUi('Google Drive (Read-only)', 'Google Drive (Solo lectura)')
+                        : tUi('Word File', 'Archivo Word');
                 }
             }
 
             if (!result) {
                 if (forceRefresh && statusBar) {
-                    statusBar.textContent = 'Actualizando desde PC / Google Drive...';
+                    statusBar.textContent = tUi('Refreshing from PC / Google Drive...', 'Actualizando desde PC / Google Drive...');
                 }
                 const pcPayload = {
                     action: 'read_study_notebook',
@@ -14987,7 +15290,9 @@ function initStudyNotebookViewer() {
                     );
                     if (serverRefresh.ok && serverRefresh.data?.ok && serverRefresh.data.available) {
                         result = serverRefresh.data;
-                        sourceLabel = serverRefresh.data.source === 'drive-word' ? 'Google Drive (Solo lectura)' : 'Archivo Word';
+                        sourceLabel = serverRefresh.data.source === 'drive-word'
+                            ? tUi('Google Drive (Read-only)', 'Google Drive (Solo lectura)')
+                            : tUi('Word File', 'Archivo Word');
                     }
                 }
                 if (!result && (obtenerLlaveE2EE() || forceRefresh)) {
@@ -14995,28 +15300,34 @@ function initStudyNotebookViewer() {
                         const pcRes = await fetchNotebookFromPcBridge(pcPayload);
                         if (pcRes && pcRes.ok) {
                             result = pcRes;
-                            sourceLabel = 'Word PC en vivo (E2EE)';
+                            sourceLabel = tUi('Live PC Word (E2EE)', 'Word PC en vivo (E2EE)');
                         }
                     } catch (_) {}
                 }
             }
 
             if (!result) {
-                throw new Error('No hay copia disponible aún en Drive ni sincronizador PC activo.');
+                throw new Error(tUi(
+                    'No copy is available on Drive yet and PC sync is offline.',
+                    'No hay copia disponible aún en Drive ni sincronizador PC activo.'
+                ));
             }
-            if (!result.ok) throw new Error(result.error || 'No se pudo leer el cuaderno Word.');
+            if (!result.ok) throw new Error(result.error || tUi('Could not read the Word notebook.', 'No se pudo leer el cuaderno Word.'));
 
             if (pushStack) viewerState.offsetStack.push(offset);
             viewerState.nextOffset = result.nextOffset ?? null;
 
-            populateSelectOptions(artistSel, result.facets?.artists || [], 'Todos los artistas');
-            populateSelectOptions(albumSel, result.facets?.albums || [], 'Todos los álbumes');
-            populateSelectOptions(songSel, result.facets?.songs || [], 'Todas las canciones');
+            populateSelectOptions(artistSel, result.facets?.artists || [], tUi('All artists', 'Todos los artistas'));
+            populateSelectOptions(albumSel, result.facets?.albums || [], tUi('All albums', 'Todos los álbumes'));
+            populateSelectOptions(songSel, result.facets?.songs || [], tUi('All songs', 'Todas las canciones'));
             renderEntries(result);
 
             const counts = result.counts || {};
             if (statusBar) {
-                statusBar.textContent = `${sourceLabel} · Mostrando ${result.entries?.length || 0} de ${result.total || 0} resultados · Vocab: ${counts.vocabulary || 0} · Gramática: ${counts.grammar || 0} · Phrasal: ${counts.phrasal_verb || 0} · Canciones: ${counts.music || 0} · Notas: ${counts.notes || 0}`;
+                statusBar.textContent = tUi(
+                    `${sourceLabel} · Showing ${result.entries?.length || 0} of ${result.total || 0} results · Vocab: ${counts.vocabulary || 0} · Grammar: ${counts.grammar || 0} · Phrasal: ${counts.phrasal_verb || 0} · Songs: ${counts.music || 0} · Notes: ${counts.notes || 0}`,
+                    `${sourceLabel} · Mostrando ${result.entries?.length || 0} de ${result.total || 0} resultados · Vocab: ${counts.vocabulary || 0} · Gramática: ${counts.grammar || 0} · Phrasal: ${counts.phrasal_verb || 0} · Canciones: ${counts.music || 0} · Notas: ${counts.notes || 0}`
+                );
             }
             if (pagBar) {
                 const hasPages = viewerState.offsetStack.length > 1 || viewerState.nextOffset !== null;
@@ -15024,9 +15335,9 @@ function initStudyNotebookViewer() {
             }
             if (btnPrev) btnPrev.disabled = viewerState.offsetStack.length <= 1;
             if (btnNext) btnNext.disabled = viewerState.nextOffset === null;
-            if (pageInfo) pageInfo.textContent = `Página ${viewerState.offsetStack.length}`;
+            if (pageInfo) pageInfo.textContent = tUi(`Page ${viewerState.offsetStack.length}`, `Página ${viewerState.offsetStack.length}`);
         } catch (err) {
-            if (statusBar) statusBar.textContent = `⚠️ ${err.message || 'No se pudo cargar el cuaderno.'}`;
+            if (statusBar) statusBar.textContent = `⚠️ ${err.message || tUi('Could not load notebook.', 'No se pudo cargar el cuaderno.')}`;
             bodyEl.textContent = '';
         } finally {
             viewerState.loading = false;
