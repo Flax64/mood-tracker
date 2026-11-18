@@ -8373,3 +8373,34 @@ input[type="password"] {
     background: rgba(124, 156, 255, 0.18);
     font-weight: 600;
 }
+
+.lyrics-stanza-group {
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.lyrics-stanza-group:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.lyrics-line-block {
+    margin-bottom: 5px;
+}
+
+.lyrics-line-block:last-child {
+    margin-bottom: 0;
+}
+
+.lyrics-line-original {
+    font-weight: 500;
+}
+
+.lyrics-line-translation {
+    display: block;
+    font-size: 0.86rem;
+    color: var(--accent, #93c5fd);
+    padding-left: 6px;
+}

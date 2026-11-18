@@ -867,5 +867,24 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         }, { songTitle: 'Test Track', artistName: 'Test Artist', mode: 'lyrics' });
         assert.equal(synMatch?.hit, true);
         assert.match(synMatch?.spanishLyrics || '', /Hola mundo línea uno/);
+
+        // Regresión Fase Japonés (JP / JP-EN), Romaji y Guía de Comandos en 1ª página
+        assert.match(cmdGuide.slice(0, 3200), /Stop-Process[\s\S]*sincronizador\.py/);
+        assert.match(cmdGuide.slice(0, 4200), /--configurar-autoinicio/);
+        assert.ok(indexHtml.includes('data-study-lang="ja"') && indexHtml.includes('data-study-lang="en_ja"'));
+        assert.equal(langStudio.normalizeStudyLanguage('jp-en'), 'en_ja');
+        assert.equal(langStudio.normalizeStudyLanguage('日本語'), 'ja');
+        assert.equal(langStudio.detectScriptKind('夢を見る midnight'), 'mixed-jpop');
+        assert.equal(langStudio.detectScriptKind('ずっとありがとう'), 'japanese');
+        assert.equal(langStudio.kanaToRomaji('ずっとありがとう'), 'zuttoarigatou');
+        const romWithKanji = langStudio.kanaToRomaji('愛してる shining star');
+        assert.match(romWithKanji, /aishiteru/i);
+        assert.match(romWithKanji, /shining star/);
+        const jaOff = langStudio.translateOffline({ text: 'ありがとう', direction: 'auto', uiLang: 'es' });
+        assert.equal(jaOff.direction, 'ja_es');
+        assert.match(jaOff.translatedText, /Gracias/i);
+        const jpEnAnalysis = langStudio.analyzeTextOffline({ text: 'Shining star\n夢を見る', language: 'en_ja', uiLang: 'es' });
+        assert.equal(jpEnAnalysis.language, 'en_ja');
+        assert.ok(jpEnAnalysis.lines.some((l) => l.script === 'japanese' && /yume/i.test(l.romanization)));
     });
 });

@@ -80,15 +80,78 @@ def _ensure_historial_logging() -> None:
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 SRT_OR_VTT_TIME_RE = re.compile(
-    r"^(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{2,3}\s*-->\s*(?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{2,3}"
+    r"^((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{2,3})\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d{2,3})"
 )
 LRC_META_TAG_RE = re.compile(
     r"^\[(?:ar|ti|al|au|by|offset|re|ve|length)\s*:[^\]]*\]$", re.IGNORECASE
 )
 LRC_TIME_RE = re.compile(r"\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]")
+LRC_LEAD_TIME_RE = re.compile(r"^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]")
 VTT_INLINE_TIME_RE = re.compile(r"<\d{1,2}:\d{2}:\d{2}(?:[.,]\d{1,3})?>")
+STRUCTURAL_TAG_RE = re.compile(
+    r"^\[(?:intro|verse(?:\s*\d+)?|pre-?chorus|post-?chorus|chorus|refrain|bridge|rap(?:\s*part)?|interlude|outro|hook|solo|breakdown|coro|verso(?:\s*\d+)?|puente|estribillo)[^\]]*\]$",
+    re.IGNORECASE,
+)
 HTML_TAG_RE = re.compile(r"</?[^>]+>")
 RELEASE_YEAR_RE = re.compile(r"Released on:\s*(\d{4})-\d{2}-\d{2}", re.IGNORECASE)
+
+
+def _parse_subtitle_time_sec(ts: str) -> Optional[float]:
+    clean = str(ts or "").strip().replace(",", ".")
+    parts = clean.split(":")
+    try:
+        if len(parts) == 2:
+            return int(parts[0]) * 60.0 + float(parts[1])
+        if len(parts) == 3:
+            return int(parts[0]) * 3600.0 + int(parts[1]) * 60.0 + float(parts[2])
+    except ValueError:
+        return None
+    return None
+
+
+def segment_lyrics_into_stanzas(text: str, max_lines_per_stanza: int = 4) -> str:
+    """Segment continuous unpunctuated lyric blocks (>= 8 lines) into clean stanzas agnostically."""
+    raw = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not raw:
+        return ""
+    lines = [ln.rstrip() for ln in raw.split("\n")]
+    existing_breaks = sum(1 for ln in lines if not ln.strip())
+    out: List[str] = []
+    block: List[str] = []
+
+    def _flush(blk: List[str]) -> None:
+        non_empty = [l for l in blk if l.strip()]
+        if not non_empty:
+            return
+        if existing_breaks > 0 or len(non_empty) < max_lines_per_stanza * 2:
+            out.extend(non_empty)
+            return
+        for idx in range(0, len(non_empty), max_lines_per_stanza):
+            if idx > 0:
+                out.append("")
+            out.extend(non_empty[idx : idx + max_lines_per_stanza])
+
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            if block:
+                _flush(block)
+                block = []
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        if STRUCTURAL_TAG_RE.match(s) or re.match(r"^===\s*\[[^\]]+\]\s*===$", s):
+            if block:
+                _flush(block)
+                block = []
+            if out and out[-1] != "":
+                out.append("")
+            out.append(s)
+            continue
+        block.append(ln)
+    if block:
+        _flush(block)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
 def extract_video_id(raw_url: str) -> Optional[str]:
@@ -128,7 +191,7 @@ def extract_video_id(raw_url: str) -> Optional[str]:
 
 
 def clean_caption_text(raw_text: str) -> str:
-    """Strip .srt, .vtt, .ttml, and .lrc timestamps/markup into clean deduplicated lyrics."""
+    """Strip .srt, .vtt, .ttml, and .lrc timestamps/markup into clean stanza-segmented lyrics."""
     normalized = (
         str(raw_text or "").lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     )
@@ -137,6 +200,9 @@ def clean_caption_text(raw_text: str) -> str:
 
     out: List[str] = []
     skipping_block = False
+    prev_cue_end: Optional[float] = None
+    prev_lrc_sec: Optional[float] = None
+    pending_break = False
 
     for raw_line in normalized.split("\n"):
         line = raw_line.strip()
@@ -152,10 +218,25 @@ def clean_caption_text(raw_text: str) -> str:
             continue
         if line.isdigit():
             continue
-        if SRT_OR_VTT_TIME_RE.match(line):
+        cue_m = SRT_OR_VTT_TIME_RE.match(line)
+        if cue_m:
+            cue_start = _parse_subtitle_time_sec(cue_m.group(1))
+            cue_end = _parse_subtitle_time_sec(cue_m.group(2))
+            if prev_cue_end is not None and cue_start is not None and (cue_start - prev_cue_end) >= 2.5:
+                pending_break = True
+            if cue_end is not None:
+                prev_cue_end = cue_end
             continue
         if LRC_META_TAG_RE.match(line):
             continue
+
+        lrc_m = LRC_LEAD_TIME_RE.match(line)
+        if lrc_m:
+            frac = float(f"0.{lrc_m.group(3).ljust(3, '0')[:3]}") if lrc_m.group(3) else 0.0
+            lrc_sec = int(lrc_m.group(1)) * 60.0 + int(lrc_m.group(2)) + frac
+            if prev_lrc_sec is not None and (lrc_sec - prev_lrc_sec) >= 3.8:
+                pending_break = True
+            prev_lrc_sec = lrc_sec
 
         line = LRC_TIME_RE.sub("", line)
         line = VTT_INLINE_TIME_RE.sub("", line)
@@ -164,11 +245,17 @@ def clean_caption_text(raw_text: str) -> str:
         line = re.sub(r"\s+", " ", line).strip()
         if not line:
             continue
-        if out and out[-1] == line:
+        if STRUCTURAL_TAG_RE.match(line):
+            pending_break = True
+        last_non_empty = next((x for x in reversed(out) if x != ""), None)
+        if last_non_empty == line:
             continue
+        if pending_break and out and out[-1] != "":
+            out.append("")
+        pending_break = False
         out.append(line)
 
-    return "\n".join(out).strip()
+    return segment_lyrics_into_stanzas("\n".join(out).strip())
 
 
 def extract_metadata_from_info_json(info: Dict[str, Any]) -> Dict[str, Any]:
@@ -269,11 +356,14 @@ def base_language_code(lang_tag: str) -> str:
 
 
 def isolate_korean_only_lyrics(text: str) -> str:
-    """Extrae únicamente las líneas que contienen Hangul (Coreano puro), filtrando líneas puramente en inglés/latín."""
+    """Extrae únicamente las líneas que contienen Hangul (Coreano puro), preservando estrofas y filtrando líneas en inglés."""
     kept: List[str] = []
+    pending_break = False
     for raw in str(text or "").replace("\r", "").split("\n"):
         line = raw.strip()
         if not line:
+            if kept:
+                pending_break = True
             continue
         if re.fullmatch(
             r"\[(?:음악|music|applause|laughter|cheering|instrumental)\]",
@@ -282,17 +372,26 @@ def isolate_korean_only_lyrics(text: str) -> str:
         ):
             continue
         if _HANGUL_RE.search(line):
-            if not kept or kept[-1] != line:
+            if pending_break and kept and kept[-1] != "":
+                kept.append("")
+            pending_break = False
+            last_non_empty = next((x for x in reversed(kept) if x != ""), None)
+            if last_non_empty != line:
                 kept.append(line)
-    return "\n".join(kept).strip()
+    while kept and kept[-1] == "":
+        kept.pop()
+    return segment_lyrics_into_stanzas("\n".join(kept).strip())
 
 
 def isolate_japanese_lyrics(text: str) -> str:
-    """Extrae líneas con escritura japonesa (Hiragana/Katakana/Kanji) sin Hangul."""
+    """Extrae líneas con escritura japonesa (Hiragana/Katakana/Kanji) sin Hangul, preservando estrofas."""
     kept: List[str] = []
+    pending_break = False
     for raw in str(text or "").replace("\r", "").split("\n"):
         line = raw.strip()
         if not line:
+            if kept:
+                pending_break = True
             continue
         if re.fullmatch(
             r"\[(?:音楽|歌|music|applause|laughter|cheering|instrumental)\]",
@@ -301,9 +400,15 @@ def isolate_japanese_lyrics(text: str) -> str:
         ):
             continue
         if _JAPANESE_RE.search(line) and not _HANGUL_RE.search(line):
-            if not kept or kept[-1] != line:
+            if pending_break and kept and kept[-1] != "":
+                kept.append("")
+            pending_break = False
+            last_non_empty = next((x for x in reversed(kept) if x != ""), None)
+            if last_non_empty != line:
                 kept.append(line)
-    return "\n".join(kept).strip()
+    while kept and kept[-1] == "":
+        kept.pop()
+    return segment_lyrics_into_stanzas("\n".join(kept).strip())
 
 
 def normalize_sub_langs_request(langs: str) -> str:
@@ -483,9 +588,12 @@ def build_structured_tracks(
     ko_only = isolate_korean_only_lyrics(
         ko_raw or (orig_txt if _HANGUL_RE.search(orig_txt) else "")
     )
-    ja_clean = ja_raw or (
-        isolate_japanese_lyrics(orig_txt) if _JAPANESE_RE.search(orig_txt) else ""
-    )
+    if ja_raw and _JAPANESE_RE.search(ja_raw) and re.search(r"[A-Za-z]{2,}", ja_raw):
+        ja_clean = isolate_japanese_lyrics(ja_raw)
+    else:
+        ja_clean = ja_raw or (
+            isolate_japanese_lyrics(orig_txt) if _JAPANESE_RE.search(orig_txt) else ""
+        )
     en_clean = en_raw or (
         orig_txt
         if (
@@ -497,11 +605,11 @@ def build_structured_tracks(
         else ""
     )
     return {
-        "original": orig_txt,
+        "original": segment_lyrics_into_stanzas(orig_txt),
         "ko": ko_only,
-        "en": en_clean,
+        "en": segment_lyrics_into_stanzas(en_clean),
         "ja": ja_clean,
-        "es": es_raw,
+        "es": segment_lyrics_into_stanzas(es_raw),
     }
 
 

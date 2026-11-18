@@ -153,6 +153,92 @@ def check_drive_pull(tmp, docx):
     assert five["ko"] == "눈을 감고 느껴봐", five
     assert five["en"] == "Close your eyes" and five["ja"] == "目を閉じて感じて" and five["es"] == "Cierra los ojos", five
 
+    # 6) Saltos de página solo en títulos principales (H1, H2/H3 2+ en Música) y continuidad en subtítulos
+    import xml.etree.ElementTree as ET
+    import yt_lyrics_helper as ylh
+
+    song_album1_t2 = {
+        "category": "music", "language": "English + Japanese (J-Pop)",
+        "song_title": "Midnight Star", "artists_display": "YOASOBI",
+        "album_title": "Drip", "album_type": "Album", "release_year": "2024", "track_number": 2,
+        "lyrics_study": "[ORIGINAL]\nShining bright\n夜空を見上げて\n\n[JA]\nShining bright\n夜空を見上げて"
+    }
+    song_album2_t1 = {
+        "category": "music", "language": "Japanese",
+        "song_title": "Idol", "artists_display": "YOASOBI",
+        "album_title": "The Book 3", "album_type": "EP", "release_year": "2023", "track_number": 1,
+        "lyrics_study": "[JA]\n誰かの心臓になれたなら"
+    }
+    assert s._guardar_entrada_ingles_en_docx_xml(docx, song_album1_t2) is True
+    assert s._guardar_entrada_ingles_en_docx_xml(docx, song_album2_t1) is True
+
+    # Simular un salto manual <w:br w:type="page"/> en un párrafo normal para validar que --consolidar-word lo limpia
+    with zipfile.ZipFile(docx, "r") as zf_in:
+        doc_bytes_mod = zf_in.read("word/document.xml").decode("utf-8").replace(
+            "<w:t>Present perfect = have + participio</w:t>",
+            '<w:br w:type="page"/><w:t>Present perfect = have + participio</w:t>',
+            1,
+        ).encode("utf-8")
+        other_entries = {inf.filename: zf_in.read(inf.filename) for inf in zf_in.infolist() if inf.filename != "word/document.xml"}
+    with zipfile.ZipFile(docx, "w") as zf_out:
+        zf_out.writestr("word/document.xml", doc_bytes_mod)
+        for fname, data in other_entries.items():
+            zf_out.writestr(fname, data)
+
+    res_pb = s.consolidar_y_deduplicar_cuaderno_word(docx)
+    assert res_pb.get("ok") is True, res_pb
+
+    with zipfile.ZipFile(docx, "r") as zf_chk:
+        st_chk = s._ooxml_cargar_estilos_mapa(zf_chk)
+        root_chk = ET.fromstring(zf_chk.read("word/document.xml"))
+    body_chk = root_chk.find(s._ooxml_w_tag("body"))
+    pb_tag, val_attr, br_tag, type_attr = (
+        s._ooxml_w_tag("pageBreakBefore"), s._ooxml_w_tag("val"),
+        s._ooxml_w_tag("br"), s._ooxml_w_tag("type"),
+    )
+    assert not any(
+        b.attrib.get(type_attr) == "page" for b in body_chk.iter(br_tag)
+    ), "No debe quedar ningún <w:br w:type='page'/> manual en subtítulos/notas"
+
+    def has_active_pb(p_el):
+        for pb in p_el.iter(pb_tag):
+            if pb.attrib.get(val_attr, "1") != "0":
+                return True
+        return False
+
+    headings_info = [
+        (s._nivel_parrafo_ooxml(p, st_chk["levels"]), s._texto_parrafo_ooxml(p), has_active_pb(p))
+        for p in body_chk
+        if p.tag == s._ooxml_w_tag("p") and s._nivel_parrafo_ooxml(p, st_chk["levels"]) in (1, 2, 3)
+    ]
+    # Todas las secciones Heading 1 llevan salto de página
+    assert all(pb for lvl, _, pb in headings_info if lvl == 1), headings_info
+    # Vocab/Notas (H2 antes de Music) fluyen continuos sin pageBreakBefore
+    h1_music_pos = next(i for i, (lvl, txt, _) in enumerate(headings_info) if lvl == 1 and "music" in txt.lower())
+    assert all(not pb for lvl, _, pb in headings_info[:h1_music_pos] if lvl == 2), headings_info[:h1_music_pos]
+    # En Música: 1er álbum False, 2do álbum True; 1ra canción de álbum False, 2da canción True
+    music_h = headings_info[h1_music_pos + 1:]
+    album_pbs = [(txt, pb) for lvl, txt, pb in music_h if lvl == 2]
+    assert len(album_pbs) >= 2 and album_pbs[0][1] is False and album_pbs[1][1] is True, album_pbs
+    assert music_h[1][0] == 3 and music_h[1][2] is False, music_h  # Pista 1 flujo bajo Álbum 1
+    assert music_h[2][0] == 3 and music_h[2][2] is True, music_h   # Pista 2 salto de página
+
+    # 7) Segmentación por pausa (>= 2.5s) + bloques largos sin puntuación y soporte JP-EN
+    vtt_paused = (
+        "WEBVTT\n\n"
+        "00:00:01.000 --> 00:00:03.000\n夢を見る夜\n\n"
+        "00:00:03.100 --> 00:00:05.000\nShining light\n\n"
+        "00:00:09.000 --> 00:00:11.500\n君と踊る\n"
+    )
+    seg_paused = ylh.clean_caption_text(vtt_paused)
+    assert "Shining light\n\n君と踊る" in seg_paused, repr(seg_paused)
+
+    jp_mixed = ylh.build_structured_tracks([
+        {"lang": "ja", "lyrics": "Shining light\n夢を見る\nForever now\n空を見上げて"}
+    ])
+    assert "Shining light" in jp_mixed["original"] and "夢を見る" in jp_mixed["original"], jp_mixed
+    assert jp_mixed["ja"] == "夢を見る\n空を見上げて", jp_mixed
+
 
 if __name__ == "__main__":
     main()

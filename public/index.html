@@ -948,12 +948,14 @@
                     <div class="study-language-bar" id="studyLanguageSelectorBar">
                         <div class="study-lang-label">
                             <strong>Prioridad de Idioma:</strong>
-                            <span class="muted-text" id="studyLanguageHint">1° Inglés (EN → ES) · 2° Coreano (KO → EN) · Mixto K-Pop</span>
+                            <span class="muted-text" id="studyLanguageHint">1° Inglés (EN → ES) · 2° Coreano (KO → EN) · Mixto K-Pop / Japonés (JP · JP-EN)</span>
                         </div>
                         <div class="study-lang-pills" role="group" aria-label="Select target language">
                             <button type="button" class="study-lang-pill active" data-study-lang="en" title="Prioridad 1: Estudiar Inglés con explicaciones y traducción de Inglés a Español">🇺🇸 1° Inglés (EN → ES)</button>
                             <button type="button" class="study-lang-pill" data-study-lang="ko" title="Prioridad 2: Estudiar Coreano (Alfabeto Hangul y vocabulario) traducido de Coreano a Inglés">🇰🇷 2° Coreano (KO → EN)</button>
                             <button type="button" class="study-lang-pill" data-study-lang="en_ko" title="Modo canciones K-Pop que mezclan Inglés y Coreano">🎵 K-Pop (EN + KR)</button>
+                            <button type="button" class="study-lang-pill" data-study-lang="ja" title="Estudiar Japonés (Kanji, Hiragana, Katakana) con lectura en Romaji">🇯🇵 Japonés (JP)</button>
+                            <button type="button" class="study-lang-pill" data-study-lang="en_ja" title="Modo J-Pop híbrido Japonés + Inglés con Romaji">🎌 J-Pop (JP + EN)</button>
                         </div>
                     </div>
 
@@ -1271,6 +1273,8 @@
                                                 <option value="English">🇺🇸 English</option>
                                                 <option value="Korean">🇰🇷 Korean (한국어)</option>
                                                 <option value="English + Korean (K-Pop)" selected>🎵 English + Korean (K-Pop)</option>
+                                                <option value="Japanese">🇯🇵 Japanese (日本語)</option>
+                                                <option value="English + Japanese (J-Pop)">🎌 English + Japanese (JP-EN)</option>
                                                 <option value="Other">🌐 Other</option>
                                             </select>
                                         </div>
@@ -1387,6 +1391,8 @@
                                         <option value="English">🇺🇸 English</option>
                                         <option value="Korean">🇰🇷 Korean</option>
                                         <option value="English + Korean (K-Pop)">🎵 K-Pop (EN+KR)</option>
+                                        <option value="Japanese">🇯🇵 Japanese (JP)</option>
+                                        <option value="English + Japanese (J-Pop)">🎌 J-Pop (JP-EN)</option>
                                     </select>
                                     <select id="musicFilterStatus" class="select-input" aria-label="Filter by status" title="Filtrar por progreso de estudio">
                                         <option value="">All Statuses</option>
@@ -1427,12 +1433,13 @@
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
                                         <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
-                                            title="Alterna entre Todos, Original, Coreano, Inglés, Japonés o Español">
+                                            title="Alterna entre Todos, Original, Coreano, Inglés, Japonés, Híbrido JP-EN o Español">
                                             <option value="all">🌐 Todos los Apartados</option>
                                             <option value="original">🎵 Original (Mezcla Nativa)</option>
                                             <option value="ko">🇰🇷 Coreano (Solo Coreano)</option>
                                             <option value="en">🇺🇸 Inglés</option>
-                                            <option value="ja">🇯🇵 Japonés</option>
+                                            <option value="ja">🇯🇵 Japonés (JP)</option>
+                                            <option value="en_ja">🎌 Japonés + Inglés (JP-EN)</option>
                                             <option value="es">🇪🇸 Español</option>
                                         </select>
                                         <button type="button" class="btn-primary btn-small" id="btnMusicExtractLyrics"
@@ -1476,7 +1483,11 @@
                                                 <option value="en_es">🇺🇸 → 🇪🇸 Inglés a Español</option>
                                                 <option value="ko_en">🇰🇷 → 🇺🇸 Coreano a Inglés</option>
                                                 <option value="ko_es">🇰🇷 → 🇪🇸 Coreano a Español</option>
+                                                <option value="ja_es">🇯🇵 → 🇪🇸 Japonés a Español</option>
+                                                <option value="ja_en">🇯🇵 → 🇺🇸 Japonés a Inglés</option>
+                                                <option value="en_ja">🎌 JP-EN → 🇪🇸 Híbrido a Español</option>
                                                 <option value="es_en">🇪🇸 → 🇺🇸 Español a Inglés</option>
+                                                <option value="es_ja">🇪🇸 → 🇯🇵 Español a Japonés</option>
                                             </select>
                                             <button type="button" class="btn-primary btn-small" id="btnMusicDockedTranslateRun"
                                                 title="Traducir y explicar esta línea o palabra">Traducir</button>
@@ -3078,9 +3089,13 @@
             <button type="button" class="lang-dir-pill active" data-dir="en_es">🇺🇸 → 🇪🇸 EN → ES</button>
             <button type="button" class="lang-dir-pill" data-dir="ko_en">🇰🇷 → 🇺🇸 KO → EN</button>
             <button type="button" class="lang-dir-pill" data-dir="ko_es">🇰🇷 → 🇪🇸 KO → ES</button>
+            <button type="button" class="lang-dir-pill" data-dir="ja_es">🇯🇵 → 🇪🇸 JP → ES</button>
+            <button type="button" class="lang-dir-pill" data-dir="ja_en">🇯🇵 → 🇺🇸 JP → EN</button>
+            <button type="button" class="lang-dir-pill" data-dir="en_ja">🎌 JP-EN → ES</button>
             <button type="button" class="lang-dir-pill" data-dir="auto">🌐 Auto</button>
             <button type="button" class="lang-dir-pill" data-dir="es_en">🇪🇸 → 🇺🇸 ES → EN</button>
             <button type="button" class="lang-dir-pill" data-dir="es_ko">🇪🇸 → 🇰🇷 ES → KO</button>
+            <button type="button" class="lang-dir-pill" data-dir="es_ja">🇪🇸 → 🇯🇵 ES → JP</button>
         </div>
 
         <div class="translator-popup-toolbar">
@@ -3097,9 +3112,13 @@
                     <option value="en_es" selected>English → Spanish</option>
                     <option value="ko_en">Korean → English</option>
                     <option value="ko_es">Korean → Spanish</option>
-                    <option value="auto">Auto Detect (EN/KO)</option>
+                    <option value="ja_es">Japanese → Spanish</option>
+                    <option value="ja_en">Japanese → English</option>
+                    <option value="en_ja">Japanese + English (JP-EN) → Spanish</option>
+                    <option value="auto">Auto Detect (EN/KO/JP)</option>
                     <option value="es_en">Spanish → English</option>
                     <option value="es_ko">Spanish → Korean</option>
+                    <option value="es_ja">Spanish → Japanese</option>
                 </select>
                 <select id="floatTranslatorEngineSelect" class="select-input select-compact" aria-label="Quick translator engine" title="Elige el modo de traducción">
                     <option value="auto">Automático (Gemini / Local)</option>
@@ -3168,7 +3187,8 @@
                     <option value="original">🎵 Original (Mezcla Nativa)</option>
                     <option value="ko">🇰🇷 Coreano (Solo Coreano)</option>
                     <option value="en">🇺🇸 Inglés</option>
-                    <option value="ja">🇯🇵 Japonés</option>
+                    <option value="ja">🇯🇵 Japonés (JP)</option>
+                    <option value="en_ja">🎌 Japonés + Inglés (JP-EN)</option>
                     <option value="es">🇪🇸 Español</option>
                 </select>
                 <input type="search" id="studyViewerSearchInput" maxlength="120"
