@@ -8554,3 +8554,504 @@ input[type="password"] {
     color: var(--accent, #93c5fd);
     padding-left: 6px;
 }
+
+/* =========================================================================
+   PLANIFICADOR SEMANAL V2: JERARQUÍA, SKIP, POSPONER, REPETICIONES Y CALENDARIOS
+   ========================================================================= */
+.agenda-item.is-skipped {
+    border: 1.5px dashed rgba(148, 163, 184, 0.55) !important;
+    background: rgba(241, 245, 249, 0.48) !important;
+    opacity: 0.82;
+}
+
+.agenda-item.is-skipped .agenda-item-text {
+    color: #64748b;
+    text-decoration: line-through;
+    text-decoration-style: dotted;
+}
+
+.agenda-check-circle.status-skipped {
+    background: #fef3c7;
+    border-color: #d97706;
+    color: #92400e;
+    font-size: 0.62rem;
+}
+
+.jira-status-select.status-skipped {
+    background-color: #fef3c7;
+    color: #92400e;
+    border-color: #fcd34d;
+}
+
+.agenda-skipped-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 800;
+    background: rgba(245, 158, 11, 0.16);
+    color: #b45309;
+    border: 1px dashed rgba(217, 119, 6, 0.45);
+}
+
+.agenda-item-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.agenda-item-meta-row.is-compact .agenda-cat-pill,
+.agenda-item-meta-row.is-compact .agenda-type-pill {
+    font-size: 0.64rem;
+    padding: 1px 6px;
+    opacity: 0.9;
+}
+
+.agenda-skip-btn.is-active {
+    background: rgba(245, 158, 11, 0.24);
+    color: #f59e0b;
+}
+
+.home-agenda-list li.is-skipped {
+    opacity: 0.72;
+    text-decoration: line-through;
+    text-decoration-style: dotted;
+}
+
+#agendaModal .modal-card {
+    max-width: 540px;
+}
+
+.agenda-modal-quick-date-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: -4px 0 12px;
+    padding: 7px 9px;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(148, 163, 184, 0.08);
+}
+
+.agenda-quick-date-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--text-muted, #64748b);
+    margin-right: 2px;
+}
+
+.agenda-quick-date-btn {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.8);
+    color: #0f172a;
+    border-radius: 8px;
+    padding: 4px 9px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.agenda-quick-date-btn:hover {
+    background: #e0f2fe;
+    border-color: #38bdf8;
+}
+
+.agenda-quick-date-btn.is-cal-btn {
+    margin-left: auto;
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+.agenda-repeat-section {
+    margin: 6px 0 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.agenda-repeat-section > .form-group {
+    margin-bottom: 0;
+}
+
+.agenda-repeat-config-body {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(148, 163, 184, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.agenda-repeat-config-body[hidden],
+.agenda-calendar-popover[hidden],
+.agenda-modal-calendar-box[hidden],
+.agenda-postpone-popover[hidden] {
+    display: none !important;
+}
+
+.agenda-repeat-inline-num {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.agenda-repeat-inline-num input {
+    width: 82px;
+}
+
+.agenda-weekday-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.agenda-weekday-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.75);
+    color: #0f172a;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.agenda-weekday-btn.active {
+    background: #3b82f6;
+    border-color: #2563eb;
+    color: #ffffff;
+}
+
+.agenda-repeat-preview-box {
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.28);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agenda-repeat-summary {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+/* Calendarios Mensuales (Cabecera, Modal y Posponer) */
+.agenda-calendar-popover,
+.agenda-modal-calendar-box {
+    margin: 0 0 14px;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: #ffffff;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.agenda-cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.agenda-cal-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.agenda-cal-month-title {
+    text-transform: capitalize;
+    font-size: 0.94rem;
+    font-weight: 800;
+    text-align: center;
+    flex: 1 1 auto;
+}
+
+.agenda-cal-today-btn {
+    padding: 5px 10px;
+    min-height: 32px;
+    font-size: 0.78rem;
+}
+
+.agenda-cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+.agenda-cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.agenda-cal-day {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(248, 250, 252, 0.85);
+    color: #0f172a;
+    border-radius: 9px;
+    min-height: 40px;
+    padding: 4px 2px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 700;
+    transition: background 0.14s, border-color 0.14s, transform 0.1s;
+}
+
+.agenda-cal-grid.is-compact .agenda-cal-day {
+    min-height: 32px;
+    font-size: 0.76rem;
+    padding: 2px;
+}
+
+.agenda-cal-day:hover {
+    background: #e0f2fe;
+    border-color: #38bdf8;
+}
+
+.agenda-cal-day.is-other-month {
+    opacity: 0.42;
+}
+
+.agenda-cal-day.is-in-week {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.35);
+}
+
+.agenda-cal-day.is-today {
+    box-shadow: inset 0 0 0 2px #10b981;
+}
+
+.agenda-cal-day.is-selected {
+    background: #2563eb !important;
+    border-color: #1d4ed8 !important;
+    color: #ffffff !important;
+}
+
+.agenda-cal-day.is-repeat-preview {
+    background: rgba(168, 85, 247, 0.22);
+    border-color: rgba(168, 85, 247, 0.58);
+}
+
+.cal-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.cal-dot,
+.cal-swatch {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+}
+
+.cal-dot.is-uni { background: #6366f1; }
+.cal-dot.is-personal { background: #14b8a6; }
+.cal-dot.is-done { background: #22c55e; }
+
+.cal-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+.cal-swatch.is-selected { background: #2563eb; }
+.cal-swatch.is-repeat { background: rgba(168, 85, 247, 0.55); border: 1px solid #a855f7; }
+
+.agenda-cal-legend {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    font-size: 0.72rem;
+}
+
+/* Popover Flotante de Posponer (Root Fixed) */
+.agenda-postpone-popover {
+    position: fixed;
+    left: 16px;
+    top: 80px;
+    z-index: 1250;
+    width: min(310px, calc(100vw - 16px));
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 20px 44px rgba(15, 23, 42, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.agenda-postpone-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.86rem;
+}
+
+.agenda-postpone-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.agenda-postpone-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.agenda-postpone-custom-row input {
+    width: 64px;
+    padding: 5px 6px;
+}
+
+.agenda-postpone-date-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.agenda-postpone-date-row input[type="date"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 5px 8px;
+    font-size: 0.8rem;
+}
+
+/* Tema Oscuro para Planificador V2 */
+:root[data-theme="dark"] .agenda-item.is-skipped {
+    background: rgba(30, 41, 59, 0.45) !important;
+    border-color: rgba(148, 163, 184, 0.4) !important;
+}
+
+:root[data-theme="dark"] .agenda-item.is-skipped .agenda-item-text {
+    color: #94a3b8;
+}
+
+:root[data-theme="dark"] .agenda-check-circle.status-skipped {
+    background: rgba(217, 119, 6, 0.25);
+    border-color: #f59e0b;
+    color: #fcd34d;
+}
+
+:root[data-theme="dark"] .jira-status-select.status-skipped {
+    background-color: rgba(217, 119, 6, 0.26);
+    color: #fcd34d;
+    border-color: rgba(245, 158, 11, 0.45);
+}
+
+:root[data-theme="dark"] .agenda-skipped-badge {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fcd34d;
+    border-color: rgba(245, 158, 11, 0.45);
+}
+
+:root[data-theme="dark"] .agenda-quick-date-btn,
+:root[data-theme="dark"] .agenda-weekday-btn {
+    background: #1e293b;
+    color: #e2e8f0;
+    border-color: #334155;
+}
+
+:root[data-theme="dark"] .agenda-quick-date-btn:hover {
+    background: #29374e;
+    border-color: #38bdf8;
+}
+
+:root[data-theme="dark"] .agenda-weekday-btn.active {
+    background: #3b82f6;
+    border-color: #60a5fa;
+    color: #ffffff;
+}
+
+:root[data-theme="dark"] .agenda-calendar-popover,
+:root[data-theme="dark"] .agenda-modal-calendar-box,
+:root[data-theme="dark"] .agenda-postpone-popover {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-color: rgba(148, 163, 184, 0.28);
+}
+
+:root[data-theme="dark"] .agenda-cal-day {
+    background: rgba(30, 41, 59, 0.72);
+    color: #e2e8f0;
+    border-color: rgba(148, 163, 184, 0.18);
+}
+
+:root[data-theme="dark"] .agenda-cal-day:hover {
+    background: rgba(56, 189, 248, 0.22);
+    border-color: #38bdf8;
+}
+
+:root[data-theme="dark"] .agenda-cal-day.is-in-week {
+    background: rgba(59, 130, 246, 0.24);
+    border-color: rgba(96, 165, 250, 0.45);
+}
+
+:root[data-theme="dark"] .agenda-cal-day.is-repeat-preview {
+    background: rgba(168, 85, 247, 0.28);
+    border-color: rgba(192, 132, 252, 0.65);
+}
+
+/* Responsividad OPPO A79 Portrait y Landscape */
+@media (max-width: 480px) {
+    .agenda-postpone-popover {
+        width: min(94vw, 330px);
+        max-height: 76dvh;
+    }
+
+    .agenda-cal-day {
+        min-height: 36px;
+        font-size: 0.74rem;
+    }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    #agendaModal .modal-card {
+        max-height: calc(100dvh - 16px);
+        padding: 14px;
+    }
+
+    .agenda-postpone-popover {
+        max-height: calc(100dvh - 16px);
+        width: min(72vw, 340px);
+    }
+}

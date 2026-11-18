@@ -246,7 +246,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(sql, /tipo\s+ENUM\('registro',\s*'reset',\s*'mfa'\)/);
         assert.match(sql, /tipo\s+ENUM\('evento',\s*'tarea'\)/);
         assert.match(sql, /categoria\s+ENUM\('universidad',\s*'personal'\)/);
-        assert.match(sql, /estado\s+ENUM\('todo',\s*'in_progress',\s*'done'\)/);
+        assert.match(sql, /estado\s+ENUM\('todo',\s*'in_progress',\s*'done',\s*'skipped'\)/);
         assert.match(sql, /tipo_lanzamiento\s+ENUM\('album',\s*'mini_album',\s*'ep',\s*'single',\s*'ost',\s*'collab_single'\)/);
         assert.match(sql, /fecha_lanzamiento\s+DATE\s+NULL/i);
     });
@@ -946,5 +946,55 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         assert.equal(origFiltered.langCode, 'original');
         assert.ok(origFiltered.text.includes('사랑해 forever') && origFiltered.text.includes('Shining night together'));
         assert.equal(/Te amo por siempre/.test(origFiltered.text), false, 'El filtro Original no debe incluir el bloque de traducción al español');
+
+        // Regresión Planificador Semanal V2: orden Título/Descripción arriba, Posponer, Skip, Repeticiones y Calendarios
+        for (const reqAgendaSel of [
+            'id="btnToggleAgendaCalendar"',
+            'id="agendaCalendarDropdown"',
+            'id="agendaModalQuickDateBar"',
+            'id="agendaModalCalendarBox"',
+            'id="agendaRepeatMode"',
+            'id="agendaRepeatSummaryPreview"',
+            'id="agendaPostponePopover"',
+            'value="skipped"'
+        ]) {
+            assert.ok(indexHtml.includes(reqAgendaSel), `public/index.html debe incluir ${reqAgendaSel}`);
+        }
+        const modalStartIdx = indexHtml.indexOf('id="agendaModal"');
+        const actPos = indexHtml.indexOf('id="agendaActividad"', modalStartIdx);
+        const descPos = indexHtml.indexOf('id="agendaDescripcion"', modalStartIdx);
+        const datePos = indexHtml.indexOf('id="agendaFecha"', modalStartIdx);
+        const repModePos = indexHtml.indexOf('id="agendaRepeatMode"', modalStartIdx);
+        assert.ok(actPos > modalStartIdx && descPos > actPos && datePos > descPos && repModePos > datePos,
+            'En #agendaModal, Título y Descripción deben aparecer antes que Fecha y Repeticiones');
+
+        for (const cssCls of ['.agenda-item.is-skipped', '.agenda-calendar-popover', '.agenda-postpone-popover', '.agenda-repeat-section']) {
+            assert.ok(styleCss.includes(cssCls), `public/style.css debe definir ${cssCls}`);
+        }
+        assert.ok(frontendJs.includes('posponerAgendaItem') && frontendJs.includes('openAgendaPostponePopover'));
+
+        const agendaSandbox = {};
+        vm.runInNewContext(extractFnBlock('shiftYmdDateClient', 'toggleAgendaItem'), agendaSandbox);
+        assert.deepEqual(
+            Array.from(agendaSandbox.computeAgendaRepeatDates({
+                startDate: '2026-11-18',
+                mode: 'interval',
+                intervalDays: 2,
+                endMode: 'count',
+                countExtra: 3
+            })),
+            ['2026-11-18', '2026-11-20', '2026-11-22', '2026-11-24']
+        );
+        assert.deepEqual(
+            Array.from(agendaSandbox.computeAgendaRepeatDates({
+                startDate: '2026-11-16',
+                mode: 'weekdays',
+                weekdays: [1, 3, 5],
+                endMode: 'until',
+                untilDate: '2026-11-23'
+            })),
+            ['2026-11-16', '2026-11-18', '2026-11-20', '2026-11-23']
+        );
+        assert.equal(agendaSandbox.buildMonthCalendarMatrix(2026, 10).length >= 35, true);
     });
 });

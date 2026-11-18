@@ -808,7 +808,7 @@ const remindersTracker = createRequestTracker();
 
 function getAgendaItemStatus(item = {}) {
     const raw = String(item.estado || '').trim().toLowerCase();
-    if (raw === 'todo' || raw === 'in_progress' || raw === 'done') return raw;
+    if (raw === 'todo' || raw === 'in_progress' || raw === 'done' || raw === 'skipped') return raw;
     return Number(item.completada) === 1 ? 'done' : 'todo';
 }
 
@@ -1783,14 +1783,16 @@ function cargarInicioResumen() {
             }
             const doneItems = items.filter(i => getAgendaItemStatus(i) === 'done').length;
             const inProgItems = items.filter(i => getAgendaItemStatus(i) === 'in_progress').length;
+            const skippedItems = items.filter(i => getAgendaItemStatus(i) === 'skipped').length;
+            const activeTotal = Math.max(0, items.length - skippedItems);
             const uniCount = items.filter(i => (i.categoria || 'personal') === 'universidad').length;
             const perCount = items.length - uniCount;
 
             const summary = document.createElement('p');
             summary.style.margin = '0';
             summary.textContent = tUi(
-                `${doneItems} of ${items.length} done (${uniCount} University · ${perCount} Personal${inProgItems ? ` · ${inProgItems} In Progress` : ''}).`,
-                `${doneItems} de ${items.length} completadas (${uniCount} Universidad · ${perCount} Personal${inProgItems ? ` · ${inProgItems} En progreso` : ''}).`
+                `${doneItems} of ${activeTotal} active done (${uniCount} University · ${perCount} Personal${inProgItems ? ` · ${inProgItems} In Progress` : ''}${skippedItems ? ` · ${skippedItems} Skipped` : ''}).`,
+                `${doneItems} de ${activeTotal} activas completadas (${uniCount} Universidad · ${perCount} Personal${inProgItems ? ` · ${inProgItems} En progreso` : ''}${skippedItems ? ` · ${skippedItems} Omitidas` : ''}).`
             );
             agendaBox.appendChild(summary);
 
@@ -1798,7 +1800,9 @@ function cargarInicioResumen() {
             ul.className = 'home-agenda-list';
             items.slice(0, 4).forEach(item => {
                 const li = document.createElement('li');
-                if (getAgendaItemStatus(item) === 'done') li.className = 'done';
+                const itemStatus = getAgendaItemStatus(item);
+                if (itemStatus === 'done') li.className = 'done';
+                else if (itemStatus === 'skipped') li.className = 'is-skipped';
                 const timeSpan = document.createElement('strong');
                 timeSpan.textContent = item.hora;
                 const catTag = document.createElement('span');
@@ -8599,9 +8603,10 @@ function crearElementoActividad(item) {
     const categoria = item.categoria === 'universidad' ? 'universidad' : 'personal';
     const estado = getAgendaItemStatus(item);
     const isDone = estado === 'done';
+    const isSkipped = estado === 'skipped';
 
     const row = document.createElement('div');
-    row.className = `agenda-item${isDone ? ' is-done' : ''}`;
+    row.className = `agenda-item${isDone ? ' is-done' : ''}${isSkipped ? ' is-skipped' : ''}`;
 
     const checkBtn = document.createElement('button');
     checkBtn.type = 'button';
@@ -8609,11 +8614,12 @@ function crearElementoActividad(item) {
     const checkLabels = {
         todo: tUi('To Do — click to mark In Progress', 'Por hacer — clic para marcar En progreso'),
         in_progress: tUi('In Progress — click to mark Done', 'En progreso — clic para marcar Completado'),
-        done: tUi('Done — click to reset to To Do', 'Completado — clic para volver a Por hacer')
+        done: tUi('Done — click to reset to To Do', 'Completado — clic para volver a Por hacer'),
+        skipped: tUi('Skipped — click to restore to To Do', 'Omitida — clic para restaurar a Por hacer')
     };
     checkBtn.title = checkLabels[estado] || tUi('Toggle workflow status', 'Cambiar estado');
     checkBtn.setAttribute('aria-label', checkLabels[estado] || tUi('Toggle workflow status', 'Cambiar estado'));
-    checkBtn.textContent = estado === 'done' ? '✓' : estado === 'in_progress' ? '◐' : '';
+    checkBtn.textContent = isDone ? '✓' : estado === 'in_progress' ? '◐' : isSkipped ? '⏭' : '';
 
     const topRow = document.createElement('div');
     topRow.className = 'agenda-item-top';
@@ -8624,12 +8630,56 @@ function crearElementoActividad(item) {
     const content = document.createElement('div');
     content.className = 'agenda-item-content';
 
-    const metaRow = document.createElement('div');
-    metaRow.className = 'agenda-item-meta-row';
-
     const timePill = document.createElement('span');
     timePill.className = 'agenda-time-pill';
     timePill.textContent = item.hora;
+
+    const parsedParts = splitAgendaActividadClient(item.actividad, item.titulo, item.descripcion);
+
+    const text = document.createElement('span');
+    text.className = 'agenda-item-text';
+    protectUserNode(text);
+    text.textContent = parsedParts.titulo || item.actividad;
+
+    const descEl = parsedParts.descripcion ? document.createElement('span') : null;
+    if (descEl) {
+        descEl.className = 'agenda-item-desc';
+        protectUserNode(descEl);
+        descEl.textContent = parsedParts.descripcion;
+    }
+
+    const footerEl = document.createElement('div');
+    footerEl.className = 'agenda-item-footer';
+
+    const jiraRow = document.createElement('div');
+    jiraRow.className = 'jira-status-row';
+
+    const statusSelect = document.createElement('select');
+    statusSelect.className = `jira-status-select status-${estado}`;
+    statusSelect.setAttribute('aria-label', tUi('Activity status', 'Estado de avance'));
+    [
+        { value: 'todo', label: tUi('To Do', 'Por hacer') },
+        { value: 'in_progress', label: tUi('In Progress', 'En progreso') },
+        { value: 'done', label: tUi('Done', 'Completado') },
+        { value: 'skipped', label: tUi('⏭️ Skipped (Skip)', '⏭️ Omitida (Skip)') }
+    ].forEach(optDef => {
+        const opt = document.createElement('option');
+        opt.value = optDef.value;
+        opt.textContent = optDef.label;
+        statusSelect.appendChild(opt);
+    });
+    statusSelect.value = estado;
+    jiraRow.appendChild(statusSelect);
+
+    const metaRow = document.createElement('div');
+    metaRow.className = 'agenda-item-meta-row is-compact';
+
+    if (isSkipped) {
+        const skipBadge = document.createElement('span');
+        skipBadge.className = 'agenda-skipped-badge';
+        skipBadge.textContent = tUi('⏭️ Skipped', '⏭️ Omitida');
+        metaRow.appendChild(skipBadge);
+    }
 
     const catPill = document.createElement('span');
     const classMeta = categoria === 'universidad' ? resolveAgendaItemClassLabel(item) : null;
@@ -8647,48 +8697,38 @@ function crearElementoActividad(item) {
     typePill.textContent = tipo === 'tarea' ? tUi('Task', 'Tarea') : tUi('Event', 'Evento');
 
     metaRow.append(catPill, typePill);
+    footerEl.append(jiraRow, metaRow);
 
-    const parsedParts = splitAgendaActividadClient(item.actividad, item.titulo, item.descripcion);
-
-    const text = document.createElement('span');
-    text.className = 'agenda-item-text';
-    protectUserNode(text);
-    text.textContent = parsedParts.titulo || item.actividad;
-
-    const descEl = parsedParts.descripcion ? document.createElement('span') : null;
     if (descEl) {
-        descEl.className = 'agenda-item-desc';
-        protectUserNode(descEl);
-        descEl.textContent = parsedParts.descripcion;
-    }
-
-    const jiraRow = document.createElement('div');
-    jiraRow.className = 'jira-status-row';
-
-    const statusSelect = document.createElement('select');
-    statusSelect.className = `jira-status-select status-${estado}`;
-    statusSelect.setAttribute('aria-label', tUi('Activity status', 'Estado de avance'));
-    [
-        { value: 'todo', label: tUi('To Do', 'Por hacer') },
-        { value: 'in_progress', label: tUi('In Progress', 'En progreso') },
-        { value: 'done', label: tUi('Done', 'Completado') }
-    ].forEach(optDef => {
-        const opt = document.createElement('option');
-        opt.value = optDef.value;
-        opt.textContent = optDef.label;
-        statusSelect.appendChild(opt);
-    });
-    statusSelect.value = estado;
-
-    jiraRow.appendChild(statusSelect);
-    if (descEl) {
-        content.append(metaRow, text, descEl, jiraRow);
+        content.append(text, descEl, footerEl);
     } else {
-        content.append(metaRow, text, jiraRow);
+        content.append(text, footerEl);
     }
 
     const actions = document.createElement('div');
     actions.className = 'agenda-item-actions';
+
+    const postponeBtn = document.createElement('button');
+    postponeBtn.type = 'button';
+    postponeBtn.className = 'agenda-mini-btn agenda-postpone-btn';
+    postponeBtn.title = tUi('Postpone by days or pick date', 'Posponer por días o elegir fecha');
+    postponeBtn.setAttribute('aria-label', tUi('Postpone activity', 'Posponer actividad'));
+    postponeBtn.textContent = '⏳';
+    postponeBtn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (typeof openAgendaPostponePopover === 'function') {
+            openAgendaPostponePopover(item, postponeBtn);
+        }
+    });
+
+    const skipBtn = document.createElement('button');
+    skipBtn.type = 'button';
+    skipBtn.className = `agenda-mini-btn agenda-skip-btn${isSkipped ? ' is-active' : ''}`;
+    skipBtn.title = isSkipped
+        ? tUi('Restore activity to To Do', 'Restaurar actividad a Por hacer')
+        : tUi('Skip this occurrence (Skip)', 'Omitir / Saltar actividad (Skip)');
+    skipBtn.setAttribute('aria-label', skipBtn.title);
+    skipBtn.textContent = '⏭️';
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
@@ -8705,12 +8745,13 @@ function crearElementoActividad(item) {
     delBtn.setAttribute('aria-label', tUi('Delete activity', 'Eliminar actividad'));
     delBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>';
 
-    const uiRefs = { row, checkBtn, statusSelect, editBtn, delBtn };
+    const uiRefs = { row, checkBtn, statusSelect, postponeBtn, skipBtn, editBtn, delBtn };
     checkBtn.addEventListener('click', () => toggleAgendaItem(item, uiRefs, nextAgendaStatus(getAgendaItemStatus(item))));
     statusSelect.addEventListener('change', () => toggleAgendaItem(item, uiRefs, statusSelect.value));
+    skipBtn.addEventListener('click', () => toggleAgendaItem(item, uiRefs, isSkipped ? 'todo' : 'skipped'));
     delBtn.addEventListener('click', () => eliminarAgendaItem(item.id, uiRefs));
 
-    actions.append(editBtn, delBtn);
+    actions.append(postponeBtn, skipBtn, editBtn, delBtn);
     topLeft.append(checkBtn, timePill);
     topRow.append(topLeft, actions);
     row.append(topRow, content);
@@ -8758,15 +8799,16 @@ function renderAgendaBoard() {
     const visibleItems = filteredItems.filter(i => visibleDatesSet.has(i.fecha));
     const doneCount = visibleItems.filter(i => getAgendaItemStatus(i) === 'done').length;
     const inProgCount = visibleItems.filter(i => getAgendaItemStatus(i) === 'in_progress').length;
-    const todoCount = visibleItems.length - doneCount - inProgCount;
+    const skippedCount = visibleItems.filter(i => getAgendaItemStatus(i) === 'skipped').length;
+    const todoCount = visibleItems.length - doneCount - inProgCount - skippedCount;
     const uniCount = visibleItems.filter(i => (i.categoria || 'personal') === 'universidad').length;
     const perCount = visibleItems.length - uniCount;
 
     if (weekStats) {
         weekStats.textContent = visibleItems.length
             ? tUi(
-                `${doneCount} Done · ${inProgCount} In Progress · ${todoCount} To Do (${uniCount} University · ${perCount} Personal)`,
-                `${doneCount} Completadas · ${inProgCount} En progreso · ${todoCount} Por hacer (${uniCount} Universidad · ${perCount} Personal)`
+                `${doneCount} Done · ${inProgCount} In Progress · ${todoCount} To Do${skippedCount ? ` · ${skippedCount} Skipped` : ''} (${uniCount} University · ${perCount} Personal)`,
+                `${doneCount} Completadas · ${inProgCount} En progreso · ${todoCount} Por hacer${skippedCount ? ` · ${skippedCount} Omitidas` : ''} (${uniCount} Universidad · ${perCount} Personal)`
             )
             : tUi('Organize University & Personal events and recurring tasks', 'Organiza eventos de Universidad/Personal y tareas');
     }
@@ -9006,13 +9048,128 @@ function cargarAgendaSemana() {
         });
 }
 
+function shiftYmdDateClient(ymd, deltaDays = 0) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || '').trim())) return '';
+    const [y, m, d] = String(ymd).trim().split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + (Number(deltaDays) || 0)));
+    return dt.toISOString().slice(0, 10);
+}
+
+function getMondayYmdForDateClient(ymd) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || '').trim())) return '';
+    const [y, m, d] = String(ymd).trim().split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const day = dt.getUTCDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(Date.UTC(y, m - 1, d + diffToMonday));
+    return monday.toISOString().slice(0, 10);
+}
+
+function computeWeekOffsetForDate(ymd, todayDate = new Date()) {
+    const targetMon = getMondayYmdForDateClient(ymd);
+    if (!targetMon) return 0;
+    const todayYmd = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+    const todayMon = getMondayYmdForDateClient(todayYmd);
+    const [ty, tm, td] = targetMon.split('-').map(Number);
+    const [ny, nm, nd] = todayMon.split('-').map(Number);
+    const diffMs = Date.UTC(ty, tm - 1, td) - Date.UTC(ny, nm - 1, nd);
+    return Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+}
+
+function buildMonthCalendarMatrix(year, monthIndex) {
+    const firstUtc = new Date(Date.UTC(year, monthIndex, 1));
+    const firstDow = firstUtc.getUTCDay(); // 0=Sun..6=Sat
+    const mondayOffset = firstDow === 0 ? -6 : 1 - firstDow;
+    const lastUtc = new Date(Date.UTC(year, monthIndex + 1, 0));
+    const daysInMonth = lastUtc.getUTCDate();
+    const totalNeeded = Math.abs(mondayOffset) + daysInMonth;
+    const totalCells = totalNeeded > 35 ? 42 : 35;
+    const cells = [];
+    for (let i = 0; i < totalCells; i += 1) {
+        const dt = new Date(Date.UTC(year, monthIndex, 1 + mondayOffset + i));
+        const ymd = dt.toISOString().slice(0, 10);
+        cells.push({
+            ymd,
+            dayNum: dt.getUTCDate(),
+            inMonth: dt.getUTCFullYear() === firstUtc.getUTCFullYear() && dt.getUTCMonth() === firstUtc.getUTCMonth(),
+            weekday: dt.getUTCDay()
+        });
+    }
+    return cells;
+}
+
+function computeAgendaRepeatDates({
+    startDate = '',
+    mode = 'none',
+    intervalDays = 2,
+    weekdays = [],
+    endMode = 'count',
+    countExtra = 3,
+    untilDate = ''
+} = {}) {
+    const cleanStart = String(startDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanStart)) return [];
+    const normalizedMode = String(mode || 'none').trim().toLowerCase();
+    if (normalizedMode === 'none') return [cleanStart];
+
+    const dates = [cleanStart];
+    const seen = new Set(dates);
+    const maxTotal = 30;
+    const safeExtra = Math.max(1, Math.min(29, Number.parseInt(countExtra, 10) || 1));
+    const safeUntil = /^\d{4}-\d{2}-\d{2}$/.test(String(untilDate || '').trim())
+        ? String(untilDate).trim()
+        : '';
+
+    if (normalizedMode === 'weekdays') {
+        const [sy, sm, sd] = cleanStart.split('-').map(Number);
+        const startDt = new Date(Date.UTC(sy, sm - 1, sd));
+        const selectedDays = new Set(
+            Array.isArray(weekdays) && weekdays.length > 0
+                ? weekdays.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6)
+                : [startDt.getUTCDay()]
+        );
+        if (selectedDays.size === 0) selectedDays.add(startDt.getUTCDay());
+
+        for (let offset = 1; offset <= 365 && dates.length < maxTotal; offset += 1) {
+            if (endMode !== 'until' && (dates.length - 1) >= safeExtra) break;
+            const probe = new Date(Date.UTC(sy, sm - 1, sd + offset));
+            const ymd = probe.toISOString().slice(0, 10);
+            if (endMode === 'until' && safeUntil && ymd > safeUntil) break;
+            if (selectedDays.has(probe.getUTCDay()) && !seen.has(ymd)) {
+                seen.add(ymd);
+                dates.push(ymd);
+            }
+        }
+        return dates;
+    }
+
+    const stepDays = normalizedMode === 'daily'
+        ? 1
+        : normalizedMode === 'weekly'
+            ? 7
+            : Math.max(1, Math.min(90, Number.parseInt(intervalDays, 10) || 1));
+
+    const [sy, sm, sd] = cleanStart.split('-').map(Number);
+    for (let occ = 1; occ <= maxTotal && dates.length < maxTotal; occ += 1) {
+        if (endMode !== 'until' && (dates.length - 1) >= safeExtra) break;
+        const probe = new Date(Date.UTC(sy, sm - 1, sd + (occ * stepDays)));
+        const ymd = probe.toISOString().slice(0, 10);
+        if (endMode === 'until' && safeUntil && ymd > safeUntil) break;
+        if (!seen.has(ymd)) {
+            seen.add(ymd);
+            dates.push(ymd);
+        }
+    }
+    return dates;
+}
+
 function toggleAgendaItem(item, ui = {}, targetEstado = null) {
     const prevEstado = getAgendaItemStatus(item);
-    const nextEstado = targetEstado && ['todo', 'in_progress', 'done'].includes(targetEstado)
+    const nextEstado = targetEstado && ['todo', 'in_progress', 'done', 'skipped'].includes(targetEstado)
         ? targetEstado
         : nextAgendaStatus(prevEstado);
     const nuevoCompletada = nextEstado === 'done' ? 1 : 0;
-    const lockBtn = ui.checkBtn || ui.statusSelect || ui.row || document.createElement('button');
+    const lockBtn = ui.checkBtn || ui.statusSelect || ui.skipBtn || ui.row || document.createElement('button');
 
     runWithButtonLock(lockBtn, async () => {
         try {
@@ -9027,16 +9184,52 @@ function toggleAgendaItem(item, ui = {}, targetEstado = null) {
             item.estado = nextEstado;
             item.completada = nuevoCompletada;
             renderAgendaBoard();
+            if (typeof refreshOpenAgendaHeaderCalendar === 'function') refreshOpenAgendaHeaderCalendar();
             cargarRecordatoriosActivos();
             const movedLabel = (window.DailyHubI18n && typeof window.DailyHubI18n.agendaStatusLabel === 'function')
                 ? window.DailyHubI18n.agendaStatusLabel(nextEstado)
-                : (nextEstado === 'done' ? 'Done' : (nextEstado === 'in_progress' ? 'In Progress' : 'To Do'));
+                : (nextEstado === 'done' ? 'Done' : nextEstado === 'skipped' ? 'Omitida (Skip)' : nextEstado === 'in_progress' ? 'In Progress' : 'To Do');
             showToast('ok', tUi(`Activity moved to ${movedLabel}.`, `Actividad movida a ${movedLabel}.`));
         } catch (err) {
             if (ui.statusSelect) ui.statusSelect.value = prevEstado;
             showToast('err', `${tUi('Failed to update activity status', 'Error al actualizar el estado de la actividad')}: ${tServer(err.message)}`);
         }
-    }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn, ui.delBtn] });
+    }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.postponeBtn, ui.skipBtn, ui.editBtn, ui.delBtn] });
+}
+
+function posponerAgendaItem(item, { days = null, targetDate = '' } = {}, lockEl = null) {
+    if (!item || !item.id) return Promise.resolve(false);
+    const lockBtn = lockEl || document.createElement('button');
+    const bodyPayload = targetDate
+        ? { targetDate: String(targetDate).trim() }
+        : { days: Number.parseInt(days, 10) };
+    return runWithButtonLock(lockBtn, async () => {
+        try {
+            const respData = await submitMutationRequest({
+                url: `/api/postpone-agenda/${item.id}`,
+                method: 'PATCH',
+                scopeKey: `agenda-postpone:${item.id}`,
+                signature: JSON.stringify(bodyPayload),
+                buildBody: () => bodyPayload,
+                parseJson: true
+            });
+            const newFecha = respData?.fecha || targetDate || shiftYmdDateClient(item.fecha, days);
+            const popover = document.getElementById('agendaPostponePopover');
+            if (popover) popover.hidden = true;
+            if (newFecha) agendaState.selectedDate = newFecha;
+            cargarAgendaSemana();
+            if (typeof refreshOpenAgendaHeaderCalendar === 'function') refreshOpenAgendaHeaderCalendar();
+            cargarRecordatoriosActivos();
+            showToast('ok', tUi(
+                `Activity postponed to ${newFecha}.`,
+                `Actividad pospuesta al ${newFecha}.`
+            ));
+            return true;
+        } catch (err) {
+            showToast('err', `${tUi('Failed to postpone activity', 'Error al posponer la actividad')}: ${tServer(err.message)}`);
+            return false;
+        }
+    });
 }
 
 async function eliminarAgendaItem(id, ui = {}) {
@@ -9060,12 +9253,13 @@ async function eliminarAgendaItem(id, ui = {}) {
             });
             agendaState.items = agendaState.items.filter(i => i.id !== id);
             renderAgendaBoard();
+            if (typeof refreshOpenAgendaHeaderCalendar === 'function') refreshOpenAgendaHeaderCalendar();
             cargarRecordatoriosActivos();
             showToast('ok', tUi('Activity removed from Weekly Agenda.', 'Actividad eliminada de tu Agenda Semanal.'));
         } catch (err) {
             showToast('err', `${tUi('Failed to delete activity', 'Error al eliminar la actividad')}: ${tServer(err.message)}`);
         }
-    }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.editBtn] });
+    }, { extraDisable: [ui.row, ui.checkBtn, ui.statusSelect, ui.postponeBtn, ui.skipBtn, ui.editBtn] });
 }
 
 const agendaModal = document.getElementById('agendaModal');
@@ -9202,6 +9396,342 @@ function syncAgendaMateriaFieldUI(preferredCourseId = null, preferredCourseName 
     }
 }
 
+const agendaCalendarUiState = {
+    headerYear: new Date().getFullYear(),
+    headerMonth: new Date().getMonth(),
+    dotsByDate: {},
+    modalYear: new Date().getFullYear(),
+    modalMonth: new Date().getMonth(),
+    postponeItem: null,
+    postponeYear: new Date().getFullYear(),
+    postponeMonth: new Date().getMonth()
+};
+
+function formatShortHumanDateClient(ymd) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd || '').trim())) return String(ymd || '');
+    const [y, m, d] = String(ymd).trim().split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return dt.toLocaleDateString(tLocale(), { day: 'numeric', month: 'short' });
+}
+
+function renderAgendaCalendarGrid(gridEl, {
+    year,
+    month,
+    selectedDate = '',
+    activeWeekDatesSet = null,
+    repeatDatesSet = null,
+    dotCountsByDate = null,
+    onSelectDate = null
+} = {}) {
+    if (!gridEl) return;
+    gridEl.replaceChildren();
+    const hoyStr = formatLocalDate(new Date());
+    const cells = buildMonthCalendarMatrix(year, month);
+    cells.forEach(cell => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'agenda-cal-day';
+        if (!cell.inMonth) btn.classList.add('is-other-month');
+        if (cell.ymd === hoyStr) btn.classList.add('is-today');
+        if (selectedDate && cell.ymd === selectedDate) btn.classList.add('is-selected');
+        if (activeWeekDatesSet && activeWeekDatesSet.has(cell.ymd)) btn.classList.add('is-in-week');
+        if (repeatDatesSet && repeatDatesSet.has(cell.ymd) && cell.ymd !== selectedDate) {
+            btn.classList.add('is-repeat-preview');
+        }
+        btn.dataset.date = cell.ymd;
+        btn.setAttribute('aria-label', cell.ymd);
+
+        const numSpan = document.createElement('span');
+        numSpan.className = 'agenda-cal-day-num';
+        numSpan.textContent = String(cell.dayNum);
+        btn.appendChild(numSpan);
+
+        const dotsInfo = dotCountsByDate ? dotCountsByDate[cell.ymd] : null;
+        if (dotsInfo && (dotsInfo.uni > 0 || dotsInfo.personal > 0 || dotsInfo.done > 0)) {
+            const dotsWrap = document.createElement('span');
+            dotsWrap.className = 'cal-dots';
+            if (dotsInfo.uni > 0) {
+                const dUni = document.createElement('i');
+                dUni.className = 'cal-dot is-uni';
+                dotsWrap.appendChild(dUni);
+            }
+            if (dotsInfo.personal > 0) {
+                const dPer = document.createElement('i');
+                dPer.className = 'cal-dot is-personal';
+                dotsWrap.appendChild(dPer);
+            }
+            if (dotsInfo.done > 0) {
+                const dDone = document.createElement('i');
+                dDone.className = 'cal-dot is-done';
+                dotsWrap.appendChild(dDone);
+            }
+            btn.appendChild(dotsWrap);
+        }
+
+        if (typeof onSelectDate === 'function') {
+            btn.addEventListener('click', () => onSelectDate(cell.ymd));
+        }
+        gridEl.appendChild(btn);
+    });
+}
+
+function getSelectedModalWeekdays() {
+    return Array.from(document.querySelectorAll('#agendaRepeatWeekdaysGroup .agenda-weekday-btn.active'))
+        .map(btn => Number.parseInt(btn.getAttribute('data-weekday'), 10))
+        .filter(n => Number.isInteger(n) && n >= 0 && n <= 6);
+}
+
+function getCurrentModalRepeatConfig() {
+    const startDate = document.getElementById('agendaFecha')?.value || formatLocalDate(new Date());
+    const mode = document.getElementById('agendaRepeatMode')?.value || 'none';
+    const intervalDays = Number.parseInt(document.getElementById('agendaRepetirCadaDias')?.value || '0', 10) || 1;
+    const endMode = document.getElementById('agendaRepeatEndMode')?.value || 'count';
+    const countExtra = Number.parseInt(document.getElementById('agendaRepetirVeces')?.value || '3', 10) || 1;
+    const untilDate = document.getElementById('agendaRepeatUntilDate')?.value || '';
+    const weekdays = getSelectedModalWeekdays();
+    return { startDate, mode, intervalDays, weekdays, endMode, countExtra, untilDate };
+}
+
+function renderAgendaModalCalendar() {
+    const box = document.getElementById('agendaModalCalendarBox');
+    const gridEl = document.getElementById('agendaModalCalGrid');
+    const labelEl = document.getElementById('agendaModalCalMonthLabel');
+    if (!box || box.hidden || !gridEl) return;
+
+    const monthDate = new Date(agendaCalendarUiState.modalYear, agendaCalendarUiState.modalMonth, 1);
+    if (labelEl) {
+        labelEl.textContent = monthDate.toLocaleDateString(tLocale(), { month: 'long', year: 'numeric' });
+    }
+    const cfg = getCurrentModalRepeatConfig();
+    const editId = document.getElementById('agendaEditId')?.value || '';
+    const repeatList = (!editId && cfg.mode !== 'none')
+        ? computeAgendaRepeatDates(cfg)
+        : [cfg.startDate];
+    const repeatDatesSet = new Set(repeatList);
+
+    renderAgendaCalendarGrid(gridEl, {
+        year: agendaCalendarUiState.modalYear,
+        month: agendaCalendarUiState.modalMonth,
+        selectedDate: cfg.startDate,
+        repeatDatesSet,
+        onSelectDate: (ymd) => {
+            const fechaEl = document.getElementById('agendaFecha');
+            if (fechaEl) {
+                fechaEl.value = ymd;
+                fechaEl.dispatchEvent(new Event('change'));
+            }
+            const [yy, mm] = ymd.split('-').map(Number);
+            agendaCalendarUiState.modalYear = yy;
+            agendaCalendarUiState.modalMonth = mm - 1;
+            updateAgendaRepeatPreviewUI();
+            renderAgendaModalCalendar();
+        }
+    });
+}
+
+function updateAgendaRepeatPreviewUI() {
+    const editId = document.getElementById('agendaEditId')?.value || '';
+    const repeatSection = document.getElementById('agendaRepeatSection');
+    const modeSel = document.getElementById('agendaRepeatMode');
+    const bodyEl = document.getElementById('agendaRepeatConfigBody');
+    const intervalGroup = document.getElementById('agendaRepeatIntervalGroup');
+    const intervalInput = document.getElementById('agendaRepetirCadaDias');
+    const weekdaysGroup = document.getElementById('agendaRepeatWeekdaysGroup');
+    const endModeSel = document.getElementById('agendaRepeatEndMode');
+    const countWrap = document.getElementById('agendaRepeatCountWrap');
+    const untilWrap = document.getElementById('agendaRepeatUntilWrap');
+    const summaryEl = document.getElementById('agendaRepeatSummaryPreview');
+
+    if (repeatSection) {
+        repeatSection.hidden = Boolean(editId);
+    }
+    if (!modeSel || editId) {
+        renderAgendaModalCalendar();
+        return;
+    }
+
+    const mode = modeSel.value || 'none';
+    if (bodyEl) bodyEl.hidden = mode === 'none';
+    if (intervalGroup) intervalGroup.hidden = mode !== 'interval';
+    if (weekdaysGroup) weekdaysGroup.hidden = mode !== 'weekdays';
+
+    if (mode === 'interval' && intervalInput && (Number(intervalInput.value) || 0) < 1) {
+        intervalInput.value = '2';
+    } else if (mode === 'none' && intervalInput) {
+        intervalInput.value = '0';
+    }
+
+    const endMode = endModeSel ? endModeSel.value : 'count';
+    if (countWrap) countWrap.hidden = endMode !== 'count';
+    if (untilWrap) untilWrap.hidden = endMode !== 'until';
+
+    const cfg = getCurrentModalRepeatConfig();
+    const dates = mode === 'none' ? [cfg.startDate] : computeAgendaRepeatDates(cfg);
+
+    if (summaryEl) {
+        if (mode === 'none' || dates.length <= 1) {
+            summaryEl.textContent = tUi(
+                `📅 Scheduled once on ${formatShortHumanDateClient(cfg.startDate)}.`,
+                `📅 Se programará una sola vez el ${formatShortHumanDateClient(cfg.startDate)}.`
+            );
+        } else {
+            const firstLabel = formatShortHumanDateClient(dates[0]);
+            const extraDates = dates.slice(1);
+            const shown = extraDates.slice(0, 6).map(formatShortHumanDateClient).join(', ');
+            const overflowNote = extraDates.length > 6
+                ? tUi(` (+${extraDates.length - 6} more)`, ` (+${extraDates.length - 6} más)`)
+                : '';
+            summaryEl.textContent = tUi(
+                `📅 Starts ${firstLabel} and repeats ${extraDates.length} more time(s): ${shown}${overflowNote}`,
+                `📅 Se creará el ${firstLabel} y se repetirá ${extraDates.length} veces más: ${shown}${overflowNote}`
+            );
+        }
+    }
+
+    renderAgendaModalCalendar();
+}
+
+function renderAgendaHeaderCalendar(fetchDots = false) {
+    const dropdown = document.getElementById('agendaCalendarDropdown');
+    const gridEl = document.getElementById('agendaCalGrid');
+    const labelEl = document.getElementById('agendaCalMonthLabel');
+    if (!dropdown || !gridEl) return;
+
+    const year = agendaCalendarUiState.headerYear;
+    const month = agendaCalendarUiState.headerMonth;
+    const monthDate = new Date(year, month, 1);
+    if (labelEl) {
+        labelEl.textContent = monthDate.toLocaleDateString(tLocale(), { month: 'long', year: 'numeric' });
+    }
+
+    const activeWeekSet = new Set(getVisibleAgendaDays().map(d => d.fecha));
+    const paintGrid = () => {
+        renderAgendaCalendarGrid(gridEl, {
+            year,
+            month,
+            selectedDate: agendaState.selectedDate,
+            activeWeekDatesSet: activeWeekSet,
+            dotCountsByDate: agendaCalendarUiState.dotsByDate,
+            onSelectDate: (ymd) => {
+                agendaState.weekOffset = computeWeekOffsetForDate(ymd);
+                agendaState.selectedDate = ymd;
+                cargarAgendaSemana();
+                dropdown.hidden = true;
+                const toggleBtn = document.getElementById('btnToggleAgendaCalendar');
+                if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+            }
+        });
+    };
+
+    paintGrid();
+    if (fetchDots) {
+        const matrix = buildMonthCalendarMatrix(year, month);
+        const begin = matrix[0]?.ymd;
+        const end = matrix[matrix.length - 1]?.ymd;
+        if (begin && end) {
+            fetch(`/api/get-agenda?begin=${begin}&end=${end}`, { cache: 'no-store' })
+                .then(res => (res.ok ? res.json() : []))
+                .then(rows => {
+                    const dots = {};
+                    (Array.isArray(rows) ? rows : []).forEach(r => {
+                        if (!r || !r.fecha) return;
+                        if (!dots[r.fecha]) dots[r.fecha] = { uni: 0, personal: 0, done: 0 };
+                        const st = getAgendaItemStatus(r);
+                        if (st === 'done' || st === 'skipped') {
+                            dots[r.fecha].done += 1;
+                        } else if ((r.categoria || 'personal') === 'universidad') {
+                            dots[r.fecha].uni += 1;
+                        } else {
+                            dots[r.fecha].personal += 1;
+                        }
+                    });
+                    agendaCalendarUiState.dotsByDate = dots;
+                    if (!dropdown.hidden) paintGrid();
+                })
+                .catch(() => { });
+        }
+    }
+}
+
+function refreshOpenAgendaHeaderCalendar() {
+    const dropdown = document.getElementById('agendaCalendarDropdown');
+    if (dropdown && !dropdown.hidden) {
+        renderAgendaHeaderCalendar(true);
+    }
+}
+
+function renderPostponePopoverCalendar() {
+    const gridEl = document.getElementById('postponePopoverCalGrid');
+    const labelEl = document.getElementById('postponeCalMonthLabel');
+    const dateInput = document.getElementById('postponeTargetDateInput');
+    const item = agendaCalendarUiState.postponeItem;
+    if (!gridEl || !item) return;
+
+    const year = agendaCalendarUiState.postponeYear;
+    const month = agendaCalendarUiState.postponeMonth;
+    if (labelEl) {
+        labelEl.textContent = new Date(year, month, 1).toLocaleDateString(tLocale(), { month: 'long', year: 'numeric' });
+    }
+    const selectedDate = (dateInput && dateInput.value) || shiftYmdDateClient(item.fecha, 1);
+
+    renderAgendaCalendarGrid(gridEl, {
+        year,
+        month,
+        selectedDate,
+        onSelectDate: (ymd) => {
+            if (dateInput) dateInput.value = ymd;
+            posponerAgendaItem(item, { targetDate: ymd }, gridEl);
+        }
+    });
+}
+
+function openAgendaPostponePopover(item, anchorBtn) {
+    const popover = document.getElementById('agendaPostponePopover');
+    if (!popover || !item) return;
+
+    agendaCalendarUiState.postponeItem = item;
+    const tomorrowStr = shiftYmdDateClient(item.fecha, 1) || formatLocalDate(new Date());
+    const dateInput = document.getElementById('postponeTargetDateInput');
+    if (dateInput) dateInput.value = tomorrowStr;
+    const customInput = document.getElementById('postponeCustomDaysInput');
+    if (customInput) customInput.value = '4';
+
+    const titleEl = document.getElementById('postponePopoverTitle');
+    if (titleEl) {
+        const parsed = splitAgendaActividadClient(item.actividad, item.titulo, item.descripcion);
+        titleEl.textContent = `⏳ ${tUi('Postpone', 'Posponer')}: ${(parsed.titulo || item.actividad || '').slice(0, 26)}`;
+    }
+
+    const [yy, mm] = tomorrowStr.split('-').map(Number);
+    agendaCalendarUiState.postponeYear = yy;
+    agendaCalendarUiState.postponeMonth = mm - 1;
+    renderPostponePopoverCalendar();
+
+    popover.hidden = false;
+    const anchorRect = anchorBtn ? anchorBtn.getBoundingClientRect() : { left: 16, right: 16, top: 80, bottom: 100 };
+    const popRect = popover.getBoundingClientRect();
+    const popWidth = popRect.width || 290;
+    const popHeight = popRect.height || 340;
+    const vp = typeof getSafeViewportBounds === 'function'
+        ? getSafeViewportBounds()
+        : { width: window.innerWidth || 360, height: window.innerHeight || 640 };
+
+    let targetLeft = anchorRect.left - popWidth + 28;
+    if (targetLeft < 8) targetLeft = anchorRect.left;
+    let targetTop = anchorRect.bottom + 6;
+    if (targetTop + popHeight + 8 > vp.height) {
+        targetTop = anchorRect.top - popHeight - 6;
+    }
+    const clamped = typeof clampFixedElementCoords === 'function'
+        ? clampFixedElementCoords(popover, targetLeft, targetTop, 8)
+        : {
+            left: Math.round(Math.min(Math.max(8, targetLeft), Math.max(8, vp.width - popWidth - 8))),
+            top: Math.round(Math.min(Math.max(8, targetTop), Math.max(8, vp.height - popHeight - 8)))
+        };
+    popover.style.left = `${clamped.left}px`;
+    popover.style.top = `${clamped.top}px`;
+}
+
 function abrirAgendaModal(prefill = {}) {
     if (!agendaModal || !agendaForm) return;
     ensureAcademicPlannerLoaded();
@@ -9255,13 +9785,37 @@ function abrirAgendaModal(prefill = {}) {
     if (catEl) catEl.value = resolvedCategoria;
     if (estadoEl) estadoEl.value = resolvedEstado;
     if (remEl) remEl.value = resolvedRemMin;
+
     const subcatEl = document.getElementById('agendaSubcategoria');
+    const repeatModeEl = document.getElementById('agendaRepeatMode');
     const repDiasEl = document.getElementById('agendaRepetirCadaDias');
     const repVecesEl = document.getElementById('agendaRepetirVeces');
+    const repEndModeEl = document.getElementById('agendaRepeatEndMode');
+    const repUntilEl = document.getElementById('agendaRepeatUntilDate');
     if (subcatEl) subcatEl.value = 'normal';
+    if (repeatModeEl) repeatModeEl.value = 'none';
     if (repDiasEl) repDiasEl.value = '0';
-    if (repVecesEl) repVecesEl.value = '1';
+    if (repVecesEl) repVecesEl.value = '3';
+    if (repEndModeEl) repEndModeEl.value = 'count';
+    if (repUntilEl) repUntilEl.value = shiftYmdDateClient(resolvedFecha, 14);
+
+    // Preseleccionar día de la semana de la fecha base
+    const [ry, rm, rd] = String(resolvedFecha).split('-').map(Number);
+    const baseDow = new Date(Date.UTC(ry, rm - 1, rd)).getUTCDay();
+    document.querySelectorAll('#agendaRepeatWeekdaysGroup .agenda-weekday-btn').forEach(btn => {
+        const w = Number.parseInt(btn.getAttribute('data-weekday'), 10);
+        btn.classList.toggle('active', w === baseDow);
+    });
+
+    agendaCalendarUiState.modalYear = ry;
+    agendaCalendarUiState.modalMonth = rm - 1;
+    const modalCalBox = document.getElementById('agendaModalCalendarBox');
+    const modalCalToggleBtn = document.getElementById('btnToggleAgendaModalCalendar');
+    if (modalCalBox) modalCalBox.hidden = true;
+    if (modalCalToggleBtn) modalCalToggleBtn.setAttribute('aria-expanded', 'false');
+
     syncAgendaMateriaFieldUI(resolvedMateriaId, prefill.materia_nombre || '');
+    updateAgendaRepeatPreviewUI();
 
     const currentMateriaVal = resolvedCategoria === 'universidad'
         ? (document.getElementById('agendaMateriaId')?.value || '')
@@ -9314,6 +9868,7 @@ if (agendaForm) {
         btnPrevWeek.addEventListener('click', () => {
             agendaState.weekOffset -= 1;
             cargarAgendaSemana();
+            refreshOpenAgendaHeaderCalendar();
         });
     }
 
@@ -9321,6 +9876,7 @@ if (agendaForm) {
         btnNextWeek.addEventListener('click', () => {
             agendaState.weekOffset += 1;
             cargarAgendaSemana();
+            refreshOpenAgendaHeaderCalendar();
         });
     }
 
@@ -9329,8 +9885,181 @@ if (agendaForm) {
             agendaState.weekOffset = 0;
             agendaState.selectedDate = formatLocalDate(new Date());
             cargarAgendaSemana();
+            refreshOpenAgendaHeaderCalendar();
         });
     }
+
+    // Calendario mensual desplegable en cabecera del planificador
+    const btnToggleCal = document.getElementById('btnToggleAgendaCalendar');
+    const headerCalDropdown = document.getElementById('agendaCalendarDropdown');
+    if (btnToggleCal && headerCalDropdown) {
+        btnToggleCal.addEventListener('click', () => {
+            const willOpen = headerCalDropdown.hidden;
+            headerCalDropdown.hidden = !willOpen;
+            btnToggleCal.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) {
+                const days = getVisibleAgendaDays();
+                const refDate = (days[0] && days[0].dateObj) || new Date();
+                agendaCalendarUiState.headerYear = refDate.getFullYear();
+                agendaCalendarUiState.headerMonth = refDate.getMonth();
+                renderAgendaHeaderCalendar(true);
+            }
+        });
+    }
+    document.getElementById('btnAgendaCalPrevMonth')?.addEventListener('click', () => {
+        const dt = new Date(agendaCalendarUiState.headerYear, agendaCalendarUiState.headerMonth - 1, 1);
+        agendaCalendarUiState.headerYear = dt.getFullYear();
+        agendaCalendarUiState.headerMonth = dt.getMonth();
+        renderAgendaHeaderCalendar(true);
+    });
+    document.getElementById('btnAgendaCalNextMonth')?.addEventListener('click', () => {
+        const dt = new Date(agendaCalendarUiState.headerYear, agendaCalendarUiState.headerMonth + 1, 1);
+        agendaCalendarUiState.headerYear = dt.getFullYear();
+        agendaCalendarUiState.headerMonth = dt.getMonth();
+        renderAgendaHeaderCalendar(true);
+    });
+    document.getElementById('btnAgendaCalToday')?.addEventListener('click', () => {
+        const nowDt = new Date();
+        agendaCalendarUiState.headerYear = nowDt.getFullYear();
+        agendaCalendarUiState.headerMonth = nowDt.getMonth();
+        agendaState.weekOffset = 0;
+        agendaState.selectedDate = formatLocalDate(nowDt);
+        cargarAgendaSemana();
+        renderAgendaHeaderCalendar(true);
+    });
+
+    // Controles del Popover Flotante de Posponer
+    const postponePopover = document.getElementById('agendaPostponePopover');
+    if (postponePopover) {
+        document.getElementById('btnClosePostponePopover')?.addEventListener('click', () => {
+            postponePopover.hidden = true;
+        });
+        postponePopover.querySelectorAll('[data-postpone-days]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const days = Number.parseInt(btn.getAttribute('data-postpone-days'), 10);
+                if (agendaCalendarUiState.postponeItem && Number.isInteger(days)) {
+                    posponerAgendaItem(agendaCalendarUiState.postponeItem, { days }, btn);
+                }
+            });
+        });
+        document.getElementById('btnApplyPostponeCustomDays')?.addEventListener('click', (ev) => {
+            const daysVal = Number.parseInt(document.getElementById('postponeCustomDaysInput')?.value || '0', 10);
+            if (!Number.isInteger(daysVal) || daysVal <= 0 || daysVal > 365) {
+                showToast('err', tUi('Enter a valid number of days (1-365).', 'Ingresa una cantidad válida de días (1-365).'));
+                return;
+            }
+            if (agendaCalendarUiState.postponeItem) {
+                posponerAgendaItem(agendaCalendarUiState.postponeItem, { days: daysVal }, ev.currentTarget);
+            }
+        });
+        document.getElementById('btnApplyPostponeDate')?.addEventListener('click', (ev) => {
+            const targetDate = document.getElementById('postponeTargetDateInput')?.value || '';
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+                showToast('err', tUi('Choose a valid date.', 'Elige una fecha válida.'));
+                return;
+            }
+            if (agendaCalendarUiState.postponeItem) {
+                posponerAgendaItem(agendaCalendarUiState.postponeItem, { targetDate }, ev.currentTarget);
+            }
+        });
+        document.getElementById('btnPostponeCalPrev')?.addEventListener('click', () => {
+            const dt = new Date(agendaCalendarUiState.postponeYear, agendaCalendarUiState.postponeMonth - 1, 1);
+            agendaCalendarUiState.postponeYear = dt.getFullYear();
+            agendaCalendarUiState.postponeMonth = dt.getMonth();
+            renderPostponePopoverCalendar();
+        });
+        document.getElementById('btnPostponeCalNext')?.addEventListener('click', () => {
+            const dt = new Date(agendaCalendarUiState.postponeYear, agendaCalendarUiState.postponeMonth + 1, 1);
+            agendaCalendarUiState.postponeYear = dt.getFullYear();
+            agendaCalendarUiState.postponeMonth = dt.getMonth();
+            renderPostponePopoverCalendar();
+        });
+        document.addEventListener('click', (ev) => {
+            if (!postponePopover.hidden && !postponePopover.contains(ev.target) && !ev.target.closest('.agenda-postpone-btn')) {
+                postponePopover.hidden = true;
+            }
+        });
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') {
+                if (!postponePopover.hidden) postponePopover.hidden = true;
+                const calDrop = document.getElementById('agendaCalendarDropdown');
+                if (calDrop && !calDrop.hidden) {
+                    calDrop.hidden = true;
+                    document.getElementById('btnToggleAgendaCalendar')?.setAttribute('aria-expanded', 'false');
+                }
+            }
+        });
+        const clampPostponeOnViewport = () => {
+            if (!postponePopover.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+                clampFloatingElementIntoViewport(postponePopover, 8);
+            }
+        };
+        window.addEventListener('resize', clampPostponeOnViewport);
+        window.addEventListener('orientationchange', () => setTimeout(clampPostponeOnViewport, 80));
+    }
+
+    // Controles de Posponer / Calendario y Repetición dentro del Modal
+    document.querySelectorAll('#agendaModalQuickDateBar [data-shift-days]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const delta = Number.parseInt(btn.getAttribute('data-shift-days'), 10);
+            const fechaEl = document.getElementById('agendaFecha');
+            if (!fechaEl || !Number.isInteger(delta)) return;
+            const base = fechaEl.value || formatLocalDate(new Date());
+            const shifted = shiftYmdDateClient(base, delta);
+            if (shifted) {
+                fechaEl.value = shifted;
+                const [yy, mm] = shifted.split('-').map(Number);
+                agendaCalendarUiState.modalYear = yy;
+                agendaCalendarUiState.modalMonth = mm - 1;
+                updateAgendaRepeatPreviewUI();
+            }
+        });
+    });
+
+    const toggleModalCalBox = (forceOpen = null) => {
+        const box = document.getElementById('agendaModalCalendarBox');
+        const btn = document.getElementById('btnToggleAgendaModalCalendar');
+        if (!box) return;
+        const nextOpen = forceOpen !== null ? Boolean(forceOpen) : box.hidden;
+        box.hidden = !nextOpen;
+        if (btn) btn.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+        if (nextOpen) {
+            const fVal = document.getElementById('agendaFecha')?.value || formatLocalDate(new Date());
+            const [yy, mm] = fVal.split('-').map(Number);
+            if (yy && mm) {
+                agendaCalendarUiState.modalYear = yy;
+                agendaCalendarUiState.modalMonth = mm - 1;
+            }
+            renderAgendaModalCalendar();
+        }
+    };
+    document.getElementById('btnToggleAgendaModalCalendar')?.addEventListener('click', () => toggleModalCalBox());
+    document.getElementById('btnAgendaRepeatShowOnCal')?.addEventListener('click', () => toggleModalCalBox(true));
+    document.getElementById('btnModalCalPrevMonth')?.addEventListener('click', () => {
+        const dt = new Date(agendaCalendarUiState.modalYear, agendaCalendarUiState.modalMonth - 1, 1);
+        agendaCalendarUiState.modalYear = dt.getFullYear();
+        agendaCalendarUiState.modalMonth = dt.getMonth();
+        renderAgendaModalCalendar();
+    });
+    document.getElementById('btnModalCalNextMonth')?.addEventListener('click', () => {
+        const dt = new Date(agendaCalendarUiState.modalYear, agendaCalendarUiState.modalMonth + 1, 1);
+        agendaCalendarUiState.modalYear = dt.getFullYear();
+        agendaCalendarUiState.modalMonth = dt.getMonth();
+        renderAgendaModalCalendar();
+    });
+
+    document.getElementById('agendaFecha')?.addEventListener('change', updateAgendaRepeatPreviewUI);
+    document.getElementById('agendaRepeatMode')?.addEventListener('change', updateAgendaRepeatPreviewUI);
+    document.getElementById('agendaRepetirCadaDias')?.addEventListener('input', updateAgendaRepeatPreviewUI);
+    document.getElementById('agendaRepeatEndMode')?.addEventListener('change', updateAgendaRepeatPreviewUI);
+    document.getElementById('agendaRepetirVeces')?.addEventListener('input', updateAgendaRepeatPreviewUI);
+    document.getElementById('agendaRepeatUntilDate')?.addEventListener('change', updateAgendaRepeatPreviewUI);
+    document.querySelectorAll('#agendaRepeatWeekdaysGroup .agenda-weekday-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            btn.classList.toggle('active');
+            updateAgendaRepeatPreviewUI();
+        });
+    });
 
     if (btnToggleWeekend) {
         btnToggleWeekend.addEventListener('click', () => {
@@ -9463,8 +10192,16 @@ if (agendaForm) {
         const horaClean = String(document.getElementById('agendaHora').value || '').slice(0, 5);
         const bloqueVal = document.getElementById('agendaBloque').value || inferAgendaBlockClient(horaClean, catVal);
         const subcategoriaVal = document.getElementById('agendaSubcategoria')?.value || 'normal';
-        const repetirCadaDiasVal = Number(document.getElementById('agendaRepetirCadaDias')?.value || 0);
-        const repetirVecesVal = Number(document.getElementById('agendaRepetirVeces')?.value || 1);
+
+        const repeatCfg = getCurrentModalRepeatConfig();
+        const repeatMode = editId ? 'none' : repeatCfg.mode;
+        const repeatDates = repeatMode === 'none'
+            ? [repeatCfg.startDate]
+            : computeAgendaRepeatDates(repeatCfg);
+        const repetirCadaDiasVal = repeatMode === 'none'
+            ? 0
+            : (repeatMode === 'daily' ? 1 : repeatMode === 'weekly' ? 7 : Math.max(1, repeatCfg.intervalDays || 1));
+        const repetirVecesVal = repeatDates.length;
 
         const payload = {
             fecha: document.getElementById('agendaFecha').value,
@@ -9478,6 +10215,7 @@ if (agendaForm) {
             subcategoria: subcategoriaVal,
             repetir_cada_dias: repetirCadaDiasVal,
             repetir_veces: repetirVecesVal,
+            fechas_repeticion: !editId && repeatDates.length > 1 ? repeatDates : undefined,
             materia_id: materiaVal || null,
             materia_nombre: materiaVal ? (materiaNombreVal || null) : null,
             estado: estadoVal,
@@ -9541,10 +10279,13 @@ if (agendaForm) {
                 agendaState.selectedDate = payload.fecha;
                 cerrarAgendaModal();
                 cargarAgendaSemana();
+                refreshOpenAgendaHeaderCalendar();
                 cargarRecordatoriosActivos();
                 showToast('ok', editId
                     ? tUi('Activity updated!', '¡Actividad actualizada!')
-                    : tUi('Activity added to your week!', '¡Actividad agregada a tu semana!'));
+                    : (repeatDates.length > 1
+                        ? tUi(`Activity scheduled for ${repeatDates.length} dates!`, `¡Actividad programada para ${repeatDates.length} fechas!`)
+                        : tUi('Activity added to your week!', '¡Actividad agregada a tu semana!')));
             } catch (err) {
                 showToast('err', `${tUi('Error', 'Error')}: ${tServer(err.message)}`);
             }

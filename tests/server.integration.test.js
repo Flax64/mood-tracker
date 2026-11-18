@@ -324,6 +324,16 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: 1 });
                 }
 
+                if (normalized.startsWith('UPDATE RegistrosAgenda SET fecha = ?, estado = ?, completada = ? WHERE id = ?')) {
+                    const id = Number(params[3]);
+                    const item = agendaInserts.find((a) => a.id === id);
+                    if (!item) return finish(null, { affectedRows: 0 });
+                    item.fecha = params[0];
+                    item.estado = params[1];
+                    item.completada = params[2];
+                    return finish(null, { affectedRows: 1 });
+                }
+
                 if (normalized.startsWith('UPDATE RegistrosAgenda SET estado = ?, completada = ? WHERE id = ?')) {
                     const id = Number(params[2]);
                     const item = agendaInserts.find((a) => a.id === id);
@@ -342,10 +352,11 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     return finish(null, { affectedRows: 1 });
                 }
 
-                if (normalized.startsWith('SELECT completada, estado FROM RegistrosAgenda WHERE id = ?')) {
+                if (normalized.includes('FROM RegistrosAgenda') && normalized.includes('WHERE id = ?')) {
                     const id = Number(params[0]);
                     const item = agendaInserts.find((a) => a.id === id);
-                    return finish(null, item ? [{ completada: item.completada, estado: item.estado }] : []);
+                    if (!item) return finish(null, []);
+                    return finish(null, [{ ...item }]);
                 }
 
                 if (normalized.startsWith('DELETE FROM RegistrosAgenda WHERE id = ?')) {
@@ -1563,6 +1574,63 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(savedTask.tipo, 'tarea');
         assert.strictEqual(savedTask.categoria, 'universidad');
         assert.strictEqual(savedTask.estado, 'done');
+
+        // 3b. Estado Skip (skipped), Posponer (+días y fecha calendario) y fechas_repeticion
+        const repCreate = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/insert-agenda',
+            headers: { Cookie: adminCookie, 'X-Idempotency-Key': 'agenda-repeat-dates-1' },
+            body: {
+                fecha: '2026-11-18',
+                bloque: 'tarde',
+                hora: '16:00',
+                titulo: 'Repaso Algoritmos',
+                descripcion: 'Aula R11',
+                tipo: 'tarea',
+                categoria: 'universidad',
+                fechas_repeticion: ['2026-11-18', '2026-11-20', '2026-11-22']
+            }
+        });
+        assert.strictEqual(repCreate.status, 201);
+        const repJson = JSON.parse(repCreate.body);
+        assert.strictEqual(repJson.repeatedCount, 3);
+        assert.deepStrictEqual(repJson.createdDates, ['2026-11-18', '2026-11-20', '2026-11-22']);
+        const repTaskId = repJson.item.id;
+
+        const toSkipped = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/toggle-agenda/${repTaskId}`,
+            headers: { Cookie: adminCookie },
+            body: { estado: 'skipped' }
+        });
+        assert.strictEqual(toSkipped.status, 200);
+        assert.strictEqual(JSON.parse(toSkipped.body).estado, 'skipped');
+        assert.strictEqual(JSON.parse(toSkipped.body).completada, 0);
+
+        const postponePlus1 = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/postpone-agenda/${repTaskId}`,
+            headers: { Cookie: adminCookie },
+            body: { days: 1 }
+        });
+        assert.strictEqual(postponePlus1.status, 200);
+        const p1Json = JSON.parse(postponePlus1.body);
+        assert.strictEqual(p1Json.previousFecha, '2026-11-18');
+        assert.strictEqual(p1Json.fecha, '2026-11-19');
+        assert.strictEqual(p1Json.estado, 'todo', 'Posponer una tarea omitida debe reactivarla en todo en la nueva fecha');
+
+        const postponeTargetDate = await request({
+            port,
+            method: 'PATCH',
+            reqPath: `/api/postpone-agenda/${repTaskId}`,
+            headers: { Cookie: adminCookie },
+            body: { targetDate: '2026-11-25' }
+        });
+        assert.strictEqual(postponeTargetDate.status, 200);
+        assert.strictEqual(JSON.parse(postponeTargetDate.body).fecha, '2026-11-25');
 
         // 4. Configuración: verifica valores por defecto (English OFF, Madrugada OFF, Desktop OFF)
         const getDefaults = await request({ port, reqPath: '/api/settings', headers: { Cookie: adminCookie } });

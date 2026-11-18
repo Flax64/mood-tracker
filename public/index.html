@@ -1554,10 +1554,33 @@
                             <button type="button" class="agenda-nav-btn" id="btnAgendaNextWeek"
                                 aria-label="Next week">▶</button>
                             <button type="button" class="agenda-chip-btn" id="btnAgendaToday">Today</button>
+                            <button type="button" class="agenda-chip-btn" id="btnToggleAgendaCalendar"
+                                aria-expanded="false" title="Abrir calendario mensual para navegar semanas">📅 Calendario</button>
                         </div>
                         <div class="agenda-view-controls">
                             <button type="button" class="agenda-chip-btn" id="btnToggleWeekend">Mon - Fri Only</button>
                             <button type="button" class="agenda-chip-btn" id="btnToggleAgendaLayout">Day View</button>
+                        </div>
+                    </div>
+
+                    <div class="agenda-calendar-popover" id="agendaCalendarDropdown" hidden aria-label="Calendario mensual de agenda">
+                        <div class="agenda-cal-header">
+                            <button type="button" class="agenda-nav-btn" id="btnAgendaCalPrevMonth" aria-label="Mes anterior">◀</button>
+                            <strong id="agendaCalMonthLabel" class="agenda-cal-month-title">--</strong>
+                            <div class="agenda-cal-header-actions">
+                                <button type="button" class="agenda-chip-btn agenda-cal-today-btn" id="btnAgendaCalToday">Hoy</button>
+                                <button type="button" class="agenda-nav-btn" id="btnAgendaCalNextMonth" aria-label="Mes siguiente">▶</button>
+                            </div>
+                        </div>
+                        <div class="agenda-cal-weekdays" aria-hidden="true">
+                            <span>L</span><span>M</span><span>Mi</span><span>J</span><span>V</span><span>S</span><span>D</span>
+                        </div>
+                        <div class="agenda-cal-grid" id="agendaCalGrid"></div>
+                        <div class="agenda-cal-legend muted-text">
+                            <span><i class="cal-dot is-uni"></i> Universidad</span>
+                            <span><i class="cal-dot is-personal"></i> Personal</span>
+                            <span><i class="cal-dot is-done"></i> Completada / Omitida</span>
+                            <span>Clic en un día para ir a esa semana</span>
                         </div>
                     </div>
 
@@ -2695,6 +2718,34 @@
             </div>
             <form id="agendaForm">
                 <input type="hidden" id="agendaEditId" value="">
+
+                <div class="form-group">
+                    <label for="agendaActividad">Title / Label *</label>
+                    <input type="text" id="agendaActividad" lang="en" spellcheck="true" maxlength="120"
+                        placeholder="e.g. SCG1009 Gestión de Proyectos, Finish Lab Report..." required>
+                    <div class="agenda-suggestions" id="agendaSuggestions">
+                        <button type="button" class="suggestion-chip" data-text="University Class">University Class</button>
+                        <button type="button" class="suggestion-chip" data-text="Complete Assignment">Complete Assignment</button>
+                        <button type="button" class="suggestion-chip" data-text="Study for Exam">Study for Exam</button>
+                        <button type="button" class="suggestion-chip" data-text="Residencias">Residencias</button>
+                        <button type="button" class="suggestion-chip" data-text="Work Shift">Work Shift</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="agendaDescripcion">Description / Classroom / Details (optional):</label>
+                    <textarea id="agendaDescripcion" class="english-textarea" lang="en" spellcheck="true" rows="3" maxlength="180"
+                        placeholder="e.g. Aula R11 (Campus Blvd / Glorieta) · Bring sprint backlog and architecture diagram..."></textarea>
+                </div>
+
+                <div class="word-proofing-panel" id="agendaProofingPanel">
+                    <div class="word-proofing-header">
+                        <span class="word-proofing-badge" id="agendaProofingBadge">✓ English Spelling &amp; Grammar: Ready</span>
+                        <button type="button" class="agenda-chip-btn" id="btnAgendaFixAll" hidden>✨ Apply All Fixes</button>
+                    </div>
+                    <div class="word-proofing-issues" id="agendaProofingIssues" hidden></div>
+                </div>
+
                 <div class="form-row-2">
                     <div class="form-group">
                         <label for="agendaTipo">Activity type:</label>
@@ -2734,6 +2785,31 @@
                     </div>
                 </div>
 
+                <div class="agenda-modal-quick-date-bar" id="agendaModalQuickDateBar">
+                    <span class="agenda-quick-date-label">⏳ Mover / Posponer:</span>
+                    <button type="button" class="agenda-quick-date-btn" data-shift-days="1">+1 día (Mañana)</button>
+                    <button type="button" class="agenda-quick-date-btn" data-shift-days="2">+2 días</button>
+                    <button type="button" class="agenda-quick-date-btn" data-shift-days="3">+3 días</button>
+                    <button type="button" class="agenda-quick-date-btn" data-shift-days="7">+7 días</button>
+                    <button type="button" class="agenda-quick-date-btn is-cal-btn" id="btnToggleAgendaModalCalendar" aria-expanded="false">📅 Ver Calendario</button>
+                </div>
+
+                <div class="agenda-modal-calendar-box" id="agendaModalCalendarBox" hidden>
+                    <div class="agenda-cal-header">
+                        <button type="button" class="agenda-nav-btn" id="btnModalCalPrevMonth" aria-label="Mes anterior">◀</button>
+                        <strong id="agendaModalCalMonthLabel" class="agenda-cal-month-title">--</strong>
+                        <button type="button" class="agenda-nav-btn" id="btnModalCalNextMonth" aria-label="Mes siguiente">▶</button>
+                    </div>
+                    <div class="agenda-cal-weekdays" aria-hidden="true">
+                        <span>L</span><span>M</span><span>Mi</span><span>J</span><span>V</span><span>S</span><span>D</span>
+                    </div>
+                    <div class="agenda-cal-grid is-compact" id="agendaModalCalGrid"></div>
+                    <div class="agenda-cal-legend muted-text">
+                        <span><i class="cal-swatch is-selected"></i> Fecha elegida</span>
+                        <span><i class="cal-swatch is-repeat"></i> Días de repetición</span>
+                    </div>
+                </div>
+
                 <div class="form-row-2">
                     <div class="form-group">
                         <div class="label-with-helper">
@@ -2753,6 +2829,7 @@
                             <option value="todo">Por hacer</option>
                             <option value="in_progress">En progreso</option>
                             <option value="done">Completado</option>
+                            <option value="skipped">⏭️ Omitida (Skip)</option>
                         </select>
                     </div>
                 </div>
@@ -2785,46 +2862,66 @@
                     </div>
                 </div>
 
-                <div class="form-row-2">
+                <div class="agenda-repeat-section" id="agendaRepeatSection">
                     <div class="form-group">
-                        <label for="agendaRepetirCadaDias">🔁 Repetir cada X días (opcional):</label>
-                        <input type="number" id="agendaRepetirCadaDias" min="0" max="90" value="0"
-                            title="Repite automáticamente esta actividad cada X días"
-                            placeholder="0 = No repetir (ej. 2 = cada 2 días)">
+                        <label for="agendaRepeatMode">🔁 Frecuencia de repetición:</label>
+                        <select id="agendaRepeatMode" title="Elige cómo se repetirá esta actividad">
+                            <option value="none">No repetir (Solo una vez)</option>
+                            <option value="daily">Todos los días (Diario)</option>
+                            <option value="interval">Cada X días</option>
+                            <option value="weekdays">Días específicos de la semana</option>
+                            <option value="weekly">Semanal (mismo día cada semana)</option>
+                        </select>
                     </div>
-                    <div class="form-group">
-                        <label for="agendaRepetirVeces">Número de repeticiones:</label>
-                        <input type="number" id="agendaRepetirVeces" min="1" max="24" value="1"
-                            title="Cuántas veces deseas programar esta rutina repetitiva"
-                            placeholder="Ej. 4 sesiones">
-                    </div>
-                </div>
 
-                <div class="form-group">
-                    <label for="agendaActividad">Title / Label *</label>
-                    <input type="text" id="agendaActividad" lang="en" spellcheck="true" maxlength="120"
-                        placeholder="e.g. SCG1009 Gestión de Proyectos, Finish Lab Report..." required>
-                    <div class="agenda-suggestions" id="agendaSuggestions">
-                        <button type="button" class="suggestion-chip" data-text="University Class">University Class</button>
-                        <button type="button" class="suggestion-chip" data-text="Complete Assignment">Complete Assignment</button>
-                        <button type="button" class="suggestion-chip" data-text="Study for Exam">Study for Exam</button>
-                        <button type="button" class="suggestion-chip" data-text="Residencias">Residencias</button>
-                        <button type="button" class="suggestion-chip" data-text="Work Shift">Work Shift</button>
-                    </div>
-                </div>
+                    <div id="agendaRepeatConfigBody" class="agenda-repeat-config-body" hidden>
+                        <div class="form-group" id="agendaRepeatIntervalGroup" hidden>
+                            <label for="agendaRepetirCadaDias">Cada cuántos días repetir:</label>
+                            <div class="agenda-repeat-inline-num">
+                                <span>Cada</span>
+                                <input type="number" id="agendaRepetirCadaDias" min="0" max="90" value="0"
+                                    title="Cada cuántos días repetir (mínimo 1 cuando está activo)">
+                                <span>días</span>
+                            </div>
+                        </div>
 
-                <div class="form-group">
-                    <label for="agendaDescripcion">Description / Classroom / Details (optional):</label>
-                    <textarea id="agendaDescripcion" class="english-textarea" lang="en" spellcheck="true" rows="3" maxlength="180"
-                        placeholder="e.g. Aula R11 (Campus Blvd / Glorieta) · Bring sprint backlog and architecture diagram..."></textarea>
-                </div>
+                        <div class="form-group" id="agendaRepeatWeekdaysGroup" hidden>
+                            <label>Días de la semana:</label>
+                            <div class="agenda-weekday-picker" role="group" aria-label="Días específicos de la semana">
+                                <button type="button" class="agenda-weekday-btn" data-weekday="1">L</button>
+                                <button type="button" class="agenda-weekday-btn" data-weekday="2">M</button>
+                                <button type="button" class="agenda-weekday-btn" data-weekday="3">Mi</button>
+                                <button type="button" class="agenda-weekday-btn" data-weekday="4">J</button>
+                                <button type="button" class="agenda-weekday-btn" data-weekday="5">V</button>
+                                <button type="button" class="agenda-weekday-btn" data-weekday="6">S</button>
+                                <button type="button" class="agenda-weekday-btn" data-weekday="0">D</button>
+                            </div>
+                        </div>
 
-                <div class="word-proofing-panel" id="agendaProofingPanel">
-                    <div class="word-proofing-header">
-                        <span class="word-proofing-badge" id="agendaProofingBadge">✓ English Spelling &amp; Grammar: Ready</span>
-                        <button type="button" class="agenda-chip-btn" id="btnAgendaFixAll" hidden>✨ Apply All Fixes</button>
+                        <div class="form-row-2">
+                            <div class="form-group">
+                                <label for="agendaRepeatEndMode">Alcance:</label>
+                                <select id="agendaRepeatEndMode">
+                                    <option value="count">Repetir N veces más</option>
+                                    <option value="until">Hasta la fecha (Calendario)</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="agendaRepeatCountWrap">
+                                <label for="agendaRepetirVeces">Repeticiones adicionales:</label>
+                                <input type="number" id="agendaRepetirVeces" min="1" max="29" value="3"
+                                    title="Cuántas veces adicionales se repetirá después de la fecha inicial">
+                            </div>
+                            <div class="form-group" id="agendaRepeatUntilWrap" hidden>
+                                <label for="agendaRepeatUntilDate">Hasta el día:</label>
+                                <input type="date" id="agendaRepeatUntilDate">
+                            </div>
+                        </div>
+
+                        <div class="agenda-repeat-preview-box">
+                            <p id="agendaRepeatSummaryPreview" class="agenda-repeat-summary" aria-live="polite"></p>
+                            <button type="button" class="agenda-link-inline" id="btnAgendaRepeatShowOnCal">📅 Ver fechas en el calendario</button>
+                        </div>
                     </div>
-                    <div class="word-proofing-issues" id="agendaProofingIssues" hidden></div>
                 </div>
 
                 <div class="modal-actions">
@@ -3028,6 +3125,41 @@
                     <button type="button" class="agenda-chip-btn" id="btnRetryBrowserGps">🛰️ Retry Phone / Browser Hardware GPS</button>
                 </div>
             </details>
+        </div>
+    </div>
+
+    <!-- Floating Postpone Popover Menu for Weekly Agenda Cards -->
+    <div class="agenda-postpone-popover" id="agendaPostponePopover" hidden role="dialog" aria-label="Posponer actividad">
+        <div class="agenda-postpone-head">
+            <strong id="postponePopoverTitle">⏳ Posponer actividad</strong>
+            <button type="button" class="modal-close-btn" id="btnClosePostponePopover" aria-label="Cerrar menú posponer">✕</button>
+        </div>
+        <div class="agenda-postpone-quick-grid">
+            <button type="button" class="agenda-quick-date-btn" data-postpone-days="1">+1 día (Mañana)</button>
+            <button type="button" class="agenda-quick-date-btn" data-postpone-days="2">+2 días</button>
+            <button type="button" class="agenda-quick-date-btn" data-postpone-days="3">+3 días</button>
+            <button type="button" class="agenda-quick-date-btn" data-postpone-days="7">+7 días (Próx. sem)</button>
+        </div>
+        <div class="agenda-postpone-custom-row">
+            <label for="postponeCustomDaysInput">Posponer</label>
+            <input type="number" id="postponeCustomDaysInput" min="1" max="365" value="4" class="select-compact">
+            <span>días</span>
+            <button type="button" class="btn-secondary btn-small" id="btnApplyPostponeCustomDays">Aplicar</button>
+        </div>
+        <div class="agenda-postpone-cal-section">
+            <div class="agenda-cal-header">
+                <button type="button" class="agenda-nav-btn" id="btnPostponeCalPrev" aria-label="Mes anterior">◀</button>
+                <strong id="postponeCalMonthLabel" class="agenda-cal-month-title">--</strong>
+                <button type="button" class="agenda-nav-btn" id="btnPostponeCalNext" aria-label="Mes siguiente">▶</button>
+            </div>
+            <div class="agenda-cal-weekdays" aria-hidden="true">
+                <span>L</span><span>M</span><span>Mi</span><span>J</span><span>V</span><span>S</span><span>D</span>
+            </div>
+            <div class="agenda-cal-grid is-compact" id="postponePopoverCalGrid"></div>
+            <div class="agenda-postpone-date-row">
+                <input type="date" id="postponeTargetDateInput" aria-label="Elegir fecha destino">
+                <button type="button" class="btn-primary btn-small" id="btnApplyPostponeDate">Mover</button>
+            </div>
         </div>
     </div>
 
