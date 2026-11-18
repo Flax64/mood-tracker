@@ -1,8 +1,34 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.12.0",
-  "updatedAt": "2026-11-18T01:43:20.110Z",
+  "currentVersion": "1.13.0",
+  "updatedAt": "2026-11-18T02:28:02.198Z",
   "releases": [
+    {
+      "version": "1.13.0",
+      "tag": "v1.13.0",
+      "bumpType": "minor",
+      "previousVersion": "1.12.0",
+      "releasedAt": "2026-11-18T02:28:02.198Z",
+      "commitSha": "b4513a1",
+      "trigger": "push",
+      "summary": "feat: traductor flotante y filtro de idioma en estrofas",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 1
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat: traductor flotante y filtro de idioma en estrofas (a6349ab)"
+        ],
+        "fixes": [],
+        "maintenance": [
+          "docs: actualizacion de documentacion (1aaef88)"
+        ]
+      }
+    },
     {
       "version": "1.12.0",
       "tag": "v1.12.0",
