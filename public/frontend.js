@@ -4078,33 +4078,95 @@ function initLanguageAiStudio() {
     const musicAiBox = document.getElementById('musicAiBreakdownPanel');
     const musicApplyRow = document.getElementById('musicAiApplyRow');
     const btnMusicInsert = document.getElementById('btnMusicAiInsertToNotes');
+    const studyLyricsFieldEl = document.getElementById('musicStudyLyrics');
+    if (studyLyricsFieldEl && studyLyricsFieldEl.dataset.manualEditWired !== 'true') {
+        studyLyricsFieldEl.dataset.manualEditWired = 'true';
+        studyLyricsFieldEl.addEventListener('input', ev => {
+            if (ev.isTrusted) {
+                studyLyricsFieldEl.dataset.syncedFromViewer = 'false';
+                studyLyricsFieldEl.dataset.filteredLang = '';
+            }
+        });
+    }
 
     const triggerMusicLyricsAi = () => {
         if (!btnMusicAi) return;
         const studyLyricsEl = document.getElementById('musicStudyLyrics');
         const viewerLyricsEl = document.getElementById('musicSongLyricsViewer');
-        if (studyLyricsEl && !studyLyricsEl.value.trim() && viewerLyricsEl && viewerLyricsEl.value.trim()) {
-            studyLyricsEl.value = viewerLyricsEl.value.trim().slice(0, 12000);
+        const trackLangFilterEl = document.getElementById('musicLyricsTrackLangFilter');
+        const activeFilter = String(
+            trackLangFilterEl?.value || musicState?.activeLyricsLangFilter || 'all'
+        ).trim().toLowerCase() || 'all';
+        const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+        const structuredTracks = selected ? (musicState.sessionLyricsBySongId[selected.id]?.tracks || null) : null;
+        const viewerRaw = (viewerLyricsEl?.value || '').trim();
+
+        const shouldFilterFromViewer = Boolean(
+            studyLyricsEl
+            && viewerRaw
+            && (
+                !studyLyricsEl.value.trim()
+                || studyLyricsEl.dataset.syncedFromViewer === 'true'
+                || (activeFilter !== 'all' && studyLyricsEl.value.trim() === viewerRaw)
+                || (['ko', 'en', 'ja', 'es'].includes(activeFilter) && studyLyricsEl.dataset.filteredLang !== activeFilter && studyLyricsEl.dataset.syncedFromViewer !== 'false')
+            )
+        );
+
+        let extractedInfo = null;
+        if (shouldFilterFromViewer && typeof extractLyricsForActiveLanguage === 'function') {
+            extractedInfo = extractLyricsForActiveLanguage(viewerRaw, activeFilter, structuredTracks);
+            if (!extractedInfo.text) {
+                showToast('info', tUi(
+                    'No lines available in the selected language for stanza analysis.',
+                    `No hay versos disponibles en el idioma "${activeFilter.toUpperCase()}" para analizar.`
+                ));
+                return;
+            }
+            studyLyricsEl.value = extractedInfo.text.slice(0, 12000);
+            studyLyricsEl.dataset.syncedFromViewer = 'true';
+            studyLyricsEl.dataset.filteredLang = extractedInfo.langCode || activeFilter;
             studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
         }
+
         const lyrics = (studyLyricsEl?.value || '').trim();
         if (!lyrics) {
             showToast('err', tUi('Extract or load the song lyrics first above.', 'Extrae o carga primero la letra de la canción arriba.'));
             (viewerLyricsEl && !viewerLyricsEl.closest('[hidden]') ? viewerLyricsEl : studyLyricsEl)?.focus();
             return;
         }
-        const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+
         const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
         const artistName = selected
             ? (selected.artists || []).map(a => a.nombre).join(', ')
             : (document.getElementById('musicMainArtist')?.value || '').trim();
-        const language = selected?.idioma || document.getElementById('musicSongLanguage')?.value || 'en_ko';
+        const defaultSongLang = selected?.idioma || document.getElementById('musicSongLanguage')?.value || 'en_ko';
+        const language = ['ko', 'en', 'ja', 'en_ja', 'en_ko'].includes(activeFilter)
+            ? activeFilter
+            : (extractedInfo?.apiLanguage || defaultSongLang);
         const mode = document.getElementById('langAiEngineSelect')?.value || 'auto';
+
+        const questionByLang = {
+            ko: 'Analyze strictly these Korean Hangul lyrics stanza by stanza with Revised Romanization, particles, verb forms, and Spanish translation.',
+            ja: 'Analyze strictly these Japanese lyrics stanza by stanza with Romaji reading, particles, Kanji/Kana vocabulary, and Spanish translation.',
+            en: 'Analyze strictly these English lyrics stanza by stanza, explaining idioms, phrasal verbs, vocabulary, and nuance in Spanish.',
+            en_ja: 'Analyze the Japanese + English (J-Pop) lyrics stanza by stanza with Romaji, grammar notes, and Spanish translation.',
+            es: 'Break down the Spanish lyrics stanza by stanza highlighting expressions and song meaning.'
+        };
+        const loadingByLang = {
+            ko: 'Desglosando estrofas en Coreano, partículas y romanización Hangul...',
+            ja: 'Desglosando estrofas en Japonés, Kanji/Kana y lectura Romaji...',
+            en: 'Desglosando estrofas en Inglés, phrasal verbs y vocabulario...',
+            en_ja: 'Desglosando estrofas en Japonés + Inglés (JP-EN) y Romaji...',
+            es: 'Desglosando estrofas en Español...'
+        };
 
         const { seq, signal } = musicAiTracker.begin();
         if (musicAiBox) {
             musicAiBox.hidden = false;
-            musicAiBox.replaceChildren(createLoadingBanner('Desglosando letra, vocabulario y romanización Hangul...', 'sm'));
+            musicAiBox.replaceChildren(createLoadingBanner(
+                loadingByLang[activeFilter] || 'Desglosando letra, vocabulario y romanización...',
+                'sm'
+            ));
         }
 
         runWithButtonLock(btnMusicAi, async () => {
@@ -4113,7 +4175,7 @@ function initLanguageAiStudio() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     text: lyrics,
-                    question: 'Explain the lyrics meanings, Korean Hangul romanization, grammar particles, idioms, and K-Pop code-switching.',
+                    question: questionByLang[activeFilter] || 'Explain the lyrics meanings, romanization, grammar particles, idioms, and song code-switching.',
                     language,
                     songTitle,
                     artistName,
@@ -4580,17 +4642,53 @@ function openAiSettingsSection() {
 const FLOATING_TRANSLATOR_POS_KEY = 'pdh_floating_translator_pos_v1';
 let floatingTranslatorController = null;
 
-function clampFloatingTranslatorCoords(drawer, left, top) {
-    const rect = drawer.getBoundingClientRect();
-    const width = rect.width || Math.min(500, window.innerWidth - 24);
-    const height = rect.height || Math.min(520, window.innerHeight - 24);
-    const margin = 8;
-    const maxLeft = Math.max(margin, window.innerWidth - width - margin);
-    const maxTop = Math.max(margin, window.innerHeight - height - margin);
+function getSafeViewportBounds() {
+    const vv = window.visualViewport;
+    const width = vv && Number.isFinite(vv.width) ? Math.min(window.innerWidth || vv.width, vv.width) : (window.innerWidth || document.documentElement.clientWidth || 360);
+    const height = vv && Number.isFinite(vv.height) ? Math.min(window.innerHeight || vv.height, vv.height) : (window.innerHeight || document.documentElement.clientHeight || 640);
+    return { width, height };
+}
+
+function clampFixedElementCoords(el, left, top, margin = 8) {
+    if (!el) return { left: margin, top: margin };
+    const rect = el.getBoundingClientRect();
+    const vp = getSafeViewportBounds();
+    const width = rect.width || Math.min(440, Math.max(180, vp.width - margin * 2));
+    const height = rect.height || Math.min(480, Math.max(44, vp.height - margin * 2));
+    const maxLeft = Math.max(margin, vp.width - width - margin);
+    const maxTop = Math.max(margin, vp.height - height - margin);
     return {
         left: Math.round(Math.min(maxLeft, Math.max(margin, left))),
         top: Math.round(Math.min(maxTop, Math.max(margin, top)))
     };
+}
+
+function clampFloatingElementIntoViewport(el, margin = 8) {
+    if (!el || el.hidden) return null;
+    const rect = el.getBoundingClientRect();
+    const vp = getSafeViewportBounds();
+    const hasInlineCoords = Boolean(el.style.left || el.style.top);
+    const overflows = rect.left < margin
+        || rect.top < margin
+        || rect.right > vp.width - margin
+        || rect.bottom > vp.height - margin;
+    if (!hasInlineCoords && !overflows) return null;
+    const targetLeft = hasInlineCoords && Number.isFinite(parseFloat(el.style.left))
+        ? parseFloat(el.style.left)
+        : rect.left;
+    const targetTop = hasInlineCoords && Number.isFinite(parseFloat(el.style.top))
+        ? parseFloat(el.style.top)
+        : rect.top;
+    const clamped = clampFixedElementCoords(el, targetLeft, targetTop, margin);
+    el.style.left = `${clamped.left}px`;
+    el.style.top = `${clamped.top}px`;
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+    return clamped;
+}
+
+function clampFloatingTranslatorCoords(drawer, left, top) {
+    return clampFixedElementCoords(drawer, left, top, 8);
 }
 
 function applyFloatingTranslatorPosition(drawer, left, top) {
@@ -4602,16 +4700,36 @@ function applyFloatingTranslatorPosition(drawer, left, top) {
     return clamped;
 }
 
+function setFloatingTranslatorMinimized(drawer, minimized) {
+    if (!drawer) return;
+    const isMin = Boolean(minimized);
+    drawer.classList.toggle('is-minimized', isMin);
+    const btnMin = document.getElementById('btnMinimizeFloatingTranslator');
+    if (btnMin) {
+        btnMin.setAttribute('aria-expanded', isMin ? 'false' : 'true');
+        btnMin.textContent = isMin ? '▢' : '—';
+        btnMin.title = isMin
+            ? 'Expandir traductor flotante'
+            : 'Minimizar / Compactar traductor flotante';
+    }
+    if (!drawer.hidden) {
+        clampFloatingElementIntoViewport(drawer, 8);
+    }
+}
+
 function restoreFloatingTranslatorPosition(drawer) {
     if (!drawer || drawer.hidden) return;
     try {
         const raw = localStorage.getItem(FLOATING_TRANSLATOR_POS_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
-            applyFloatingTranslatorPosition(drawer, parsed.left, parsed.top);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
+                applyFloatingTranslatorPosition(drawer, parsed.left, parsed.top);
+                return;
+            }
         }
     } catch (_) { }
+    clampFloatingElementIntoViewport(drawer, 8);
 }
 
 function resetFloatingTranslatorPosition(drawer) {
@@ -4623,6 +4741,7 @@ function resetFloatingTranslatorPosition(drawer) {
     try {
         localStorage.removeItem(FLOATING_TRANSLATOR_POS_KEY);
     } catch (_) { }
+    clampFloatingElementIntoViewport(drawer, 8);
 }
 
 function initFloatingTranslatorDrag(drawer) {
@@ -4679,15 +4798,31 @@ function initFloatingTranslatorDrag(drawer) {
         activeDrag = null;
     };
 
+    const clampDrawerOnViewportChange = () => {
+        if (drawer.hidden) return;
+        const rect = drawer.getBoundingClientRect();
+        if (drawer.style.left || drawer.style.top) {
+            const clamped = clampFloatingTranslatorCoords(drawer, rect.left, rect.top);
+            drawer.style.left = `${clamped.left}px`;
+            drawer.style.top = `${clamped.top}px`;
+        } else {
+            clampFloatingElementIntoViewport(drawer, 8);
+        }
+    };
+
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', endDrag);
     window.addEventListener('pointercancel', endDrag);
-    window.addEventListener('resize', () => {
-        if (!drawer.hidden) restoreFloatingTranslatorPosition(drawer);
+    window.addEventListener('resize', clampDrawerOnViewportChange);
+    window.addEventListener('orientationchange', () => {
+        setTimeout(clampDrawerOnViewportChange, 80);
     });
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+        window.visualViewport.addEventListener('resize', clampDrawerOnViewportChange);
+    }
 }
 
-function openFloatingTranslator({ text = '', toggle = false } = {}) {
+function openFloatingTranslator({ text = '', toggle = false, context = '' } = {}) {
     if (!currentUser || currentUser.rol !== 'admin') return;
     const drawer = document.getElementById('floatingTranslatorModal');
     if (!drawer) return;
@@ -4698,8 +4833,13 @@ function openFloatingTranslator({ text = '', toggle = false } = {}) {
     }
 
     drawer.hidden = false;
+    setFloatingTranslatorMinimized(drawer, false);
     restoreFloatingTranslatorPosition(drawer);
+    clampFloatingElementIntoViewport(drawer, 8);
     if (floatingTranslatorController) {
+        if (context && typeof floatingTranslatorController.setContextText === 'function') {
+            floatingTranslatorController.setContextText(context);
+        }
         if (text) {
             floatingTranslatorController.setInputText(text);
             floatingTranslatorController.triggerTranslate();
@@ -4790,6 +4930,13 @@ function initGlobalFloatingTranslator() {
         });
     }
 
+    const btnMinimize = document.getElementById('btnMinimizeFloatingTranslator');
+    if (btnMinimize) {
+        btnMinimize.addEventListener('click', () => {
+            setFloatingTranslatorMinimized(drawer, !drawer.classList.contains('is-minimized'));
+        });
+    }
+
     const btnClose = document.getElementById('btnCloseFloatingTranslator');
     if (btnClose) {
         btnClose.addEventListener('click', closeFloatingTranslator);
@@ -4798,6 +4945,7 @@ function initGlobalFloatingTranslator() {
     const btnResetPos = document.getElementById('btnResetFloatTranslatorPos');
     if (btnResetPos) {
         btnResetPos.addEventListener('click', () => {
+            setFloatingTranslatorMinimized(drawer, false);
             resetFloatingTranslatorPosition(drawer);
             showToast('ok', 'Translator window position reset.');
         });
@@ -4878,7 +5026,8 @@ const musicState = {
     openArtistFolders: new Set(),
     openAlbumFolders: new Set(),
     sessionLyricsBySongId: {},
-    sessionStudyFieldsBySongId: {}
+    sessionStudyFieldsBySongId: {},
+    activeLyricsLangFilter: 'all'
 };
 
 function cleanCaptionTextToLyricsClient(rawText) {
@@ -5725,16 +5874,160 @@ function renderLyricsSectionsIntoContainer(host, rawLyrics = '', filterLang = 'a
     });
 }
 
+function _isStructuralLyricTagClient(line) {
+    return /^\s*\[(?:intro|verse|pre-?chorus|chorus|post-?chorus|bridge|outro|rap|hook|refrain|interlude|instrumental|break|estrofa|coro|pre-?coro|puente|final)(?:\s+[^\]]*|\s*\d*)?\]\s*$/i.test(String(line || ''));
+}
+
+function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
+    const out = [];
+    let pendingBreak = false;
+    const isLatinOnlyEnglish = (ln) => {
+        if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(ln)) return false;
+        return /[A-Za-z0-9]/.test(ln);
+    };
+
+    for (const raw of Array.isArray(linesArr) ? linesArr : []) {
+        let line = String(raw || '').trim();
+        if (!line) {
+            if (out.length) pendingBreak = true;
+            continue;
+        }
+        // Omitir cabeceras de sección ([KO], [EN], === [ES — ...] ===, etc.)
+        if (/^(?:===\s*\[[^\]]+\]\s*===|\[(?:ORIGINAL|ORIG|FULL|KO|KR|EN|JA|JP|JP-EN|EN-JP|ES|SUB)(?:\s*[—\-][^\]]*)?\])$/i.test(line)) {
+            continue;
+        }
+        // Omitir líneas de romanización o notas entre corchetes (conservando etiquetas estructurales como [Chorus])
+        if (/^\s*\[[^\]]+\]\s*$/.test(line) && !_isStructuralLyricTagClient(line)) {
+            continue;
+        }
+
+        const arrowIdx = line.indexOf(' → ');
+        if (arrowIdx > 0) {
+            line = langCode === 'es'
+                ? line.slice(arrowIdx + 3).trim()
+                : line.slice(0, arrowIdx).trim();
+            if (!line) continue;
+        }
+
+        let keep = true;
+        if (langCode === 'ko') {
+            keep = _isStructuralLyricTagClient(line) || /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line);
+        } else if (langCode === 'ja') {
+            keep = _isStructuralLyricTagClient(line)
+                || (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line));
+        } else if (langCode === 'en') {
+            keep = _isStructuralLyricTagClient(line) || isLatinOnlyEnglish(line);
+        }
+
+        if (keep) {
+            if (pendingBreak && out.length && out[out.length - 1] !== '') out.push('');
+            pendingBreak = false;
+            const lastNonEmpty = [...out].reverse().find(x => x !== '');
+            if (lastNonEmpty !== line || _isStructuralLyricTagClient(line)) {
+                out.push(line);
+            }
+        }
+    }
+    while (out.length && out[out.length - 1] === '') out.pop();
+    return out;
+}
+
+function extractLyricsForActiveLanguage(rawLyrics = '', filterLang = 'all', structuredTracks = null) {
+    const normalizedFilter = String(filterLang || 'all').trim().toLowerCase() || 'all';
+    const clean = String(rawLyrics || '').replace(/\r\n/g, '\n').trim();
+    if (!clean && !(structuredTracks && Object.values(structuredTracks).some(Boolean))) {
+        return { text: '', langCode: normalizedFilter, apiLanguage: null, isSingleLanguage: false };
+    }
+
+    const sections = parseAndDivideLyricsByLanguage(clean, structuredTracks);
+    const findSec = code => sections.find(s => s.code === code);
+
+    if (['ko', 'en', 'ja', 'es'].includes(normalizedFilter)) {
+        const directSec = findSec(normalizedFilter);
+        let sourceLines = directSec ? directSec.lines : [];
+        if (!sourceLines.length && ['en', 'ko', 'ja'].includes(normalizedFilter)) {
+            const origSec = findSec('original');
+            sourceLines = origSec ? origSec.lines : (clean ? clean.split('\n') : []);
+        }
+        const filteredLines = _cleanLinesForLanguageAnalysis(sourceLines, normalizedFilter);
+        return {
+            text: filteredLines.join('\n').trim(),
+            langCode: normalizedFilter,
+            apiLanguage: normalizedFilter,
+            isSingleLanguage: true
+        };
+    }
+
+    if (normalizedFilter === 'en_ja' || normalizedFilter === 'en_ko') {
+        const fallbackCode = normalizedFilter === 'en_ja' ? 'ja' : 'ko';
+        const targetSec = findSec('original') || findSec(fallbackCode) || sections[0];
+        const lines = targetSec
+            ? _cleanLinesForLanguageAnalysis(targetSec.lines, 'original')
+            : _cleanLinesForLanguageAnalysis(clean.split('\n'), 'original');
+        return {
+            text: lines.join('\n').trim(),
+            langCode: normalizedFilter,
+            apiLanguage: normalizedFilter,
+            isSingleLanguage: false
+        };
+    }
+
+    if (normalizedFilter === 'original') {
+        const origSec = findSec('original') || sections[0];
+        const lines = origSec
+            ? _cleanLinesForLanguageAnalysis(origSec.lines, 'original')
+            : _cleanLinesForLanguageAnalysis(clean.split('\n'), 'original');
+        return {
+            text: lines.join('\n').trim(),
+            langCode: 'original',
+            apiLanguage: null,
+            isSingleLanguage: false
+        };
+    }
+
+    const allCleaned = _cleanLinesForLanguageAnalysis(clean.split('\n'), 'all');
+    const fallbackAll = allCleaned.length
+        ? allCleaned.join('\n')
+        : sections.map(s => _cleanLinesForLanguageAnalysis(s.lines, s.code).join('\n')).filter(Boolean).join('\n\n');
+    return {
+        text: (fallbackAll || clean).trim(),
+        langCode: 'all',
+        apiLanguage: null,
+        isSingleLanguage: false
+    };
+}
+
+function syncStudyLyricsFieldWithActiveLang(rawLyrics, filterLang) {
+    const studyLyricsEl = document.getElementById('musicStudyLyrics');
+    if (!studyLyricsEl || studyLyricsEl.dataset.syncedFromViewer !== 'true') return;
+    const selSong = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
+    const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
+    const extracted = extractLyricsForActiveLanguage(rawLyrics, filterLang, structuredTracks);
+    if (extracted.text) {
+        studyLyricsEl.value = extracted.text.slice(0, 12000);
+        studyLyricsEl.dataset.filteredLang = extracted.langCode || filterLang;
+    }
+}
+
 function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
     const host = document.getElementById('musicLyricsReadonlyBlocks');
     if (!host) return;
+    const normalizedFilter = String(filterLang || 'all').trim().toLowerCase() || 'all';
+    musicState.activeLyricsLangFilter = normalizedFilter;
     const selSong = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
     const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
     const langSelEl = document.getElementById('musicLyricsTrackLangFilter');
-    renderLyricsSectionsIntoContainer(host, rawLyrics, filterLang, {
+    renderLyricsSectionsIntoContainer(host, rawLyrics, normalizedFilter, {
         structuredTracks,
         onTabSelect: (nextLang) => {
-            if (langSelEl) langSelEl.value = nextLang;
+            musicState.activeLyricsLangFilter = nextLang;
+            if (langSelEl) {
+                const hasOpt = Array.from(langSelEl.options || []).some(o => o.value === nextLang);
+                if (hasOpt) langSelEl.value = nextLang;
+            }
+            const floatingSelBtn = document.getElementById('btnMusicTranslateLyricsSel');
+            if (floatingSelBtn) floatingSelBtn.hidden = true;
+            syncStudyLyricsFieldWithActiveLang(rawLyrics, nextLang);
             renderReadonlyLyricsByLanguage(rawLyrics, nextLang);
         }
     });
@@ -5747,10 +6040,12 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     const hint = document.getElementById('musicLyricsStatusHint');
     const extractBtn = document.getElementById('btnMusicExtractLyrics');
     const langFilterEl = document.getElementById('musicLyricsTrackLangFilter');
+    const floatingSelBtn = document.getElementById('btnMusicTranslateLyricsSel');
     if (!card || !viewer) return;
 
     viewer.readOnly = true;
     viewer.hidden = true;
+    if (floatingSelBtn) floatingSelBtn.hidden = true;
 
     if (!song) {
         card.hidden = true;
@@ -5773,7 +6068,8 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         viewer.dataset.loadedSongId = songIdStr;
     }
 
-    const activeLangFilter = langFilterEl ? langFilterEl.value : 'all';
+    const activeLangFilter = (langFilterEl ? langFilterEl.value : musicState.activeLyricsLangFilter) || 'all';
+    musicState.activeLyricsLangFilter = activeLangFilter;
     renderReadonlyLyricsByLanguage(viewer.value, activeLangFilter);
 
     if (badge) {
@@ -5794,7 +6090,7 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
     if (extractBtn) extractBtn.disabled = !hasVideoId;
 
     if (hint && !savedLyrics.trim()) {
-        hint.textContent = 'Selecciona cualquier verso o frase para traducirlo en el panel acoplado o analiza la canción por estrofas.';
+        hint.textContent = 'Sombrea cualquier verso o frase para que aparezca el botón flotante «🌐 Traducir Selección», o abre el traductor flotante con Alt+T.';
     }
     if (typeof updateMobileLandscapeSongStudyClass === 'function') updateMobileLandscapeSongStudyClass();
 }
@@ -6101,16 +6397,16 @@ function seleccionarCancionParaEstudio(song) {
         const lyricsInputEl = document.getElementById('musicStudyLyrics');
         if (lyricsInputEl && !musicState.sessionLyricsBySongId[nextSongId]?.lyrics) {
             lyricsInputEl.value = '';
+            lyricsInputEl.dataset.syncedFromViewer = 'true';
+            lyricsInputEl.dataset.filteredLang = '';
         }
         const breakdownEl = document.getElementById('musicAiBreakdownPanel');
         if (breakdownEl) {
             breakdownEl.innerHTML = '';
             breakdownEl.hidden = true;
         }
-        const dockedIn = document.getElementById('musicDockedTransInput');
-        if (dockedIn) dockedIn.value = '';
-        const dockedOut = document.getElementById('musicDockedTransResult');
-        if (dockedOut) dockedOut.textContent = '';
+        const floatingSelBtn = document.getElementById('btnMusicTranslateLyricsSel');
+        if (floatingSelBtn) floatingSelBtn.hidden = true;
     }
     musicState.embedOpen = false;
     musicState.embedMode = getDefaultEmbedModeForSong(song);
@@ -7444,6 +7740,11 @@ if (englishMusicStudioRoot) {
     const trackLangFilterEl = document.getElementById('musicLyricsTrackLangFilter');
     if (trackLangFilterEl && songLyricsViewerEl) {
         trackLangFilterEl.addEventListener('change', () => {
+            musicState.activeLyricsLangFilter = trackLangFilterEl.value || 'all';
+            if (btnMusicTranslateLyricsSel) btnMusicTranslateLyricsSel.hidden = true;
+            if (typeof syncStudyLyricsFieldWithActiveLang === 'function') {
+                syncStudyLyricsFieldWithActiveLang(songLyricsViewerEl.value, trackLangFilterEl.value);
+            }
             renderReadonlyLyricsByLanguage(songLyricsViewerEl.value, trackLangFilterEl.value);
         });
     }
@@ -7456,96 +7757,259 @@ if (englishMusicStudioRoot) {
                 songLyricsViewerEl?.focus();
                 return;
             }
+            const activeLang = String(
+                trackLangFilterEl?.value || musicState.activeLyricsLangFilter || 'all'
+            ).trim().toLowerCase() || 'all';
+            const selSong = getCancionSeleccionada();
+            const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
+            const extracted = typeof extractLyricsForActiveLanguage === 'function'
+                ? extractLyricsForActiveLanguage(raw, activeLang, structuredTracks)
+                : { text: raw, langCode: activeLang };
+
+            if (!extracted.text) {
+                showToast('info', tUi(
+                    'No lines available in the selected language for stanza analysis.',
+                    `No hay versos disponibles en el idioma seleccionado (${activeLang.toUpperCase()}) para analizar.`
+                ));
+                return;
+            }
+
             const studyLyricsEl = document.getElementById('musicStudyLyrics');
             if (studyLyricsEl) {
-                studyLyricsEl.value = raw.slice(0, 12000);
+                studyLyricsEl.value = extracted.text.slice(0, 12000);
+                studyLyricsEl.dataset.syncedFromViewer = 'true';
+                studyLyricsEl.dataset.filteredLang = extracted.langCode || activeLang;
                 studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                studyLyricsEl.focus();
                 studyLyricsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                showToast('ok', tUi('Lyrics ready for stanza analysis.', 'Letra lista para analizar por estrofas.'));
+            }
+            const btnAiExplain = document.getElementById('btnMusicAiExplainLyrics');
+            if (btnAiExplain) {
+                btnAiExplain.click();
+            } else if (studyLyricsEl) {
+                studyLyricsEl.focus();
+                showToast('ok', tUi('Filtered lyrics ready for stanza analysis.', 'Letra filtrada lista para analizar por estrofas.'));
             }
         });
     }
 
-    const runMusicDockedTranslation = async (textOverride = null) => {
-        const dockedInput = document.getElementById('musicDockedTransInput');
-        const dockedResult = document.getElementById('musicDockedTransResult');
-        const dockedDir = document.getElementById('musicDockedTransDir');
-        const dockedBtn = document.getElementById('btnMusicDockedTranslateRun');
-        if (!dockedInput || !dockedResult) return;
-        const txt = String(textOverride !== null ? textOverride : dockedInput.value || '').trim();
-        if (!txt) {
-            showToast('info', tUi('Select a lyric line or type a phrase to translate.', 'Selecciona un verso de la letra o escribe una frase para traducir.'));
-            dockedInput.focus();
+    // =========================================================================
+    // BOTÓN FLOTANTE CONTEXTUAL Y MOVIBLE "🌐 Traducir Selección" (MODO ESTUDIO)
+    // =========================================================================
+    const lyricsViewerCardEl = document.getElementById('musicLyricsViewerCard');
+    const readonlyBlocksEl = document.getElementById('musicLyricsReadonlyBlocks');
+    let lastSelectedLyricsText = '';
+    let translateSelManualPos = false;
+    let translateSelDragState = null;
+    let suppressNextTranslateSelClick = false;
+    let selectionUpdateRaf = 0;
+
+    const getSelectedLyricsTextAndRect = () => {
+        if (!lyricsViewerCardEl || lyricsViewerCardEl.hidden) return null;
+        if (songLyricsViewerEl && !songLyricsViewerEl.hidden && typeof songLyricsViewerEl.selectionStart === 'number' && songLyricsViewerEl.selectionEnd > songLyricsViewerEl.selectionStart) {
+            const text = songLyricsViewerEl.value.slice(songLyricsViewerEl.selectionStart, songLyricsViewerEl.selectionEnd).trim();
+            if (text) {
+                return { text: text.slice(0, 1500), rect: songLyricsViewerEl.getBoundingClientRect() };
+            }
+        }
+        const sel = window.getSelection ? window.getSelection() : null;
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        const text = String(sel.toString() || '').trim();
+        if (!text) return null;
+        const anchorNode = sel.anchorNode;
+        const focusNode = sel.focusNode;
+        const containerScope = readonlyBlocksEl || lyricsViewerCardEl;
+        const insideViewer = (node) => Boolean(
+            node && (containerScope.contains(node) || (songLyricsViewerEl && songLyricsViewerEl.contains(node)))
+        );
+        if (!insideViewer(anchorNode) && !insideViewer(focusNode)) return null;
+
+        let rect = null;
+        try {
+            const range = sel.getRangeAt(0);
+            const rects = typeof range.getClientRects === 'function' ? range.getClientRects() : null;
+            if (rects && rects.length > 0) {
+                rect = rects[rects.length - 1];
+            } else {
+                rect = range.getBoundingClientRect();
+            }
+        } catch (_) {
+            rect = null;
+        }
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
+            rect = containerScope.getBoundingClientRect();
+        }
+        return { text: text.slice(0, 1500), rect };
+    };
+
+    const positionTranslateSelBtnNearRect = (rect) => {
+        if (!btnMusicTranslateLyricsSel || !rect) return;
+        const btnRect = btnMusicTranslateLyricsSel.getBoundingClientRect();
+        const vp = typeof getSafeViewportBounds === 'function'
+            ? getSafeViewportBounds()
+            : { width: window.innerWidth || 360, height: window.innerHeight || 640 };
+        const btnWidth = btnRect.width || 168;
+        const btnHeight = btnRect.height || 36;
+        const margin = 8;
+        let preferredTop = rect.bottom + 10;
+        if (preferredTop + btnHeight + margin > vp.height) {
+            preferredTop = rect.top - btnHeight - 10;
+        }
+        const preferredLeft = rect.left + Math.max(0, (rect.width - btnWidth) / 2);
+        const clamped = typeof clampFixedElementCoords === 'function'
+            ? clampFixedElementCoords(btnMusicTranslateLyricsSel, preferredLeft, preferredTop, margin)
+            : {
+                left: Math.round(Math.min(Math.max(margin, preferredLeft), Math.max(margin, vp.width - btnWidth - margin))),
+                top: Math.round(Math.min(Math.max(margin, preferredTop), Math.max(margin, vp.height - btnHeight - margin)))
+            };
+        btnMusicTranslateLyricsSel.style.left = `${clamped.left}px`;
+        btnMusicTranslateLyricsSel.style.top = `${clamped.top}px`;
+    };
+
+    const updateFloatingTranslateSelButton = () => {
+        if (!btnMusicTranslateLyricsSel || translateSelDragState) return;
+        const selInfo = getSelectedLyricsTextAndRect();
+        if (!selInfo || !selInfo.text) {
+            lastSelectedLyricsText = '';
+            translateSelManualPos = false;
+            btnMusicTranslateLyricsSel.hidden = true;
             return;
         }
-        dockedInput.value = txt.slice(0, 1500);
-        const selSong = getCancionSeleccionada();
-        const runAction = async () => {
-            dockedResult.hidden = false;
-            dockedResult.replaceChildren(createLoadingBanner(tUi('Translating...', 'Traduciendo...'), 'sm'));
-            const resp = await resilientFetchJson('/api/language/translate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    text: dockedInput.value,
-                    direction: dockedDir?.value || 'auto',
-                    context: selSong ? `${formatSongArtistsSummary(selSong)} - ${selSong.titulo}` : ''
-                })
-            }, { timeoutMs: 20000 });
-            if (resp.ok && resp.data) {
-                dockedResult.replaceChildren();
-                const mainP = document.createElement('div');
-                mainP.style.fontWeight = '700';
-                mainP.textContent = resp.data.translatedText || '';
-                dockedResult.appendChild(mainP);
-                if (resp.data.romanization) {
-                    const romP = document.createElement('div');
-                    romP.className = 'muted-text';
-                    romP.style.fontSize = '0.85rem';
-                    romP.textContent = `🔤 ${resp.data.romanization}`;
-                    dockedResult.appendChild(romP);
-                }
-                if (resp.data.explanationEs) {
-                    const expP = document.createElement('p');
-                    expP.style.margin = '6px 0 0';
-                    expP.textContent = resp.data.explanationEs;
-                    dockedResult.appendChild(expP);
-                }
-            } else {
-                dockedResult.textContent = resp.errorMessage || tUi('Could not translate right now.', 'No se pudo traducir en este momento.');
-            }
-        };
-        if (dockedBtn) {
-            await runWithButtonLock(dockedBtn, runAction, { loadingText: '...' });
-        } else {
-            await runAction();
+        lastSelectedLyricsText = selInfo.text;
+        btnMusicTranslateLyricsSel.hidden = false;
+        if (!translateSelManualPos) {
+            positionTranslateSelBtnNearRect(selInfo.rect);
+        } else if (typeof clampFloatingElementIntoViewport === 'function') {
+            clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
         }
     };
 
-    document.getElementById('btnMusicDockedTranslateRun')?.addEventListener('click', () => {
-        runMusicDockedTranslation();
-    });
-    document.getElementById('btnMusicOpenFloatingTranslator')?.addEventListener('click', () => {
-        const txt = String(document.getElementById('musicDockedTransInput')?.value || '').trim();
-        if (typeof openFloatingTranslator === 'function') {
-            openFloatingTranslator({ text: txt, toggle: false });
-        }
-    });
+    const scheduleTranslateSelUpdate = () => {
+        if (selectionUpdateRaf) cancelAnimationFrame(selectionUpdateRaf);
+        selectionUpdateRaf = requestAnimationFrame(() => {
+            selectionUpdateRaf = 0;
+            updateFloatingTranslateSelButton();
+        });
+    };
 
     if (btnMusicTranslateLyricsSel) {
+        document.addEventListener('selectionchange', scheduleTranslateSelUpdate);
+        if (lyricsViewerCardEl) {
+            ['mouseup', 'touchend', 'keyup'].forEach(evtName => {
+                lyricsViewerCardEl.addEventListener(evtName, () => {
+                    setTimeout(updateFloatingTranslateSelButton, 20);
+                });
+            });
+        }
+        window.addEventListener('scroll', () => {
+            if (!btnMusicTranslateLyricsSel.hidden && !translateSelManualPos) {
+                scheduleTranslateSelUpdate();
+            }
+        }, { passive: true });
+        window.addEventListener('resize', () => {
+            if (!btnMusicTranslateLyricsSel.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+                clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
+            }
+        });
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                if (!btnMusicTranslateLyricsSel.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+                    clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
+                }
+            }, 80);
+        });
+        if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+            window.visualViewport.addEventListener('resize', () => {
+                if (!btnMusicTranslateLyricsSel.hidden && typeof clampFloatingElementIntoViewport === 'function') {
+                    clampFloatingElementIntoViewport(btnMusicTranslateLyricsSel, 8);
+                }
+            });
+        }
+
+        // Evitar que el mouse/tap colapse la selección de texto en Chrome/Android antes de leerla
+        btnMusicTranslateLyricsSel.addEventListener('mousedown', ev => {
+            ev.preventDefault();
+        });
+
+        btnMusicTranslateLyricsSel.addEventListener('pointerdown', ev => {
+            if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+            const liveSel = getSelectedLyricsTextAndRect();
+            if (liveSel && liveSel.text) lastSelectedLyricsText = liveSel.text;
+            const rect = btnMusicTranslateLyricsSel.getBoundingClientRect();
+            translateSelDragState = {
+                pointerId: ev.pointerId,
+                startX: ev.clientX,
+                startY: ev.clientY,
+                origLeft: rect.left,
+                origTop: rect.top,
+                moved: false
+            };
+            suppressNextTranslateSelClick = false;
+            if (typeof btnMusicTranslateLyricsSel.setPointerCapture === 'function') {
+                try { btnMusicTranslateLyricsSel.setPointerCapture(ev.pointerId); } catch (_) { }
+            }
+        });
+
+        const onTranslateSelPointerMove = ev => {
+            if (!translateSelDragState || ev.pointerId !== translateSelDragState.pointerId) return;
+            const dx = ev.clientX - translateSelDragState.startX;
+            const dy = ev.clientY - translateSelDragState.startY;
+            if (!translateSelDragState.moved && Math.hypot(dx, dy) > 5) {
+                translateSelDragState.moved = true;
+                translateSelManualPos = true;
+                suppressNextTranslateSelClick = true;
+                btnMusicTranslateLyricsSel.classList.add('is-dragging');
+            }
+            if (!translateSelDragState.moved) return;
+            ev.preventDefault();
+            const clamped = typeof clampFixedElementCoords === 'function'
+                ? clampFixedElementCoords(
+                    btnMusicTranslateLyricsSel,
+                    translateSelDragState.origLeft + dx,
+                    translateSelDragState.origTop + dy,
+                    8
+                )
+                : { left: translateSelDragState.origLeft + dx, top: translateSelDragState.origTop + dy };
+            btnMusicTranslateLyricsSel.style.left = `${clamped.left}px`;
+            btnMusicTranslateLyricsSel.style.top = `${clamped.top}px`;
+        };
+
+        const onTranslateSelPointerEnd = ev => {
+            if (!translateSelDragState || (ev.pointerId !== undefined && ev.pointerId !== translateSelDragState.pointerId)) return;
+            const wasDragged = translateSelDragState.moved;
+            btnMusicTranslateLyricsSel.classList.remove('is-dragging');
+            if (typeof btnMusicTranslateLyricsSel.releasePointerCapture === 'function') {
+                try { btnMusicTranslateLyricsSel.releasePointerCapture(translateSelDragState.pointerId); } catch (_) { }
+            }
+            translateSelDragState = null;
+            if (wasDragged) {
+                setTimeout(() => { suppressNextTranslateSelClick = false; }, 60);
+            }
+        };
+
+        window.addEventListener('pointermove', onTranslateSelPointerMove);
+        window.addEventListener('pointerup', onTranslateSelPointerEnd);
+        window.addEventListener('pointercancel', onTranslateSelPointerEnd);
+
         btnMusicTranslateLyricsSel.addEventListener('click', () => {
-            let selectedText = '';
-            if (songLyricsViewerEl && typeof songLyricsViewerEl.selectionStart === 'number' && songLyricsViewerEl.selectionEnd > songLyricsViewerEl.selectionStart) {
-                selectedText = songLyricsViewerEl.value.slice(songLyricsViewerEl.selectionStart, songLyricsViewerEl.selectionEnd).trim();
-            } else if (window.getSelection) {
-                selectedText = String(window.getSelection().toString() || '').trim();
+            if (suppressNextTranslateSelClick) {
+                suppressNextTranslateSelClick = false;
+                return;
             }
-            if (document.getElementById('musicDockedTransInput')) {
-                runMusicDockedTranslation(selectedText);
-            } else if (typeof openFloatingTranslator === 'function') {
-                openFloatingTranslator({ text: selectedText, toggle: false });
+            const liveSel = getSelectedLyricsTextAndRect();
+            const selectedText = String((liveSel && liveSel.text) || lastSelectedLyricsText || '').trim();
+            if (!selectedText) {
+                btnMusicTranslateLyricsSel.hidden = true;
+                return;
             }
+            const selSong = getCancionSeleccionada();
+            const songContext = selSong ? `${formatSongArtistsSummary(selSong)} - ${selSong.titulo}` : '';
+            if (typeof floatingTranslatorController === 'object' && floatingTranslatorController && typeof floatingTranslatorController.setDirection === 'function') {
+                floatingTranslatorController.setDirection('auto');
+            }
+            if (typeof openFloatingTranslator === 'function') {
+                openFloatingTranslator({ text: selectedText, toggle: false, context: songContext });
+            }
+            btnMusicTranslateLyricsSel.hidden = true;
         });
     }
 
@@ -7640,11 +8104,16 @@ if (englishMusicStudioRoot) {
                     source: `Word + ES (${sourceTag})`
                 };
                 const langFilterEl = document.getElementById('musicLyricsTrackLangFilter');
-                if (langFilterEl) langFilterEl.value = 'all';
-                renderReadonlyLyricsByLanguage(updatedLyrics, 'all');
+                const currentFilter = (langFilterEl ? langFilterEl.value : musicState.activeLyricsLangFilter) || 'all';
+                renderReadonlyLyricsByLanguage(updatedLyrics, currentFilter);
 
                 if (studyLyricsEl) {
-                    studyLyricsEl.value = updatedLyrics.slice(0, 12000);
+                    const extractedForStudy = typeof extractLyricsForActiveLanguage === 'function'
+                        ? extractLyricsForActiveLanguage(updatedLyrics, currentFilter, musicState.sessionLyricsBySongId[song.id]?.tracks)
+                        : { text: updatedLyrics, langCode: currentFilter };
+                    studyLyricsEl.value = (extractedForStudy.text || updatedLyrics).slice(0, 12000);
+                    studyLyricsEl.dataset.syncedFromViewer = 'true';
+                    studyLyricsEl.dataset.filteredLang = extractedForStudy.langCode || currentFilter;
                 }
 
                 const saved = alreadyInWordNotebook
