@@ -35,6 +35,7 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'lib/language-studio.js',
             'lib/youtube-metadata.js',
             'lib/ytdlp-service.js',
+            'lib/server-notes-service.js',
             'public/theme-init.js',
             'public/i18n.js',
             'public/guia-visual.js',
@@ -162,10 +163,11 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         assert.strictEqual(opens, closes, `Llaves desbalanceadas en style.css: ${opens} vs ${closes}`);
     });
 
-    it('valida sintaxis Python de sincronitation/sincronizador.py y yt_lyrics_helper.py (versionados en Git)', () => {
-        const pyFiles = [SYNC_PY_PATH, YT_HELPER_PY_PATH];
+    it('valida sintaxis Python de sincronitation/*.py y lib/docx_writer.py', () => {
+        const DOCX_WRITER_PY_PATH = path.resolve(ROOT, 'lib', 'docx_writer.py');
+        const pyFiles = [SYNC_PY_PATH, YT_HELPER_PY_PATH, DOCX_WRITER_PY_PATH];
         for (const pyPath of pyFiles) {
-            assert.ok(fs.existsSync(pyPath), `Falta ${path.relative(ROOT, pyPath)}: los scripts locales deben estar versionados (Issue #84)`);
+            assert.ok(fs.existsSync(pyPath), `Falta ${path.relative(ROOT, pyPath)}`);
         }
         const pyCmd = resolvePythonCmd();
         for (const pyPath of pyFiles) {
@@ -271,7 +273,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'guides/GUIA_OPERACION_Y_MIGRACION.md',
             'guides/GUIA_COMANDOS.md',
             'guides/GUIA_TECNICA.md',
-            'guides/GUIA_MIGRACION.md'
+            'guides/GUIA_MIGRACION.md',
+            'guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md'
         ]) {
             const top = readText(docPath).slice(0, 1200);
             assert.match(top, /## .*[ÍI]ndice/i, `${docPath} debe incluir un índice al inicio`);
@@ -451,14 +454,14 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
     });
 
-    it('protege archivos secretos y optimiza Dockerfile / docker-compose.yml para t3.micro', () => {
+    it('protege archivos secretos y configura Dockerfile / docker-compose.yml para Ubuntu Server (8 GB RAM + Tailscale)', () => {
         const gitignore = readText('.gitignore');
-        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/']) {
+        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/', 'data/']) {
             assert.ok(gitignore.includes(entry), `.gitignore debe excluir ${entry}`);
         }
 
         const dockerignore = readText('.dockerignore');
-        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes']) {
+        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes', 'data']) {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
         }
 
@@ -468,7 +471,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'guides/GUIA_OPERACION_Y_MIGRACION.md',
             'guides/GUIA_COMANDOS.md',
             'guides/GUIA_TECNICA.md',
-            'guides/GUIA_MIGRACION.md'
+            'guides/GUIA_MIGRACION.md',
+            'guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md'
         ]) {
             const guide = readText(guidePath);
             assert.equal(guide.includes('file:///'), false, `${guidePath} no debe contener enlaces locales file:///`);
@@ -478,16 +482,20 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         const dockerfile = readText('Dockerfile');
         assert.match(dockerfile, /FROM node:20-alpine/);
         assert.match(dockerfile, /npm ci --omit=dev/);
-        assert.match(dockerfile, /--max-old-space-size=384/);
+        assert.match(dockerfile, /--max-old-space-size=768/);
+        assert.match(dockerfile, /msoffcrypto-tool/);
         assert.match(dockerfile, /\bffmpeg\b/);
         assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp/);
         assert.match(dockerfile, /YTM_INNERTUBE=1/);
 
         const compose = readText('docker-compose.yml');
-        assert.match(compose, /mem_limit:\s*512m/);
-        assert.match(compose, /mem_limit:\s*420m/);
+        assert.match(compose, /mem_limit:\s*1024m/);
         assert.match(compose, /--performance-schema=OFF/);
         assert.match(compose, /--skip-log-bin/);
+        assert.match(compose, /\/app\/journal-data/);
+        assert.match(compose, /\/app\/english-notes/);
+        assert.match(compose, /TRUST_PROXY=\$\{TRUST_PROXY:-1\}/);
+        assert.match(compose, /SERVER_AUTONOMOUS_NOTES=\$\{SERVER_AUTONOMOUS_NOTES:-true\}/);
         assert.match(compose, /YT_DLP_PATH=\$\{YT_DLP_PATH:-\}/);
         assert.ok((compose.match(/restart:\s*always/g) || []).length >= 3, 'db, app y proxy deben usar restart: always');
         assert.ok((compose.match(/healthcheck:/g) || []).length >= 3, 'db, app y proxy deben definir healthcheck');

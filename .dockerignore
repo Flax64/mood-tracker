@@ -16,6 +16,7 @@ test
 tests
 guides
 english-notes
+data
 README.md
 *.sql.gz
 *.log

@@ -208,9 +208,28 @@ fi
 # Purgar archivos temporales antiguos en disco local (> 7 días) para mantener cero saturación en servidor
 find "$RUTA_LOCAL" -maxdepth 1 -type f -name '*.sql.gz.*' -mtime +7 -delete 2>/dev/null || true
 
-# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días = 1 mes) SOLO si la subida histórica a Drive fue exitosa
+# Instantánea rotativa SOLO LOCAL del Diario cifrado con contraseña (nunca se sube a Google Drive)
+LOCAL_JOURNAL_FILE="$PROJECT_DIR/data/journal/Diario.docx"
+if [ -f "$LOCAL_JOURNAL_FILE" ]; then
+    LOCAL_JOURNAL_BAK_DIR="$RUTA_LOCAL/journal_local_backups"
+    mkdir -p "$LOCAL_JOURNAL_BAK_DIR"
+    chmod 700 "$LOCAL_JOURNAL_BAK_DIR" 2>/dev/null || true
+    TODAY_TAG="$(date '+%Y-%m-%d')"
+    cp -f "$LOCAL_JOURNAL_FILE" "$LOCAL_JOURNAL_BAK_DIR/Diario_${TODAY_TAG}.docx"
+    chmod 600 "$LOCAL_JOURNAL_BAK_DIR/Diario_${TODAY_TAG}.docx" 2>/dev/null || true
+    find "$LOCAL_JOURNAL_BAK_DIR" -maxdepth 1 -type f -name 'Diario_*.docx' -mtime +30 -delete 2>/dev/null || true
+fi
+
+# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días, o 0 para conservar todo en 1 TB local)
 RETENTION_DAYS="${DB_RETENTION_DAYS:-30}"
-if [ "$ARCHIVE_READY" -eq 1 ] && [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
+if [ "$RETENTION_DAYS" = "0" ]; then
+    PURGE_SESSIONS_SQL="
+        DELETE FROM SesionesAuth WHERE expira_en < NOW();
+        DELETE FROM CodigosSeguridad WHERE expira_en < NOW() OR usado = 1;
+    "
+    run_mysql_query "$PURGE_SESSIONS_SQL" >/dev/null 2>&1 || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Retención local ilimitada (DB_RETENTION_DAYS=0): se conservan todos los registros en MySQL."
+elif [ "$ARCHIVE_READY" -eq 1 ] && [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
     PURGE_SQL="
         DELETE FROM RegistrosMood WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
         DELETE FROM RegistrosSleep WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);

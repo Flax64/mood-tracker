@@ -1111,10 +1111,13 @@ async function autoQueueAiLearningToWord({ entry, hintEl, songToMarkSynced = nul
 
         if (hintEl) {
             const pcOnline = Boolean(musicState?.ytdlpStatus?.pcOnline);
+            const serverAuto = Boolean(musicState?.ytdlpStatus?.serverAutonomous);
             hintEl.hidden = false;
             hintEl.textContent = pcOnline
                 ? tUi('✅ Learning notes encrypted E2EE and sent to your PC Word automatically.', '✅ Aprendizaje cifrado E2EE y enviado a tu Word PC automáticamente.')
-                : tUi('☁️ PC offline: learning notes saved E2EE encrypted in server RAM (queued for Word when PC connects).', '☁️ PC apagada: aprendizaje guardado cifrado E2EE en la nube (se escribirá en Word al conectar tu PC).');
+                : serverAuto
+                    ? tUi('☁️ Learning notes saved directly to English Notebook on Google Drive.', '☁️ Aprendizaje guardado directamente en tu cuaderno Word en Google Drive.')
+                    : tUi('☁️ PC offline: learning notes saved E2EE encrypted in server RAM (queued for Word when PC connects).', '☁️ PC apagada: aprendizaje guardado cifrado E2EE en la nube (se escribirá en Word al conectar tu PC).');
         }
         return true;
     } catch (err) {
@@ -3340,7 +3343,10 @@ if (journalForm) {
                 textInput.value = '';
                 if (titleInput) titleInput.value = '';
                 refreshJournalEditorMeta(true);
-                const msg = 'Note encrypted & queued! Your PC sync will add it to Word on the next scan.';
+                const msg = tUi(
+                    'Journal note encrypted with password & saved on server!',
+                    '¡Nota de Journal cifrada con contraseña y guardada localmente en el servidor!'
+                );
                 setInlineBanner('journalStatusBanner', 'ok', msg);
                 showToast('ok', msg);
             } catch (error) {
@@ -3717,9 +3723,12 @@ if (englishForm) {
                     })
                     .catch(() => { });
 
-                const msg = 'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.';
+                const msg = tUi(
+                    'Saved! Your English Notebook on Google Drive has been updated automatically.',
+                    '¡Guardado! Tu Cuaderno de Idiomas en Google Drive se actualizó automáticamente.'
+                );
                 mostrarEstadoEnglish('ok', msg);
-                showToast('ok', 'English note queued for Word (PC) & saved to AI Memory!');
+                showToast('ok', tUi('English note saved to Cloud Drive & AI Memory!', '¡Nota guardada en Google Drive y Memoria IA!'));
             } catch (err) {
                 mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
                 showToast('err', err.message);
@@ -5541,6 +5550,9 @@ function actualizarBadgePuentePc() {
     if (stat && stat.pcOnline) {
         pcBadge.textContent = tUi('🟢 PC online · Ready', '🟢 Computadora en línea · Lista');
         pcBadge.className = 'badge-pill badge-pill-ok';
+    } else if (stat && stat.serverAutonomous && stat.available) {
+        pcBadge.textContent = tUi('🟢 Ubuntu Server · Autonomous', '🟢 Servidor autónomo · Listo');
+        pcBadge.className = 'badge-pill badge-pill-ok';
     } else if (stat) {
         pcBadge.textContent = tUi('⚪ PC offline', '⚪ Computadora apagada');
         pcBadge.className = 'badge-pill badge-pill-subtle';
@@ -5775,10 +5787,16 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
     }
 
     if (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline === false) {
-        const offlineMsg = tUi(
-            'Could not get these lyrics from the cloud right now (YouTube may be limiting the server) and your computer is offline. Try again in a few minutes or turn on your PC.',
-            'No se pudo obtener esta letra desde la nube en este momento (YouTube puede estar limitando al servidor) y tu computadora está apagada. Intenta de nuevo en unos minutos o enciende tu PC.'
-        );
+        const isServerAuto = Boolean(musicState.ytdlpStatus && musicState.ytdlpStatus.serverAutonomous);
+        const offlineMsg = isServerAuto
+            ? tUi(
+                'No lyrics or subtitles were exposed by YouTube / YouTube Music for this video right now.',
+                'YouTube / YouTube Music no expuso subtítulos ni letra disponible para este video en este momento.'
+            )
+            : tUi(
+                'Could not get these lyrics from the cloud right now (YouTube may be limiting the server) and your computer is offline. Try again in a few minutes or turn on your PC.',
+                'No se pudo obtener esta letra desde la nube en este momento (YouTube puede estar limitando al servidor) y tu computadora está apagada. Intenta de nuevo en unos minutos o enciende tu PC.'
+            );
         if (hintEl) hintEl.textContent = `ℹ️ ${offlineMsg}`;
         if (!silent) showToast('info', offlineMsg);
         return false;

@@ -4286,4 +4286,115 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.ok(Array.isArray(body.history) && body.history.length >= 1);
         assert.strictEqual(body.history[0].version, body.currentVersion);
     });
+
+    it('procesa notas autónomas en servidor (/api/send-english -> docx + caché) y expone estado/descarga RBAC del Journal local', async () => {
+        const fs = require('node:fs');
+        const os = require('node:os');
+        const serverNotes = require('../lib/server-notes-service');
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-auto-notes-'));
+        const prevKey = process.env.JOURNAL_SECRET_KEY;
+        const prevEngPath = process.env.ENGLISH_WORD_FILE_PATH;
+        const prevJrnPath = process.env.JOURNAL_LOCAL_PATH;
+        const testKey = '0123456789abcdef0123456789abcdef';
+
+        try {
+            process.env.JOURNAL_SECRET_KEY = testKey;
+            process.env.ENGLISH_WORD_FILE_PATH = path.join(tmpDir, 'English_Learning_Notebook.docx');
+            process.env.JOURNAL_LOCAL_PATH = path.join(tmpDir, 'Diario.docx');
+
+            const unauthStatus = await request({ port, reqPath: '/api/journal/local-status' });
+            assert.strictEqual(unauthStatus.status, 401);
+
+            const medicoStatus = await request({
+                port,
+                reqPath: '/api/journal/local-status',
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoStatus.status, 403);
+
+            const adminStatus = await request({
+                port,
+                reqPath: '/api/journal/local-status',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(adminStatus.status, 200);
+            const jStatus = JSON.parse(adminStatus.body);
+            assert.strictEqual(jStatus.ok, true);
+            assert.strictEqual(jStatus.autonomousEnabled, true);
+            assert.strictEqual(jStatus.exists, false);
+
+            const medicoDl = await request({
+                port,
+                reqPath: '/api/journal/download',
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoDl.status, 403);
+
+            const missingDl = await request({
+                port,
+                reqPath: '/api/journal/download',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(missingDl.status, 404);
+
+            const ytdlpStatusRes = await request({
+                port,
+                reqPath: '/api/english/music/ytdlp-status',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(ytdlpStatusRes.status, 200);
+            assert.strictEqual(JSON.parse(ytdlpStatusRes.body).serverAutonomous, true);
+
+            // Rechaza payload E2EE cifrado con llave errónea en /api/send-to-pc
+            const badJournalCipher = serverNotes.encryptClientE2ee('Secret journal text', 'ffffffffffffffffffffffffffffffff');
+            const badJournalRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-to-pc',
+                headers: { Cookie: adminCookie },
+                body: { texto: badJournalCipher }
+            });
+            assert.strictEqual(badJournalRes.status, 400);
+
+            // Envía entrada cifrada E2EE real a /api/send-english -> se guarda directo sin esperar pull de PC
+            const engCipher = serverNotes.encryptClientE2ee(JSON.stringify({
+                category: 'vocabulary',
+                language: 'English',
+                word: 'Autonomous',
+                spanish: 'Autónomo',
+                example: 'Ubuntu server updates the notebook autonomously.'
+            }), testKey);
+            const sendEngRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-english',
+                headers: { Cookie: adminCookie },
+                body: { texto: engCipher }
+            });
+            assert.strictEqual(sendEngRes.status, 200);
+            assert.strictEqual(fs.existsSync(process.env.ENGLISH_WORD_FILE_PATH), true);
+
+            // La cola /api/pull-english permanece vacía porque el servidor ya procesó la nota
+            const pullAfter = await request({ port, reqPath: '/api/pull-english' });
+            assert.strictEqual(pullAfter.status, 200);
+            assert.deepStrictEqual(JSON.parse(pullAfter.body), []);
+
+            // Y GET /api/english/study-notebook refleja la entrada nueva inmediatamente
+            const nbRes = await request({
+                port,
+                reqPath: '/api/english/study-notebook?refresh=1',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(nbRes.status, 200);
+            const nbData = JSON.parse(nbRes.body);
+            assert.strictEqual(nbData.ok, true);
+            assert.strictEqual(nbData.available, true);
+            assert.ok(nbData.entries.some((e) => /Autonomous/i.test(e.title || e.text || '')));
+        } finally {
+            if (prevKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevKey;
+            if (prevEngPath === undefined) delete process.env.ENGLISH_WORD_FILE_PATH; else process.env.ENGLISH_WORD_FILE_PATH = prevEngPath;
+            if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
 });

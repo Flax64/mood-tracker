@@ -5,6 +5,7 @@ test/
 respaldos/
 *.sql.gz
 english-notes/
+data/
 for-gemini/
 codigo_dividido/
 

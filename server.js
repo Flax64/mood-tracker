@@ -54,13 +54,17 @@ const {
     mergeResolvedTrackMetadata
 } = require('./lib/youtube-metadata');
 const ytdlpService = require('./lib/ytdlp-service');
+const serverNotesService = require('./lib/server-notes-service');
+const { buildSafeRcloneExecEnv } = serverNotesService;
 
 const transportManager = createTransportManager();
 
 const app = express();
 app.disable('x-powered-by');
-if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'loopback') {
-    app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : 'loopback');
+if (process.env.TRUST_PROXY === 'loopback') {
+    app.set('trust proxy', 'loopback');
+} else if (/^[1-9]\d*$/.test(String(process.env.TRUST_PROXY || '').trim())) {
+    app.set('trust proxy', Number.parseInt(process.env.TRUST_PROXY, 10));
 }
 
 // Cabeceras de seguridad HTTP
@@ -2055,17 +2059,6 @@ function resolveRcloneConfigPath({ preferStudy = false } = {}) {
     return { confPath: defaultConf, cleanup: false, usingStudyConfig: false };
 }
 
-function buildSafeRcloneExecEnv() {
-    // Evita que rclone interprete RCLONE_BACKUP_DIR / RCLONE_REMOTE como flags CLI (--backup-dir)
-    const cleanEnv = { ...process.env };
-    for (const k of Object.keys(cleanEnv)) {
-        if (k.startsWith('RCLONE_') || k.startsWith('STUDY_RCLONE_')) {
-            delete cleanEnv[k];
-        }
-    }
-    return cleanEnv;
-}
-
 function loadDriveHistoricalArchiveInRam() {
     return new Promise((resolve) => {
         const now = Date.now();
@@ -2081,36 +2074,31 @@ function loadDriveHistoricalArchiveInRam() {
             return resolve(null);
         }
 
-        const { execFile } = require('node:child_process');
         const zlib = require('node:zlib');
-        execFile(
-            'rclone',
-            ['--config', rcloneConf, 'cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
-            { encoding: 'buffer', timeout: 22000, maxBuffer: 32 * 1024 * 1024, env: buildSafeRcloneExecEnv() },
-            (err, stdoutBuf) => {
-                if (cleanupConf) {
-                    try {
-                        if (fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
-                    } catch (_) {}
+        serverNotesService.runRcloneCommand({
+            rcloneConf,
+            args: ['cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
+            timeout: 22000,
+            encoding: 'buffer',
+            maxBuffer: 32 * 1024 * 1024
+        }).then((stdoutBuf) => {
+            if (!stdoutBuf || stdoutBuf.length === 0) return resolve(null);
+            const unzipped = zlib.gunzipSync(stdoutBuf).toString('utf8');
+            const parsed = JSON.parse(unzipped);
+            _driveArchiveRamCache = { loadedAt: Date.now(), data: parsed };
+            setTimeout(() => {
+                if (Date.now() - _driveArchiveRamCache.loadedAt >= DRIVE_RAM_CACHE_TTL_MS) {
+                    _driveArchiveRamCache = { loadedAt: 0, data: null };
                 }
-                if (err || !stdoutBuf || stdoutBuf.length === 0) {
-                    return resolve(null);
-                }
+            }, DRIVE_RAM_CACHE_TTL_MS + 1000).unref?.();
+            return resolve(parsed);
+        }).catch(() => resolve(null)).finally(() => {
+            if (cleanupConf) {
                 try {
-                    const unzipped = zlib.gunzipSync(stdoutBuf).toString('utf8');
-                    const parsed = JSON.parse(unzipped);
-                    _driveArchiveRamCache = { loadedAt: Date.now(), data: parsed };
-                    setTimeout(() => {
-                        if (Date.now() - _driveArchiveRamCache.loadedAt >= DRIVE_RAM_CACHE_TTL_MS) {
-                            _driveArchiveRamCache = { loadedAt: 0, data: null };
-                        }
-                    }, DRIVE_RAM_CACHE_TTL_MS + 1000).unref?.();
-                    return resolve(parsed);
-                } catch (_) {
-                    return resolve(null);
-                }
+                    if (fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
+                } catch (_) {}
             }
-        );
+        });
     });
 }
 
@@ -2493,16 +2481,185 @@ const englishQueue = createEncryptedPcQueue({
     fullMessage: 'English sync queue is full; please wait for your PC to pull pending entries.'
 });
 
-// Enviar nota de Journal cifrada a la cola (SOLO ADMIN)
-app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), journalQueue.enqueue);
+let _englishDriveRetryTimer = null;
+let _englishDriveRetryCount = 0;
 
-// Ruta para que tu PC consulte notas de Journal pendientes (el contenido viaja cifrado E2EE)
+function scheduleStudyDriveRetry() {
+    if (_englishDriveRetryTimer || _englishDriveRetryCount >= 5) return;
+    _englishDriveRetryCount += 1;
+    const delayMs = Math.min(300000, 30000 * _englishDriveRetryCount);
+    _englishDriveRetryTimer = setTimeout(async () => {
+        _englishDriveRetryTimer = null;
+        try {
+            await ytdlpService.runWithHeavyTaskLock(async () => {
+                const localMirrorPath = serverNotesService.resolveLocalEnglishPath({ rootDir: __dirname });
+                if (!fs.existsSync(localMirrorPath)) return;
+                const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
+                try {
+                    if (!fs.existsSync(rcloneConf)) return;
+                    const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
+                    const buf = fs.readFileSync(localMirrorPath);
+                    const syncRes = await serverNotesService.uploadAndVerifyStudyDocx({
+                        docxBuffer: buf,
+                        filePath: localMirrorPath,
+                        rcloneConf,
+                        remoteTarget
+                    });
+                    if (syncRes.verified) {
+                        _englishDriveRetryCount = 0;
+                    } else {
+                        scheduleStudyDriveRetry();
+                    }
+                } finally {
+                    if (cleanupConf && rcloneConf && fs.existsSync(rcloneConf)) {
+                        try { fs.unlinkSync(rcloneConf); } catch (_) {}
+                    }
+                }
+            });
+        } catch (err) {
+            console.warn('[STUDY_DRIVE_RETRY_WARN]', err.message);
+            scheduleStudyDriveRetry();
+        }
+    }, delayMs);
+    _englishDriveRetryTimer.unref?.();
+}
+
+// Enviar nota de Journal cifrada al servidor local (o cola PC si aplica) (SOLO ADMIN)
+app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
+    const { texto } = req.body || {};
+    if (typeof texto !== 'string' || !texto.trim()) {
+        return res.status(400).send('Text cannot be empty.');
+    }
+    if (texto.length > 48000) {
+        return res.status(400).send('Encrypted payload exceeds maximum allowed length.');
+    }
+
+    const secretKey = String(process.env.JOURNAL_SECRET_KEY || '');
+    const wordPassword = String(process.env.WORD_PASSWORD || '');
+    if (
+        serverNotesService.isServerAutonomousNotesEnabled()
+        && serverNotesService.normalizeE2eeKeyBuffer(secretKey)
+        && serverNotesService.isValidE2eeEnvelope(texto)
+    ) {
+        const dec = serverNotesService.decryptClientE2ee(texto, secretKey);
+        if (!dec.ok) {
+            return res.status(400).send('E2EE key mismatch: server JOURNAL_SECRET_KEY could not decrypt entry.');
+        }
+        if (wordPassword) {
+            try {
+                const writeRes = await ytdlpService.runWithHeavyTaskLock(() =>
+                    serverNotesService.saveJournalNoteLocalEncrypted({
+                        plainText: dec.plainText,
+                        wordPassword,
+                        rootDir: __dirname
+                    })
+                );
+                if (writeRes && writeRes.ok) {
+                    return res.send(`Note encrypted with password and saved locally (${writeRes.heading}).`);
+                }
+                if (writeRes && writeRes.reason === 'WRONG_PASSWORD') {
+                    return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+                }
+                if (writeRes && writeRes.reason !== 'MSOFFCRYPTO_MISSING') {
+                    return res.status(500).send(writeRes.error || 'Could not write encrypted local Diario.docx.');
+                }
+            } catch (err) {
+                console.error('[JOURNAL_LOCAL_WRITE_ERROR]', err.message);
+                return res.status(500).send('Error saving encrypted local Journal.');
+            }
+        }
+    }
+
+    return journalQueue.enqueue(req, res);
+});
+
+// Ruta para que tu PC consulte notas de Journal pendientes (compatibilidad puente PC)
 app.get('/api/pull-text', pcPullLimiter.middleware, journalQueue.pull);
 
-// Enviar entrada cifrada de English Learning Notebook a la cola (SOLO ADMIN, sin guardar en MySQL)
-app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), englishQueue.enqueue);
+// Estado e descarga segura (solo Admin) del Journal local cifrado con contraseña
+app.get('/api/journal/local-status', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    return res.json({
+        ok: true,
+        autonomousEnabled: serverNotesService.isServerAutonomousNotesEnabled(),
+        exists: status.exists,
+        encrypted: status.encrypted,
+        sizeBytes: status.sizeBytes,
+        updatedAt: status.updatedAt,
+        passwordConfigured: status.passwordConfigured
+    });
+});
 
-// Ruta para que tu PC consulte entradas de inglés pendientes (el contenido viaja cifrado E2EE)
+app.get('/api/journal/download', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    if (!status.exists) {
+        return res.status(404).send('Local encrypted Diario.docx has not been created yet.');
+    }
+    if (!status.encrypted) {
+        return res.status(403).send('Refusing to download unencrypted Journal file.');
+    }
+    return res.download(status.path, 'Diario.docx');
+});
+
+// Enviar entrada cifrada de English Learning Notebook directo a Google Drive (o cola PC si aplica) (SOLO ADMIN)
+app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
+    const { texto } = req.body || {};
+    if (typeof texto !== 'string' || !texto.trim()) {
+        return res.status(400).send('Entry payload cannot be empty.');
+    }
+    if (texto.length > 48000) {
+        return res.status(400).send('Encrypted payload exceeds maximum allowed length.');
+    }
+
+    const secretKey = String(process.env.JOURNAL_SECRET_KEY || '');
+    if (
+        serverNotesService.isServerAutonomousNotesEnabled()
+        && serverNotesService.normalizeE2eeKeyBuffer(secretKey)
+        && serverNotesService.isValidE2eeEnvelope(texto)
+    ) {
+        const dec = serverNotesService.decryptClientE2ee(texto, secretKey);
+        if (!dec.ok) {
+            return res.status(400).send('E2EE key mismatch: server JOURNAL_SECRET_KEY could not decrypt entry.');
+        }
+        let parsedEntry = dec.plainText;
+        try {
+            parsedEntry = JSON.parse(dec.plainText);
+        } catch (_) {}
+
+        try {
+            const saveRes = await ytdlpService.runWithHeavyTaskLock(() =>
+                serverNotesService.saveEnglishEntryToCloudAndLocal({
+                    entry: parsedEntry,
+                    resolveRcloneFn: resolveRcloneConfigPath,
+                    resolveStudyTargetFn: resolveStudyDriveRemoteTarget,
+                    updateCacheFn: updateStudyNotebookCacheFromBuffer,
+                    rootDir: __dirname
+                })
+            );
+            if (saveRes && saveRes.ok) {
+                if (saveRes.needsRetry) {
+                    scheduleStudyDriveRetry();
+                    return res.send('Saved to local mirror; Google Drive upload scheduled for retry.');
+                }
+                _englishDriveRetryCount = 0;
+                return res.send(
+                    saveRes.mode === 'cloud_drive'
+                        ? 'Saved directly to English Notebook on Google Drive.'
+                        : 'Saved directly to local English Notebook volume.'
+                );
+            }
+            console.error('[ENGLISH_SERVER_SAVE_ERROR]', saveRes?.error || saveRes);
+            return res.status(500).send(saveRes?.error || 'Could not save English Notebook entry.');
+        } catch (err) {
+            console.error('[ENGLISH_SERVER_SAVE_EXC]', err.message);
+            return res.status(500).send('Error saving English Notebook entry on server.');
+        }
+    }
+
+    return englishQueue.enqueue(req, res);
+});
+
+// Ruta para que tu PC consulte entradas de inglés pendientes (compatibilidad puente PC)
 app.get('/api/pull-english', pcPullLimiter.middleware, englishQueue.pull);
 
 // ==========================================
@@ -4939,11 +5096,42 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
     };
 }
 
+let _lastMidnightJournalDate = '';
+
+async function runAutonomousJournalMidnightTick() {
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+    if (!wordPassword || !serverNotesService.isServerAutonomousNotesEnabled()) return;
+
+    const localNow = getLocalNowParts(process.env.TZ || 'America/Monterrey');
+    if (localNow.minutesOfDay >= 60 || _lastMidnightJournalDate === localNow.dateStr) return;
+
+    const dt = new Date(`${localNow.dateStr}T12:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() - 1);
+    const yesterdayIso = dt.toISOString().slice(0, 10);
+
+    try {
+        const res = await ytdlpService.runWithHeavyTaskLock(() =>
+            serverNotesService.saveJournalNoteLocalEncrypted({
+                plainText: 'Nothing to report.',
+                wordPassword,
+                targetDateIso: yesterdayIso,
+                rootDir: __dirname
+            })
+        );
+        if (res && res.ok) {
+            _lastMidnightJournalDate = localNow.dateStr;
+        }
+    } catch (err) {
+        console.warn('[MIDNIGHT_JOURNAL_WARN]', err.message);
+    }
+}
+
 let schedulerRunning = false;
 async function runReminderSchedulerTick() {
     if (schedulerRunning) return;
     schedulerRunning = true;
     try {
+        await runAutonomousJournalMidnightTick();
         const admins = await dbQueryAsync(
             "SELECT id, nombre, email FROM Usuarios WHERE rol = 'admin' AND COALESCE(estado, 'activo') = 'activo'"
         );
@@ -7053,9 +7241,13 @@ async function openAllowedMediaUpstreamResponse(initialUrl, headers, signal) {
 
 app.get('/api/english/music/ytdlp-status', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
     purgeExpiredPcMusicJobs();
+    const ytdlpStatus = ytdlpService.getYtDlpStatus();
+    const journalStatus = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
     res.json({
-        ...ytdlpService.getYtDlpStatus(),
+        ...ytdlpStatus,
         pcOnline: isPcBridgeOnline(),
+        serverAutonomous: serverNotesService.isServerAutonomousNotesEnabled(),
+        journalEncryptedLocal: Boolean(journalStatus.passwordConfigured),
         lastPcSeenAt: lastPcHeartbeatAt ? new Date(lastPcHeartbeatAt).toISOString() : null,
         pendingPcJobs: pcMusicJobs.size,
         pendingEnglishQueueCount: englishQueue.size()
@@ -7278,43 +7470,49 @@ function updateStudyNotebookCacheFromBuffer(docxBuffer, source = 'word', diskMet
 }
 
 async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
-    try {
-        // Strict isolation: Journal Notes (WORD_FILE_PATH / Personal_Journal.docx) are NEVER touched in the cloud.
-        const explicitPath = String(process.env.ENGLISH_WORD_FILE_PATH || '').trim();
-        const journalPathEnv = String(process.env.WORD_FILE_PATH || '').trim();
-        const localPath = explicitPath
-            ? path.resolve(explicitPath)
-            : path.join(__dirname, 'english-notes', 'English_Learning_Notebook.docx');
-        const pointsToJournal = Boolean(
-            (journalPathEnv && path.resolve(journalPathEnv) === localPath)
-            || /personal_journal|journal_notes/i.test(path.basename(localPath))
-        );
-
-        if (localPath && !pointsToJournal && fs.existsSync(localPath)) {
-            const stat = fs.statSync(localPath);
-            if (stat.isFile() && stat.size >= 64) {
-                if (
-                    !forceRefresh
-                    && studyNotebookCache.parsed
-                    && studyNotebookCache.source === 'local-word'
-                    && studyNotebookCache.mtimeMs === stat.mtimeMs
-                    && studyNotebookCache.size === stat.size
-                ) {
-                    return studyNotebookCache.parsed;
-                }
-                const buf = fs.readFileSync(localPath);
-                const parsedLocal = updateStudyNotebookCacheFromBuffer(buf, 'local-word', stat);
-                if (parsedLocal) return parsedLocal;
-            }
-        }
-    } catch (_) {}
-
     if (
         !forceRefresh
         && studyNotebookCache.parsed
         && Date.now() - studyNotebookCache.loadedAt < STUDY_NOTEBOOK_CACHE_TTL_MS
     ) {
         return studyNotebookCache.parsed;
+    }
+
+    // Strict isolation: Journal Notes (WORD_FILE_PATH / Diario.docx) are NEVER touched in the cloud.
+    const localPath = serverNotesService.resolveLocalEnglishPath({ rootDir: __dirname });
+    const readLocalMirror = () => {
+        try {
+            if (localPath && fs.existsSync(localPath)) {
+                const stat = fs.statSync(localPath);
+                if (stat.isFile() && stat.size >= 64) {
+                    if (
+                        !forceRefresh
+                        && studyNotebookCache.parsed
+                        && studyNotebookCache.source === 'local-word'
+                        && studyNotebookCache.mtimeMs === stat.mtimeMs
+                        && studyNotebookCache.size === stat.size
+                    ) {
+                        return studyNotebookCache.parsed;
+                    }
+                    const buf = fs.readFileSync(localPath);
+                    const parsedLocal = updateStudyNotebookCacheFromBuffer(buf, 'local-word', stat);
+                    if (parsedLocal) return parsedLocal;
+                }
+            }
+        } catch (_) {}
+        return null;
+    };
+
+    const probeRclone = resolveRcloneConfigPath({ preferStudy: true });
+    const hasConfiguredRclone = Boolean(probeRclone?.confPath && fs.existsSync(probeRclone.confPath));
+    if (probeRclone?.cleanup && probeRclone.confPath && fs.existsSync(probeRclone.confPath)) {
+        try { fs.unlinkSync(probeRclone.confPath); } catch (_) {}
+    }
+
+    if (!hasConfiguredRclone) {
+        const localRes = readLocalMirror();
+        if (localRes) return localRes;
+        return studyNotebookCache.parsed || null;
     }
 
     if (_studyNotebookFetchPromise) {
@@ -7326,31 +7524,28 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
         const tmpDocxPath = path.join(os.tmpdir(), `English_Read_${process.pid}_${Date.now()}.docx`);
         try {
             if (!fs.existsSync(rcloneConf)) {
-                return studyNotebookCache.parsed || null;
+                return readLocalMirror() || studyNotebookCache.parsed || null;
             }
             const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
-            const { execFile } = require('node:child_process');
-            const rcloneExecEnv = buildSafeRcloneExecEnv();
-            const runRclone = (args, timeout) => new Promise((resolve, reject) => {
-                execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
-                    if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
-                    resolve(stdout);
-                });
-            });
 
             // Only download to /tmp when remote size or ModTime changed (zero unnecessary RAM/network spikes)
             let remoteModTime = '';
             let remoteSize = 0;
             try {
-                const lsRaw = await runRclone(['lsjson', remoteTarget], 15000);
+                const lsRaw = await serverNotesService.runRcloneCommand({
+                    rcloneConf,
+                    args: ['lsjson', remoteTarget],
+                    timeout: 15000
+                });
                 const entries = JSON.parse(String(lsRaw || '[]'));
                 if (!Array.isArray(entries) || entries.length === 0) {
-                    return studyNotebookCache.parsed || null;
+                    return readLocalMirror() || studyNotebookCache.parsed || null;
                 }
                 remoteModTime = String(entries[0].ModTime || '');
                 remoteSize = Number(entries[0].Size) || 0;
                 if (
-                    studyNotebookCache.parsed
+                    !forceRefresh
+                    && studyNotebookCache.parsed
                     && studyNotebookCache.source === 'drive-word'
                     && remoteModTime
                     && studyNotebookCache.remoteModTime === remoteModTime
@@ -7363,11 +7558,21 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
                 // Proceed to copyto if lsjson isn't supported or timed out briefly
             }
 
-            await runRclone(['copyto', '--retries', '1', remoteTarget, tmpDocxPath], 25000);
+            await serverNotesService.runRcloneCommand({
+                rcloneConf,
+                args: ['copyto', '--retries', '1', remoteTarget, tmpDocxPath],
+                timeout: 25000
+            });
             const buf = fs.readFileSync(tmpDocxPath);
             if (buf.length < 64 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
-                return studyNotebookCache.parsed || null;
+                return readLocalMirror() || studyNotebookCache.parsed || null;
             }
+            // Mirror Drive copy locally for resilience if Drive is temporarily unreachable
+            try {
+                fs.mkdirSync(path.dirname(localPath), { recursive: true });
+                fs.writeFileSync(localPath, buf, { mode: 0o600 });
+            } catch (_) {}
+
             const bufSha = crypto.createHash('sha256').update(buf).digest('hex');
             if (
                 studyNotebookCache.parsed
@@ -7382,9 +7587,9 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
                 remoteModTime,
                 size: remoteSize || buf.length
             });
-            return parsedDrive || studyNotebookCache.parsed || null;
+            return parsedDrive || readLocalMirror() || studyNotebookCache.parsed || null;
         } catch (_err) {
-            return studyNotebookCache.parsed || null;
+            return readLocalMirror() || studyNotebookCache.parsed || null;
         } finally {
             try {
                 if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
@@ -7526,64 +7731,25 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
                 ok: true,
                 uploaded: false,
                 remoteTarget,
-                message: 'rclone.conf no encontrado en entorno local; en EC2 se sube automáticamente con RCLONE_CONF_B64.'
+                message: 'rclone.conf no encontrado en entorno local; en servidor se sube automáticamente con RCLONE_CONF_B64.'
             });
         }
 
-        const { execFile } = require('node:child_process');
-        const rcloneExecEnv = buildSafeRcloneExecEnv();
-        const localSha256 = crypto.createHash('sha256').update(docxBuffer).digest('hex');
-
-        await new Promise((resolve, reject) => {
-            execFile(
-                'rclone',
-                ['--config', rcloneConf, 'copyto', '--retries', '2', tmpDocxPath, remoteTarget],
-                { timeout: 60000, env: rcloneExecEnv },
-                (err, _stdout, stderr) => {
-                    if (err) {
-                        return reject(new Error(String(stderr || err.message || 'rclone copyto failed').trim()));
-                    }
-                    resolve();
-                }
-            );
+        const syncRes = await serverNotesService.uploadAndVerifyStudyDocx({
+            docxBuffer,
+            filePath: tmpDocxPath,
+            rcloneConf,
+            remoteTarget
         });
 
-        // Verificar que el archivo realmente existe en Google Drive y coincide en tamaño
-        let verified = false;
-        let remoteSize = null;
-        let remoteModTime = '';
-        try {
-            const lsOut = await new Promise((resolve, reject) => {
-                execFile(
-                    'rclone',
-                    ['--config', rcloneConf, 'lsjson', remoteTarget],
-                    { timeout: 15000, env: rcloneExecEnv },
-                    (err, stdout, stderr) => {
-                        if (err) return reject(new Error(String(stderr || err.message).trim()));
-                        resolve(stdout);
-                    }
-                );
-            });
-            const entries = JSON.parse(String(lsOut || '[]'));
-            if (Array.isArray(entries) && entries.length > 0) remoteModTime = String(entries[0].ModTime || '');
-            if (Array.isArray(entries) && entries.length > 0 && Number(entries[0].Size) === docxBuffer.length) {
-                verified = true;
-                remoteSize = Number(entries[0].Size);
-            } else if (Array.isArray(entries) && entries.length > 0) {
-                remoteSize = Number(entries[0].Size);
-            }
-        } catch (verifyErr) {
-            console.warn('[STUDY_DRIVE_VERIFY_WARN]', verifyErr.message);
-        }
-
-        if (!verified) {
+        if (!syncRes.verified) {
             return res.status(502).json({
                 ok: false,
                 uploaded: false,
                 verified: false,
                 remoteTarget,
-                localSize: docxBuffer.length,
-                remoteSize,
+                localSize: syncRes.localSize,
+                remoteSize: syncRes.remoteSize,
                 error: 'Google Drive upload could not be verified with matching byte size.'
             });
         }
@@ -7592,10 +7758,10 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             ok: true,
             uploaded: true,
             verified: true,
-            localSize: docxBuffer.length,
-            remoteSize,
-            remoteModTime,
-            sha256: localSha256,
+            localSize: syncRes.localSize,
+            remoteSize: syncRes.remoteSize,
+            remoteModTime: syncRes.remoteModTime,
+            sha256: syncRes.sha256,
             remoteTarget
         });
     } catch (err) {
@@ -7621,14 +7787,7 @@ app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verif
         if (!fs.existsSync(rcloneConf)) {
             return res.json({ ok: true, exists: false, message: 'rclone.conf not available on this server.' });
         }
-        const { execFile } = require('node:child_process');
-        const rcloneExecEnv = buildSafeRcloneExecEnv();
-        const run = (args, timeout) => new Promise((resolve, reject) => {
-            execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
-                if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
-                resolve(stdout);
-            });
-        });
+        const run = (args, timeout) => serverNotesService.runRcloneCommand({ rcloneConf, args, timeout });
 
         const entries = JSON.parse(String(await run(['lsjson', remoteTarget], 15000) || '[]'));
         if (!Array.isArray(entries) || !entries.length) {
