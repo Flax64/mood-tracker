@@ -67,6 +67,24 @@ Sigue este orden exacto al cambiar de computadora (por seguridad, la bóveda DPA
    ```
 5. **Arrancar y confirmar:** Ejecuta el comando de **Reiniciar el servicio local de Python** de arriba y revisa `sincronitation\historial.log` para confirmar conexión con EC2/servidor y estado verde del puente PC en la aplicación web.
 
+### Reiniciar el servicio local de Python en Git Bash
+
+**Resumen:** Desde **Git Bash** en la raíz del proyecto, detiene únicamente `sincronizador.py` y lo reinicia en vivo, en segundo plano silencioso (`pythonw`) o usando la bóveda `.env.enc`.
+
+```bash
+# 1. Viendo logs en vivo (recomendado para pruebas):
+powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "sincronizador\.py" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }' && python sincronitation/sincronizador.py
+
+# 2. En segundo plano silencioso (sin ocupar Git Bash):
+powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "sincronizador\.py" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }' && nohup pythonw sincronitation/sincronizador.py >/dev/null 2>&1 &
+
+# 3. Con bóveda cifrada (.env.enc):
+powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match "sincronizador\.py" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }' && npm run vault:sync
+
+# 4. Atajo corto (si no tienes otros scripts Python abiertos):
+taskkill //F //IM python.exe //IM pythonw.exe 2>/dev/null; python sincronitation/sincronizador.py
+```
+
 ---
 
 ## 1. Ciclo de Vida de Contenedores y HTTPS (Docker Compose + Caddy)
