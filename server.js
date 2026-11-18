@@ -259,7 +259,7 @@ function inicializarTablasSeguridad() {
             categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
             materia_id VARCHAR(60) NULL DEFAULT NULL,
             materia_nombre VARCHAR(120) NULL DEFAULT NULL,
-            estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
+            estado ENUM('todo', 'in_progress', 'done', 'skipped') NOT NULL DEFAULT 'todo',
             completada TINYINT(1) NOT NULL DEFAULT 0,
             recordatorio_min SMALLINT NULL DEFAULT NULL,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -464,7 +464,7 @@ function inicializarTablasSeguridad() {
         },
         {
             name: 'estado',
-            sql: "ALTER TABLE RegistrosAgenda ADD COLUMN estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo' AFTER categoria",
+            sql: "ALTER TABLE RegistrosAgenda ADD COLUMN estado ENUM('todo', 'in_progress', 'done', 'skipped') NOT NULL DEFAULT 'todo' AFTER categoria",
             afterMigrate: "UPDATE RegistrosAgenda SET estado = 'done' WHERE completada = 1"
         },
         {
@@ -482,6 +482,13 @@ function inicializarTablasSeguridad() {
                         db.query(col.afterMigrate, () => {});
                     }
                 });
+            } else if (!errCol && col.name === 'estado' && Array.isArray(cols) && cols[0] && cols[0].Type && !String(cols[0].Type).includes('skipped')) {
+                db.query(
+                    "ALTER TABLE RegistrosAgenda MODIFY COLUMN estado ENUM('todo', 'in_progress', 'done', 'skipped') NOT NULL DEFAULT 'todo'",
+                    (errMod) => {
+                        if (errMod) console.error('Error ampliando ENUM estado en RegistrosAgenda:', errMod.message);
+                    }
+                );
             }
         });
     });
@@ -2503,7 +2510,7 @@ app.get('/api/pull-english', pcPullLimiter.middleware, englishQueue.pull);
 const BLOQUES_VALIDOS = new Set(['manana', 'cole', 'tarde', 'noche']);
 const AGENDA_TIPOS_VALIDOS = new Set(['evento', 'tarea']);
 const AGENDA_CATEGORIAS_VALIDAS = new Set(['universidad', 'personal']);
-const AGENDA_ESTADOS_VALIDOS = new Set(['todo', 'in_progress', 'done']);
+const AGENDA_ESTADOS_VALIDOS = new Set(['todo', 'in_progress', 'done', 'skipped']);
 const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 function inferAgendaBlockFromTimeServer(horaStr, categoria = 'personal') {
@@ -2689,7 +2696,7 @@ function validarDatosAgenda(body = {}) {
         return 'Invalid category (allowed: universidad, personal).';
     }
     if (!AGENDA_ESTADOS_VALIDOS.has(estado)) {
-        return 'Invalid status (allowed: todo, in_progress, done).';
+        return 'Invalid status (allowed: todo, in_progress, done, skipped).';
     }
     if (materiaId && materiaId.length > 60) {
         return 'Class ID cannot exceed 60 characters.';
@@ -2799,10 +2806,36 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
         const horaNormalizada = hora.slice(0, 5);
         const completada = estado === 'done' ? 1 : 0;
 
-        const repetirCadaDias = Math.max(0, Math.min(30, Number.parseInt(req.body.repetir_cada_dias, 10) || 0));
+        const repetirCadaDias = Math.max(0, Math.min(90, Number.parseInt(req.body.repetir_cada_dias, 10) || 0));
         const repetirVeces = repetirCadaDias > 0
-            ? Math.max(1, Math.min(12, Number.parseInt(req.body.repetir_veces, 10) || 1))
+            ? Math.max(1, Math.min(30, Number.parseInt(req.body.repetir_veces, 10) || 1))
             : 1;
+
+        const targetDates = [];
+        if (Array.isArray(req.body.fechas_repeticion) && req.body.fechas_repeticion.length > 0) {
+            const seenDates = new Set();
+            for (const rawD of req.body.fechas_repeticion) {
+                const candidateDate = String(rawD || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(candidateDate)) continue;
+                const [cy, cm, cd] = candidateDate.split('-').map(Number);
+                const probe = new Date(Date.UTC(cy, cm - 1, cd));
+                if (probe.toISOString().slice(0, 10) !== candidateDate) continue;
+                if (!seenDates.has(candidateDate)) {
+                    seenDates.add(candidateDate);
+                    targetDates.push(candidateDate);
+                }
+                if (targetDates.length >= 30) break;
+            }
+        }
+        if (targetDates.length === 0) {
+            const [y, m, d] = fecha.split('-').map(Number);
+            for (let occ = 0; occ < repetirVeces; occ += 1) {
+                const occDateObj = new Date(Date.UTC(y, m - 1, d + (occ * repetirCadaDias)));
+                targetDates.push(occDateObj.toISOString().slice(0, 10));
+            }
+        } else {
+            targetDates.sort();
+        }
 
         const sql = `
             INSERT INTO RegistrosAgenda (fecha, bloque, hora, actividad, tipo, categoria, estado, completada, recordatorio_min, materia_id, materia_nombre)
@@ -2810,10 +2843,8 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
         `;
 
         let firstInsertId = null;
-        const [y, m, d] = fecha.split('-').map(Number);
-        for (let occ = 0; occ < repetirVeces; occ += 1) {
-            const occDateObj = new Date(Date.UTC(y, m - 1, d + (occ * repetirCadaDias)));
-            const occFecha = occDateObj.toISOString().slice(0, 10);
+        for (let occ = 0; occ < targetDates.length; occ += 1) {
+            const occFecha = targetDates[occ];
             const result = await dbQueryAsync(sql, [
                 occFecha,
                 bloque,
@@ -2827,14 +2858,17 @@ app.post('/api/insert-agenda', apiWriteLimiter.middleware, requireAdmin, require
                 courseLink.materia_id,
                 courseLink.materia_nombre
             ]);
-            if (occ === 0) firstInsertId = result.insertId;
+            if (occ === 0 || occFecha === fecha) {
+                if (firstInsertId === null || occFecha === fecha) firstInsertId = result.insertId;
+            }
         }
 
         res.status(201).json({
-            message: repetirVeces > 1
-                ? `Activity saved and repeated ${repetirVeces} times (every ${repetirCadaDias} days).`
+            message: targetDates.length > 1
+                ? `Activity saved and scheduled for ${targetDates.length} dates.`
                 : 'Activity saved successfully.',
-            repeatedCount: repetirVeces,
+            repeatedCount: targetDates.length,
+            createdDates: targetDates,
             item: {
                 id: firstInsertId,
                 fecha,
@@ -2909,7 +2943,7 @@ app.put('/api/update-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requ
         if (result.affectedRows === 0) {
             return res.status(404).send('Activity not found.');
         }
-        if (estado === 'done') {
+        if (estado === 'done' || estado === 'skipped') {
             db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
         }
         res.json({
@@ -2948,7 +2982,7 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
     if (body.estado !== undefined && body.estado !== null && body.estado !== '') {
         const candidate = String(body.estado).trim().toLowerCase();
         if (!AGENDA_ESTADOS_VALIDOS.has(candidate)) {
-            return res.status(400).send('Invalid status (allowed: todo, in_progress, done).');
+            return res.status(400).send('Invalid status (allowed: todo, in_progress, done, skipped).');
         }
         resolvedEstado = candidate;
         resolvedCompletada = candidate === 'done' ? 1 : 0;
@@ -2971,7 +3005,7 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
             return res.status(404).send('Activity not found.');
         }
         if (resolvedEstado !== null) {
-            if (resolvedEstado === 'done') {
+            if (resolvedEstado === 'done' || resolvedEstado === 'skipped') {
                 db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
             }
             return res.json({ message: 'Status updated.', id, completada: resolvedCompletada, estado: resolvedEstado });
@@ -2982,12 +3016,95 @@ app.patch('/api/toggle-agenda/:id', apiWriteLimiter.middleware, requireAdmin, pr
             }
             const toggledCompletada = rows[0].completada ? 1 : 0;
             const toggledEstado = rows[0].estado || (toggledCompletada === 1 ? 'done' : 'todo');
-            if (toggledEstado === 'done') {
+            if (toggledEstado === 'done' || toggledEstado === 'skipped') {
                 db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
             }
             res.json({ message: 'Status updated.', id, completada: toggledCompletada, estado: toggledEstado });
         });
     });
+});
+
+app.patch('/api/postpone-agenda/:id', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
+    const id = parseAgendaId(req.params.id);
+    if (!id) return res.status(400).send('Invalid activity ID.');
+
+    const body = req.body || {};
+    const hasDays = body.days !== undefined && body.days !== null && body.days !== '';
+    const daysNum = hasDays ? Number.parseInt(body.days, 10) : null;
+    const rawTargetDate = body.targetDate !== undefined && body.targetDate !== null
+        ? String(body.targetDate).trim()
+        : '';
+
+    let validTargetDate = '';
+    if (rawTargetDate) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rawTargetDate)) {
+            return res.status(400).send('targetDate must use YYYY-MM-DD format.');
+        }
+        const [ty, tm, td] = rawTargetDate.split('-').map(Number);
+        const probe = new Date(Date.UTC(ty, tm - 1, td));
+        if (probe.toISOString().slice(0, 10) !== rawTargetDate) {
+            return res.status(400).send('Invalid calendar targetDate.');
+        }
+        validTargetDate = rawTargetDate;
+    } else if (!Number.isInteger(daysNum) || daysNum === 0 || Math.abs(daysNum) > 365) {
+        return res.status(400).send('Specify postponement days (non-zero integer -365..365) or targetDate (YYYY-MM-DD).');
+    }
+
+    try {
+        const rows = await dbQueryAsync(
+            `SELECT id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, bloque,
+                    TIME_FORMAT(hora, '%H:%i') AS hora, actividad,
+                    COALESCE(tipo, 'evento') AS tipo,
+                    COALESCE(categoria, 'personal') AS categoria,
+                    materia_id, materia_nombre,
+                    COALESCE(estado, CASE WHEN completada = 1 THEN 'done' ELSE 'todo' END) AS estado,
+                    completada, recordatorio_min
+             FROM RegistrosAgenda
+             WHERE id = ?
+             LIMIT 1`,
+            [id]
+        );
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return res.status(404).send('Activity not found.');
+        }
+
+        const currentRow = rows[0];
+        let newFecha = validTargetDate;
+        if (!newFecha) {
+            const [cy, cm, cd] = String(currentRow.fecha || '').split('-').map(Number);
+            const movedObj = new Date(Date.UTC(cy, cm - 1, cd + daysNum));
+            newFecha = movedObj.toISOString().slice(0, 10);
+        }
+
+        const prevEstado = String(currentRow.estado || 'todo').toLowerCase();
+        const nextEstado = (prevEstado === 'skipped' || prevEstado === 'done') ? 'todo' : prevEstado;
+        const nextCompletada = 0;
+
+        await dbQueryAsync(
+            'UPDATE RegistrosAgenda SET fecha = ?, estado = ?, completada = ? WHERE id = ?',
+            [newFecha, nextEstado, nextCompletada, id]
+        );
+        db.query("UPDATE RecordatoriosEstado SET estado = 'dismissed' WHERE ref_id = ? AND tipo = 'agenda'", [id], () => {});
+
+        const updatedItem = enrichAgendaRow({
+            ...currentRow,
+            fecha: newFecha,
+            estado: nextEstado,
+            completada: nextCompletada
+        });
+        res.json({
+            message: 'Activity postponed successfully.',
+            id,
+            previousFecha: currentRow.fecha,
+            fecha: newFecha,
+            estado: nextEstado,
+            completada: nextCompletada,
+            item: updatedItem
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error postponing activity.');
+    }
 });
 
 app.delete('/api/delete-agenda/:id', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 0 }), (req, res) => {
@@ -4195,7 +4312,7 @@ function computeCandidateReminders({
 
         agendaItemsToday.forEach(item => {
             const estado = item.estado || (Number(item.completada) === 1 ? 'done' : 'todo');
-            if (estado === 'done' || Number(item.completada) === 1) return;
+            if (estado === 'done' || estado === 'skipped' || Number(item.completada) === 1) return;
 
             const tipo = item.tipo === 'tarea' ? 'tarea' : 'evento';
             if (tipo === 'evento' && !settings.agendaNotifyEvents) return;
@@ -4237,7 +4354,7 @@ function computeCandidateReminders({
         if (settings.agendaNotifyTasks && settings.agendaNotifyPendingTasks !== false && Array.isArray(pendingTasksWeek)) {
             pendingTasksWeek.forEach(task => {
                 const estado = task.estado || (Number(task.completada) === 1 ? 'done' : 'todo');
-                if (estado === 'done' || Number(task.completada) === 1) return;
+                if (estado === 'done' || estado === 'skipped' || Number(task.completada) === 1) return;
                 if ((task.tipo || 'evento') !== 'tarea') return;
                 if (notifiedTaskIds.has(Number(task.id))) return;
                 if (task.recordatorio_min !== null && task.recordatorio_min !== undefined && Number(task.recordatorio_min) < 0) return;

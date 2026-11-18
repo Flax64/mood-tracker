@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS RegistrosAgenda (
     categoria ENUM('universidad', 'personal') NOT NULL DEFAULT 'personal',
     materia_id VARCHAR(60) NULL DEFAULT NULL,
     materia_nombre VARCHAR(120) NULL DEFAULT NULL,
-    estado ENUM('todo', 'in_progress', 'done') NOT NULL DEFAULT 'todo',
+    estado ENUM('todo', 'in_progress', 'done', 'skipped') NOT NULL DEFAULT 'todo',
     completada TINYINT(1) NOT NULL DEFAULT 0,
     recordatorio_min SMALLINT NULL DEFAULT NULL,
     fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

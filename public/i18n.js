@@ -1356,6 +1356,7 @@
     function agendaStatusLabel(status) {
         if (status === 'done') return pick('Done', 'Completado');
         if (status === 'in_progress') return pick('In Progress', 'En progreso');
+        if (status === 'skipped') return pick('Skipped', 'Omitida (Skip)');
         return pick('To Do', 'Por hacer');
     }
 
