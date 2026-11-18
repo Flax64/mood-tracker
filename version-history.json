@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.15.1",
-  "updatedAt": "2026-11-18T03:47:26.552Z",
+  "currentVersion": "1.15.2",
+  "updatedAt": "2026-11-18T04:15:01.765Z",
   "releases": [
+    {
+      "version": "1.15.2",
+      "tag": "v1.15.2",
+      "bumpType": "patch",
+      "previousVersion": "1.15.1",
+      "releasedAt": "2026-11-18T04:15:01.765Z",
+      "commitSha": "e892caf",
+      "trigger": "push",
+      "summary": "fix: yt-dlp",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: yt-dlp (e892caf)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.15.1",
       "tag": "v1.15.1",
