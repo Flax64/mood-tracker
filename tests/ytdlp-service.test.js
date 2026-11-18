@@ -14,6 +14,7 @@ const {
     runYtDlp,
     extractSongLyrics,
     resolvePlayableMediaStream,
+    runWithHeavyTaskLock,
     getYtDlpStatus,
     clearMediaStreamCacheForTest
 } = require('../lib/ytdlp-service');
@@ -367,5 +368,36 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         ]);
         assert.ok(jpHybrid.original.includes('Shining right now') && jpHybrid.original.includes('夜空に光る星'));
         assert.equal(jpHybrid.ja, '夜空に光る星\nずっと忘れない');
+    });
+
+    it('serializa procesos pesados en FIFO (maxConcurrency = 1) con runWithHeavyTaskLock', async () => {
+        let active = 0;
+        let maxActive = 0;
+        const order = [];
+
+        const makeTask = (id, delayMs, shouldFail = false) =>
+            runWithHeavyTaskLock(async () => {
+                active += 1;
+                maxActive = Math.max(maxActive, active);
+                await new Promise((r) => setTimeout(r, delayMs));
+                order.push(id);
+                active -= 1;
+                if (shouldFail) throw new Error(`boom-${id}`);
+                return id;
+            });
+
+        const settled = await Promise.allSettled([
+            makeTask(1, 25, false),
+            makeTask(2, 15, true),
+            makeTask(3, 10, false)
+        ]);
+
+        assert.equal(maxActive, 1, 'Nunca debe haber más de 1 tarea pesada concurrente');
+        assert.deepEqual(order, [1, 2, 3]);
+        assert.equal(settled[0].status, 'fulfilled');
+        assert.equal(settled[0].value, 1);
+        assert.equal(settled[1].status, 'rejected');
+        assert.equal(settled[2].status, 'fulfilled');
+        assert.equal(settled[2].value, 3);
     });
 });

@@ -3612,6 +3612,23 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             assert.strictEqual(extJson.source, 'yt-dlp:en');
             assert.match(extJson.lyrics, /Forever ever never fade/);
 
+            // 3b. Resolución autónoma en la nube (Tiers 1-3) con PC apagada (pcOnline: false)
+            const resolveRes = await request({
+                port,
+                method: 'POST',
+                reqPath: `/api/english/music/songs/${songId}/resolve-lyrics`,
+                headers: { Cookie: adminCookie },
+                body: { forceExtract: true }
+            });
+            assert.strictEqual(resolveRes.status, 200);
+            const resolveJson = JSON.parse(resolveRes.body);
+            assert.strictEqual(resolveJson.ok, true);
+            assert.ok(resolveJson.tier === 2 || resolveJson.tier === 3, `Se esperaba Tier 2 o 3, recibido ${resolveJson.tier}`);
+            assert.strictEqual(resolveJson.tokensUsed, 0);
+            assert.strictEqual(resolveJson.storedInDb, false);
+            assert.strictEqual(resolveJson.pcOnline, false);
+            assert.match(String(resolveJson.lyrics || ''), /Forever ever never fade/);
+
             // 4. Catálogo NO expone ni guarda letras en MySQL
             const catRes = await request({
                 port,

@@ -4,7 +4,7 @@ services:
     container_name: mood_db
     restart: always
     mem_limit: 512m
-    # Optimización para t3.micro (1 GB RAM + 1 GB Swap) y menor uso de disco (sin binlogs ni performance_schema)
+    # Optimización para t3.micro (1 GB RAM + 2 GB Swap) y menor uso de disco (sin binlogs ni performance_schema)
     command:
       - --performance-schema=OFF
       - --mysqlx=0
@@ -43,8 +43,8 @@ services:
   app:
     build: .
     container_name: mood_app
-    restart: unless-stopped
-    mem_limit: 220m
+    restart: always
+    mem_limit: 420m
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
     logging:
@@ -74,6 +74,13 @@ services:
       - STUDY_RCLONE_CONF_B64=${STUDY_RCLONE_CONF_B64:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - YT_DLP_PATH=${YT_DLP_PATH:-}
+      - YTM_INNERTUBE=${YTM_INNERTUBE:-1}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     depends_on:
       db:
         condition: service_healthy
@@ -81,7 +88,7 @@ services:
   proxy:
     image: caddy:2-alpine
     container_name: mood_proxy
-    restart: unless-stopped
+    restart: always
     mem_limit: 48m
     ports:
       - "80:80"
@@ -93,8 +100,15 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     depends_on:
-      - app
+      app:
+        condition: service_healthy
 
 volumes:
   db_data:
