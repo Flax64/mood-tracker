@@ -845,5 +845,27 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         assert.match(techGuide, /Gratuito/i);
         assert.match(techGuide, /Pago/i);
         assert.match(migGuide, /Google Cloud Platform|GCP/i);
+
+        assert.ok(indexHtml.includes('id="studyViewerSongFilter"'));
+        assert.ok(indexHtml.includes('id="studyViewerLangFilter"'));
+        assert.ok(indexHtml.includes('id="btnOpenStudyViewerFromMusic"'));
+
+        const langStudio = require(path.join(ROOT, 'lib', 'language-studio.js'));
+        assert.equal(typeof langStudio.parseStudyNotebookDocxBuffer, 'function');
+        assert.equal(typeof langStudio.filterStudyNotebookData, 'function');
+        assert.equal(typeof langStudio.findNotebookTranslationMatch, 'function');
+        assert.equal(langStudio.parseStudyNotebookDocxBuffer(Buffer.from('PK\x03\x04invalid')).ok, false);
+        const synMatch = langStudio.findNotebookTranslationMatch({
+            allEntries: [{
+                section: 'music',
+                title: 'Test Track',
+                artist: 'Test Artist',
+                fields: {
+                    lyrics_study: '[EN]\nHello world line one\n=== [ES — Traducción IA] ===\nHola mundo línea uno'
+                }
+            }]
+        }, { songTitle: 'Test Track', artistName: 'Test Artist', mode: 'lyrics' });
+        assert.equal(synMatch?.hit, true);
+        assert.match(synMatch?.spanishLyrics || '', /Hola mundo línea uno/);
     });
 });

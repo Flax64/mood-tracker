@@ -39,7 +39,12 @@ const {
     getAvailableGeminiModelsForUser,
     generatePracticalLessonForWord,
     evaluatePronunciation,
-    testGeminiConnection
+    testGeminiConnection,
+    stripAiSpanishLyricsSection,
+    extractSpanishBlockFromLyrics,
+    parseStudyNotebookDocxBuffer,
+    filterStudyNotebookData,
+    findNotebookTranslationMatch
 } = require('./lib/language-studio');
 const {
     extractYouTubeWatchPageMetadata,
@@ -2003,11 +2008,13 @@ function isDateOlderThanLocalWindow(dateStr, retentionDays = Number(process.env.
     return targetMs < cutoffMs;
 }
 
+let _rcloneConfSeq = 0;
+
 function resolveRcloneConfigPath({ preferStudy = false } = {}) {
     if (preferStudy && process.env.STUDY_RCLONE_CONF_B64) {
         try {
             const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
-            const studyConfPath = path.join(shmDir, `.rclone_study_${process.pid}.conf`);
+            const studyConfPath = path.join(shmDir, `.rclone_study_${process.pid}_${Date.now()}_${++_rcloneConfSeq}.conf`);
             fs.writeFileSync(
                 studyConfPath,
                 Buffer.from(String(process.env.STUDY_RCLONE_CONF_B64).replace(/\s+/g, ''), 'base64'),
@@ -2026,7 +2033,7 @@ function resolveRcloneConfigPath({ preferStudy = false } = {}) {
     if (process.env.RCLONE_CONF_B64) {
         try {
             const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
-            const ramConfPath = path.join(shmDir, `.rclone_main_${process.pid}.conf`);
+            const ramConfPath = path.join(shmDir, `.rclone_main_${process.pid}_${Date.now()}_${++_rcloneConfSeq}.conf`);
             fs.writeFileSync(
                 ramConfPath,
                 Buffer.from(String(process.env.RCLONE_CONF_B64).replace(/\s+/g, ''), 'base64'),
@@ -7048,6 +7055,176 @@ app.get('/api/english/music/pc-jobs/:jobId', apiReadLimiter.middleware, requireA
     });
 });
 
+const studyNotebookCache = {
+    sha256: '',
+    mtimeMs: 0,
+    size: 0,
+    loadedAt: 0,
+    source: '',
+    parsed: null
+};
+const STUDY_NOTEBOOK_CACHE_TTL_MS = 60 * 1000;
+let _studyNotebookFetchPromise = null;
+
+function resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig) {
+    const configuredStudyRemote = String(process.env.STUDY_RCLONE_REMOTE || '').trim();
+    const mainRemote = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
+    const studyDir = String(process.env.STUDY_RCLONE_DIR || 'NotasIdiomas').trim().replace(/^\/+|\/+$/g, '') || 'NotasIdiomas';
+    const mainBackupDir = String(process.env.RCLONE_BACKUP_DIR || 'RespaldosApp').trim().replace(/^\/+|\/+$/g, '') || 'RespaldosApp';
+
+    let hasDedicatedStudyRemote = Boolean(usingStudyConfig && configuredStudyRemote);
+    if (!hasDedicatedStudyRemote && configuredStudyRemote && rcloneConf && fs.existsSync(rcloneConf)) {
+        try {
+            hasDedicatedStudyRemote = fs.readFileSync(rcloneConf, 'utf8').includes(`[${configuredStudyRemote}]`);
+        } catch (_) {}
+    }
+
+    const remoteName = hasDedicatedStudyRemote ? configuredStudyRemote : mainRemote;
+    const folderName = hasDedicatedStudyRemote ? studyDir : `${mainBackupDir}/${studyDir}`;
+    return {
+        remoteName,
+        folderName,
+        remoteTarget: `${remoteName}:${folderName}/English_Learning_Notebook.docx`
+    };
+}
+
+function updateStudyNotebookCacheFromBuffer(docxBuffer, source = 'word', diskMeta = null) {
+    if (!Buffer.isBuffer(docxBuffer) || docxBuffer.length < 64) return null;
+    const parsed = parseStudyNotebookDocxBuffer(docxBuffer, { includeAllEntries: true, includeAll: true });
+    if (!parsed || !parsed.ok) return null;
+    const sha256 = crypto.createHash('sha256').update(docxBuffer).digest('hex');
+    parsed.source = source;
+    parsed.updatedAt = new Date().toISOString();
+    studyNotebookCache.sha256 = sha256;
+    studyNotebookCache.mtimeMs = diskMeta ? Number(diskMeta.mtimeMs) || 0 : 0;
+    studyNotebookCache.size = diskMeta ? Number(diskMeta.size) || docxBuffer.length : docxBuffer.length;
+    studyNotebookCache.loadedAt = Date.now();
+    studyNotebookCache.source = source;
+    studyNotebookCache.parsed = parsed;
+    return parsed;
+}
+
+async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
+    try {
+        const explicitPath = String(process.env.ENGLISH_WORD_FILE_PATH || '').trim();
+        const localPath = explicitPath
+            ? path.resolve(explicitPath)
+            : path.join(__dirname, 'english-notes', 'English_Learning_Notebook.docx');
+
+        if (localPath && fs.existsSync(localPath)) {
+            const stat = fs.statSync(localPath);
+            if (stat.isFile() && stat.size >= 64) {
+                if (
+                    !forceRefresh
+                    && studyNotebookCache.parsed
+                    && studyNotebookCache.source === 'local-word'
+                    && studyNotebookCache.mtimeMs === stat.mtimeMs
+                    && studyNotebookCache.size === stat.size
+                ) {
+                    return studyNotebookCache.parsed;
+                }
+                const buf = fs.readFileSync(localPath);
+                const parsedLocal = updateStudyNotebookCacheFromBuffer(buf, 'local-word', stat);
+                if (parsedLocal) return parsedLocal;
+            }
+        }
+    } catch (_) {}
+
+    if (
+        !forceRefresh
+        && studyNotebookCache.parsed
+        && Date.now() - studyNotebookCache.loadedAt < STUDY_NOTEBOOK_CACHE_TTL_MS
+    ) {
+        return studyNotebookCache.parsed;
+    }
+
+    if (_studyNotebookFetchPromise) {
+        return _studyNotebookFetchPromise;
+    }
+
+    _studyNotebookFetchPromise = (async () => {
+        const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
+        const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+        const tmpDocxPath = path.join(shmDir, `English_Read_${process.pid}_${Date.now()}.docx`);
+        try {
+            if (!fs.existsSync(rcloneConf)) {
+                return studyNotebookCache.parsed || null;
+            }
+            const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
+            const { execFile } = require('node:child_process');
+            const rcloneExecEnv = buildSafeRcloneExecEnv();
+            await new Promise((resolve, reject) => {
+                execFile(
+                    'rclone',
+                    ['--config', rcloneConf, 'copyto', '--retries', '1', remoteTarget, tmpDocxPath],
+                    { timeout: 25000, env: rcloneExecEnv },
+                    (err, _stdout, stderr) => {
+                        if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
+                        resolve();
+                    }
+                );
+            });
+            const buf = fs.readFileSync(tmpDocxPath);
+            const parsedDrive = updateStudyNotebookCacheFromBuffer(buf, 'drive-word');
+            return parsedDrive || studyNotebookCache.parsed || null;
+        } catch (_err) {
+            return studyNotebookCache.parsed || null;
+        } finally {
+            try {
+                if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
+            } catch (_) {}
+            if (cleanupConf) {
+                try {
+                    if (fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
+                } catch (_) {}
+            }
+        }
+    })();
+
+    try {
+        return await _studyNotebookFetchPromise;
+    } finally {
+        _studyNotebookFetchPromise = null;
+    }
+}
+
+app.get('/api/english/study-notebook', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    try {
+        const forceRefresh = String(req.query.refresh || '') === '1';
+        const parsedBase = await getStudyNotebookDataForUser({ forceRefresh });
+        if (!parsedBase || !parsedBase.ok) {
+            return res.json({
+                ok: true,
+                available: false,
+                source: 'none',
+                updatedAt: null,
+                total: 0,
+                offset: 0,
+                nextOffset: null,
+                counts: { total: 0, vocabulary: 0, grammar: 0, phrasal_verb: 0, music: 0, notes: 0 },
+                facets: { artists: [], albums: [], songs: [] },
+                entries: []
+            });
+        }
+        const filtered = filterStudyNotebookData(parsedBase, {
+            section: req.query.section,
+            artist: req.query.artist,
+            album: req.query.album,
+            song: req.query.song,
+            q: req.query.q,
+            offset: req.query.offset,
+            limit: req.query.limit
+        });
+        return res.json({
+            ...filtered,
+            available: true
+        });
+    } catch (err) {
+        console.error('[STUDY_NOTEBOOK_READ_ERROR]', err);
+        return res.status(500).json({ ok: false, error: 'Error reading study notebook.' });
+    }
+});
+
 app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, verifyPcBridgeAuth, async (req, res) => {
     const requestedTarget = String(req.body?.target || req.body?.documentType || req.body?.kind || 'study_word')
         .trim()
@@ -7067,21 +7244,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
     }
 
     const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
-    const configuredStudyRemote = String(process.env.STUDY_RCLONE_REMOTE || '').trim();
-    const mainRemote = String(process.env.RCLONE_REMOTE || 'gdrive').trim();
-    const studyDir = String(process.env.STUDY_RCLONE_DIR || 'NotasIdiomas').trim().replace(/^\/+|\/+$/g, '') || 'NotasIdiomas';
-    const mainBackupDir = String(process.env.RCLONE_BACKUP_DIR || 'RespaldosApp').trim().replace(/^\/+|\/+$/g, '') || 'RespaldosApp';
-
-    let hasDedicatedStudyRemote = usingStudyConfig && Boolean(configuredStudyRemote);
-    if (!hasDedicatedStudyRemote && configuredStudyRemote && fs.existsSync(rcloneConf)) {
-        try {
-            const confText = fs.readFileSync(rcloneConf, 'utf8');
-            hasDedicatedStudyRemote = confText.includes(`[${configuredStudyRemote}]`);
-        } catch (_) {}
-    }
-
-    const remoteName = hasDedicatedStudyRemote ? configuredStudyRemote : mainRemote;
-    const folderName = hasDedicatedStudyRemote ? studyDir : `${mainBackupDir}/${studyDir}`;
+    const { remoteName, folderName, remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
 
     let docxBuffer = null;
     try {
@@ -7102,6 +7265,8 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
         return res.status(400).json({ ok: false, error: 'Payload is not a valid .docx ZIP container.' });
     }
 
+    updateStudyNotebookCacheFromBuffer(docxBuffer, 'pc-sync');
+
     const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
     const tmpDocxPath = path.join(shmDir, `English_Learning_Notebook_${process.pid}_${Date.now()}.docx`);
 
@@ -7112,14 +7277,13 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             return res.json({
                 ok: true,
                 uploaded: false,
-                remoteTarget: `${remoteName}:${folderName}/English_Learning_Notebook.docx`,
+                remoteTarget,
                 message: 'rclone.conf no encontrado en entorno local; en EC2 se sube automáticamente con RCLONE_CONF_B64.'
             });
         }
 
         const { execFile } = require('node:child_process');
         const rcloneExecEnv = buildSafeRcloneExecEnv();
-        const remoteTarget = `${remoteName}:${folderName}/English_Learning_Notebook.docx`;
         const localSha256 = crypto.createHash('sha256').update(docxBuffer).digest('hex');
 
         await new Promise((resolve, reject) => {
@@ -7139,6 +7303,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
         // Verificar que el archivo realmente existe en Google Drive y coincide en tamaño
         let verified = false;
         let remoteSize = null;
+        let remoteModTime = '';
         try {
             const lsOut = await new Promise((resolve, reject) => {
                 execFile(
@@ -7152,6 +7317,7 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
                 );
             });
             const entries = JSON.parse(String(lsOut || '[]'));
+            if (Array.isArray(entries) && entries.length > 0) remoteModTime = String(entries[0].ModTime || '');
             if (Array.isArray(entries) && entries.length > 0 && Number(entries[0].Size) === docxBuffer.length) {
                 verified = true;
                 remoteSize = Number(entries[0].Size);
@@ -7180,12 +7346,66 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             verified: true,
             localSize: docxBuffer.length,
             remoteSize,
+            remoteModTime,
             sha256: localSha256,
             remoteTarget
         });
     } catch (err) {
         console.error('[STUDY_DRIVE_SYNC_ERROR]', err.message);
         return res.status(502).json({ ok: false, error: err.message || 'Failed to upload language notebook to Google Drive.' });
+    } finally {
+        try {
+            if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
+            if (cleanupConf && rcloneConf && fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
+        } catch (_) {}
+    }
+});
+
+// Drive -> PC (reverse mirror). Signed GET from sincronizador.py; `?download=1` returns the .docx as base64.
+// Read-only against Drive: never writes remote files, and only touches the isolated Study Word remote.
+app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verifyPcBridgeAuth, async (req, res) => {
+    const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
+    const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
+
+    const shmDir = fs.existsSync('/dev/shm') ? '/dev/shm' : os.tmpdir();
+    const tmpDocxPath = path.join(shmDir, `English_Pull_${process.pid}_${Date.now()}.docx`);
+    try {
+        if (!fs.existsSync(rcloneConf)) {
+            return res.json({ ok: true, exists: false, message: 'rclone.conf not available on this server.' });
+        }
+        const { execFile } = require('node:child_process');
+        const rcloneExecEnv = buildSafeRcloneExecEnv();
+        const run = (args, timeout) => new Promise((resolve, reject) => {
+            execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
+                if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
+                resolve(stdout);
+            });
+        });
+
+        const entries = JSON.parse(String(await run(['lsjson', remoteTarget], 15000) || '[]'));
+        if (!Array.isArray(entries) || !entries.length) {
+            return res.json({ ok: true, exists: false, remoteTarget });
+        }
+        const meta = { ok: true, exists: true, remoteTarget, remoteSize: Number(entries[0].Size) || 0, remoteModTime: String(entries[0].ModTime || '') };
+        if (String(req.query.download || '') !== '1') return res.json(meta);
+        if (meta.remoteSize > 12 * 1024 * 1024) {
+            return res.status(413).json({ ok: false, error: 'Remote notebook exceeds the 12 MB sync limit.' });
+        }
+
+        await run(['copyto', '--retries', '2', remoteTarget, tmpDocxPath], 40000);
+        const buf = fs.readFileSync(tmpDocxPath);
+        if (buf.length < 64 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+            return res.status(502).json({ ok: false, error: 'Downloaded file is not a valid .docx container.' });
+        }
+        updateStudyNotebookCacheFromBuffer(buf, 'drive-word');
+        return res.json({
+            ...meta,
+            sha256: crypto.createHash('sha256').update(buf).digest('hex'),
+            docxB64: buf.toString('base64')
+        });
+    } catch (err) {
+        console.error('[STUDY_DRIVE_PULL_ERROR]', err.message);
+        return res.status(502).json({ ok: false, error: 'Could not read the language notebook from Google Drive.' });
     } finally {
         try {
             if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
@@ -7226,6 +7446,10 @@ app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middlewa
                 songId,
                 videoId,
                 lyrics: cleanLyrics,
+                tracks: extracted.tracks || null,
+                trackList: extracted.trackList || [],
+                spanishSource: extracted.tracks?.es ? 'yt-captions' : null,
+                tokensUsed: 0,
                 source: cleanSource,
                 language: extracted.language || '',
                 ytdlpAvailable: Boolean(extracted.ytdlpAvailable),
@@ -7705,6 +7929,34 @@ async function loadUserRepertoireForAi(uid) {
     }
 }
 
+function createBoundedAiCache(maxEntries = 150, ttlMs = 24 * 60 * 60 * 1000) {
+    const store = new Map();
+    return {
+        get(key) {
+            const entry = store.get(key);
+            if (!entry) return null;
+            if (Date.now() - entry.createdAt > ttlMs) {
+                store.delete(key);
+                return null;
+            }
+            return entry.result;
+        },
+        set(key, result) {
+            if (store.has(key)) store.delete(key);
+            while (store.size >= maxEntries) {
+                const oldestKey = store.keys().next().value;
+                if (!oldestKey) break;
+                store.delete(oldestKey);
+            }
+            store.set(key, { result, createdAt: Date.now() });
+        }
+    };
+}
+
+const languageAnalysisCache = createBoundedAiCache(150);
+const languageTranslationCache = createBoundedAiCache(300);
+const lyricsTranslationCache = createBoundedAiCache(120);
+
 app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
     try {
         const text = String(req.body.text || '').trim();
@@ -7724,6 +7976,7 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
         const mode = ['auto', 'gemini', 'offline'].includes(String(req.body.mode || 'auto').toLowerCase())
             ? String(req.body.mode || 'auto').toLowerCase()
             : 'auto';
+        const direction = normalizeTranslationDirection(req.body.direction || 'auto');
         const language = normalizeStudyLanguage(req.body.language || settings.preferredStudyLanguage || 'en_ko');
         const requestedReasoning = String(req.body.reasoningMode || settings.geminiMode || 'fast').toLowerCase() === 'reasoning';
         const configuredForMode = requestedReasoning
@@ -7736,8 +7989,158 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
         const artistName = String(req.body.artistName || '').trim().slice(0, 140);
 
         const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
+        const forceRefresh = req.body.forceRefresh === true;
+        const analysisCacheKey = crypto
+            .createHash('sha256')
+            .update(`${req.user.id}|${language}|${uiLang}|${songTitle.toLowerCase()}|${artistName.toLowerCase()}|${text.replace(/\s+/g, ' ').trim()}|${question.replace(/\s+/g, ' ').trim()}`)
+            .digest('hex');
+
+        const ramHit = (!forceRefresh && mode !== 'offline') ? languageAnalysisCache.get(analysisCacheKey) : null;
+        const exactMemHit = (!ramHit && !forceRefresh && !question && mode === 'auto' && text.length <= 160 && ['auto', 'en_es', 'ko_es'].includes(direction))
+            ? currentMemory.terms.find((t) =>
+                t.term.toLowerCase() === text.toLowerCase()
+                && t.meaning
+                && !isPoisonedMemoryMeaning(t.meaning)
+            )
+            : null;
+        let notebookMatch = null;
+        if (!ramHit && !exactMemHit && !forceRefresh && !question && mode !== 'offline') {
+            const notebookData = await getStudyNotebookDataForUser();
+            if (notebookData && notebookData.ok) {
+                notebookMatch = findNotebookTranslationMatch(notebookData, {
+                    text,
+                    songTitle,
+                    artistName,
+                    mode: (text.includes('\n') || songTitle) ? 'lyrics' : 'text'
+                });
+            }
+        }
+
         let result;
-        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+        if (ramHit) {
+            result = { ok: true, ...ramHit, usedGemini: false, cached: true, cacheHit: true, rememberable: false };
+        } else if (notebookMatch && notebookMatch.hit) {
+            const baseOffline = analyzeTextOffline({
+                text,
+                question,
+                language,
+                songTitle: songTitle || notebookMatch.entry?.title || '',
+                artistName: artistName || notebookMatch.entry?.artist || '',
+                learningMemory: currentMemory,
+                repertoire,
+                uiLang
+            });
+            if (notebookMatch.kind === 'music-lyrics') {
+                const esLines = String(notebookMatch.spanishLyrics || '').split(/\r?\n/).filter(Boolean);
+                const enrichedLines = Array.isArray(baseOffline.lines)
+                    ? baseOffline.lines.map((lineObj, idx) => ({
+                        ...lineObj,
+                        translation: esLines[idx] || lineObj.translation || ''
+                    }))
+                    : baseOffline.lines;
+                result = {
+                    ...baseOffline,
+                    ok: true,
+                    lines: enrichedLines,
+                    usedGemini: false,
+                    cachedFromWord: true,
+                    cacheHit: true,
+                    provider: 'word-notebook-cache',
+                    rememberable: false,
+                    translatedText: notebookMatch.spanishLyrics,
+                    spanishMeaning: notebookMatch.spanishLyrics,
+                    summary: uiLang === 'en'
+                        ? `Retrieved instantaneously from your local Word notebook (${notebookMatch.entry?.title || songTitle}, 0 AI tokens).`
+                        : `Recuperado al instante desde tu cuaderno Word (${notebookMatch.entry?.title || songTitle}, 0 tokens de IA).`,
+                    culturalAndGrammarNotes: [
+                        uiLang === 'en'
+                            ? '⚡ Word Cache Hit: Existing song translation loaded without calling Gemini.'
+                            : '⚡ Caché del Cuaderno Word: Traducción cargada sin consumir tokens de Gemini.',
+                        ...(Array.isArray(baseOffline.culturalAndGrammarNotes) ? baseOffline.culturalAndGrammarNotes : [])
+                    ]
+                };
+            } else {
+                const cachedMeaning = notebookMatch.translatedText;
+                const cachedRom = notebookMatch.romanization || baseOffline.wordNoteDraft?.romanization || '';
+                result = {
+                    ...baseOffline,
+                    ok: true,
+                    usedGemini: false,
+                    cachedFromWord: true,
+                    cacheHit: true,
+                    provider: 'word-notebook-cache',
+                    rememberable: false,
+                    direction,
+                    sourceText: text,
+                    translatedText: cachedMeaning,
+                    spanishMeaning: cachedMeaning,
+                    romanization: cachedRom,
+                    detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                    summary: notebookMatch.summary || `${text} -> ${cachedMeaning}`,
+                    vocabulary: [
+                        {
+                            term: text,
+                            meaning: cachedMeaning,
+                            romanization: cachedRom,
+                            category: notebookMatch.section || 'vocabulary',
+                            notes: notebookMatch.explanation || ''
+                        },
+                        ...(Array.isArray(baseOffline.vocabulary) ? baseOffline.vocabulary.filter((v) => String(v.term || '').toLowerCase() !== text.toLowerCase()) : [])
+                    ],
+                    culturalAndGrammarNotes: [
+                        uiLang === 'en'
+                            ? `⚡ Word Cache Hit (${notebookMatch.section || 'notebook'}): 0 AI tokens used.`
+                            : `⚡ Caché del Cuaderno Word (${notebookMatch.section || 'cuaderno'}): 0 tokens de IA consumidos.`,
+                        ...(notebookMatch.explanation ? [notebookMatch.explanation] : []),
+                        ...(Array.isArray(baseOffline.culturalAndGrammarNotes) ? baseOffline.culturalAndGrammarNotes : [])
+                    ],
+                    wordNoteDraft: {
+                        ...(baseOffline.wordNoteDraft || {}),
+                        word: text,
+                        romanization: cachedRom,
+                        meaning: cachedMeaning,
+                        example: notebookMatch.example || baseOffline.wordNoteDraft?.example || '',
+                        notes: notebookMatch.explanation || baseOffline.wordNoteDraft?.notes || ''
+                    }
+                };
+            }
+        } else if (exactMemHit) {
+            const baseOffline = analyzeTextOffline({
+                text,
+                question,
+                language,
+                songTitle,
+                artistName,
+                learningMemory: currentMemory,
+                repertoire,
+                uiLang
+            });
+            result = {
+                ...baseOffline,
+                ok: true,
+                usedGemini: false,
+                cachedFromMemory: true,
+                cacheHit: true,
+                provider: 'memory-cache',
+                direction,
+                sourceText: text,
+                translatedText: exactMemHit.meaning,
+                spanishMeaning: exactMemHit.meaning,
+                romanization: exactMemHit.romanization || baseOffline.wordNoteDraft?.romanization || '',
+                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                rememberable: false,
+                summary: `${text} -> ${exactMemHit.meaning}`,
+                explanation: uiLang === 'en'
+                    ? 'Retrieved instantaneously from your saved study memory (0 AI tokens).'
+                    : 'Recuperado al instante desde tu memoria de estudio guardada (0 tokens de IA).',
+                wordNoteDraft: {
+                    ...(baseOffline.wordNoteDraft || {}),
+                    word: text,
+                    romanization: exactMemHit.romanization || baseOffline.wordNoteDraft?.romanization || '',
+                    meaning: exactMemHit.meaning
+                }
+            };
+        } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = analyzeTextOffline({
                 text,
                 question,
@@ -7761,6 +8164,9 @@ app.post('/api/language/analyze', apiWriteLimiter.middleware, requireAdmin, requ
                 repertoire,
                 uiLang
             });
+            if (result && result.ok !== false && result.usedGemini !== false) {
+                languageAnalysisCache.set(analysisCacheKey, result);
+            }
         }
 
         // Persist newly learned terms, grammar notes, and studied songs into user's AI memory bank
@@ -7856,8 +8262,76 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
         const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
 
         const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
+        const forceRefresh = req.body.forceRefresh === true;
+        const transCacheKey = crypto
+            .createHash('sha256')
+            .update(`${req.user.id}|${direction}|${uiLang}|${context.toLowerCase()}|${text.toLowerCase().replace(/\s+/g, ' ').trim()}`)
+            .digest('hex');
+
+        const cachedTrans = (!forceRefresh && mode !== 'offline') ? languageTranslationCache.get(transCacheKey) : null;
+        const exactMemHit = (!cachedTrans && !forceRefresh && mode === 'auto' && text.length <= 160 && ['auto', 'en_es', 'ko_es'].includes(direction))
+            ? currentMemory.terms.find((t) =>
+                t.term.toLowerCase() === text.toLowerCase()
+                && t.meaning
+                && !isPoisonedMemoryMeaning(t.meaning)
+            )
+            : null;
+        let notebookMatch = null;
+        if (!cachedTrans && !exactMemHit && !forceRefresh && mode !== 'offline' && ['auto', 'en_es', 'ko_es'].includes(direction)) {
+            const notebookData = await getStudyNotebookDataForUser();
+            if (notebookData && notebookData.ok) {
+                notebookMatch = findNotebookTranslationMatch(notebookData, { text, mode: 'text' });
+            }
+        }
+
         let result;
-        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+        if (cachedTrans) {
+            result = {
+                ...cachedTrans,
+                usedGemini: false,
+                cached: true,
+                cacheHit: true,
+                rememberable: false
+            };
+        } else if (notebookMatch && notebookMatch.hit) {
+            const translatedVal = notebookMatch.translatedText || notebookMatch.spanishLyrics || '';
+            result = {
+                ok: true,
+                usedGemini: false,
+                cachedFromWord: true,
+                cacheHit: true,
+                provider: 'word-notebook-cache',
+                direction,
+                sourceText: text,
+                translatedText: translatedVal,
+                spanishMeaning: translatedVal,
+                romanization: notebookMatch.romanization || '',
+                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                rememberable: false,
+                explanation: notebookMatch.explanation
+                    || (uiLang === 'en'
+                        ? 'Retrieved instantaneously from your local Word notebook (0 AI tokens).'
+                        : 'Recuperado al instante desde tu cuaderno Word local (0 tokens de IA).')
+            };
+        } else if (exactMemHit) {
+            result = {
+                ok: true,
+                usedGemini: false,
+                cachedFromMemory: true,
+                cacheHit: true,
+                provider: 'memory-cache',
+                direction,
+                sourceText: text,
+                translatedText: exactMemHit.meaning,
+                spanishMeaning: exactMemHit.meaning,
+                romanization: exactMemHit.romanization || '',
+                detectedScript: /[\uAC00-\uD7A3]/.test(text) ? 'korean' : 'latin',
+                rememberable: false,
+                explanation: uiLang === 'en'
+                    ? 'Retrieved instantaneously from your saved study memory (0 AI tokens).'
+                    : 'Recuperado al instante desde tu memoria de estudio guardada (0 tokens de IA).'
+            };
+        } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
             result = translateOffline({
                 text,
                 direction,
@@ -7874,6 +8348,9 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
                 learningMemory: currentMemory,
                 uiLang
             });
+            if (result && result.ok !== false && result.translatedText && result.usedGemini !== false) {
+                languageTranslationCache.set(transCacheKey, result);
+            }
         }
 
         const candidateMemoryMeaning = result.spanishMeaning || result.translatedText;
@@ -7921,7 +8398,8 @@ app.post('/api/language/translate', apiWriteLimiter.middleware, requireAdmin, re
 
 app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, async (req, res) => {
     try {
-        const lyrics = String(req.body.lyrics || req.body.text || '').trim();
+        const nativeTracksEs = String(req.body.tracks?.es || '').trim().slice(0, 12000);
+        const lyrics = String(req.body.lyrics || req.body.text || req.body.tracks?.original || nativeTracksEs || '').trim();
         if (!lyrics) {
             return res.status(400).send('Provide song lyrics to translate to Spanish.');
         }
@@ -7931,6 +8409,7 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
 
         const modeRaw = String(req.body.mode || 'auto').toLowerCase();
         const mode = ['auto', 'gemini', 'offline'].includes(modeRaw) ? modeRaw : 'auto';
+        const forceRefresh = req.body.forceRefresh === true;
         const songTitle = String(req.body.songTitle || req.body.titulo || '').trim().slice(0, 160);
         const artistName = String(req.body.artistName || req.body.artista || '').trim().slice(0, 160);
         const language = String(req.body.language || req.body.idioma || '').trim().slice(0, 60);
@@ -7942,26 +8421,105 @@ app.post('/api/english/music/translate-lyrics', apiWriteLimiter.middleware, requ
         const effectiveKey = inlineKey || settings.geminiApiKey || process.env.GEMINI_API_KEY || '';
         const uiLang = req.headers['x-ui-lang'] || req.body?.uiLang || 'es';
 
-        let result;
-        if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
-            result = translateLyricsToSpanishOffline({
-                lyrics,
+        const baseLyrics = stripAiSpanishLyricsSection(lyrics).trim() || lyrics;
+        const cacheKey = crypto
+            .createHash('sha256')
+            .update(`${req.user.id}|${songTitle.toLowerCase()}|${artistName.toLowerCase()}|${baseLyrics.replace(/\s+/g, ' ').trim()}`)
+            .digest('hex');
+
+        const embeddedEs = (!forceRefresh && mode !== 'offline') ? extractSpanishBlockFromLyrics(lyrics) : '';
+        const ytEsLyrics = (!forceRefresh && mode !== 'offline') ? (nativeTracksEs || (/(?:^|\n)\[ES(?:-[^\]]+)?\]\s*\n/i.test(lyrics) ? embeddedEs : '')) : '';
+        let result = (!ytEsLyrics && !embeddedEs && !forceRefresh && mode !== 'offline') ? lyricsTranslationCache.get(cacheKey) : null;
+        if (ytEsLyrics) {
+            result = {
+                ok: true,
+                usedGemini: false,
+                cached: true,
+                cacheHit: true,
+                source: 'yt-captions',
+                provider: 'yt-captions',
+                tokensUsed: 0,
                 songTitle,
                 artistName,
-                learningMemory: currentMemory,
-                uiLang
-            });
+                language: language || 'yt-captions',
+                spanishLyrics: ytEsLyrics,
+                summary: uiLang === 'en'
+                    ? 'Official Spanish captions loaded directly from YouTube (0 AI tokens).'
+                    : 'Subtítulos oficiales en español cargados directamente desde YouTube (0 tokens de IA).'
+            };
+        } else if (embeddedEs) {
+            result = {
+                ok: true,
+                usedGemini: false,
+                cached: true,
+                cacheHit: true,
+                source: 'embedded-lyrics-cache',
+                provider: 'embedded-lyrics-cache',
+                tokensUsed: 0,
+                songTitle,
+                artistName,
+                language: language || 'Word Cache',
+                spanishLyrics: embeddedEs,
+                summary: uiLang === 'en'
+                    ? 'Spanish lyrics extracted directly from existing notebook content (0 AI tokens).'
+                    : 'Traducción al español extraída del registro existente sin consumir Gemini.'
+            };
+        } else if (result) {
+            result = { ...result, usedGemini: false, cached: true, cacheHit: true, tokensUsed: 0 };
         } else {
-            result = await translateLyricsToSpanishWithGemini({
-                apiKey: effectiveKey,
-                model,
-                lyrics,
-                songTitle,
-                artistName,
-                language,
-                learningMemory: currentMemory,
-                uiLang
-            });
+            let nbMatch = null;
+            if (!forceRefresh && mode !== 'offline') {
+                const notebookData = await getStudyNotebookDataForUser();
+                if (notebookData && notebookData.ok) {
+                    nbMatch = findNotebookTranslationMatch(notebookData, {
+                        text: baseLyrics,
+                        songTitle,
+                        artistName,
+                        mode: 'lyrics'
+                    });
+                }
+            }
+            if (nbMatch && nbMatch.spanishLyrics) {
+                result = {
+                    ok: true,
+                    usedGemini: false,
+                    cachedFromWord: true,
+                    cacheHit: true,
+                    source: 'word-notebook-cache',
+                    provider: 'word-notebook-cache',
+                    tokensUsed: 0,
+                    songTitle: nbMatch.entry?.title || songTitle,
+                    artistName: nbMatch.entry?.artist || artistName,
+                    language: language || 'Word Cache',
+                    spanishLyrics: nbMatch.spanishLyrics,
+                    summary: uiLang === 'en'
+                        ? 'Spanish lyrics retrieved from your local Word notebook without using Gemini.'
+                        : 'Traducción al español recuperada directamente del cuaderno Word (0 tokens de Gemini).'
+                };
+                lyricsTranslationCache.set(cacheKey, result);
+            } else if (mode === 'offline' || (mode === 'auto' && !effectiveKey)) {
+                result = translateLyricsToSpanishOffline({
+                    lyrics: baseLyrics,
+                    songTitle,
+                    artistName,
+                    learningMemory: currentMemory,
+                    uiLang
+                });
+            } else {
+                result = await translateLyricsToSpanishWithGemini({
+                    apiKey: effectiveKey,
+                    model,
+                    lyrics: baseLyrics,
+                    songTitle,
+                    artistName,
+                    language,
+                    learningMemory: currentMemory,
+                    uiLang
+                });
+                if (result && result.ok !== false && result.spanishLyrics) {
+                    lyricsTranslationCache.set(cacheKey, result);
+                }
+            }
         }
 
         if (!result || result.ok === false) {
