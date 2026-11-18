@@ -136,6 +136,7 @@ jobs:
           host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 25m
           envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_SITE_ADDRESS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
           script: |
             set -euo pipefail
@@ -186,15 +187,21 @@ jobs:
 
             # 1. Instalar dependencias base, actualizar sistema, ffmpeg y yt-dlp autonomo
             if command -v apt-get >/dev/null 2>&1; then
-              sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
-              sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
-              sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates rclone unzip cron openssl python3 ffmpeg
-              sudo DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo DEBIAN_FRONTEND=noninteractive apt-get autoclean -y
+              for _i in 1 2 3 4 5 6 7 8 9 10; do sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 3; done
+              sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
+              if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+                sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+                sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git curl ca-certificates rclone unzip cron openssl python3 ffmpeg
+                sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+                sudo DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo DEBIAN_FRONTEND=noninteractive apt-get autoclean -y
+              fi
             elif command -v dnf >/dev/null 2>&1; then
-              sudo dnf upgrade -y || true
-              sudo dnf install -y git curl unzip cronie openssl python3 ffmpeg || sudo dnf install -y git curl unzip cronie openssl python3
-              if ! command -v rclone >/dev/null 2>&1; then
-                curl -fsSL https://rclone.org/install.sh | sudo bash
+              if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+                sudo dnf upgrade -y || true
+                sudo dnf install -y git curl unzip cronie openssl python3 ffmpeg || sudo dnf install -y git curl unzip cronie openssl python3
+                if ! command -v rclone >/dev/null 2>&1; then
+                  curl -fsSL https://rclone.org/install.sh | sudo bash
+                fi
               fi
             fi
 
@@ -377,7 +384,7 @@ jobs:
 
             FINAL_CRON_SCHEDULE="${BACKUP_CRON_SCHEDULE:-30 3 * * *}"
             CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
-            YTDLP_CRON_JOB="0 4 * * 0 (/usr/local/bin/yt-dlp -U || true) && (docker exec mood_app yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
+            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec mood_app yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" | grep -v "yt-dlp -U" || true; printf '%s\n%s\n' "$CRON_JOB" "$YTDLP_CRON_JOB") | crontab -
 
             # 9. Garantizar cero .env en disco por defecto (salvo que SEAL_ENV_AFTER_DEPLOY=false)
