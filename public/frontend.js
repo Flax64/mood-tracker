@@ -11650,7 +11650,10 @@ function populateSettingsForm(settings = {}) {
     setVal('setNtfyTopic', settings.ntfyTopic || '');
     setVal('setNtfyServerUrl', settings.ntfyServerUrl || 'https://ntfy.sh');
     setVal('setNtfyPriority', settings.ntfyPriority ?? 4);
-    setVal('setPublicBaseUrl', settings.publicBaseUrl || '');
+    const originFallback = window.location?.origin && !/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(window.location.origin)
+        ? window.location.origin
+        : '';
+    setVal('setPublicBaseUrl', settings.publicBaseUrl || originFallback);
     setCheck('setDesktopNotify', settings.desktopNotificationsEnabled);
 
     setCheck('setMoodEnabled', settings.moodRemindersEnabled !== false);
@@ -11961,7 +11964,13 @@ function initSettingsHandlers() {
                         method: 'POST',
                         scopeKey: 'settings-test-push',
                         signature: String(Date.now()),
-                        buildBody: () => ({}),
+                        buildBody: () => {
+                            const typedBase = String(document.getElementById('setPublicBaseUrl')?.value || '').trim();
+                            const originFallback = window.location?.origin && !/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(window.location.origin)
+                                ? window.location.origin
+                                : '';
+                            return typedBase || originFallback ? { publicBaseUrl: typedBase || originFallback } : {};
+                        },
                         parseJson: true
                     });
                     setSettingsBanner('ok', resData.message || 'Test push notification sent to your phone!');

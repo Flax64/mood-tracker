@@ -1809,8 +1809,48 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 assert.strictEqual(pushBody.title, 'Personal Daily Hub - Phone Connected');
                 assert.strictEqual(pushBody.priority, 4);
                 assert.strictEqual(pushBody.click, 'http://203.0.113.10:3000/#settings');
-                assert.ok(Array.isArray(pushBody.actions) && pushBody.actions.length === 1);
+                assert.ok(Array.isArray(pushBody.actions) && pushBody.actions.length === 3, 'ntfy debe mostrar Open App, Snooze 15m y Skip');
                 assert.strictEqual(pushBody.actions[0].url, 'http://203.0.113.10:3000/#settings');
+                assert.strictEqual(pushBody.actions[1].label, 'Snooze 15m');
+                assert.strictEqual(pushBody.actions[1].action, 'http');
+                assert.strictEqual(pushBody.actions[2].label, 'Skip');
+                assert.strictEqual(pushBody.actions[2].action, 'http');
+
+                // Simular clic en Snooze 15m y Skip directamente sobre /api/reminders/action desde el celular
+                const snoozeUrlObj = new URL(pushBody.actions[1].url);
+                const snoozeActRes = await request({
+                    port,
+                    method: 'POST',
+                    reqPath: `${snoozeUrlObj.pathname}${snoozeUrlObj.search}`
+                });
+                assert.strictEqual(snoozeActRes.status, 200);
+                assert.strictEqual(JSON.parse(snoozeActRes.body).action, 'snoozed');
+
+                const skipUrlObj = new URL(pushBody.actions[2].url);
+                const skipActRes = await request({
+                    port,
+                    method: 'POST',
+                    reqPath: `${skipUrlObj.pathname}${skipUrlObj.search}`
+                });
+                assert.strictEqual(skipActRes.status, 200);
+                assert.strictEqual(JSON.parse(skipActRes.body).action, 'skipped');
+
+                // También verificar Snooze + Skip desde /api/reminders/snooze sobre un recordatorio activo
+                const sleepKey = sleepRem.key;
+                const skipInAppRes = await request({
+                    port,
+                    method: 'POST',
+                    reqPath: '/api/reminders/snooze',
+                    headers: { Cookie: adminCookie },
+                    body: {
+                        key: sleepKey,
+                        action: 'skip',
+                        type: 'sleep',
+                        title: sleepRem.title || 'Sleep Reminder'
+                    }
+                });
+                assert.strictEqual(skipInAppRes.status, 200);
+                assert.strictEqual(JSON.parse(skipInAppRes.body).action, 'skipped');
             } finally {
                 globalThis.fetch = originalFetch;
             }

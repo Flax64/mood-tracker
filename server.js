@@ -4578,12 +4578,26 @@ function computeCandidateReminders({
     return candidates;
 }
 
+let lastKnownPublicBaseUrl = '';
+
+function recordPublicBaseUrlFromReq(req) {
+    if (!req) return '';
+    const candidate = getResetBaseUrl(req);
+    if (candidate && !/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(candidate)) {
+        lastKnownPublicBaseUrl = candidate;
+    }
+    return candidate;
+}
+
 function buildPublicBaseUrlForUser(settings, req = null) {
     if (settings && settings.publicBaseUrl) return settings.publicBaseUrl;
-    if (req) return getResetBaseUrl(req);
+    if (req) return recordPublicBaseUrlFromReq(req);
     const envBase = (process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
     if (envBase && /^https?:\/\/[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(envBase)) {
         return envBase;
+    }
+    if (lastKnownPublicBaseUrl) {
+        return lastKnownPublicBaseUrl;
     }
     return '';
 }
@@ -4698,23 +4712,15 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
         const qs = params.toString();
         const targetUrl = `${baseUrl}/${qs ? `?${qs}` : ''}#${reminder.targetView || 'inicio'}`;
         jsonPayload.click = targetUrl;
-        const actions = [
-            {
-                action: 'view',
-                label: 'Open App',
-                url: targetUrl
-            }
-        ];
+        const hasValidMapsUrl = Boolean(reminder.mapsUrl && /^https:\/\/www\.google\.com\/maps\//.test(reminder.mapsUrl));
+        const openAppAction = {
+            action: 'view',
+            label: 'Open App',
+            url: targetUrl
+        };
+        const actions = [];
 
-        if (reminder.mapsUrl && /^https:\/\/www\.google\.com\/maps\//.test(reminder.mapsUrl)) {
-            actions.push({
-                action: 'view',
-                label: 'Google Maps Route',
-                url: reminder.mapsUrl
-            });
-        }
-
-        if (reminder.canSnooze && userId && reminder.key && reminder.type !== 'test') {
+        if ((reminder.canSnooze || reminder.previewActions) && userId && reminder.key) {
             const actionToken = signReminderActionToken(userId, reminder.key);
             const buildNtfyHttpAction = ({ label, actionName, minutes = 0, clear = true }) => {
                 const actionPayload = {
@@ -4749,29 +4755,43 @@ async function sendPhonePushViaNtfy({ settings, reminder, baseUrl = '', userId }
                 };
             };
 
-            actions.push(buildNtfyHttpAction({
+            const snoozeAction = buildNtfyHttpAction({
                 label: 'Snooze 15m',
                 actionName: 'snooze',
                 minutes: 15,
                 clear: true
-            }));
+            });
+            const skipAction = buildNtfyHttpAction({
+                label: 'Skip',
+                actionName: 'skip',
+                minutes: 0,
+                clear: true
+            });
 
-            if (actions.length < 3) {
-                if (reminder.canComplete && reminder.refId) {
-                    actions.push(buildNtfyHttpAction({
-                        label: 'Mark Done',
-                        actionName: 'complete_agenda',
-                        minutes: 0,
-                        clear: true
-                    }));
-                } else {
-                    actions.push(buildNtfyHttpAction({
-                        label: 'Snooze 30m',
-                        actionName: 'snooze',
-                        minutes: 30,
-                        clear: true
-                    }));
-                }
+            if (hasValidMapsUrl) {
+                actions.push(snoozeAction, skipAction, {
+                    action: 'view',
+                    label: 'Google Maps Route',
+                    url: reminder.mapsUrl
+                });
+            } else if (reminder.canComplete && reminder.refId) {
+                actions.push(snoozeAction, skipAction, buildNtfyHttpAction({
+                    label: 'Mark Done',
+                    actionName: 'complete_agenda',
+                    minutes: 0,
+                    clear: true
+                }));
+            } else {
+                actions.push(openAppAction, snoozeAction, skipAction);
+            }
+        } else {
+            actions.push(openAppAction);
+            if (hasValidMapsUrl) {
+                actions.push({
+                    action: 'view',
+                    label: 'Google Maps Route',
+                    url: reminder.mapsUrl
+                });
             }
         }
 
@@ -4999,7 +5019,8 @@ app.post('/api/settings/test-notification', apiWriteLimiter.middleware, requireA
                 title: 'Personal Daily Hub - Phone Connected',
                 message: 'Test alert delivered! Reminders for Mood, Sleep, Agenda, Word Notes, and English Study will appear here.',
                 targetView: 'settings',
-                canSnooze: false
+                canSnooze: true,
+                previewActions: true
             },
             baseUrl,
             userId: req.user.id
@@ -5778,7 +5799,8 @@ async function applyReminderSnoozeOrDismiss({ userId, key, type = 'general', ref
 
 app.post('/api/reminders/snooze', apiWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 0 }), async (req, res) => {
     const key = typeof req.body.key === 'string' ? req.body.key.trim() : '';
-    const action = req.body.action === 'dismiss' ? 'dismiss' : 'snooze';
+    const rawAction = typeof req.body.action === 'string' ? req.body.action.trim().toLowerCase() : 'snooze';
+    const action = rawAction === 'skip' ? 'skip' : (rawAction === 'dismiss' ? 'dismiss' : 'snooze');
     const type = typeof req.body.type === 'string' && req.body.type.trim() ? req.body.type.trim().slice(0, 30) : 'general';
     const title = typeof req.body.title === 'string' ? req.body.title : 'Reminder';
     const message = typeof req.body.message === 'string' ? req.body.message : '';
@@ -5795,22 +5817,28 @@ app.post('/api/reminders/snooze', apiWriteLimiter.middleware, requireAdmin, requ
     }
 
     try {
+        if (action === 'skip' && refId) {
+            await dbQueryAsync("UPDATE RegistrosAgenda SET estado = 'skipped', completada = 0 WHERE id = ?", [refId]);
+        }
         const result = await applyReminderSnoozeOrDismiss({
             userId: req.user.id,
             key,
             type,
             refId,
-            action,
+            action: action === 'snooze' ? 'snooze' : 'dismiss',
             minutes: Number(req.body.minutes ?? 15),
             title,
             message
         });
         res.json({
-            message: result.action === 'dismissed'
-                ? 'Reminder dismissed.'
-                : `Reminder postponed for ${result.minutes} minutes.`,
+            message: action === 'skip'
+                ? 'Reminder skipped.'
+                : (result.action === 'dismissed'
+                    ? 'Reminder dismissed.'
+                    : `Reminder postponed for ${result.minutes} minutes.`),
             key,
-            ...result
+            ...result,
+            action: action === 'skip' ? 'skipped' : result.action
         });
     } catch (err) {
         console.error(err);
@@ -5827,7 +5855,8 @@ const handleReminderExternalAction = async (req, res) => {
     const key = typeof src.key === 'string' ? src.key.trim() : '';
     const token = typeof src.token === 'string' ? src.token.trim() : '';
     const action = typeof src.action === 'string' ? src.action.trim().toLowerCase() : 'snooze';
-    const minutes = src.minutes !== undefined ? Number(src.minutes) : 15;
+    const rawMins = Number(src.minutes);
+    const minutes = Number.isFinite(rawMins) && rawMins >= 1 && rawMins <= 240 ? Math.round(rawMins) : 15;
     const type = typeof src.type === 'string' && src.type.trim() ? src.type.trim().slice(0, 30) : 'general';
     const refId = parsePositiveInt(src.refId, null);
     const title = typeof src.title === 'string' && src.title.trim() ? src.title.trim().slice(0, 140) : 'Reminder';
@@ -5871,6 +5900,19 @@ const handleReminderExternalAction = async (req, res) => {
             return res.status(403).send('Account not authorized for this action.');
         }
 
+        if (key.startsWith('test:') || type === 'test') {
+            const isSkipOrDismiss = action === 'skip' || action === 'dismiss';
+            return res.json({
+                ok: true,
+                key,
+                action: isSkipOrDismiss ? 'skipped' : 'snoozed',
+                minutes: isSkipOrDismiss ? 0 : minutes,
+                message: isSkipOrDismiss
+                    ? 'Test notification skipped.'
+                    : `Test notification snoozed for ${minutes} minutes.`
+            });
+        }
+
         if ((action === 'complete_agenda' || action === 'complete') && refId) {
             await dbQueryAsync("UPDATE RegistrosAgenda SET estado = 'done', completada = 1 WHERE id = ?", [refId]);
             await applyReminderSnoozeOrDismiss({
@@ -5885,12 +5927,17 @@ const handleReminderExternalAction = async (req, res) => {
             return res.json({ ok: true, action: 'complete_agenda', key, refId, message: 'Agenda item marked as Done.' });
         }
 
+        if (action === 'skip' && refId) {
+            await dbQueryAsync("UPDATE RegistrosAgenda SET estado = 'skipped', completada = 0 WHERE id = ?", [refId]);
+        }
+
+        const isDismissAction = action === 'dismiss' || action === 'skip';
         const result = await applyReminderSnoozeOrDismiss({
             userId: effectiveUserId,
             key,
             type,
             refId,
-            action: action === 'dismiss' ? 'dismiss' : 'snooze',
+            action: isDismissAction ? 'dismiss' : 'snooze',
             minutes,
             title,
             message
@@ -5898,10 +5945,14 @@ const handleReminderExternalAction = async (req, res) => {
         return res.json({
             ok: true,
             key,
-            message: result.action === 'dismissed'
-                ? 'Reminder dismissed.'
-                : `Postponed for ${result.minutes} minutes.`,
-            ...result
+            refId: refId || null,
+            message: action === 'skip'
+                ? 'Reminder skipped.'
+                : (result.action === 'dismissed'
+                    ? 'Reminder dismissed.'
+                    : `Postponed for ${result.minutes} minutes.`),
+            ...result,
+            action: action === 'skip' ? 'skipped' : result.action
         });
     } catch (err) {
         console.error(err);
