@@ -8345,3 +8345,31 @@ input[type="password"] {
     padding-top: 6px;
     border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
+
+.lyrics-lang-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.lyrics-lang-tab {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.16));
+    background: var(--card-bg-subtle, rgba(255, 255, 255, 0.04));
+    color: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.lyrics-lang-tab:hover {
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.lyrics-lang-tab.active {
+    border-color: var(--accent, #7c9cff);
+    background: rgba(124, 156, 255, 0.18);
+    font-weight: 600;
+}

@@ -1361,7 +1361,11 @@ _WORD_SONG_LABEL_MAP = (
     ("YouTube Music:", "yt_music_url"),
     ("Study Focus:", "focus_summary"),
     ("Stanzas Breakdown (Intro / Chorus / Rap):", "stanzas_breakdown"),
+    ("Stanza Breakdown (Intro / Pre-Coro / Coro / Rap / Cierre):", "stanzas_breakdown"),
+    ("Stanza Breakdown:", "stanzas_breakdown"),
     ("Lyrics & Meaning Breakdown:", "lyrics_study"),
+    ("Heading 2: Letra", "lyrics_study"),
+    ("Letra:", "lyrics_study"),
     ("Vocabulary & Expressions:", "vocabulary_list"),
     ("Pronunciation & Connected Speech:", "pronunciation_notes"),
     ("Practice & Quiz:", "practice_quiz"),
@@ -1413,6 +1417,7 @@ def _extraer_campos_bloque_word(lineas_texto, heading_text=""):
         "pronunciation_notes": "",
         "practice_quiz": "",
         "notes": "",
+        "added_at": "",
     }
     multiline_keys = {
         "stanzas_breakdown",
@@ -1440,7 +1445,7 @@ def _extraer_campos_bloque_word(lineas_texto, heading_text=""):
                 elif key == "track_number":
                     fields["track_number"] = _extraer_numero_pista(val)
                 elif key == "added_at":
-                    pass
+                    fields["added_at"] = val
                 else:
                     fields[key] = val
                 current_key = key if key in multiline_keys else None
@@ -1453,9 +1458,69 @@ def _extraer_campos_bloque_word(lineas_texto, heading_text=""):
     return fields
 
 
+_LANG_CODE_ALIASES = {"kr": "ko", "jp": "ja", "orig": "original"}
 _RE_ENCABEZADO_IDIOMA_LETRA = re.compile(
-    r"^(?:===\s*)?\[([A-Za-z]{2,3}(?:-[A-Za-z]+)?)(?:\s*[—-][^\]]*)?\](?:\s*===)?\s*$"
+    r"^(?:===\s*)?\[(?:Letra\s*[—\-]\s*)?(original|orig|en|ko|kr|es|ja|jp|zh|fr|pt|de|it|ru|sub|und)(?:-[A-Za-z0-9]+)?(?:\s*(?:[—/\-])[^\]]*)?\](?:\s*===)?\s*$",
+    re.IGNORECASE,
 )
+_RE_HANGUL_CHAR = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]")
+_RE_RUIDO_SUBTITULO_LINEA = re.compile(
+    r"^(?:\[(?:음악|音楽|歌|music|applause|laughter|cheering|instrumental)\]|\s*[\[\]]\s*)$",
+    re.IGNORECASE,
+)
+_RE_TRADUCCION_ES_EN_NOTAS = re.compile(
+    r"(?:^|\n)\[Traducción\s+ES\s*[—-][^\]]+\]\s*\n([\s\S]*?)(?=\n---\n|\Z)",
+    re.IGNORECASE,
+)
+
+
+def _aislar_lineas_coreano(texto):
+    """Conserva únicamente líneas que contienen Hangul para el bloque [KO] puro."""
+    limpias = []
+    for raw in str(texto or "").replace("\r", "").split("\n"):
+        s = raw.strip()
+        if not s or _RE_RUIDO_SUBTITULO_LINEA.match(s):
+            continue
+        if _RE_HANGUL_CHAR.search(s):
+            if not limpias or limpias[-1] != s:
+                limpias.append(s)
+    return "\n".join(limpias).strip()
+
+
+def _limpiar_ruido_letra(texto):
+    """Elimina marcadores vacíos o de sonido de subtítulos ([음악], [音楽], [歌], '[' sueltos)."""
+    raw = str(texto or "").replace("\r", "").strip()
+    if not raw:
+        return ""
+    limpias = []
+    for line in raw.split("\n"):
+        s = line.strip()
+        if s and _RE_RUIDO_SUBTITULO_LINEA.match(s):
+            continue
+        limpias.append(line.rstrip())
+    res = "\n".join(limpias)
+    res = re.sub(r"\n{3,}", "\n\n", res)
+    return res.strip()
+
+
+def _limpiar_notas_redundantes_cancion(notes_val, lyrics_val=""):
+    """Evita duplicar la traducción al español dentro de Extra Study Notes cuando ya existe en lyrics_study."""
+    notes_clean = str(notes_val or "").replace("\r", "").strip()
+    if not notes_clean:
+        return ""
+    lyrics_clean = str(lyrics_val or "")
+    has_es_in_lyrics = bool(
+        re.search(
+            r"(?:^|\n)(?:===\s*)?\[es(?:\s*[—/\-][^\]]*)?\](?:\s*===)?\s*(?:\n|$)",
+            lyrics_clean,
+            re.IGNORECASE,
+        )
+    )
+    if has_es_in_lyrics:
+        notes_clean = _RE_TRADUCCION_ES_EN_NOTAS.sub("\n", notes_clean)
+        notes_clean = re.sub(r"(?:\n---\n|\A---\n|\n---\Z)", "\n", notes_clean)
+        notes_clean = re.sub(r"\n{3,}", "\n\n", notes_clean).strip()
+    return notes_clean
 
 
 def _dividir_letra_por_idiomas(texto):
@@ -1467,7 +1532,9 @@ def _dividir_letra_por_idiomas(texto):
         if m:
             if encabezado or any(ln.strip() for ln in cuerpo):
                 bloques.append((clave, encabezado, "\n".join(cuerpo).strip()))
-            clave, encabezado, cuerpo = m.group(1).lower()[:2], raw.strip(), []
+            raw_code = m.group(1).lower()
+            clave = _LANG_CODE_ALIASES.get(raw_code, raw_code)
+            encabezado, cuerpo = raw.strip(), []
         else:
             cuerpo.append(raw)
     if encabezado or any(ln.strip() for ln in cuerpo):
@@ -1475,15 +1542,10 @@ def _dividir_letra_por_idiomas(texto):
     return bloques
 
 
-def _combinar_letra_por_idiomas(prev_val, new_val):
-    """Fusiona letras sin duplicar bloques de idioma ni perder idiomas ya guardados en Word.
-
-    - Mismo idioma: gana el bloque nuevo (actualiza).
-    - Idioma que solo existe en Word: se conserva.
-    - Bloques idénticos (texto normalizado) nunca se repiten.
-    """
-    prev_clean = str(prev_val or "").strip()
-    new_clean = str(new_val or "").strip()
+def _combinar_letra_por_idiomas(prev_val, new_val, append=False):
+    """Fusiona letras sin duplicar bloques de idioma ni perder idiomas o bloques base ya guardados en Word."""
+    prev_clean = _limpiar_ruido_letra(prev_val)
+    new_clean = _limpiar_ruido_letra(new_val)
     if not new_clean:
         return prev_clean
     if not prev_clean:
@@ -1492,29 +1554,73 @@ def _combinar_letra_por_idiomas(prev_val, new_val):
     def norm(s):
         return " ".join(str(s or "").split()).lower()
 
-    if norm(new_clean) in norm(prev_clean):
+    prev_norm = norm(prev_clean)
+    new_norm = norm(new_clean)
+    if new_norm == prev_norm or new_norm in prev_norm:
         return prev_clean
+    if prev_norm in new_norm:
+        return new_clean
+
     prev_blocks = _dividir_letra_por_idiomas(prev_clean)
     new_blocks = _dividir_letra_por_idiomas(new_clean)
-    if not any(b[1] for b in prev_blocks) and not any(b[1] for b in new_blocks):
-        return new_clean  # sin marcadores de idioma: reemplazo simple
+    prev_has_lang = any(b[1] for b in prev_blocks)
+    new_has_lang = any(b[1] for b in new_blocks)
 
-    new_keys = {b[0] for b in new_blocks if b[1]}
-    merged, seen_bodies = [], set()
-    for clave, enc, cuerpo in new_blocks:
-        h = norm(cuerpo)
-        if h and h in seen_bodies:
-            continue
-        seen_bodies.add(h)
-        merged.append((clave, enc, cuerpo))
+    if not prev_has_lang and not new_has_lang:
+        return _combinar_campo_multilinea(prev_clean, new_clean, append=append)
+
+    ordered_keys = []
+    block_map = {}
+
     for clave, enc, cuerpo in prev_blocks:
-        if not enc or clave in new_keys:
-            continue
+        slot = clave if enc else "__base__"
+        if slot not in block_map:
+            ordered_keys.append(slot)
+            block_map[slot] = (clave, enc, cuerpo)
+        elif cuerpo and norm(cuerpo) not in norm(block_map[slot][2]):
+            prev_c = block_map[slot][2]
+            block_map[slot] = (
+                clave,
+                block_map[slot][1] or enc,
+                f"{prev_c}\n\n{cuerpo}".strip() if prev_c else cuerpo,
+            )
+
+    for clave, enc, cuerpo in new_blocks:
+        slot = clave if enc else "__base__"
+        if slot in block_map:
+            old_clave, old_enc, old_cuerpo = block_map[slot]
+            if slot == "__base__" and append and old_cuerpo and norm(cuerpo) != norm(old_cuerpo):
+                updated_body = _combinar_campo_multilinea(old_cuerpo, cuerpo, append=True)
+            else:
+                updated_body = cuerpo or old_cuerpo
+            block_map[slot] = (clave or old_clave, enc or old_enc, updated_body)
+        else:
+            ordered_keys.append(slot)
+            block_map[slot] = (clave, enc, cuerpo)
+
+    canon_order = {"__base__": 0, "original": 1, "ko": 2, "en": 3, "ja": 4, "es": 5}
+    ordered_keys = sorted(
+        ordered_keys,
+        key=lambda k: (canon_order.get(k, 6), ordered_keys.index(k)),
+    )
+    if "original" in block_map and "ko" in block_map:
+        ko_c, ko_enc, ko_body = block_map["ko"]
+        ko_isolated = _aislar_lineas_coreano(ko_body)
+        if ko_isolated:
+            block_map["ko"] = (ko_c, ko_enc, ko_isolated)
+
+    merged, seen_bodies = [], set()
+    for slot in ordered_keys:
+        clave, enc, cuerpo = block_map[slot]
         h = norm(cuerpo)
+        if not enc and not h:
+            continue
         if h and h in seen_bodies:
             continue
-        seen_bodies.add(h)
+        if h:
+            seen_bodies.add(h)
         merged.append((clave, enc, cuerpo))
+
     return "\n\n".join(
         f"{enc}\n{cuerpo}".strip() if enc else cuerpo for _, enc, cuerpo in merged
     ).strip()
@@ -1540,6 +1646,35 @@ def _combinar_metadata_cancion_word(existing_fields, new_entry):
     """Combina metadatos/letras guardados previamente en Word con una actualización sin perder secciones."""
     old = existing_fields or {}
     append_study = bool(new_entry.get("append_study_fields"))
+    raw_old_lyrics = _limpiar_ruido_letra(old.get("lyrics_study"))
+    raw_new_lyrics = _limpiar_ruido_letra(new_entry.get("lyrics_study"))
+
+    # Si una entrada previa guardó la traducción ES solo en notes, rescatarla a lyrics_study antes de limpiar
+    old_notes_raw = str(old.get("notes") or "")
+    new_notes_raw = str(new_entry.get("notes") or "")
+    combined_lyrics = _combinar_letra_por_idiomas(
+        raw_old_lyrics, raw_new_lyrics, append=append_study
+    )
+    if not re.search(
+        r"(?:^|\n)(?:===\s*)?\[es(?:\s*[—/\-][^\]]*)?\](?:\s*===)?\s*(?:\n|$)",
+        combined_lyrics,
+        re.IGNORECASE,
+    ):
+        m_es = _RE_TRADUCCION_ES_EN_NOTAS.search(old_notes_raw)
+        if m_es and m_es.group(1).strip():
+            combined_lyrics = _combinar_letra_por_idiomas(
+                combined_lyrics,
+                f"=== [ES — Traducción IA] ===\n{m_es.group(1).strip()}",
+                append=False,
+            )
+
+    old_notes_clean = _limpiar_notas_redundantes_cancion(old_notes_raw, combined_lyrics)
+    new_notes_clean = _limpiar_notas_redundantes_cancion(new_notes_raw, combined_lyrics)
+    merged_notes = _combinar_campo_multilinea(
+        old_notes_clean, new_notes_clean, append=append_study
+    )
+    merged_notes = _limpiar_notas_redundantes_cancion(merged_notes, combined_lyrics)
+
     merged = {
         "category": "music",
         "language": _limpiar_linea(new_entry.get("language"))
@@ -1571,9 +1706,7 @@ def _combinar_metadata_cancion_word(existing_fields, new_entry):
             new_entry.get("stanzas_breakdown"),
             append=append_study,
         ),
-        "lyrics_study": _combinar_letra_por_idiomas(
-            old.get("lyrics_study"), new_entry.get("lyrics_study")
-        ),
+        "lyrics_study": combined_lyrics,
         "vocabulary_list": _combinar_campo_multilinea(
             old.get("vocabulary_list"),
             new_entry.get("vocabulary_list"),
@@ -1589,9 +1722,9 @@ def _combinar_metadata_cancion_word(existing_fields, new_entry):
             new_entry.get("practice_quiz"),
             append=append_study,
         ),
-        "notes": _combinar_campo_multilinea(
-            old.get("notes"), new_entry.get("notes"), append=append_study
-        ),
+        "notes": merged_notes,
+        "added_at": _limpiar_linea(new_entry.get("added_at"))
+        or _limpiar_linea(old.get("added_at")),
     }
     return merged
 
@@ -1618,7 +1751,9 @@ def formatear_entrada_ingles(entry, fecha_dt=None):
         else "grammar"
     )
     section_title = SECCIONES_INGLES[category]
-    timestamp_str = (fecha_dt or datetime.now()).strftime("%Y-%m-%d %H:%M")
+    timestamp_str = _limpiar_linea(entry.get("added_at")) or (
+        fecha_dt or datetime.now()
+    ).strftime("%Y-%m-%d %H:%M")
     lines = []
 
     if category == "vocabulary":
@@ -1857,13 +1992,17 @@ def formatear_entrada_ingles(entry, fecha_dt=None):
                     "muted": False,
                 }
             )
+        clean_lyrics = _limpiar_ruido_letra(entry.get("lyrics_study"))
+        clean_notes = _limpiar_notas_redundantes_cancion(
+            entry.get("notes"), clean_lyrics
+        )
         _agregar_lineas_texto(
             lines,
             "Stanzas Breakdown (Intro / Chorus / Rap): ",
             entry.get("stanzas_breakdown"),
         )
         _agregar_lineas_texto(
-            lines, "Lyrics & Meaning Breakdown: ", entry.get("lyrics_study")
+            lines, "Lyrics & Meaning Breakdown: ", clean_lyrics
         )
         _agregar_lineas_texto(
             lines, "Vocabulary & Expressions: ", entry.get("vocabulary_list")
@@ -1874,7 +2013,7 @@ def formatear_entrada_ingles(entry, fecha_dt=None):
             entry.get("pronunciation_notes"),
         )
         _agregar_lineas_texto(lines, "Practice & Quiz: ", entry.get("practice_quiz"))
-        _agregar_lineas_texto(lines, "Extra Study Notes: ", entry.get("notes"))
+        _agregar_lineas_texto(lines, "Extra Study Notes: ", clean_notes)
 
     else:
         language = _limpiar_linea(entry.get("language"))
@@ -2404,14 +2543,96 @@ def _coincide_cancion_en_bloque(
     return True
 
 
+def _word_com_bloque_duplicado(doc, spec):
+    """True si la sección ya contiene la misma entrada en modo Word COM."""
+    sec_start, sec_end = _buscar_rango_seccion(doc, spec["category"], include_eof_nonempty=True)
+    if sec_start is None:
+        return False
+    target_heading = _normalizar_clave_texto(spec["heading"])
+    strict_heading = spec.get("category") in ("vocabulary", "phrasal_verb")
+    new_body = _ooxml_cuerpo_normalizado(
+        [f"{ln.get('label', '')}{ln.get('text', '')}" for ln in spec["lines"]]
+    )
+    idx = sec_start + 1
+    while idx < sec_end:
+        p = doc.Paragraphs(idx)
+        if not _en_rango_toc(doc, p) and p.OutlineLevel == 2:
+            if _normalizar_clave_texto(_texto_parrafo_limpio(p)) == target_heading:
+                if strict_heading:
+                    return True
+                j = idx + 1
+                while j < sec_end:
+                    pj = doc.Paragraphs(j)
+                    if not _en_rango_toc(doc, pj) and pj.OutlineLevel in (1, 2):
+                        break
+                    j += 1
+                existing = _ooxml_cuerpo_normalizado(
+                    [_texto_parrafo_limpio(doc.Paragraphs(k)) for k in range(idx + 1, j)]
+                )
+                if existing == new_body:
+                    return True
+                idx = j
+                continue
+        idx += 1
+    return False
+
+
 def _guardar_cancion_ordenada_en_word(doc, entry):
-    """Organiza Sección 4 en Heading 2 (Álbum/Playlist) -> Heading 3 (01. Pista) y fusiona notas."""
+    """Organiza Sección 4 en Heading 2 (Álbum/Playlist) -> Heading 3 (01. Pista) y fusiona notas sin duplicar."""
     _asegurar_ultimo_parrafo_vacio(doc)
     sec_start, sec_end = _buscar_rango_seccion(doc, "music")
     if sec_start is None:
         sec_start = 1
 
-    target_group_heading = _encabezado_grupo_album(entry)
+    groups = _recolectar_grupos_y_pistas_musica(doc, sec_start, sec_end)
+    target_title = _limpiar_linea(entry.get("song_title"))
+    target_artist = _limpiar_linea(entry.get("artists_display"))
+
+    matched_ranges = []
+    combined_existing = None
+    for grp in groups:
+        grp_matches = 0
+        for tr in grp["tracks"]:
+            body_lines = [
+                _texto_parrafo_limpio(doc.Paragraphs(p_i))
+                for p_i in range(tr["h3_idx"] + 1, tr["end_idx"])
+            ]
+            existing_fields = _extraer_campos_bloque_word(body_lines, tr["heading"])
+            if _coincide_cancion_en_bloque(
+                existing_fields, tr["heading"], target_title, target_artist
+            ):
+                grp_matches += 1
+                combined_existing = (
+                    existing_fields
+                    if combined_existing is None
+                    else _combinar_metadata_cancion_word(
+                        combined_existing,
+                        dict(existing_fields, category="music", append_study_fields=True),
+                    )
+                )
+                matched_ranges.append((tr["h3_idx"], tr["end_idx"]))
+        if grp_matches and grp_matches == len(grp["tracks"]):
+            matched_ranges.append((grp["h2_idx"], grp["h2_idx"] + 1))
+
+    merged_entry = (
+        _combinar_metadata_cancion_word(combined_existing, entry)
+        if combined_existing is not None
+        else dict(entry)
+    )
+
+    for del_s_idx, del_e_idx in sorted(matched_ranges, key=lambda x: x[0], reverse=True):
+        try:
+            del_start = doc.Paragraphs(del_s_idx).Range.Start
+            del_end = doc.Paragraphs(del_e_idx).Range.Start
+            if del_end > del_start:
+                doc.Range(del_start, del_end).Delete()
+        except Exception:
+            pass
+
+    sec_start, sec_end = _buscar_rango_seccion(doc, "music")
+    if sec_start is None:
+        sec_start = 1
+    target_group_heading = _encabezado_grupo_album(merged_entry)
     target_group_key = _clave_grupo_album(target_group_heading)
     groups = _recolectar_grupos_y_pistas_musica(doc, sec_start, sec_end)
 
@@ -2446,37 +2667,7 @@ def _guardar_cancion_ordenada_en_word(doc, entry):
             bold_all=True,
         )
 
-    if matched_group is None:
-        spec = formatear_entrada_ingles(entry)
-        _insertar_bloque_lineas(doc, sec_end, -4, spec["heading"], 11.5, spec["lines"])
-        return spec
-
-    merged_entry = dict(entry)
-    target_title = _limpiar_linea(entry.get("song_title"))
-    target_artist = _limpiar_linea(entry.get("artists_display"))
-
-    for tr in matched_group["tracks"]:
-        body_lines = [
-            _texto_parrafo_limpio(doc.Paragraphs(p_i))
-            for p_i in range(tr["h3_idx"] + 1, tr["end_idx"])
-        ]
-        existing_fields = _extraer_campos_bloque_word(body_lines, tr["heading"])
-        if _coincide_cancion_en_bloque(
-            existing_fields, tr["heading"], target_title, target_artist
-        ):
-            merged_entry = _combinar_metadata_cancion_word(existing_fields, entry)
-            del_start = doc.Paragraphs(tr["h3_idx"]).Range.Start
-            del_end = doc.Paragraphs(tr["end_idx"]).Range.Start
-            if del_end > del_start:
-                doc.Range(del_start, del_end).Delete()
-            break
-
     spec = formatear_entrada_ingles(merged_entry)
-    sec_start, sec_end = _buscar_rango_seccion(doc, "music")
-    groups = _recolectar_grupos_y_pistas_musica(doc, sec_start or 1, sec_end)
-    matched_group = next(
-        (g for g in groups if g["group_key"] == target_group_key), None
-    )
     if matched_group is None:
         _insertar_bloque_lineas(doc, sec_end, -4, spec["heading"], 11.5, spec["lines"])
         return spec
@@ -3132,6 +3323,8 @@ def _ooxml_bloque_duplicado(body, items, sec_start, sec_end, spec):
 
 def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
     """Inserta o actualiza una entrada directamente vía OOXML ZIP/XML en milisegundos sin abrir WINWORD.EXE."""
+    if not isinstance(entry, dict):
+        entry = parsear_entrada_ingles(entry)
     with zipfile.ZipFile(archivo, "r") as zf:
         estilos = _ooxml_cargar_estilos_mapa(zf)
         orig_doc_bytes = zf.read("word/document.xml")
@@ -3153,7 +3346,62 @@ def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
         if sec_start is None:
             sec_start = 0
 
-        target_group_heading = _encabezado_grupo_album(entry)
+        groups = _agrupar_musica_desde_items(items, sec_start, sec_end)
+        target_title = _limpiar_linea(entry.get("song_title"))
+        target_artist = _limpiar_linea(entry.get("artists_display"))
+
+        combined_existing = None
+        elems_to_remove = []
+        body_children = list(body)
+
+        for grp in groups:
+            matched_tracks_in_grp = 0
+            for tr in grp["tracks"]:
+                body_lines = [
+                    _texto_parrafo_ooxml(body_children[p_i])
+                    for p_i in range(tr["h3_idx"] + 1, tr["end_idx"])
+                ]
+                existing_fields = _extraer_campos_bloque_word(body_lines, tr["heading"])
+                if _coincide_cancion_en_bloque(
+                    existing_fields, tr["heading"], target_title, target_artist
+                ):
+                    matched_tracks_in_grp += 1
+                    combined_existing = (
+                        existing_fields
+                        if combined_existing is None
+                        else _combinar_metadata_cancion_word(
+                            combined_existing,
+                            dict(existing_fields, category="music", append_study_fields=True),
+                        )
+                    )
+                    elems_to_remove.extend(body_children[tr["h3_idx"] : tr["end_idx"]])
+            if matched_tracks_in_grp and matched_tracks_in_grp == len(grp["tracks"]):
+                first_tr_idx = grp["tracks"][0]["h3_idx"]
+                has_other_text = any(
+                    _texto_parrafo_ooxml(body_children[p_i])
+                    for p_i in range(grp["h2_idx"] + 1, first_tr_idx)
+                )
+                if not has_other_text:
+                    elems_to_remove.extend(body_children[grp["h2_idx"] : first_tr_idx])
+
+        for rm_el in elems_to_remove:
+            if rm_el in body:
+                body.remove(rm_el)
+
+        merged_entry = (
+            _combinar_metadata_cancion_word(combined_existing, entry)
+            if combined_existing is not None
+            else dict(entry)
+        )
+
+        toc_range = _ooxml_encontrar_rango_toc(list(body))
+        sec_start, sec_end, items = _ooxml_buscar_rango_seccion(
+            body, style_levels, "music", toc_range
+        )
+        if sec_start is None:
+            sec_start = 0
+
+        target_group_heading = _encabezado_grupo_album(merged_entry)
         target_group_key = _clave_grupo_album(target_group_heading)
         groups = _agrupar_musica_desde_items(items, sec_start, sec_end)
         matched_group = next(
@@ -3184,58 +3432,25 @@ def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
                 body[matched_group["h2_idx"]], target_group_heading, 13
             )
 
+        spec = formatear_entrada_ingles(merged_entry)
         if matched_group is None:
-            spec = formatear_entrada_ingles(entry)
             bloque = _ooxml_construir_bloque_elementos(
                 spec["heading"], estilo_ids["heading_3"], 11.5, spec["lines"]
             )
             for offset, el in enumerate(bloque):
                 body.insert(sec_end + offset, el)
         else:
-            merged_entry = dict(entry)
-            target_title = _limpiar_linea(entry.get("song_title"))
-            target_artist = _limpiar_linea(entry.get("artists_display"))
-
+            new_sort_key = _clave_orden_pista(
+                spec.get("track_number"), merged_entry.get("song_title")
+            )
+            insert_at = matched_group["end_idx"]
             for tr in matched_group["tracks"]:
-                body_lines = [
-                    _texto_parrafo_ooxml(body[p_i])
-                    for p_i in range(tr["h3_idx"] + 1, tr["end_idx"])
-                ]
-                existing_fields = _extraer_campos_bloque_word(body_lines, tr["heading"])
-                if _coincide_cancion_en_bloque(
-                    existing_fields, tr["heading"], target_title, target_artist
-                ):
-                    merged_entry = _combinar_metadata_cancion_word(
-                        existing_fields, entry
-                    )
-                    for rm_el in list(body)[tr["h3_idx"] : tr["end_idx"]]:
-                        body.remove(rm_el)
-                    break
-
-            spec = formatear_entrada_ingles(merged_entry)
-            toc_range = _ooxml_encontrar_rango_toc(list(body))
-            sec_start, sec_end, items = _ooxml_buscar_rango_seccion(
-                body, style_levels, "music", toc_range
-            )
-            groups = _agrupar_musica_desde_items(items, sec_start or 0, sec_end)
-            matched_group = next(
-                (g for g in groups if g["group_key"] == target_group_key), None
-            )
-
-            if matched_group is None:
-                insert_at = sec_end
-            else:
-                new_sort_key = _clave_orden_pista(
-                    spec.get("track_number"), merged_entry.get("song_title")
+                existing_key = _clave_orden_pista(
+                    tr.get("track_num"), tr.get("song_key")
                 )
-                insert_at = matched_group["end_idx"]
-                for tr in matched_group["tracks"]:
-                    existing_key = _clave_orden_pista(
-                        tr.get("track_num"), tr.get("song_key")
-                    )
-                    if existing_key > new_sort_key:
-                        insert_at = tr["h3_idx"]
-                        break
+                if existing_key > new_sort_key:
+                    insert_at = tr["h3_idx"]
+                    break
 
             bloque = _ooxml_construir_bloque_elementos(
                 spec["heading"], estilo_ids["heading_3"], 11.5, spec["lines"]
@@ -3287,6 +3502,454 @@ def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
         f"English Notebook actualizado [{spec['category']}] (OOXML): {spec['heading']}"
     )
     return True
+
+
+def _ooxml_lineas_desde_textos(textos):
+    """Convierte líneas de texto plano de una entrada migrada en specs OOXML conservando etiquetas."""
+    specs = []
+    for raw in textos or []:
+        line = str(raw or "").strip()
+        if not line:
+            continue
+        is_added = line.startswith("Added:")
+        m_lbl = re.match(r"^([^:\n]{2,48}:)\s+(.*)$", line)
+        if m_lbl and not re.match(r"^https?:", line, re.IGNORECASE):
+            specs.append(
+                {
+                    "label": m_lbl.group(1) + " ",
+                    "text": m_lbl.group(2),
+                    "size": 9 if is_added else (10 if line.startswith("Language:") else 11),
+                    "italic": is_added or line.startswith("Language:"),
+                    "muted": is_added or line.startswith("Language:"),
+                }
+            )
+        else:
+            specs.append(
+                {
+                    "label": "",
+                    "text": line,
+                    "size": 11,
+                    "italic": False,
+                    "muted": False,
+                }
+            )
+    return specs
+
+
+def _fusionar_pista_en_lista_musica(music_list, track_fields):
+    """Agrega o fusiona una canción en music_list evitando duplicados entre bloques/álbumes."""
+    target_title = _limpiar_linea(track_fields.get("song_title"))
+    target_artist = _limpiar_linea(track_fields.get("artists_display"))
+    if not target_title:
+        return
+
+    for idx, prev in enumerate(music_list):
+        prev_heading = _encabezado_pista_cancion(prev)
+        if _coincide_cancion_en_bloque(prev, prev_heading, target_title, target_artist):
+            # Conservar metadata más rica (p.ej. Mini Album sobre Album, año válido, notas combinadas)
+            merged = _combinar_metadata_cancion_word(
+                prev, dict(track_fields, category="music", append_study_fields=True)
+            )
+            if (
+                prev.get("album_type")
+                and str(prev.get("album_type")).lower() == "mini album"
+                and str(merged.get("album_type") or "").lower() == "album"
+            ):
+                merged["album_type"] = prev["album_type"]
+            music_list[idx] = merged
+            return
+
+    clean_entry = _combinar_metadata_cancion_word(
+        {}, dict(track_fields, category="music", append_study_fields=False)
+    )
+    music_list.append(clean_entry)
+
+
+def _agregar_entrada_texto_dedup(bucket_list, heading, body_lines, strict_heading=False):
+    h_clean = _limpiar_linea(heading)
+    if not h_clean:
+        return
+    h_key = _normalizar_clave_texto(h_clean)
+    body_clean = [str(x).strip() for x in (body_lines or []) if str(x).strip()]
+    body_key = _ooxml_cuerpo_normalizado(body_clean)
+    for item in bucket_list:
+        if item["h_key"] == h_key:
+            if strict_heading or item["body_key"] == body_key:
+                return
+    bucket_list.append(
+        {
+            "heading": h_clean,
+            "h_key": h_key,
+            "lines": body_clean,
+            "body_key": body_key,
+        }
+    )
+
+
+def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
+    """Consolida secciones heredadas ([BLOQUE A/B]), elimina duplicados y limpia ruido en el Word."""
+    if ruta_docx:
+        archivo = os.path.abspath(ruta_docx)
+    else:
+        _, ruta_english = resolver_rutas_word()
+        archivo = os.path.abspath(ruta_english or DEFAULT_ENGLISH_WORD_PATH)
+    if not os.path.exists(archivo):
+        return {"ok": False, "reason": "NO_WORD"}
+    if _word_abierto_en_word(archivo):
+        return {"ok": False, "reason": "WORD_OPEN"}
+
+    with _english_docx_lock:
+        with zipfile.ZipFile(archivo, "r") as zf:
+            estilos = _ooxml_cargar_estilos_mapa(zf)
+            orig_doc_bytes = zf.read("word/document.xml")
+
+        style_levels = estilos["levels"]
+        estilo_ids = estilos["ids"]
+        doc_root = ET.fromstring(orig_doc_bytes)
+        body = doc_root.find(_ooxml_w_tag("body"))
+        if body is None:
+            raise ET.ParseError("word/document.xml sin elemento w:body")
+
+        children = list(body)
+        toc_range = _ooxml_encontrar_rango_toc(children)
+        t_start, t_end = toc_range if toc_range[0] is not None else (-1, -1)
+        sect_idx = _ooxml_indice_sectpr(body)
+        items = _ooxml_items_cuerpo(body, style_levels)
+
+        buckets = {
+            "vocabulary": [],
+            "grammar": [],
+            "phrasal_verb": [],
+            "notes": [],
+        }
+        music_entries = []
+        extra_h1_blocks = []
+
+        # Localizar todos los Heading 1 fuera de la TOC
+        h1_indices = [
+            idx
+            for idx in range(sect_idx)
+            if not (t_start <= idx < t_end) and items[idx][0] == 1
+        ]
+        if not h1_indices:
+            return {"ok": True, "changed": False, "reason": "NO_H1"}
+
+        first_h1_idx = h1_indices[0]
+        raw_section_count = len(h1_indices)
+
+        def _classify_h1(title_text):
+            low = title_text.lower()
+            if low == SECCIONES_INGLES["vocabulary"].lower() or low.startswith("1."):
+                return "vocabulary"
+            if low == SECCIONES_INGLES["grammar"].lower() or low.startswith("2."):
+                return "grammar"
+            if low == SECCIONES_INGLES["phrasal_verb"].lower() or low.startswith("3."):
+                return "phrasal_verb"
+            if low == SECCIONES_INGLES["music"].lower() or low.startswith("4."):
+                return "music"
+            if low == SECCIONES_INGLES["notes"].lower() or low.startswith("5."):
+                return "notes"
+            if "bloque a" in low or "bloque b" in low:
+                if "apartado 1" in low:
+                    return "legacy_apartado_1"
+                if "apartado 2" in low:
+                    return "legacy_apartado_2"
+                if "apartado 3" in low:
+                    return "legacy_apartado_3"
+                return "legacy_other"
+            return "extra"
+
+        for h1_pos, s_idx in enumerate(h1_indices):
+            e_idx = h1_indices[h1_pos + 1] if h1_pos + 1 < len(h1_indices) else sect_idx
+            h1_title = items[s_idx][1]
+            kind = _classify_h1(h1_title)
+
+            if kind in ("vocabulary", "grammar", "phrasal_verb", "notes"):
+                idx = s_idx + 1
+                while idx < e_idx:
+                    lvl, txt = items[idx]
+                    if lvl == 2 and txt:
+                        j = idx + 1
+                        while j < e_idx and items[j][0] not in (1, 2):
+                            j += 1
+                        lines = [items[k][1] for k in range(idx + 1, j) if items[k][1]]
+                        _agregar_entrada_texto_dedup(
+                            buckets[kind],
+                            txt,
+                            lines,
+                            strict_heading=(kind in ("vocabulary", "phrasal_verb")),
+                        )
+                        idx = j
+                    else:
+                        idx += 1
+
+            elif kind == "legacy_apartado_1":
+                loose_lines = []
+                idx = s_idx + 1
+                while idx < e_idx:
+                    lvl, txt = items[idx]
+                    if lvl == 2 and txt:
+                        j = idx + 1
+                        while j < e_idx and items[j][0] not in (1, 2):
+                            j += 1
+                        lines = [items[k][1] for k in range(idx + 1, j) if items[k][1]]
+                        _agregar_entrada_texto_dedup(
+                            buckets["vocabulary"], txt, lines, strict_heading=True
+                        )
+                        idx = j
+                    else:
+                        if txt:
+                            loose_lines.append(txt)
+                        idx += 1
+                if loose_lines:
+                    base_title = (
+                        "Base Fonética Hangul (KO -> EN)"
+                        if "coreano" in h1_title.lower() or "ko" in h1_title.lower()
+                        else "Base Fonética y Reglas de Pronunciación (EN -> ES)"
+                    )
+                    _agregar_entrada_texto_dedup(buckets["grammar"], base_title, loose_lines)
+
+            elif kind == "legacy_apartado_2":
+                idx = s_idx + 1
+                while idx < e_idx:
+                    lvl, txt = items[idx]
+                    if lvl == 2 and txt:
+                        j = idx + 1
+                        while j < e_idx and items[j][0] not in (1, 2):
+                            j += 1
+                        lines = [items[k][1] for k in range(idx + 1, j) if items[k][1]]
+                        target_cat = (
+                            "phrasal_verb" if "phrasal verb" in txt.lower() else "grammar"
+                        )
+                        _agregar_entrada_texto_dedup(
+                            buckets[target_cat],
+                            txt,
+                            lines,
+                            strict_heading=(target_cat == "phrasal_verb"),
+                        )
+                        idx = j
+                    else:
+                        idx += 1
+
+            elif kind in ("music", "legacy_apartado_3"):
+                # Puede contener H2 de álbum -> H3 de canciones, y/o H2 de [SECCION: ..._PRACTICAS]
+                idx = s_idx + 1
+                while idx < e_idx:
+                    lvl, txt = items[idx]
+                    if lvl == 2 and txt:
+                        j = idx + 1
+                        has_h3 = False
+                        while j < e_idx and items[j][0] not in (1, 2):
+                            if items[j][0] == 3:
+                                has_h3 = True
+                            j += 1
+                        if txt.startswith("[SECCION:") or not has_h3:
+                            lines = [
+                                items[k][1] for k in range(idx + 1, j) if items[k][1]
+                            ]
+                            if lines:
+                                _agregar_entrada_texto_dedup(buckets["grammar"], txt, lines)
+                        else:
+                            grp_album, grp_type, grp_year = _parsear_album_release_linea(txt)
+                            is_standalone_grp = txt.lower().startswith("singles & standalone")
+                            k = idx + 1
+                            while k < j:
+                                klvl, ktxt = items[k]
+                                if klvl == 3 and ktxt:
+                                    m = k + 1
+                                    while m < j and items[m][0] not in (1, 2, 3):
+                                        m += 1
+                                    tr_lines = [
+                                        items[p_i][1]
+                                        for p_i in range(k + 1, m)
+                                        if items[p_i][1]
+                                    ]
+                                    fields = _extraer_campos_bloque_word(tr_lines, ktxt)
+                                    if not fields.get("album_title") and not is_standalone_grp:
+                                        fields["album_title"] = grp_album
+                                        fields["album_type"] = fields.get("album_type") or grp_type
+                                        fields["release_year"] = fields.get("release_year") or grp_year
+                                    _fusionar_pista_en_lista_musica(music_entries, fields)
+                                    k = m
+                                else:
+                                    k += 1
+                        idx = j
+                    else:
+                        idx += 1
+
+            elif kind == "legacy_other":
+                idx = s_idx + 1
+                while idx < e_idx:
+                    lvl, txt = items[idx]
+                    if lvl == 2 and txt:
+                        j = idx + 1
+                        while j < e_idx and items[j][0] not in (1, 2):
+                            j += 1
+                        lines = [items[k][1] for k in range(idx + 1, j) if items[k][1]]
+                        _agregar_entrada_texto_dedup(buckets["grammar"], txt, lines)
+                        idx = j
+                    else:
+                        idx += 1
+            else:
+                extra_h1_blocks.append(children[s_idx:e_idx])
+
+        # Reconstruir cuerpo entre first_h1_idx y sect_idx
+        p_tag = _ooxml_w_tag("p")
+        if first_h1_idx >= 2 and children[1].tag == p_tag:
+            sub_txt = _texto_parrafo_ooxml(children[1])
+            if "BLOQUE A" in sub_txt or "BLOQUE B" in sub_txt:
+                _ooxml_establecer_texto_heading(
+                    children[1],
+                    "Structured Vocabulary, Grammar, Phrasal Verbs, Music Study & Personal Notes",
+                    10,
+                )
+                for r_el in children[1].findall(_ooxml_w_tag("r")):
+                    rpr = r_el.find(_ooxml_w_tag("rPr"))
+                    if rpr is not None:
+                        b_el = rpr.find(_ooxml_w_tag("b"))
+                        if b_el is not None:
+                            rpr.remove(b_el)
+
+        for old_el in children[first_h1_idx:sect_idx]:
+            body.remove(old_el)
+
+        insert_pos = first_h1_idx
+        new_elements = []
+
+        for cat in ("vocabulary", "grammar", "phrasal_verb"):
+            new_elements.append(
+                _ooxml_crear_parrafo_texto(
+                    style_id=estilo_ids["heading_1"],
+                    text=SECCIONES_INGLES[cat],
+                    font_size=15,
+                    bold_all=True,
+                )
+            )
+            if not buckets[cat]:
+                new_elements.append(_ooxml_w_el("p"))
+            else:
+                for item in buckets[cat]:
+                    line_specs = _ooxml_lineas_desde_textos(item["lines"])
+                    new_elements.extend(
+                        _ooxml_construir_bloque_elementos(
+                            item["heading"], estilo_ids["heading_2"], 12, line_specs
+                        )
+                    )
+
+        # Sección 4: Music agrupado por álbum/playlist y ordenado por track_number
+        new_elements.append(
+            _ooxml_crear_parrafo_texto(
+                style_id=estilo_ids["heading_1"],
+                text=SECCIONES_INGLES["music"],
+                font_size=15,
+                bold_all=True,
+            )
+        )
+        if not music_entries:
+            new_elements.append(_ooxml_w_el("p"))
+        else:
+            album_groups = {}
+            album_order = []
+            for entry in music_entries:
+                grp_head = _encabezado_grupo_album(entry)
+                grp_key = _clave_grupo_album(grp_head)
+                if grp_key not in album_groups:
+                    album_order.append(grp_key)
+                    album_groups[grp_key] = {"heading": grp_head, "tracks": []}
+                else:
+                    if len(grp_head) > len(album_groups[grp_key]["heading"]):
+                        album_groups[grp_key]["heading"] = grp_head
+                album_groups[grp_key]["tracks"].append(entry)
+
+            for grp_key in album_order:
+                grp = album_groups[grp_key]
+                new_elements.append(
+                    _ooxml_crear_parrafo_texto(
+                        style_id=estilo_ids["heading_2"],
+                        text=grp["heading"],
+                        font_size=13,
+                        bold_all=True,
+                    )
+                )
+                grp["tracks"].sort(
+                    key=lambda e: _clave_orden_pista(
+                        e.get("track_number"), e.get("song_title")
+                    )
+                )
+                for tr_entry in grp["tracks"]:
+                    spec = formatear_entrada_ingles(tr_entry)
+                    new_elements.extend(
+                        _ooxml_construir_bloque_elementos(
+                            spec["heading"],
+                            estilo_ids["heading_3"],
+                            11.5,
+                            spec["lines"],
+                        )
+                    )
+
+        # Sección 5: My Notes & Learnings
+        new_elements.append(
+            _ooxml_crear_parrafo_texto(
+                style_id=estilo_ids["heading_1"],
+                text=SECCIONES_INGLES["notes"],
+                font_size=15,
+                bold_all=True,
+            )
+        )
+        if not buckets["notes"]:
+            new_elements.append(_ooxml_w_el("p"))
+        else:
+            for item in buckets["notes"]:
+                line_specs = _ooxml_lineas_desde_textos(item["lines"])
+                new_elements.extend(
+                    _ooxml_construir_bloque_elementos(
+                        item["heading"], estilo_ids["heading_2"], 12, line_specs
+                    )
+                )
+
+        for block_elems in extra_h1_blocks:
+            new_elements.extend(block_elems)
+
+        for offset, el in enumerate(new_elements):
+            body.insert(insert_pos + offset, el)
+
+        _ooxml_asegurar_secciones_y_final(body, style_levels, estilo_ids)
+        _ooxml_reconstruir_toc_con_enlaces(body, style_levels, estilo_ids)
+        new_doc_bytes = _ooxml_serializar_documento(doc_root, orig_doc_bytes)
+
+        tmp_zip = f"{archivo}.tmp.{os.getpid()}.{threading.get_ident()}"
+        try:
+            with zipfile.ZipFile(archivo, "r") as zin, zipfile.ZipFile(
+                tmp_zip, "w"
+            ) as zout:
+                for info in zin.infolist():
+                    payload = (
+                        new_doc_bytes
+                        if info.filename == "word/document.xml"
+                        else zin.read(info.filename)
+                    )
+                    zout.writestr(info, payload)
+            os.replace(tmp_zip, archivo)
+        finally:
+            if os.path.exists(tmp_zip):
+                try:
+                    os.remove(tmp_zip)
+                except Exception:
+                    pass
+
+        _asegurar_permisos_abiertos_word(archivo)
+        return {
+            "ok": True,
+            "changed": True,
+            "legacySectionsRemoved": raw_section_count > 5,
+            "counts": {
+                "vocabulary": len(buckets["vocabulary"]),
+                "grammar": len(buckets["grammar"]),
+                "phrasal_verb": len(buckets["phrasal_verb"]),
+                "music": len(music_entries),
+                "notes": len(buckets["notes"]),
+            },
+        }
 
 
 _ENGLISH_WORD_DRIVE_STATE_PATH = os.path.join(
@@ -3352,6 +4015,13 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
                 if not raw_docx or len(raw_docx) > (12 * 1024 * 1024):
                     return False
                 current_sha = expected_sha256 or hashlib.sha256(raw_docx).hexdigest()
+                prev_state = _leer_estado_word_drive()
+                if (
+                    prev_state.get("verified")
+                    and str(prev_state.get("sha256") or "") == current_sha
+                ):
+                    _word_watch_cache["sha256"] = current_sha
+                    return True
                 raw_b64 = base64.b64encode(raw_docx).decode("ascii")
                 envelope_obj = {
                     "filename": "English_Learning_Notebook.docx",
@@ -3381,6 +4051,7 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
                             verified=bool(data.get("verified", True)),
                             remote_modtime=str(data.get("remoteModTime") or ""),
                         )
+                        _word_watch_cache["sha256"] = current_sha
                         logging.info(
                             f"Word de Idiomas respaldado y verificado en Google Drive: "
                             f"{data.get('remoteTarget')} ({data.get('remoteSize') or len(raw_docx)} bytes)"
@@ -3413,6 +4084,8 @@ def _sincronizar_word_si_cambio():
             return False
         if RUTA_WORD and os.path.abspath(RUTA_WORD) == target:
             return False
+        if _word_abierto_en_word(target):
+            return False
         st = os.stat(target)
         now = time.time()
         mtime_ns = getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))
@@ -3429,8 +4102,10 @@ def _sincronizar_word_si_cambio():
         current_sha = hashlib.sha256(raw_bytes).hexdigest()
         _word_watch_cache["mtime_ns"] = mtime_ns
         _word_watch_cache["size"] = st.st_size
-        last_uploaded = _word_watch_cache["sha256"] or _leer_ultimo_hash_word_drive()
-        if current_sha == last_uploaded:
+        state = _leer_estado_word_drive()
+        state_sha = str(state.get("sha256") or "")
+        last_uploaded = _word_watch_cache["sha256"] or state_sha
+        if current_sha == last_uploaded and state.get("verified", True):
             _word_watch_cache["sha256"] = current_sha
             return False
         _word_watch_cache["last_attempt"] = now
@@ -3482,113 +4157,116 @@ def _sincronizar_word_desde_drive(force=False):
     if not force and now - _word_pull_state["last_check"] < 60.0:
         return "noop"
     _word_pull_state["last_check"] = now
-    try:
-        _, ruta_eng = resolver_rutas_word()
-        target = os.path.abspath(ruta_eng or DEFAULT_ENGLISH_WORD_PATH)
-        if RUTA_WORD and os.path.abspath(RUTA_WORD) == target:
-            return "noop"
+    with _word_drive_sync_lock:
+        try:
+            _, ruta_eng = resolver_rutas_word()
+            target = os.path.abspath(ruta_eng or DEFAULT_ENGLISH_WORD_PATH)
+            if RUTA_WORD and os.path.abspath(RUTA_WORD) == target:
+                return "noop"
 
-        endpoint = "/api/english/music/pc-word-drive-pull"
-        session = _get_http_session()
-        meta_resp = session.get(
-            obtener_url_aws(endpoint),
-            headers=_firmar_pc_request("GET", endpoint, ""),
-            timeout=20,
-        )
-        if meta_resp.status_code != 200:
-            return "error"
-        meta = meta_resp.json()
-        if not meta.get("exists"):
-            return "noop"
-
-        state = _leer_estado_word_drive()
-        same_remote = (
-            int(meta.get("remoteSize") or 0) == int(state.get("remoteSize") or -1)
-            and str(meta.get("remoteModTime") or "") == str(state.get("remoteModTime") or "")
-        )
-        if same_remote:
-            return "noop"
-
-        dl_resp = session.get(
-            obtener_url_aws(endpoint) + "?download=1",
-            headers=_firmar_pc_request("GET", endpoint, ""),
-            timeout=60,
-        )
-        if dl_resp.status_code != 200:
-            return "error"
-        data = dl_resp.json()
-        remote_bytes = base64.b64decode(data.get("docxB64") or "")
-        if len(remote_bytes) < 64 or not remote_bytes.startswith(b"PK"):
-            return "error"
-        remote_sha = hashlib.sha256(remote_bytes).hexdigest()
-        last_sha = str(state.get("sha256") or "")
-
-        # Drive ya contiene exactamente lo último que subimos desde esta PC
-        if remote_sha == last_sha:
-            _guardar_ultimo_hash_word_drive(
-                last_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
-                str(meta.get("remoteModTime") or ""),
+            endpoint = "/api/english/music/pc-word-drive-pull"
+            session = _get_http_session()
+            meta_resp = session.get(
+                obtener_url_aws(endpoint),
+                headers=_firmar_pc_request("GET", endpoint, ""),
+                timeout=20,
             )
-            return "noop"
+            if meta_resp.status_code != 200:
+                return "error"
+            meta = meta_resp.json()
+            if not meta.get("exists"):
+                return "noop"
 
-        local_exists = os.path.exists(target)
-        local_sha = ""
-        if local_exists:
-            with open(target, "rb") as fh:
-                local_sha = hashlib.sha256(fh.read()).hexdigest()
-        if local_sha == remote_sha:
+            state = _leer_estado_word_drive()
+            same_remote = (
+                int(meta.get("remoteSize") or 0) == int(state.get("remoteSize") or -1)
+                and str(meta.get("remoteModTime") or "") == str(state.get("remoteModTime") or "")
+            )
+            if same_remote:
+                return "noop"
+
+            dl_resp = session.get(
+                obtener_url_aws(endpoint) + "?download=1",
+                headers=_firmar_pc_request("GET", endpoint, ""),
+                timeout=60,
+            )
+            if dl_resp.status_code != 200:
+                return "error"
+            data = dl_resp.json()
+            remote_bytes = base64.b64decode(data.get("docxB64") or "")
+            if len(remote_bytes) < 64 or not remote_bytes.startswith(b"PK"):
+                return "error"
+            remote_sha = hashlib.sha256(remote_bytes).hexdigest()
+            last_sha = str(state.get("sha256") or "")
+
+            # Drive ya contiene exactamente lo último que subimos desde esta PC
+            if remote_sha == last_sha:
+                _guardar_ultimo_hash_word_drive(
+                    last_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                    str(meta.get("remoteModTime") or ""),
+                )
+                return "noop"
+
+            local_exists = os.path.exists(target)
+            local_sha = ""
+            if local_exists:
+                with open(target, "rb") as fh:
+                    local_sha = hashlib.sha256(fh.read()).hexdigest()
+            if local_sha == remote_sha:
+                _guardar_ultimo_hash_word_drive(
+                    remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                    str(meta.get("remoteModTime") or ""),
+                )
+                return "noop"
+
+            local_changed = local_exists and bool(last_sha) and local_sha != last_sha
+            if local_exists and (local_changed or not last_sha):
+                # Conflicto (o primer arranque con ambos distintos): nunca sobrescribir el local.
+                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                base, ext = os.path.splitext(target)
+                conflict_path = f"{base}.drive-conflict-{stamp}{ext}"
+                with open(conflict_path, "wb") as fh:
+                    fh.write(remote_bytes)
+                logging.warning(
+                    f"Conflicto Word local vs Drive: se conservó el local; copia de Drive en {conflict_path}"
+                )
+                _guardar_ultimo_hash_word_drive(
+                    last_sha or local_sha, str(meta.get("remoteTarget") or ""),
+                    int(meta.get("remoteSize") or 0), False, str(meta.get("remoteModTime") or ""),
+                )
+                _word_watch_cache["sha256"] = ""
+                _word_watch_cache["last_attempt"] = 0.0
+                return "conflict"
+
+            if local_exists and _word_abierto_en_word(target):
+                logging.info("Drive tiene una versión nueva del Word, pero está abierto localmente; se pospone.")
+                return "deferred"
+
+            with _english_docx_lock:
+                tmp_path = f"{target}.pull.{os.getpid()}"
+                try:
+                    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                    with open(tmp_path, "wb") as fh:
+                        fh.write(remote_bytes)
+                    os.replace(tmp_path, target)  # PermissionError si Word lo bloquea -> se reintenta luego
+                finally:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            pass
             _guardar_ultimo_hash_word_drive(
                 remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
                 str(meta.get("remoteModTime") or ""),
             )
-            return "noop"
-
-        local_changed = local_exists and bool(last_sha) and local_sha != last_sha
-        if local_exists and (local_changed or not last_sha):
-            # Conflicto (o primer arranque con ambos distintos): nunca sobrescribir el local.
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            base, ext = os.path.splitext(target)
-            conflict_path = f"{base}.drive-conflict-{stamp}{ext}"
-            with open(conflict_path, "wb") as fh:
-                fh.write(remote_bytes)
-            logging.warning(
-                f"Conflicto Word local vs Drive: se conservó el local; copia de Drive en {conflict_path}"
-            )
-            _guardar_ultimo_hash_word_drive(
-                last_sha or local_sha, str(meta.get("remoteTarget") or ""),
-                int(meta.get("remoteSize") or 0), False, str(meta.get("remoteModTime") or ""),
-            )
-            return "conflict"
-
-        if local_exists and _word_abierto_en_word(target):
-            logging.info("Drive tiene una versión nueva del Word, pero está abierto localmente; se pospone.")
+            _word_watch_cache["sha256"] = remote_sha
+            logging.info("Word de Idiomas actualizado desde Google Drive (cambio remoto detectado).")
+            return "pulled"
+        except PermissionError:
             return "deferred"
-
-        with _english_docx_lock:
-            tmp_path = f"{target}.pull.{os.getpid()}"
-            try:
-                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-                with open(tmp_path, "wb") as fh:
-                    fh.write(remote_bytes)
-                os.replace(tmp_path, target)  # PermissionError si Word lo bloquea -> se reintenta luego
-            finally:
-                if os.path.exists(tmp_path):
-                    try:
-                        os.remove(tmp_path)
-                    except OSError:
-                        pass
-        _guardar_ultimo_hash_word_drive(
-            remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
-            str(meta.get("remoteModTime") or ""),
-        )
-        _word_watch_cache["sha256"] = remote_sha
-        logging.info("Word de Idiomas actualizado desde Google Drive (cambio remoto detectado).")
-        return "pulled"
-    except PermissionError:
-        return "deferred"
-    except Exception as exc:
-        logging.debug(f"Sincronización Drive -> PC omitida: {exc}")
-        return "error"
+        except Exception as exc:
+            logging.debug(f"Sincronización Drive -> PC omitida: {exc}")
+            return "error"
 
 
 def _word_file_watch_loop():
@@ -3601,6 +4279,8 @@ def _word_file_watch_loop():
 
 def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
     """Inserta u organiza una entrada en English_Learning_Notebook.docx y actualiza su TOC."""
+    if not isinstance(entry, dict):
+        entry = parsear_entrada_ingles(entry)
     if ruta_docx:
         archivo = os.path.abspath(ruta_docx)
     else:
@@ -3610,6 +4290,12 @@ def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
         ).strip():
             _, ruta_english = resolver_rutas_word(refresh_cache=True)
         archivo = os.path.abspath(ruta_english or DEFAULT_ENGLISH_WORD_PATH)
+
+    if os.path.exists(archivo) and _word_abierto_en_word(archivo):
+        logging.warning(
+            "English Notebook está abierto en Word (~$ lock detectado); escritura pospuesta para evitar conflictos."
+        )
+        return False
 
     if os.path.exists(archivo):
         with _english_docx_lock:
@@ -3647,6 +4333,11 @@ def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
                 spec = _guardar_cancion_ordenada_en_word(doc, entry)
             else:
                 spec = formatear_entrada_ingles(entry)
+                if _word_com_bloque_duplicado(doc, spec):
+                    logging.info(
+                        f"English Notebook: entrada duplicada omitida [{spec['category']}]: {spec['heading']}"
+                    )
+                    return True
                 target_idx = _buscar_indice_insercion_seccion(doc, spec["category"])
                 _insertar_bloque_lineas(
                     doc, target_idx, -3, spec["heading"], 12, spec["lines"]
@@ -3689,7 +4380,7 @@ def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
 
 
 _ESTUDIO_MAX_BYTES_RESPUESTA = 34000  # AES-GCM + base64 debe caber en el límite de 64000 del puente
-_ESTUDIO_MAX_CHARS_ENTRADA = 4500
+_ESTUDIO_MAX_CHARS_ENTRADA = 10000
 
 
 def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
@@ -3734,7 +4425,7 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
     style_levels = estilos["levels"]
     toc_range = _ooxml_encontrar_rango_toc(list(body))
     entries = []
-    artists, albums = set(), set()
+    artists, albums, songs = set(), set(), set()
     counts = {cat: 0 for cat in SECCIONES_INGLES}
 
     for cat in SECCIONES_INGLES:
@@ -3748,23 +4439,28 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
                     fields = _extraer_campos_bloque_word(lines, tr["heading"])
                     artist = _limpiar_linea(fields.get("artists_display"))
                     album = grp["heading"]
+                    song_name = _limpiar_linea(fields.get("song_title")) or tr["heading"]
                     for a in re.split(r"\s*(?:,|&|feat\.?|ft\.?|x)\s+", artist or ""):
                         if a.strip():
                             artists.add(a.strip())
-                    albums.add(album)
+                    if album:
+                        albums.add(album)
+                    if song_name:
+                        songs.add(song_name)
                     entries.append(
                         {
                             "section": "music",
                             "heading": tr["heading"],
                             "album": album,
                             "artist": artist,
-                            "song": _limpiar_linea(fields.get("song_title")) or tr["heading"],
+                            "song": song_name,
                             "language": _limpiar_linea(fields.get("language")),
                             "trackNumber": tr.get("track_num"),
                             "fields": {
                                 k: fields.get(k, "")
                                 for k in (
                                     "focus_summary",
+                                    "stanzas_breakdown",
                                     "lyrics_study",
                                     "vocabulary_list",
                                     "pronunciation_notes",
@@ -3836,7 +4532,11 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         "offset": offset,
         "nextOffset": next_offset,
         "counts": counts,
-        "facets": {"artists": sorted(artists, key=str.lower)[:150], "albums": sorted(albums, key=str.lower)[:150]},
+        "facets": {
+            "artists": sorted(artists, key=str.lower)[:150],
+            "albums": sorted(albums, key=str.lower)[:150],
+            "songs": sorted(songs, key=str.lower)[:200],
+        },
         "entries": page,
         "sectionTitles": dict(SECCIONES_INGLES),
     }
@@ -4280,10 +4980,38 @@ def _son_pistas_redundantes(texto_a, texto_b):
 def _formatear_pistas_ytdlp(tracks):
     if not tracks:
         return "", ""
+
+    if isinstance(tracks, dict):
+        orig = _limpiar_ruido_letra(tracks.get("original"))
+        ko = _aislar_lineas_coreano(_limpiar_ruido_letra(tracks.get("ko")))
+        en = _limpiar_ruido_letra(tracks.get("en"))
+        ja = _limpiar_ruido_letra(tracks.get("ja"))
+        es = _limpiar_ruido_letra(tracks.get("es"))
+
+        sections = []
+        if orig and orig not in (ko, en, ja):
+            sections.append(("ORIGINAL", "original", orig))
+        if ko:
+            sections.append(("KO", "ko", ko))
+        if en:
+            sections.append(("EN", "en", en))
+        if ja:
+            sections.append(("JA", "ja", ja))
+        if es:
+            sections.append(("ES", "es", es))
+
+        if not sections:
+            return orig, "original" if orig else ("", "")
+        if len(sections) == 1:
+            return sections[0][2], sections[0][1]
+        joined = "\n\n".join(f"[{tag}]\n{body}" for tag, _, body in sections)
+        langs_summary = ", ".join(code for _, code, _ in sections)
+        return joined, langs_summary
+
     try:
         import yt_lyrics_helper as ylh
 
-        deduped = ylh.deduplicate_tracks(tracks, max_tracks=4)
+        deduped = ylh.deduplicate_tracks(tracks, max_tracks=5)
     except Exception:
         deduped = None
 
@@ -4291,7 +5019,7 @@ def _formatear_pistas_ytdlp(tracks):
         chosen = []
         seen_bases = set()
         for tr in tracks:
-            lyr = str(tr.get("lyrics") or "").strip()
+            lyr = _limpiar_ruido_letra(tr.get("lyrics"))
             if not lyr:
                 continue
             raw_lang = str(tr.get("lang") or "").strip()
@@ -4303,13 +5031,30 @@ def _formatear_pistas_ytdlp(tracks):
             if base:
                 seen_bases.add(base)
             chosen.append({"lang": base or raw_lang.lower() or "sub", "lyrics": lyr})
-            if len(chosen) >= 4:
+            if len(chosen) >= 5:
                 break
     else:
         chosen = deduped
 
     if not chosen:
         return "", ""
+
+    # Si alguna pista KO incluye mezcla real EN + KR, separar ORIGINAL (mix) + KO (Hangul puro)
+    has_ko_mixed = any(
+        t.get("lang") == "ko"
+        and _RE_HANGUL_CHAR.search(t.get("lyrics", ""))
+        and re.search(r"[A-Za-z]{2,}", t.get("lyrics", ""))
+        for t in chosen
+    )
+    if has_ko_mixed:
+        try:
+            import yt_lyrics_helper as ylh
+
+            structured = ylh.build_structured_tracks(chosen)
+            return _formatear_pistas_ytdlp(structured)
+        except Exception:
+            pass
+
     if len(chosen) == 1:
         return chosen[0]["lyrics"], chosen[0]["lang"]
 
@@ -4341,6 +5086,27 @@ def _enviar_resultado_trabajo_pc(job_id, result_payload):
             f"Error de red reportando resultado del trabajo PC [{job_id[:8]}]: {req_err}"
         )
         raise
+
+
+def _extraer_cinco_apartados_desde_letra(lyrics_text):
+    """Extrae el mapa {original, ko, en, ja, es} desde bloques etiquetados en Word."""
+    bloques = _dividir_letra_por_idiomas(lyrics_text)
+    out = {"original": "", "ko": "", "en": "", "ja": "", "es": ""}
+    for clave, _enc, cuerpo in bloques:
+        c = _limpiar_ruido_letra(cuerpo)
+        if not c:
+            continue
+        if clave in out and not out[clave]:
+            out[clave] = c
+        elif not clave and not out["original"]:
+            out["original"] = c
+    if not out["original"]:
+        out["original"] = out["ko"] or out["en"] or out["ja"] or _limpiar_ruido_letra(lyrics_text)
+    if out["ko"] or _RE_HANGUL_CHAR.search(out["original"]):
+        iso_ko = _aislar_lineas_coreano(out["ko"] or out["original"])
+        if iso_ko:
+            out["ko"] = iso_ko
+    return out
 
 
 def _procesar_trabajo_pc(job_obj):
@@ -4390,6 +5156,21 @@ def _procesar_trabajo_pc(job_obj):
             logging.info(
                 f"Letra cargada directamente desde Word PC para '{song_title}' ({cached_word.get('track_heading')})."
             )
+            extra_fields = {
+                k: str(v)[:4000]
+                for k, v in (cached_word.get("fields") or {}).items()
+                if k
+                in (
+                    "focus_summary",
+                    "stanzas_breakdown",
+                    "vocabulary_list",
+                    "pronunciation_notes",
+                    "practice_quiz",
+                    "notes",
+                )
+                and v
+            }
+            cached_tracks = _extraer_cinco_apartados_desde_letra(cached_word["lyrics"])
             _enviar_resultado_trabajo_pc(
                 job_id,
                 {
@@ -4397,6 +5178,10 @@ def _procesar_trabajo_pc(job_obj):
                     "source": "word-pc",
                     "language": cached_word.get("language") or idioma,
                     "lyrics": cached_word["lyrics"],
+                    "tracks": cached_tracks,
+                    "spanishSource": "word-cache" if cached_tracks.get("es") else None,
+                    "tokensUsed": 0,
+                    "fields": extra_fields,
                     "wordSaved": True,
                     "albumGroup": cached_word.get("album_group") or "",
                     "trackHeading": cached_word.get("track_heading") or "",
@@ -4559,6 +5344,26 @@ def _procesar_trabajo_pc(job_obj):
             f"Trabajo PC [{job_id[:8]}] completado vía Word-first (chars={len(word_lyrics)}, "
             f"heading='{verified_word.get('track_heading') or resolved_title}')."
         )
+        extra_fields = {
+            k: str(v)[:4000]
+            for k, v in (verified_word.get("fields") or {}).items()
+            if k
+            in (
+                "focus_summary",
+                "stanzas_breakdown",
+                "vocabulary_list",
+                "pronunciation_notes",
+                "practice_quiz",
+                "notes",
+            )
+            and v
+        }
+        raw_tracks_obj = yt_res.get("tracks")
+        structured_tracks = (
+            raw_tracks_obj
+            if isinstance(raw_tracks_obj, dict)
+            else _extraer_cinco_apartados_desde_letra(word_lyrics)
+        )
         _enviar_resultado_trabajo_pc(
             job_id,
             {
@@ -4567,6 +5372,10 @@ def _procesar_trabajo_pc(job_obj):
                 "extractedVia": f"pc-yt-dlp:{yt_res.get('yt_dlp_source', 'local')}->word",
                 "language": verified_word.get("language") or chosen_lang or idioma,
                 "lyrics": word_lyrics,
+                "tracks": structured_tracks,
+                "spanishSource": "yt-captions" if structured_tracks.get("es") else None,
+                "tokensUsed": 0,
+                "fields": extra_fields,
                 "metadata": meta,
                 "wordSaved": True,
                 "albumGroup": verified_word.get("album_group") or "",
@@ -4841,15 +5650,31 @@ if __name__ == "__main__":
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if arg in ("-h", "--help"):
         print("Uso: python sincronitation/sincronizador.py [opcion]")
-        print("  (sin argumentos)          Inicia el sincronizador con Word")
+        print("  (sin argumentos)            Inicia el sincronizador con Word")
         print(
-            "  --configurar-autoinicio   Guarda la clave de .env.enc protegida con Windows DPAPI"
+            "  --consolidar-word [ruta]    Consolida secciones, limpia ruido y deduplica el cuaderno Word"
+        )
+        print(
+            "  --configurar-autoinicio     Guarda la clave de .env.enc protegida con Windows DPAPI"
         )
         print(
             "  --probar-autoinicio       Verifica que el autoinicio DPAPI descifra .env.enc en RAM"
         )
         print("  --quitar-autoinicio       Elimina la clave DPAPI guardada")
         sys.exit(0)
+    if arg == "--consolidar-word":
+        ruta_arg = sys.argv[2] if len(sys.argv) > 2 else ""
+        if not ruta_arg:
+            env_eng = (os.getenv("ENGLISH_WORD_FILE_PATH") or "").strip()
+            if env_eng:
+                ruta_arg = env_eng
+            elif os.path.exists(DEFAULT_ENGLISH_WORD_PATH):
+                ruta_arg = DEFAULT_ENGLISH_WORD_PATH
+            else:
+                inicializar_entorno()
+        res = consolidar_y_deduplicar_cuaderno_word(ruta_arg or None)
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        sys.exit(0 if res.get("ok") else 1)
     if arg == "--configurar-autoinicio":
         configurar_autoinicio()
         sys.exit(0)

@@ -1409,6 +1409,7 @@
                                     <p id="musicStudySelectedBar" class="muted-text">Elige una canción de tu catálogo para ver su letra, escucharla y guardar significados o pronunciación en tu cuaderno.</p>
                                 </div>
                                 <div class="music-study-yt-actions">
+                                    <button type="button" class="btn-secondary btn-small" id="btnOpenStudyViewerFromMusic" title="Abrir el visor de solo lectura del cuaderno Word filtrado en Canciones">📖 Ver Cuaderno</button>
                                     <button type="button" class="btn-secondary btn-small" id="btnMusicStudyEditSelected" title="Editar título, álbum o enlace oficial de la canción" hidden>✏️ Editar Canción</button>
                                     <a id="btnMusicStudyOpenYt" class="btn-secondary btn-small" href="https://music.youtube.com/" target="_blank" rel="noopener noreferrer" title="Abrir esta canción en YouTube Music o YouTube" hidden>Abrir en YT Music</a>
                                     <button type="button" class="btn-secondary btn-small" id="btnMusicToggleEmbed" title="Mostrar u ocultar el reproductor de YouTube integrado" hidden>Reproductor</button>
@@ -1426,12 +1427,13 @@
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
                                         <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
-                                            title="Alterna entre español, inglés, coreano-inglés mixto o todos los bloques">
-                                            <option value="all">🌐 Todos los Idiomas</option>
-                                            <option value="es">🇪🇸 Español</option>
+                                            title="Alterna entre Todos, Original, Coreano, Inglés, Japonés o Español">
+                                            <option value="all">🌐 Todos los Apartados</option>
+                                            <option value="original">🎵 Original (Mezcla Nativa)</option>
+                                            <option value="ko">🇰🇷 Coreano (Solo Coreano)</option>
                                             <option value="en">🇺🇸 Inglés</option>
-                                            <option value="en_ko">🇰🇷🇺🇸 Inglés-Coreano (Mixto K-Pop)</option>
-                                            <option value="ko">🇰🇷 Solo Coreano</option>
+                                            <option value="ja">🇯🇵 Japonés</option>
+                                            <option value="es">🇪🇸 Español</option>
                                         </select>
                                         <button type="button" class="btn-primary btn-small" id="btnMusicExtractLyrics"
                                             title="Extraer la letra desde tu cuaderno Word o automáticamente desde tu computadora">
@@ -3157,6 +3159,17 @@
                 </select>
                 <select id="studyViewerAlbumFilter" class="select-input" aria-label="Album filter">
                     <option value="">Todos los álbumes</option>
+                </select>
+                <select id="studyViewerSongFilter" class="select-input" aria-label="Song filter">
+                    <option value="">Todas las canciones</option>
+                </select>
+                <select id="studyViewerLangFilter" class="select-input" aria-label="Language filter">
+                    <option value="all">🌐 Todos los Idiomas</option>
+                    <option value="original">🎵 Original (Mezcla Nativa)</option>
+                    <option value="ko">🇰🇷 Coreano (Solo Coreano)</option>
+                    <option value="en">🇺🇸 Inglés</option>
+                    <option value="ja">🇯🇵 Japonés</option>
+                    <option value="es">🇪🇸 Español</option>
                 </select>
                 <input type="search" id="studyViewerSearchInput" maxlength="120"
                     placeholder="Buscar palabra, canción, letra o nota...">

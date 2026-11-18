@@ -274,19 +274,19 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.equal(blocked.reason, 'no_direct_stream');
     });
 
-    it('elimina pistas redundantes (en vs en-kn, ko vs ko-orig) y combina múltiples idiomas reales (KO, EN, ES)', async () => {
+    it('elimina pistas redundantes (en vs en-kn, ko vs ko-orig) y separa los 5 apartados (Original, KO, EN, JA, ES)', async () => {
         const mockExecMulti = async (_bin, args) => {
             const outIdx = args.indexOf('--output');
             const outTemplate = args[outIdx + 1];
-            // Simular variantes redundantes + idioma distinto real
+            // Simular pista K-Pop con mezcla real EN + KR, variantes redundantes y JA/ES
             await fs.promises.writeFile(
                 outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.ko.vtt'),
-                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n눈을 감고 느껴봐\n숨이 멎을 것만 같아\n',
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nBaby got no chill\n눈을 감고 느껴봐\n숨이 멎을 것만 같아\n',
                 'utf8'
             );
             await fs.promises.writeFile(
                 outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.ko-orig.vtt'),
-                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n눈을 감고 느껴봐\n숨이 멎을 것만 같아\n',
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nBaby got no chill\n눈을 감고 느껴봐\n숨이 멎을 것만 같아\n',
                 'utf8'
             );
             await fs.promises.writeFile(
@@ -297,6 +297,16 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
             await fs.promises.writeFile(
                 outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.en-kn.vtt'),
                 'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nClose your eyes and feel the rush\nWatch them stare when we pull up\n',
+                'utf8'
+            );
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.ja.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n目を閉じて感じて\n息が止まりそう\n',
+                'utf8'
+            );
+            await fs.promises.writeFile(
+                outTemplate.replace('%(id)s.%(ext)s', '2wA_b6YHjqQ.es-419.vtt'),
+                'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nCierra los ojos y siente la vibra (Latam)\nMira cómo miran\n',
                 'utf8'
             );
             await fs.promises.writeFile(
@@ -314,14 +324,19 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
             execFileImpl: mockExecMulti
         });
         assert.equal(extracted.ok, true);
-        assert.equal(extracted.tracks.length, 3);
-        assert.deepEqual(
-            extracted.tracks.map((t) => t.language),
-            ['ko', 'en', 'es']
-        );
+        assert.equal(typeof extracted.tracks, 'object');
+        assert.deepEqual(Object.keys(extracted.tracks), ['original', 'ko', 'en', 'ja', 'es']);
+        assert.equal(extracted.tracks.original, 'Baby got no chill\n눈을 감고 느껴봐\n숨이 멎을 것만 같아');
+        assert.equal(extracted.tracks.ko, '눈을 감고 느껴봐\n숨이 멎을 것만 같아');
+        assert.doesNotMatch(extracted.tracks.ko, /Baby got no chill/);
+        assert.equal(extracted.tracks.en, 'Close your eyes and feel the rush\nWatch them stare when we pull up');
+        assert.equal(extracted.tracks.ja, '目を閉じて感じて\n息が止まりそう');
+        assert.equal(extracted.tracks.es, 'Cierra los ojos y siente la vibra\nMira cómo miran al llegar');
+        assert.match(extracted.lyrics, /\[ORIGINAL\]\nBaby got no chill\n눈을 감고 느껴봐/);
         assert.match(extracted.lyrics, /\[KO\]\n눈을 감고 느껴봐/);
         assert.match(extracted.lyrics, /\[EN\]\nClose your eyes and feel the rush/);
+        assert.match(extracted.lyrics, /\[JA\]\n目を閉じて感じて/);
         assert.match(extracted.lyrics, /\[ES\]\nCierra los ojos y siente la vibra/);
-        assert.doesNotMatch(extracted.lyrics, /\[KO-ORIG\]|\[EN-KN\]/i);
+        assert.doesNotMatch(extracted.lyrics, /\[KO-ORIG\]|\[EN-KN\]|\[ES-419\]/i);
     });
 });

@@ -123,6 +123,36 @@ def check_drive_pull(tmp, docx):
     os.remove(lock)
     print("DRIVE OK")
 
+    # 5) Limpieza de ruido, etiquetas no-idioma ([Intro]/[Rap]), deduplicación ES y consolidación
+    limpia = s._limpiar_ruido_letra("[음악]\n[Intro]\n[Rap]\nHello world\n[\n[歌]\n[音楽]")
+    assert "[음악]" not in limpia and "[音楽]" not in limpia and "[歌]" not in limpia, limpia
+    assert "[Intro]" in limpia and "[Rap]" in limpia and "Hello world" in limpia, limpia
+
+    comb = s._combinar_letra_por_idiomas(
+        "[Intro]\nLine A\n[Rap]\nLine B",
+        "=== [ES — Traducción IA] ===\nLínea A\nLínea B",
+    )
+    assert "[Intro]" in comb and "Line A" in comb and "=== [ES — Traducción IA] ===" in comb, comb
+
+    clean_notes = s._limpiar_notas_redundantes_cancion(
+        "Vocab note line\n\n[Traducción ES — Gemini IA]\nLínea A\nLínea B",
+        comb,
+    )
+    assert clean_notes == "Vocab note line", clean_notes
+
+    open(docx, "wb").write(local)
+    res_consolidar = s.consolidar_y_deduplicar_cuaderno_word(docx)
+    assert res_consolidar.get("ok") is True, res_consolidar
+    res_read = s.leer_cuaderno_estudio_word({"section": "music", "limit": 50}, ruta_docx=docx)
+    assert res_read.get("ok") is True and "songs" in res_read.get("facets", {}), res_read
+
+    five = s._extraer_cinco_apartados_desde_letra(
+        "[ORIGINAL]\nBaby got no chill\n눈을 감고 느껴봐\n\n[KO]\nBaby got no chill\n눈을 감고 느껴봐\n\n[EN]\nClose your eyes\n\n[JA]\n目を閉じて感じて\n\n[ES]\nCierra los ojos"
+    )
+    assert "Baby got no chill" in five["original"] and "눈을 감고 느껴봐" in five["original"], five
+    assert five["ko"] == "눈을 감고 느껴봐", five
+    assert five["en"] == "Close your eyes" and five["ja"] == "目を閉じて感じて" and five["es"] == "Cierra los ojos", five
+
 
 if __name__ == "__main__":
     main()

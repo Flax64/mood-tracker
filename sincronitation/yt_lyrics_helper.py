@@ -253,13 +253,57 @@ def extract_metadata_from_info_json(info: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_LANG_ALIASES = {"kr": "ko", "jp": "ja"}
+_HANGUL_RE = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]")
+_JAPANESE_RE = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]")
+
+
 def base_language_code(lang_tag: str) -> str:
     clean = re.sub(
         r"-orig$", "", str(lang_tag or "").strip().lower(), flags=re.IGNORECASE
     )
     if not clean:
         return ""
-    return re.split(r"[-_]", clean, maxsplit=1)[0]
+    base = re.split(r"[-_]", clean, maxsplit=1)[0]
+    return _LANG_ALIASES.get(base, base)
+
+
+def isolate_korean_only_lyrics(text: str) -> str:
+    """Extrae únicamente las líneas que contienen Hangul (Coreano puro), filtrando líneas puramente en inglés/latín."""
+    kept: List[str] = []
+    for raw in str(text or "").replace("\r", "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if re.fullmatch(
+            r"\[(?:음악|music|applause|laughter|cheering|instrumental)\]",
+            line,
+            re.IGNORECASE,
+        ):
+            continue
+        if _HANGUL_RE.search(line):
+            if not kept or kept[-1] != line:
+                kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def isolate_japanese_lyrics(text: str) -> str:
+    """Extrae líneas con escritura japonesa (Hiragana/Katakana/Kanji) sin Hangul."""
+    kept: List[str] = []
+    for raw in str(text or "").replace("\r", "").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if re.fullmatch(
+            r"\[(?:音楽|歌|music|applause|laughter|cheering|instrumental)\]",
+            line,
+            re.IGNORECASE,
+        ):
+            continue
+        if _JAPANESE_RE.search(line) and not _HANGUL_RE.search(line):
+            if not kept or kept[-1] != line:
+                kept.append(line)
+    return "\n".join(kept).strip()
 
 
 def normalize_sub_langs_request(langs: str) -> str:
@@ -311,16 +355,24 @@ def _track_priority_score(
     except ValueError:
         pref_rank = 0
     is_manual = 1 if track.get("is_manual") else 0
-    is_exact_base = 2 if raw_lang == base else (0 if raw_lang.endswith("-orig") else 1)
-    is_orig_penalty = -1 if raw_lang.endswith("-orig") else 0
+    if raw_lang == base:
+        variant_score = 4
+    elif raw_lang in ("es-419", "en-us", "ko-kr", "ja-jp"):
+        variant_score = 3
+    elif raw_lang in ("es-mx", "en-gb"):
+        variant_score = 2
+    elif raw_lang.endswith("-orig"):
+        variant_score = 0
+    else:
+        variant_score = 1
     text_len = min(len(str(track.get("lyrics") or "")), 10000)
-    return (is_manual, is_exact_base + is_orig_penalty, pref_rank, text_len)
+    return (is_manual, variant_score, pref_rank, text_len)
 
 
 def deduplicate_tracks(
     tracks: List[Dict[str, Any]],
     preferred_langs: Optional[List[str]] = None,
-    max_tracks: int = 4,
+    max_tracks: int = 5,
 ) -> List[Dict[str, Any]]:
     """Keep at most one clean non-redundant track per distinct base language (e.g. ko, en, es, ja)."""
     if not tracks:
@@ -341,11 +393,24 @@ def deduplicate_tracks(
         lyr = str(tr.get("lyrics") or "").strip()
         if not lyr:
             continue
-        raw_lang = str(tr.get("lang") or "").strip()
+        raw_lang = str(tr.get("raw_lang") or tr.get("lang") or "").strip()
         base = base_language_code(raw_lang)
         if base and base in seen_bases:
             continue
-        if any(tracks_are_redundant(existing["lyrics"], lyr) for existing in chosen):
+        adds_distinct_script = (
+            (base == "ko" and bool(_HANGUL_RE.search(lyr)))
+            or (base == "ja" and bool(_JAPANESE_RE.search(lyr)))
+            or (
+                base == "en"
+                and any(
+                    _HANGUL_RE.search(e["lyrics"]) or _JAPANESE_RE.search(e["lyrics"])
+                    for e in chosen
+                )
+            )
+        )
+        if not adds_distinct_script and any(
+            tracks_are_redundant(existing["lyrics"], lyr) for existing in chosen
+        ):
             continue
         if base:
             seen_bases.add(base)
@@ -369,6 +434,109 @@ def deduplicate_tracks(
 
     chosen.sort(key=display_order)
     return chosen
+
+
+def build_structured_tracks(
+    tracks_list: Optional[List[Dict[str, Any]]],
+    preferred_langs: Optional[List[str]] = None,
+    raw_original: str = "",
+) -> Dict[str, str]:
+    """Clasifica las pistas en los 5 apartados independientes: original, ko, en, ja, es."""
+    by_lang: Dict[str, str] = {}
+    orig_txt = str(raw_original or "").strip()
+
+    for item in tracks_list or []:
+        if not isinstance(item, dict):
+            continue
+        txt = str(item.get("lyrics") or "").strip()
+        if not txt:
+            continue
+        b = base_language_code(item.get("raw_lang") or item.get("lang") or "")
+        if b in ("multi", "original", "orig"):
+            if not orig_txt:
+                orig_txt = txt
+            continue
+        if b and b not in by_lang:
+            by_lang[b] = txt
+
+    ko_raw = by_lang.get("ko", "")
+    en_raw = by_lang.get("en", "")
+    ja_raw = by_lang.get("ja", "")
+    es_raw = by_lang.get("es", "")
+
+    if not orig_txt:
+        ko_mixed = bool(ko_raw and _HANGUL_RE.search(ko_raw) and re.search(r"[A-Za-z]{2,}", ko_raw))
+        ja_mixed = bool(ja_raw and _JAPANESE_RE.search(ja_raw) and re.search(r"[A-Za-z]{2,}", ja_raw))
+        if ko_mixed:
+            orig_txt = ko_raw
+        elif ja_mixed:
+            orig_txt = ja_raw
+        else:
+            for pref in preferred_langs or ["ko", "en", "ja", "es"]:
+                pb = base_language_code(pref)
+                if pb and by_lang.get(pb):
+                    orig_txt = by_lang[pb]
+                    break
+            if not orig_txt:
+                orig_txt = ko_raw or en_raw or ja_raw or es_raw or ""
+
+    ko_only = isolate_korean_only_lyrics(
+        ko_raw or (orig_txt if _HANGUL_RE.search(orig_txt) else "")
+    )
+    ja_clean = ja_raw or (
+        isolate_japanese_lyrics(orig_txt) if _JAPANESE_RE.search(orig_txt) else ""
+    )
+    en_clean = en_raw or (
+        orig_txt
+        if (
+            orig_txt
+            and not _HANGUL_RE.search(orig_txt)
+            and not _JAPANESE_RE.search(orig_txt)
+            and orig_txt != es_raw
+        )
+        else ""
+    )
+    return {
+        "original": orig_txt,
+        "ko": ko_only,
+        "en": en_clean,
+        "ja": ja_clean,
+        "es": es_raw,
+    }
+
+
+def format_structured_tracks_text(
+    structured: Dict[str, str],
+    fallback_list: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """Formatea los apartados disponibles en bloques etiquetados o texto simple si solo hay uno."""
+    if not isinstance(structured, dict):
+        return ""
+    orig = str(structured.get("original") or "").strip()
+    ko = str(structured.get("ko") or "").strip()
+    en = str(structured.get("en") or "").strip()
+    ja = str(structured.get("ja") or "").strip()
+    es = str(structured.get("es") or "").strip()
+
+    sections: List[Tuple[str, str]] = []
+    if orig and orig not in (ko, en, ja):
+        sections.append(("ORIGINAL", orig))
+    if ko:
+        sections.append(("KO", ko))
+    if en:
+        sections.append(("EN", en))
+    if ja:
+        sections.append(("JA", ja))
+    if es:
+        sections.append(("ES", es))
+
+    if len(sections) == 1:
+        return sections[0][1]
+    if sections:
+        return "\n\n".join(f"[{tag}]\n{body}" for tag, body in sections)
+    if fallback_list:
+        return str(fallback_list[0].get("lyrics") or "").strip()
+    return orig
 
 
 def pick_best_subtitle_files(
@@ -1143,13 +1311,16 @@ def run_yt_dlp_extract(
         yt = fetch_ytmusic_lyrics(video_id)
         if yt.get("ok") and _has_meaningful_lyrics(yt.get("lyrics", "")):
             LOGGER.info("yt_lyrics_helper: letra de YT Music obtenida para %s (%s)", video_id, yt["source"])
+            yt_list = [{"lang": "original", "raw_lang": "multi", "lyrics": yt["lyrics"], "is_manual": True}]
+            yt_structured = build_structured_tracks(yt_list, raw_original=yt["lyrics"])
             return {
                 "url": canonical_url,
                 "yt_dlp_bin": None,
                 "yt_dlp_source": yt["source"],
                 "metadata": {"video_id": video_id, "title": yt.get("title") or None,
                              "artist": yt.get("artist") or None},
-                "tracks": [{"lang": "multi", "raw_lang": "multi", "lyrics": yt["lyrics"]}],
+                "tracks": yt_structured,
+                "track_list": yt_list,
                 "lyrics": yt["lyrics"],
             }
 
@@ -1167,7 +1338,7 @@ def run_yt_dlp_extract(
     concise_langs = normalize_sub_langs_request(langs)
     preferred_list = [part.strip() for part in concise_langs.split(",") if part.strip()]
     expanded_langs = ",".join(
-        dict.fromkeys([*preferred_list, "ko", "ko-KR", "en", "en-US", "en-GB", "es", "es-419", "es-MX", "ja"])
+        dict.fromkeys([*preferred_list, "ko", "ko-KR", "en", "en-US", "en-GB", "ja", "ja-JP", "es", "es-419", "es-MX", "es-ES"])
     )
     cookies_path = os.environ.get("YT_DLP_COOKIES_PATH", "").strip()
     cookie_args = ["--cookies", cookies_path] if cookies_path and os.path.exists(cookies_path) else []
@@ -1247,16 +1418,24 @@ def run_yt_dlp_extract(
             tracks_acc: List[Dict[str, Any]] = []
             for lang_tag, fpath in sub_files:
                 with open(fpath, "r", encoding="utf-8", errors="replace") as fh:
-                    cleaned = clean_caption_text(fh.read())
+                    raw_sub = fh.read()
+                cleaned = clean_caption_text(raw_sub)
                 if cleaned and _has_meaningful_lyrics(cleaned):
                     base = base_language_code(lang_tag)
+                    looks_asr = bool(
+                        re.search(r"<\d{2}:\d{2}:\d{2}\.\d{3}><c>", raw_sub)
+                    )
+                    if manual_bases_loc:
+                        is_man = bool(base and base in manual_bases_loc) and not looks_asr
+                    else:
+                        is_man = not looks_asr and not str(lang_tag).lower().endswith("-orig")
                     tracks_acc.append(
                         {
                             "lang": lang_tag,
                             "raw_lang": lang_tag,
                             "lyrics": cleaned,
                             "file": os.path.basename(fpath),
-                            "is_manual": bool(base and base in manual_bases_loc),
+                            "is_manual": is_man,
                         }
                     )
 
@@ -1310,14 +1489,16 @@ def run_yt_dlp_extract(
             raise RuntimeError(err_msg)
 
         meta = extract_metadata_from_info_json(info)
-        tracks = deduplicate_tracks(raw_tracks, preferred_list, max_tracks=4)
+        track_list = deduplicate_tracks(raw_tracks, preferred_list, max_tracks=5)
+        structured_tracks = build_structured_tracks(track_list, preferred_list)
+        combined_lyrics = format_structured_tracks_text(structured_tracks, track_list)
 
-        if tracks:
+        if track_list:
             LOGGER.info(
                 "yt_lyrics_helper: %d pista(s) únicas extraídas para %s (%s)",
-                len(tracks),
+                len(track_list),
                 video_id,
-                ", ".join(t["lang"] for t in tracks),
+                ", ".join(t["lang"] for t in track_list),
             )
         else:
             LOGGER.warning(
@@ -1333,8 +1514,9 @@ def run_yt_dlp_extract(
             "yt_dlp_bin": exe,
             "yt_dlp_source": exe_source,
             "metadata": meta,
-            "tracks": tracks,
-            "lyrics": tracks[0]["lyrics"] if tracks else "",
+            "tracks": structured_tracks,
+            "track_list": track_list,
+            "lyrics": combined_lyrics,
         }
 
 
@@ -1441,10 +1623,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         refresh_github_cache=args.refresh_github_var,
     )
     tracks = result["tracks"]
-    if args.all_langs and len(tracks) > 1:
-        final_text = "\n\n".join(f"[{t['lang']}]\n{t['lyrics']}" for t in tracks)
+    if args.all_langs:
+        if isinstance(tracks, dict):
+            final_text = format_structured_tracks_text(tracks, result.get("track_list"))
+        elif len(tracks) > 1:
+            final_text = "\n\n".join(f"[{t['lang']}]\n{t['lyrics']}" for t in tracks)
+        else:
+            final_text = result["lyrics"]
     else:
-        final_text = result["lyrics"]
+        final_text = (
+            (tracks.get("original") or result["lyrics"])
+            if isinstance(tracks, dict)
+            else result["lyrics"]
+        )
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

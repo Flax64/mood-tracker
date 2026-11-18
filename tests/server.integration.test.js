@@ -4012,6 +4012,102 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(JSON.parse(syncMetaRes.body).releaseDate, '2024-11-01');
     });
 
+    it('expone GET /api/english/study-notebook con RBAC y evita llamadas redundantes a Gemini mediante caché de memoria/letras', async () => {
+        const unauthNb = await request({ port, reqPath: '/api/english/study-notebook' });
+        assert.strictEqual(unauthNb.status, 401);
+
+        const nbRes = await request({
+            port,
+            reqPath: '/api/english/study-notebook?section=music',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(nbRes.status, 200);
+        const nbData = JSON.parse(nbRes.body);
+        assert.strictEqual(nbData.ok, true);
+        assert.ok(nbData.counts && typeof nbData.counts.total === 'number');
+        assert.ok(nbData.facets && Array.isArray(nbData.facets.artists) && Array.isArray(nbData.facets.albums) && Array.isArray(nbData.facets.songs));
+        assert.ok(Array.isArray(nbData.entries));
+
+        // Verificar que POST /api/language/analyze sin "direction" no lanza ReferenceError y responde 200 con memoria/caché
+        const memRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/memory',
+            headers: { Cookie: adminCookie },
+            body: {
+                terms: [{
+                    term: 'serendipity_cache_probe',
+                    meaning: 'serendipia verificada en caché',
+                    language: 'en',
+                    category: 'vocabulary'
+                }]
+            }
+        });
+        assert.strictEqual(memRes.status, 200, memRes.body);
+        const analyzeHitRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/language/analyze',
+            headers: { Cookie: adminCookie },
+            body: {
+                text: 'serendipity_cache_probe',
+                language: 'en',
+                mode: 'auto'
+            }
+        });
+        assert.strictEqual(analyzeHitRes.status, 200, analyzeHitRes.body);
+        const analyzeHit = JSON.parse(analyzeHitRes.body);
+        assert.strictEqual(analyzeHit.ok, true, analyzeHitRes.body);
+        assert.strictEqual(analyzeHit.usedGemini, false, analyzeHitRes.body);
+        assert.strictEqual(analyzeHit.cacheHit, true, analyzeHitRes.body);
+        assert.match(String(analyzeHit.translatedText || ''), /serendipia verificada en caché/i);
+
+        // Verificar que translate-lyrics extrae sección [ES] ya presente sin invocar Gemini
+        const embLyricsRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/translate-lyrics',
+            headers: { Cookie: adminCookie },
+            body: {
+                songTitle: 'Synthetic Cached Track',
+                artistName: 'Test Artist',
+                lyrics: '[EN]\nShine bright tonight\n\n=== [ES — Traducción IA] ===\nBrilla fuerte esta noche',
+                mode: 'gemini',
+                apiKey: 'AIzaFakeKeyShouldNotBeCalled'
+            }
+        });
+        assert.strictEqual(embLyricsRes.status, 200);
+        const embLyricsData = JSON.parse(embLyricsRes.body);
+        assert.strictEqual(embLyricsData.usedGemini, false);
+        assert.strictEqual(embLyricsData.cacheHit, true);
+        assert.match(String(embLyricsData.spanishLyrics || ''), /Brilla fuerte esta noche/);
+
+        // Verificar ahorro de tokens con pista nativa `tracks.es` de YouTube
+        const ytCapsEsRes = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/english/music/translate-lyrics',
+            headers: { Cookie: adminCookie },
+            body: {
+                songTitle: 'Track With Native Spanish Captions',
+                artistName: 'Test Artist',
+                lyrics: 'Baby got no chill',
+                tracks: {
+                    original: 'Baby got no chill',
+                    es: 'Cierra los ojos ahora'
+                },
+                mode: 'gemini',
+                apiKey: 'AIzaFakeKeyShouldNotBeCalled'
+            }
+        });
+        assert.strictEqual(ytCapsEsRes.status, 200);
+        const ytCapsEsData = JSON.parse(ytCapsEsRes.body);
+        assert.strictEqual(ytCapsEsData.usedGemini, false);
+        assert.strictEqual(ytCapsEsData.source, 'yt-captions');
+        assert.strictEqual(ytCapsEsData.tokensUsed, 0);
+        assert.match(String(ytCapsEsData.spanishLyrics || ''), /Cierra los ojos ahora/);
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;
