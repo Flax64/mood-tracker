@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const serverNotes = require('../lib/server-notes-service');
+const serverLoggerMod = require('../lib/server-logger');
 const langStudio = require('../lib/language-studio');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -279,6 +280,62 @@ describe('lib/server-notes-service & lib/docx_writer.py (Notas autónomas en Ubu
             assert.strictEqual(cachedParsed?.counts?.phrasal_verb, 1);
         } finally {
             fs.rmSync(tmpRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('genera logs rotativos del sistema en server.log y error.log, redacta secretos y respeta exclusión de Git', () => {
+        const tmpLogs = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-sys-logs-'));
+        try {
+            assert.strictEqual(serverLoggerMod.isAutomatedTestEnv(), true);
+            assert.strictEqual(
+                serverLoggerMod.sanitizeUrlForLog('/api/planner/phone-location?token=secret123&mode=gps'),
+                '/api/planner/phone-location?token=%5BREDACTED%5D&mode=gps'
+            );
+
+            const capturedOut = [];
+            const capturedErr = [];
+            const logger = serverLoggerMod.createServerLogger({
+                logDir: tmpLogs,
+                level: 'info',
+                maxBytes: 64 * 1024,
+                maxFiles: 3,
+                enableFileLogging: true,
+                stdoutWrite: (ln) => capturedOut.push(ln),
+                stderrWrite: (ln) => capturedErr.push(ln)
+            });
+
+            logger.info('SYSTEM', 'Servidor iniciado', { port: 3000 });
+            logger.warn('YTDLP', 'Sin subtítulos disponibles', { songId: 7 });
+            logger.error('HTTP', 'GET /api/test?token=mySecretToken -> 500', { ms: '12.4' });
+
+            assert.strictEqual(capturedOut.length, 1);
+            assert.strictEqual(capturedErr.length, 2);
+            assert.strictEqual(fs.existsSync(logger.serverLogPath), true);
+            assert.strictEqual(fs.existsSync(logger.errorLogPath), true);
+
+            const srvText = fs.readFileSync(logger.serverLogPath, 'utf8');
+            const errText = fs.readFileSync(logger.errorLogPath, 'utf8');
+            assert.match(srvText, /\[SYSTEM\] Servidor iniciado \| port=3000/);
+            assert.match(srvText, /\[YTDLP\]/);
+            assert.equal(srvText.includes('mySecretToken'), false, 'No debe filtrar tokens en logs');
+            assert.match(errText, /\[WARN\] \[YTDLP\]/);
+            assert.match(errText, /\[ERROR\] \[HTTP\]/);
+            assert.equal(errText.includes('[SYSTEM]'), false, 'error.log solo debe incluir WARN/ERROR/CRASH');
+
+            const tail = logger.getRecentLogTail({ kind: 'server', lines: 2 });
+            assert.strictEqual(tail.ok, true);
+            assert.strictEqual(tail.lines.length, 2);
+
+            // Verificar que git ignore logs/, *.log y *.log.1
+            const gitChk = spawnSync('git', ['check-ignore', '-q', '--no-index', 'logs/server.log', 'logs/server.log.1', 'server.log.2'], {
+                cwd: ROOT,
+                encoding: 'utf8'
+            });
+            if (!gitChk.error && gitChk.status !== 128) {
+                assert.strictEqual(gitChk.status, 0, 'logs/, server.log y archivos rotados *.log.* deben ser ignorados por Git');
+            }
+        } finally {
+            fs.rmSync(tmpLogs, { recursive: true, force: true });
         }
     });
 });

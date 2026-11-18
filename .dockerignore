@@ -17,9 +17,11 @@ tests
 guides
 english-notes
 data
+logs
 README.md
 *.sql.gz
 *.log
+*.log.*
 *.py
 *.pyc
 __pycache__

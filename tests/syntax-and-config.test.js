@@ -36,6 +36,7 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'lib/youtube-metadata.js',
             'lib/ytdlp-service.js',
             'lib/server-notes-service.js',
+            'lib/server-logger.js',
             'public/theme-init.js',
             'public/i18n.js',
             'public/guia-visual.js',
@@ -456,12 +457,12 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
 
     it('protege archivos secretos y configura Dockerfile / docker-compose.yml para Ubuntu Server (8 GB RAM + Tailscale)', () => {
         const gitignore = readText('.gitignore');
-        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/', 'data/']) {
+        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/', 'data/', 'logs/', '*.log', '*.log.*']) {
             assert.ok(gitignore.includes(entry), `.gitignore debe excluir ${entry}`);
         }
 
         const dockerignore = readText('.dockerignore');
-        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes', 'data']) {
+        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes', 'data', 'logs', '*.log.*']) {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
         }
 
@@ -494,6 +495,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(compose, /--skip-log-bin/);
         assert.match(compose, /\/app\/journal-data/);
         assert.match(compose, /\/app\/english-notes/);
+        assert.match(compose, /\/app\/logs/);
+        assert.match(compose, /LOG_DIR=\$\{LOG_DIR:-\/app\/logs\}/);
         assert.match(compose, /TRUST_PROXY=\$\{TRUST_PROXY:-1\}/);
         assert.match(compose, /SERVER_AUTONOMOUS_NOTES=\$\{SERVER_AUTONOMOUS_NOTES:-true\}/);
         assert.match(compose, /YT_DLP_PATH=\$\{YT_DLP_PATH:-\}/);

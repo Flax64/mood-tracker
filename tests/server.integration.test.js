@@ -4390,6 +4390,23 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             assert.strictEqual(nbData.ok, true);
             assert.strictEqual(nbData.available, true);
             assert.ok(nbData.entries.some((e) => /Autonomous/i.test(e.title || e.text || '')));
+
+            // Consulta de logs del sistema protegida estrictamente por RBAC (admin only)
+            const unauthLogs = await request({ port, reqPath: '/api/system/logs' });
+            assert.strictEqual(unauthLogs.status, 401);
+            const medicoLogs = await request({
+                port,
+                reqPath: '/api/system/logs',
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoLogs.status, 403);
+            const adminLogs = await request({
+                port,
+                reqPath: '/api/system/logs?kind=server&lines=20',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(adminLogs.status, 200);
+            assert.strictEqual(JSON.parse(adminLogs.body).ok, true);
         } finally {
             if (prevKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevKey;
             if (prevEngPath === undefined) delete process.env.ENGLISH_WORD_FILE_PATH; else process.env.ENGLISH_WORD_FILE_PATH = prevEngPath;

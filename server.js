@@ -56,6 +56,10 @@ const {
 const ytdlpService = require('./lib/ytdlp-service');
 const serverNotesService = require('./lib/server-notes-service');
 const { buildSafeRcloneExecEnv } = serverNotesService;
+const { createServerLogger } = require('./lib/server-logger');
+
+const serverLogger = createServerLogger({ rootDir: __dirname });
+serverLogger.installConsoleTee();
 
 const transportManager = createTransportManager();
 
@@ -66,6 +70,7 @@ if (process.env.TRUST_PROXY === 'loopback') {
 } else if (/^[1-9]\d*$/.test(String(process.env.TRUST_PROXY || '').trim())) {
     app.set('trust proxy', Number.parseInt(process.env.TRUST_PROXY, 10));
 }
+app.use(serverLogger.createHttpLoggerMiddleware());
 
 // Cabeceras de seguridad HTTP
 app.use((req, res, next) => {
@@ -2555,6 +2560,11 @@ app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requir
                     })
                 );
                 if (writeRes && writeRes.ok) {
+                    serverLogger.info('JOURNAL', 'Nota local cifrada guardada en Diario.docx', {
+                        heading: writeRes.heading,
+                        bytes: writeRes.bytes,
+                        skipped: writeRes.skipped
+                    });
                     return res.send(`Note encrypted with password and saved locally (${writeRes.heading}).`);
                 }
                 if (writeRes && writeRes.reason === 'WRONG_PASSWORD') {
@@ -2638,10 +2648,20 @@ app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requ
             );
             if (saveRes && saveRes.ok) {
                 if (saveRes.needsRetry) {
+                    serverLogger.warn('DRIVE_NOTES', 'Nota guardada en caché local; reintento pendiente hacia Google Drive', {
+                        heading: saveRes.heading,
+                        error: saveRes.error
+                    });
                     scheduleStudyDriveRetry();
                     return res.send('Saved to local mirror; Google Drive upload scheduled for retry.');
                 }
                 _englishDriveRetryCount = 0;
+                serverLogger.info('DRIVE_NOTES', 'Cuaderno de idiomas actualizado', {
+                    mode: saveRes.mode,
+                    heading: saveRes.heading,
+                    deduplicated: saveRes.deduplicated,
+                    verified: saveRes.verified
+                });
                 return res.send(
                     saveRes.mode === 'cloud_drive'
                         ? 'Saved directly to English Notebook on Google Drive.'
@@ -7963,6 +7983,12 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
         const cleanLyrics = String(extracted.lyrics).trim().slice(0, 50000);
         const cleanSource = String(extracted.source || 'yt-dlp').trim().slice(0, 80) || 'yt-dlp';
         const isInnerTube = cleanSource.includes('innertube') || cleanSource.includes('ytmusic');
+        serverLogger.info('YTDLP', 'Letra resuelta en servidor', {
+            songId: song.id,
+            videoId,
+            tier: isInnerTube ? 2 : 3,
+            source: cleanSource
+        });
         return {
             ok: true,
             tier: isInnerTube ? 2 : 3,
@@ -7984,6 +8010,11 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
     }
 
     // Tier 4 — Local PC bridge only if Tiers 1-3 failed and PC is online
+    serverLogger.warn('YTDLP', 'Sin subtítulos/letra en fuentes del servidor', {
+        songId: song.id,
+        videoId,
+        reason: extracted.reason || 'no_subtitles'
+    });
     return {
         ok: false,
         tier: 4,
@@ -9515,6 +9546,12 @@ app.get('/api/version', apiReadLimiter.middleware, requireAuth, (req, res) => {
     }
 });
 
+app.get('/api/system/logs', apiReadLimiter.middleware, requireAdmin, (req, res) => {
+    const kind = String(req.query.kind || 'server').trim().toLowerCase();
+    const lines = Number.parseInt(String(req.query.lines || '120'), 10) || 120;
+    return res.json(serverLogger.getRecentLogTail({ kind, lines }));
+});
+
 // Manejo controlado de rutas inexistentes y errores inesperados en API (sin filtrar stack traces)
 app.use('/api', (req, res) => {
     res.status(404).send('API endpoint not found.');
@@ -9529,16 +9566,27 @@ app.use((err, req, res, _next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Backend server running at http://localhost:${PORT}`);
+    serverLogger.info('SYSTEM', 'Servidor iniciado', {
+        port: PORT,
+        tz: process.env.TZ || 'system',
+        trustProxy: process.env.TRUST_PROXY || 'off',
+        autonomousNotes: serverNotesService.isServerAutonomousNotesEnabled(),
+        fileLogs: serverLogger.fileEnabled,
+        logDir: serverLogger.logDir
+    });
 });
 
 // Capturar errores imprevistos para saber por qué se cayó
 process.on('uncaughtException', (err) => {
-    console.error(`\n[CRASH] ${new Date().toISOString()} - Server crashed with uncaughtException:`);
-    console.error(err);
+    serverLogger.crash('PROCESS', 'Server crashed with uncaughtException', {
+        error: err && err.stack ? err.stack : String(err)
+    });
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-    console.error(`\n[CRASH] ${new Date().toISOString()} - Unhandled promise rejection:`, reason);
+    serverLogger.crash('PROCESS', 'Unhandled promise rejection', {
+        reason: reason && reason.stack ? reason.stack : String(reason)
+    });
     process.exit(1);
 });

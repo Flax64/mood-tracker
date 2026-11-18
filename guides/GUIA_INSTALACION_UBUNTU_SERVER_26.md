@@ -205,10 +205,10 @@ cd ~/projects/mood-tracker
 git checkout feat/ubuntu-server-autonomous
 ```
 
-### 8.2 Preparar carpetas locales de datos (Diario cifrado y caché de idiomas)
+### 8.2 Preparar carpetas locales de datos (Diario cifrado, logs y caché de idiomas)
 ```bash
-mkdir -p data/journal data/ytdlp english-notes
-chmod 700 data data/journal data/ytdlp english-notes
+mkdir -p data/journal data/ytdlp english-notes logs
+chmod 700 data data/journal data/ytdlp english-notes logs
 ```
 * **Si ya tienes tu `Diario.docx` protegido con contraseña desde Windows:**
   Cópialo desde tu USB o vía `scp` a `~/projects/mood-tracker/data/journal/Diario.docx` y protege permisos:
@@ -325,8 +325,10 @@ chmod +x ~/projects/mood-tracker/scripts/*.sh
    ```
    Si quieres abrirlo en otro equipo, puedes descargarlo con tu sesión de admin en `/api/journal/download` y abrirlo en Word/LibreOffice usando tu `WORD_PASSWORD`.
 4. **Extracción de letras con `yt-dlp`:** en *Learn with Music*, verifica que el badge superior muestre **`🟢 Servidor autónomo · Listo`** y extrae la letra de una canción usando tu IP residencial sin bloqueos de datacenter.
-5. **Prueba de respaldo manual:**
+5. **Prueba de respaldo manual y logs del sistema:**
    ```bash
    ~/projects/mood-tracker/scripts/backup.sh
+   tail -n 50 ~/projects/mood-tracker/logs/server.log
+   tail -n 50 ~/projects/mood-tracker/logs/error.log
    ```
-   Verifica que generó el dump en `~/projects/respaldos/`, mantuvo una instantánea local cifrada de `Diario.docx` en `~/projects/respaldos/journal_local_backups/` (sin subir el diario a Drive) y subió la BD + histórico a Google Drive.
+   Verifica que generó el dump en `~/projects/respaldos/`, mantuvo una instantánea local cifrada de `Diario.docx` en `~/projects/respaldos/journal_local_backups/` (sin subir el diario a Drive), subió la BD + histórico a Google Drive y los logs rotativos en `logs/` quedan ignorados por Git (también consultables para Admin vía `GET /api/system/logs`).

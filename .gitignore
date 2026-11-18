@@ -6,6 +6,7 @@ respaldos/
 *.sql.gz
 english-notes/
 data/
+logs/
 for-gemini/
 codigo_dividido/
 
@@ -35,6 +36,7 @@ sincronitation/*
 *.db
 *.sqlite
 *.log
+*.log.*
 __pycache__/
 *.pyc
 .venv/

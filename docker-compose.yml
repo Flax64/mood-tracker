@@ -54,6 +54,8 @@ services:
       - ./english-notes:/app/english-notes
       # Carpeta opcional para cookies de yt-dlp si YouTube llegara a pedir sesión
       - ./data/ytdlp:/app/ytdlp-config:ro
+      # Logs persistentes rotativos del servidor (excluidos de Git en .gitignore)
+      - ./logs:/app/logs
     logging:
       driver: "json-file"
       options:
@@ -66,6 +68,10 @@ services:
       - DB_NAME=${DB_NAME}
       - PORT=${PORT:-3000}
       - TZ=${TZ:-America/Monterrey}
+      - LOG_DIR=${LOG_DIR:-/app/logs}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-5242880}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
       - TRUST_PROXY=${TRUST_PROXY:-1}
       - SERVER_AUTONOMOUS_NOTES=${SERVER_AUTONOMOUS_NOTES:-true}
       - JOURNAL_LOCAL_PATH=${JOURNAL_LOCAL_PATH:-/app/journal-data/Diario.docx}
