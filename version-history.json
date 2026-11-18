@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.14.0",
-  "updatedAt": "2026-11-18T02:52:27.254Z",
+  "currentVersion": "1.15.0",
+  "updatedAt": "2026-11-18T03:19:14.899Z",
   "releases": [
+    {
+      "version": "1.15.0",
+      "tag": "v1.15.0",
+      "bumpType": "minor",
+      "previousVersion": "1.14.0",
+      "releasedAt": "2026-11-18T03:19:14.899Z",
+      "commitSha": "484ceb7",
+      "trigger": "push",
+      "summary": "feat(infra,studio): automate server & yt-dlp updates, swap memory, auto-start, cloud lyrics and Drive docx on t3.micro",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(infra,studio): automate server & yt-dlp updates, swap memory, auto-start, cloud lyrics and Drive docx on t3.micro (9c727d8)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.14.0",
       "tag": "v1.14.0",
