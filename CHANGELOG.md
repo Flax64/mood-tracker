@@ -1,11 +1,17 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.11.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.12.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.12.0] - 2026-11-18 (MINOR) · `4d06edb`
+**feat(study): add Word heading page breaks, agnostic stanza segmentation, and JP/JP-EN support**
+
+### ✨ Features / Nuevas Funciones
+- feat(study): add Word heading page breaks, agnostic stanza segmentation, and JP/JP-EN support (aec0a87)
 
 ## [v1.11.0] - 2026-11-18 (MINOR) · `2b50d10`
 **feat(lyrics): split captions into 5 tracks, optimize AI notebook cache & add study viewer**

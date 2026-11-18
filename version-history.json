@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.11.0",
-  "updatedAt": "2026-11-18T01:09:57.913Z",
+  "currentVersion": "1.12.0",
+  "updatedAt": "2026-11-18T01:43:20.110Z",
   "releases": [
+    {
+      "version": "1.12.0",
+      "tag": "v1.12.0",
+      "bumpType": "minor",
+      "previousVersion": "1.11.0",
+      "releasedAt": "2026-11-18T01:43:20.110Z",
+      "commitSha": "4d06edb",
+      "trigger": "push",
+      "summary": "feat(study): add Word heading page breaks, agnostic stanza segmentation, and JP/JP-EN support",
+      "counts": {
+        "breaking": 0,
+        "features": 1,
+        "fixes": 0,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(study): add Word heading page breaks, agnostic stanza segmentation, and JP/JP-EN support (aec0a87)"
+        ],
+        "fixes": [],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.11.0",
       "tag": "v1.11.0",
