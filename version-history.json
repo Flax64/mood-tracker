@@ -1,8 +1,36 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.10.6",
-  "updatedAt": "2026-11-17T18:12:20.520Z",
+  "currentVersion": "1.11.0",
+  "updatedAt": "2026-11-18T01:09:57.913Z",
   "releases": [
+    {
+      "version": "1.11.0",
+      "tag": "v1.11.0",
+      "bumpType": "minor",
+      "previousVersion": "1.10.6",
+      "releasedAt": "2026-11-18T01:09:57.913Z",
+      "commitSha": "2b50d10",
+      "trigger": "push",
+      "summary": "feat(lyrics): split captions into 5 tracks, optimize AI notebook cache & add study viewer",
+      "counts": {
+        "breaking": 0,
+        "features": 3,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat(lyrics): split captions into 5 tracks, optimize AI notebook cache & add study viewer (38b8ad8)",
+          "feat: optimize ai lyrics (baa2f1e)",
+          "feat: Extractor de letras oficiales de YouTube Music (4413c37)"
+        ],
+        "fixes": [
+          "fix: test (28c658d)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.10.6",
       "tag": "v1.10.6",

@@ -1,11 +1,22 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.10.6**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.11.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.11.0] - 2026-11-18 (MINOR) · `2b50d10`
+**feat(lyrics): split captions into 5 tracks, optimize AI notebook cache & add study viewer**
+
+### ✨ Features / Nuevas Funciones
+- feat(lyrics): split captions into 5 tracks, optimize AI notebook cache & add study viewer (38b8ad8)
+- feat: optimize ai lyrics (baa2f1e)
+- feat: Extractor de letras oficiales de YouTube Music (4413c37)
+
+### 🐛 Bug Fixes / Correcciones
+- fix: test (28c658d)
 
 ## [v1.10.6] - 2026-11-17 (PATCH) · `a81ecf8`
 **chore(sync): track local python sync scripts and isolate from server build (Closes #84)**
