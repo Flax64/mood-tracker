@@ -27,11 +27,14 @@ fail() {
 }
 
 PORT="${PORT:-3000}"
+PROXY_HTTP_PORT="${PROXY_HTTP_PORT:-8080}"
 EXPECTED_TZ="${TZ:-America/Monterrey}"
 if [ -f "$PROJECT_DIR/.env" ]; then
     ENV_PORT="$(grep -E '^PORT=' "$PROJECT_DIR/.env" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
+    ENV_PROXY_PORT="$(grep -E '^PROXY_HTTP_PORT=' "$PROJECT_DIR/.env" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
     ENV_TZ="$(grep -E '^TZ=' "$PROJECT_DIR/.env" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
     [ -n "$ENV_PORT" ] && PORT="$ENV_PORT"
+    [ -n "$ENV_PROXY_PORT" ] && PROXY_HTTP_PORT="$ENV_PROXY_PORT"
     [ -n "$ENV_TZ" ] && EXPECTED_TZ="$ENV_TZ"
 fi
 
@@ -90,7 +93,7 @@ else
     fail "Docker Compose v2 ('docker compose') no está disponible."
 fi
 
-for cname in mood_db mood_app mood_proxy; do
+for cname in mood_db mood_app mood_app2 mood_proxy; do
     STATE="$($DOCKER_CMD inspect -f '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cname" 2>/dev/null || echo 'missing|none')"
     if [ "$STATE" = "running|healthy" ]; then
         pass "Contenedor $cname en estado running (healthy)."
@@ -101,7 +104,7 @@ for cname in mood_db mood_app mood_proxy; do
     fi
 done
 
-$DOCKER_CMD stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' mood_db mood_app mood_proxy 2>/dev/null || true
+$DOCKER_CMD stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' mood_db mood_app mood_app2 mood_proxy 2>/dev/null || true
 
 APP_UID_OUT="$($DOCKER_CMD exec mood_app id -u 2>/dev/null || echo '')"
 if [ -n "$APP_UID_OUT" ] && [ "$APP_UID_OUT" != "0" ]; then
@@ -154,10 +157,10 @@ if command -v tailscale >/dev/null 2>&1; then
     if tailscale status >/dev/null 2>&1; then
         pass "Tailscale conectado en este host."
         TS_SERVE="$(tailscale serve status 2>/dev/null || true)"
-        if [ -n "$TS_SERVE" ] && printf '%s\n' "$TS_SERVE" | grep -qE "127\.0\.0\.1:${PORT}|localhost:${PORT}|:${PORT}"; then
-            pass "Tailscale Serve apuntando hacia puerto local ${PORT}."
+        if [ -n "$TS_SERVE" ] && printf '%s\n' "$TS_SERVE" | grep -qE "(127\.0\.0\.1|localhost|):(${PORT}|${PROXY_HTTP_PORT})"; then
+            pass "Tailscale Serve apuntando hacia endpoint local (${PROXY_HTTP_PORT} / ${PORT})."
         else
-            warn "Tailscale Serve no muestra ruta activa hacia localhost:${PORT} (ejecuta: sudo tailscale serve --bg http://127.0.0.1:${PORT})."
+            warn "Tailscale Serve no muestra ruta activa hacia localhost:${PROXY_HTTP_PORT} ni ${PORT} (para balanceador usa: sudo tailscale serve --bg http://127.0.0.1:${PROXY_HTTP_PORT})."
         fi
     else
         warn "Tailscale instalado pero sin sesión activa o sin permisos."
@@ -223,6 +226,19 @@ if command -v curl >/dev/null 2>&1; then
         pass "http://127.0.0.1:${PORT}/healthz responde HTTP 200."
     else
         fail "http://127.0.0.1:${PORT}/healthz respondió HTTP ${HEALTH_CODE}."
+    fi
+
+    PROXY_HEALTH_HDRS="$(curl -s -D - -o /dev/null -w '\n%{http_code}' --max-time 5 "http://127.0.0.1:${PROXY_HTTP_PORT}/healthz" 2>/dev/null || true)"
+    PROXY_HEALTH_CODE="$(printf '%s\n' "$PROXY_HEALTH_HDRS" | tail -n 1)"
+    if [ "$PROXY_HEALTH_CODE" = "200" ]; then
+        PROXY_REPLICA="$(printf '%s\n' "$PROXY_HEALTH_HDRS" | grep -i '^X-Replica-Id:' | head -n 1 | tr -d '\r' || true)"
+        if printf '%s\n' "$PROXY_HEALTH_HDRS" | grep -qi '^Set-Cookie:.*pdh_lb='; then
+            pass "Balanceador Caddy (127.0.0.1:${PROXY_HTTP_PORT}/healthz) responde 200 con sticky cookie pdh_lb (${PROXY_REPLICA:-X-Replica-Id})."
+        else
+            warn "Balanceador Caddy (127.0.0.1:${PROXY_HTTP_PORT}/healthz) responde 200 pero sin cookie pdh_lb (${PROXY_REPLICA:-sin X-Replica-Id})."
+        fi
+    else
+        fail "Balanceador Caddy http://127.0.0.1:${PROXY_HTTP_PORT}/healthz respondió HTTP ${PROXY_HEALTH_CODE:-000}."
     fi
 
     HTML_BODY="$(curl -fsS --max-time 8 -H "X-Forwarded-Proto: https" "http://127.0.0.1:${PORT}/" 2>/dev/null || true)"

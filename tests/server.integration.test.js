@@ -47,6 +47,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
     let medicoCookie;
 
     const queryLog = [];
+    const activeAdvisoryLocks = new Set();
+    const advisoryLockHistory = [];
     const sessions = new Map();
     const moodInserts = [];
     const sleepInserts = [];
@@ -838,7 +840,28 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 return finish(null, []);
             },
             getConnection(cb) {
-                cb(null, { release() {} });
+                cb(null, {
+                    query(sql, paramsOrCb, maybeCb) {
+                        const params = Array.isArray(paramsOrCb) ? paramsOrCb : [];
+                        const queryCb = typeof paramsOrCb === 'function' ? paramsOrCb : maybeCb;
+                        const normalized = String(sql).replace(/\s+/g, ' ').trim();
+                        if (normalized.startsWith('SELECT GET_LOCK(')) {
+                            const lockName = String(params[0] || '');
+                            const acquired = activeAdvisoryLocks.has(lockName) ? 0 : 1;
+                            if (acquired === 1) activeAdvisoryLocks.add(lockName);
+                            advisoryLockHistory.push({ op: 'acquire', lockName, result: acquired });
+                            return process.nextTick(() => queryCb(null, [{ acquired }]));
+                        }
+                        if (normalized.startsWith('SELECT RELEASE_LOCK(')) {
+                            const lockName = String(params[0] || '');
+                            const released = activeAdvisoryLocks.delete(lockName) ? 1 : 0;
+                            advisoryLockHistory.push({ op: 'release', lockName, result: released });
+                            return process.nextTick(() => queryCb(null, [{ released }]));
+                        }
+                        return mockDb.query(sql, params, queryCb);
+                    },
+                    release() {}
+                });
             },
             end(cb) {
                 if (cb) cb();
@@ -4791,5 +4814,86 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.strictEqual(httpsLogout.status, 200);
         const logoutCookies = [].concat(httpsLogout.headers['set-cookie'] || []).join('; ');
         assert.ok(/;\s*Secure\b/i.test(logoutCookies), 'Logout HTTPS también debe limpiar cookie con atributo Secure');
+    });
+
+    it('expone X-Replica-Id en /healthz y coordina escrituras .docx con advisory locks distribuidos en MySQL', async () => {
+        const fs = require('node:fs');
+        const os = require('node:os');
+
+        const healthRes = await request({ port, reqPath: '/healthz' });
+        assert.strictEqual(healthRes.status, 200);
+        assert.deepStrictEqual(JSON.parse(healthRes.body), { ok: true });
+        assert.ok(String(healthRes.headers['x-replica-id'] || '').trim().length > 0, '/healthz debe incluir header X-Replica-Id');
+
+        const logsRes = await request({
+            port,
+            reqPath: '/api/system/logs?kind=server&lines=5',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(logsRes.status, 200);
+        assert.ok(String(JSON.parse(logsRes.body).replicaId || '').trim().length > 0);
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-lock-int-'));
+        const prevKey = process.env.JOURNAL_SECRET_KEY;
+        const prevEngPath = process.env.ENGLISH_WORD_FILE_PATH;
+        const prevJrnPath = process.env.JOURNAL_LOCAL_PATH;
+        const prevWordPass = process.env.WORD_PASSWORD;
+        const prevRclone = process.env.RCLONE_CONFIG;
+        const startHistoryLen = advisoryLockHistory.length;
+
+        try {
+            const secretKey = '0123456789abcdef0123456789abcdef';
+            process.env.JOURNAL_SECRET_KEY = secretKey;
+            process.env.ENGLISH_WORD_FILE_PATH = path.join(tmpDir, 'English_Learning_Notebook.docx');
+            process.env.JOURNAL_LOCAL_PATH = path.join(tmpDir, 'Diario.docx');
+            process.env.WORD_PASSWORD = 'LockWordPass2026!';
+            process.env.RCLONE_CONFIG = path.join(tmpDir, 'nonexistent-rclone.conf');
+
+            const encryptEnvelope = (plainText) => {
+                const keyBuf = Buffer.from(secretKey, 'utf8');
+                const iv = crypto.randomBytes(16);
+                const cipher = crypto.createCipheriv('aes-256-cbc', keyBuf, iv);
+                const enc = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+                return `${iv.toString('hex')}:${enc.toString('base64')}`;
+            };
+
+            const engEntryJson = JSON.stringify({
+                section: 'vocabulary',
+                dateStr: '2026-11-19',
+                title: 'resilient',
+                fields: { meaning: 'able to recover quickly', example: 'Load-balanced replicas stay resilient.' }
+            });
+            const engRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-english',
+                headers: { Cookie: adminCookie },
+                body: { texto: encryptEnvelope(engEntryJson) }
+            });
+            assert.strictEqual(engRes.status, 200);
+
+            const jrnRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-to-pc',
+                headers: { Cookie: adminCookie },
+                body: { texto: encryptEnvelope('Locked journal entry across replicas.') }
+            });
+            assert.strictEqual(jrnRes.status, 200);
+
+            const recentLocks = advisoryLockHistory.slice(startHistoryLen);
+            assert.ok(recentLocks.some((e) => e.op === 'acquire' && e.lockName === 'pdh_docx_english' && e.result === 1));
+            assert.ok(recentLocks.some((e) => e.op === 'release' && e.lockName === 'pdh_docx_english' && e.result === 1));
+            assert.ok(recentLocks.some((e) => e.op === 'acquire' && e.lockName === 'pdh_docx_journal' && e.result === 1));
+            assert.ok(recentLocks.some((e) => e.op === 'release' && e.lockName === 'pdh_docx_journal' && e.result === 1));
+            assert.strictEqual(activeAdvisoryLocks.size, 0);
+        } finally {
+            if (prevKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevKey;
+            if (prevEngPath === undefined) delete process.env.ENGLISH_WORD_FILE_PATH; else process.env.ENGLISH_WORD_FILE_PATH = prevEngPath;
+            if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
+            if (prevWordPass === undefined) delete process.env.WORD_PASSWORD; else process.env.WORD_PASSWORD = prevWordPass;
+            if (prevRclone === undefined) delete process.env.RCLONE_CONFIG; else process.env.RCLONE_CONFIG = prevRclone;
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
     });
 });

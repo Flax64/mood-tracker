@@ -7090,14 +7090,7 @@ function prepararAgregarCancionAAlbum({ mainArtist = '', artistType = '', albumT
             : (mainArtist ? tUi(`Add Song for ${mainArtist}`, `Agregar canción para ${mainArtist}`) : tUi('Register or Link Song', 'Registrar o Vincular Canción'));
     }
 
-    const songTitleEl = document.getElementById('musicSongTitle');
-    const form = document.getElementById('musicSongForm');
-    if (form && typeof form.scrollIntoView === 'function') {
-        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-    if (songTitleEl && typeof songTitleEl.focus === 'function') {
-        songTitleEl.focus();
-    }
+    openMusicSongModal({ reset: false, focusId: 'musicSongTitle' });
 }
 
 function clearMusicSongFormAutoFillFlags() {
@@ -7146,24 +7139,25 @@ function cargarCancionEnFormularioEdicion(song) {
     const cancelBtn = document.getElementById('btnMusicCancelEdit');
     const saveBtn = document.getElementById('btnMusicSaveSong');
     if (titleEl) titleEl.textContent = `Edit Song: ${song.titulo}`;
-    if (cancelBtn) cancelBtn.hidden = false;
-    if (saveBtn) saveBtn.textContent = 'Update Song Metadata';
+    if (cancelBtn) {
+        cancelBtn.hidden = false;
+        cancelBtn.textContent = tUi('Cancel Edit', 'Cancelar Edición');
+    }
+    if (saveBtn) saveBtn.textContent = tUi('Update Song Metadata', 'Actualizar Metadatos de Canción');
     mostrarBannerMusica('musicSongFormBanner', '', '');
 
     const form = document.getElementById('musicSongForm');
-    form?.closest('.music-panel-card')?.classList.add('is-editing-song');
-    if (form && typeof form.scrollIntoView === 'function') {
-        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-    document.getElementById('musicSongTitle')?.focus();
+    form?.closest('.modal-card, .music-panel-card')?.classList.add('is-editing-song');
+    openMusicSongModal({ reset: false, focusId: 'musicSongTitle' });
 }
 
-function cancelarEdicionCancionMusica() {
+function cancelarEdicionCancionMusica({ closeModal = false } = {}) {
     musicState.editingSongId = null;
     musicState.lastAutoFillVideoId = null;
     const form = document.getElementById('musicSongForm');
     if (form) {
         form.reset();
+        form.closest('.modal-card')?.classList.remove('is-editing-song');
         form.closest('.music-panel-card')?.classList.remove('is-editing-song');
         clearMusicSongFormAutoFillFlags();
     }
@@ -7174,9 +7168,67 @@ function cancelarEdicionCancionMusica() {
     const titleEl = document.getElementById('musicSongFormTitle');
     const cancelBtn = document.getElementById('btnMusicCancelEdit');
     const saveBtn = document.getElementById('btnMusicSaveSong');
-    if (titleEl) titleEl.textContent = 'Register or Link Song';
-    if (cancelBtn) cancelBtn.hidden = true;
-    if (saveBtn) saveBtn.textContent = 'Save Song Metadata';
+    if (titleEl) titleEl.textContent = tUi('Register or Link Song', 'Registrar o Vincular Canción');
+    if (cancelBtn) {
+        cancelBtn.hidden = false;
+        cancelBtn.textContent = tUi('Cancel', 'Cancelar');
+    }
+    if (saveBtn) saveBtn.textContent = tUi('Save Song Metadata', 'Guardar Metadatos de Canción');
+    if (closeModal) {
+        const modal = document.getElementById('musicSongModal');
+        if (modal) modal.hidden = true;
+        mostrarBannerMusica('musicSongFormBanner', '', '');
+    }
+}
+
+function openMusicSongModal({ reset = false, focusId = 'musicSongYtUrl' } = {}) {
+    const modal = document.getElementById('musicSongModal');
+    if (!modal) return;
+    if (reset) {
+        cancelarEdicionCancionMusica({ closeModal: false });
+        mostrarBannerMusica('musicSongFormBanner', '', '');
+    }
+    modal.hidden = false;
+    const focusEl = focusId ? document.getElementById(focusId) : null;
+    if (focusEl && typeof focusEl.focus === 'function') {
+        focusEl.focus();
+    }
+}
+
+function closeMusicSongModal({ reset = true } = {}) {
+    const modal = document.getElementById('musicSongModal');
+    if (modal) modal.hidden = true;
+    mostrarBannerMusica('musicSongFormBanner', '', '');
+    if (reset) {
+        cancelarEdicionCancionMusica({ closeModal: false });
+    }
+}
+
+function initMusicSongModal() {
+    const modal = document.getElementById('musicSongModal');
+    const btnClose = document.getElementById('btnCloseMusicSongModal');
+    const btnNewSong = document.getElementById('btnMusicNewSong');
+    if (!modal || modal.dataset.wired === 'true') return;
+    modal.dataset.wired = 'true';
+
+    if (btnNewSong) {
+        btnNewSong.addEventListener('click', () => {
+            openMusicSongModal({ reset: true, focusId: 'musicSongYtUrl' });
+        });
+    }
+    if (btnClose) {
+        btnClose.addEventListener('click', () => closeMusicSongModal({ reset: true }));
+    }
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeMusicSongModal({ reset: true });
+    });
+    document.addEventListener('keydown', (e) => {
+        const albumCreateModal = document.getElementById('musicAlbumCreateModal');
+        const albumModalOpen = Boolean(albumCreateModal && !albumCreateModal.hidden);
+        if (e.key === 'Escape' && !modal.hidden && !albumModalOpen) {
+            closeMusicSongModal({ reset: true });
+        }
+    });
 }
 
 function openMusicEntityEditModal(kind, entity) {
@@ -7455,6 +7507,22 @@ function initMusicAlbumCreateModal() {
                         albumType: payload.albumType,
                         albumYear: payload.albumYear
                     });
+                } else {
+                    const songModal = document.getElementById('musicSongModal');
+                    if (songModal && !songModal.hidden) {
+                        const songAlbumTitleEl = document.getElementById('musicAlbumTitle');
+                        const songAlbumTypeEl = document.getElementById('musicAlbumType');
+                        const songAlbumYearEl = document.getElementById('musicAlbumYear');
+                        const songMainArtistEl = document.getElementById('musicMainArtist');
+                        const songMainArtistTypeEl = document.getElementById('musicMainArtistType');
+                        if (songAlbumTitleEl) songAlbumTitleEl.value = payload.albumTitle || '';
+                        if (songAlbumTypeEl && payload.albumType) songAlbumTypeEl.value = payload.albumType;
+                        if (songAlbumYearEl && payload.albumYear) songAlbumYearEl.value = String(payload.albumYear);
+                        if (songMainArtistEl && !songMainArtistEl.value.trim()) {
+                            songMainArtistEl.value = payload.mainArtist || '';
+                            if (songMainArtistTypeEl && payload.artistType) songMainArtistTypeEl.value = payload.artistType;
+                        }
+                    }
                 }
             } catch (err) {
                 mostrarBannerMusica('musicAlbumCreateBanner', 'err', err.message || 'Could not create album.');
@@ -8082,6 +8150,7 @@ if (englishMusicStudioRoot) {
     const songForm = document.getElementById('musicSongForm');
     const wordForm = document.getElementById('musicWordNotesForm');
 
+    initMusicSongModal();
     initMusicAlbumCreateModal();
 
     if (btnNewAlbum) {
@@ -8200,6 +8269,7 @@ if (englishMusicStudioRoot) {
                     useBtn.className = 'btn-primary btn-small';
                     useBtn.textContent = 'Select Song';
                     useBtn.addEventListener('click', () => {
+                        cancelarEdicionCancionMusica({ closeModal: false });
                         const urlEl = document.getElementById('musicSongYtUrl');
                         const titleEl = document.getElementById('musicSongTitle');
                         const artistEl = document.getElementById('musicMainArtist');
@@ -8209,6 +8279,7 @@ if (englishMusicStudioRoot) {
                         if (urlEl) urlEl.value = chosenUrl;
                         if (titleEl && !titleEl.value.trim()) titleEl.value = item.title || '';
                         if (artistEl && !artistEl.value.trim()) artistEl.value = item.channelTitle || '';
+                        openMusicSongModal({ reset: false, focusId: 'musicSongTitle' });
                     });
                     meta.append(t, ch, useBtn);
                     card.appendChild(meta);
@@ -8373,7 +8444,7 @@ if (englishMusicStudioRoot) {
         });
     }
 
-    if (btnCancelEdit) btnCancelEdit.addEventListener('click', cancelarEdicionCancionMusica);
+    if (btnCancelEdit) btnCancelEdit.addEventListener('click', () => closeMusicSongModal({ reset: true }));
     if (btnRefreshCatalog) btnRefreshCatalog.addEventListener('click', cargarCatalogoMusical);
 
     if (btnToggleEmbed) {
@@ -8665,8 +8736,8 @@ if (englishMusicStudioRoot) {
                         parseJson: true
                     });
 
-                    cancelarEdicionCancionMusica();
-                    mostrarBannerMusica('musicSongFormBanner', 'ok', data.message || 'Song metadata saved.');
+                    closeMusicSongModal({ reset: true });
+                    showToast('ok', data.message || 'Song metadata saved.');
                     if (data && data.songId) {
                         musicState.selectedSongId = Number(data.songId);
                     }

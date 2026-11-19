@@ -51,6 +51,7 @@ services:
 
   app:
     build: .
+    image: personal-daily-hub-app:latest
     container_name: mood_app
     restart: always
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
@@ -82,6 +83,9 @@ services:
         max-size: "10m"
         max-file: "3"
     environment:
+      - REPLICA_ID=app
+      - DISABLE_REMINDER_SCHEDULER=${DISABLE_REMINDER_SCHEDULER:-false}
+      - DISABLE_CLEANUP_SCHEDULER=${DISABLE_CLEANUP_SCHEDULER:-false}
       - DB_HOST=${DB_HOST:-db}
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
@@ -89,6 +93,83 @@ services:
       - PORT=${PORT:-3000}
       - TZ=${TZ:-America/Monterrey}
       - LOG_DIR=${LOG_DIR:-/app/logs}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-5242880}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
+      - TRUST_PROXY=${TRUST_PROXY:-1}
+      - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
+      - REQUIRE_PC_BRIDGE_AUTH=${REQUIRE_PC_BRIDGE_AUTH:-true}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - SERVER_AUTONOMOUS_NOTES=${SERVER_AUTONOMOUS_NOTES:-true}
+      - DB_RETENTION_DAYS=${DB_RETENTION_DAYS:-0}
+      - ENABLE_LOGIN_MFA=${ENABLE_LOGIN_MFA:-false}
+      - JOURNAL_LOCAL_PATH=${JOURNAL_LOCAL_PATH:-/app/journal-data/Diario.docx}
+      - ENGLISH_WORD_FILE_PATH=${ENGLISH_WORD_FILE_PATH:-/app/english-notes/English_Learning_Notebook.docx}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_SECRET=${ADMIN_SECRET:-}
+      - WORD_PASSWORD=${WORD_PASSWORD:-}
+      - JOURNAL_SECRET_KEY=${JOURNAL_SECRET_KEY:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - APP_BASE_URL=${APP_BASE_URL:-}
+      - RCLONE_REMOTE=${RCLONE_REMOTE:-gdrive}
+      - RCLONE_BACKUP_DIR=${RCLONE_BACKUP_DIR:-RespaldosApp}
+      - STUDY_RCLONE_REMOTE=${STUDY_RCLONE_REMOTE:-}
+      - STUDY_RCLONE_DIR=${STUDY_RCLONE_DIR:-NotasIdiomas}
+      - RCLONE_CONF_B64=${RCLONE_CONF_B64:-}
+      - STUDY_RCLONE_CONF_B64=${STUDY_RCLONE_CONF_B64:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YT_DLP_PATH=${YT_DLP_PATH:-}
+      - YTDLP_COOKIES_PATH=${YTDLP_COOKIES_PATH:-}
+      - YTM_INNERTUBE=${YTM_INNERTUBE:-1}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app2:
+    build: .
+    image: personal-daily-hub-app:latest
+    container_name: mood_app2
+    restart: always
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    mem_limit: 1024m
+    cpus: "2.0"
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+      - /dev/shm:rw,noexec,nosuid,nodev,size=64m
+    volumes:
+      - ./data/journal:/app/journal-data
+      - ./english-notes:/app/english-notes
+      - ./data/ytdlp:/app/ytdlp-config:ro
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - REPLICA_ID=app2
+      - DISABLE_REMINDER_SCHEDULER=true
+      - DISABLE_CLEANUP_SCHEDULER=true
+      - DB_HOST=${DB_HOST:-db}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME}
+      - PORT=${PORT:-3000}
+      - TZ=${TZ:-America/Monterrey}
+      - LOG_DIR=${LOG_DIR:-/app/logs}/app2
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_MAX_BYTES=${LOG_MAX_BYTES:-5242880}
       - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
@@ -161,6 +242,8 @@ services:
       start_period: 15s
     depends_on:
       app:
+        condition: service_healthy
+      app2:
         condition: service_healthy
 
 volumes:

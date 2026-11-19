@@ -483,7 +483,7 @@ jobs:
 
             FINAL_CRON_SCHEDULE="${BACKUP_CRON_SCHEDULE:-30 3 * * *}"
             CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
-            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec -u 0 mood_app yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
+            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec -u 0 mood_app yt-dlp -U || true) && (docker exec -u 0 mood_app2 yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" | grep -v "yt-dlp -U" || true; printf '%s\n%s\n' "$CRON_JOB" "$YTDLP_CRON_JOB") | crontab -
 
             # 9. Garantizar cero .env en disco por defecto (salvo que SEAL_ENV_AFTER_DEPLOY=false)

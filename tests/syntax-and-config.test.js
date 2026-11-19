@@ -328,6 +328,9 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="resumenVisualWeekDays"',
             'id="btnResumenWeekAllDays"',
             'id="musicEntityEditModal"',
+            'id="musicSongModal"',
+            'id="btnMusicNewSong"',
+            'id="btnCloseMusicSongModal"',
             'id="musicAlbumCreateModal"',
             'id="btnMusicNewAlbum"',
             'id="btnMusicQuickNewAlbum"',
@@ -1331,5 +1334,40 @@ describe('Traductor Global por Selección e Integridad Bilingüe EN/ES', () => {
             }
         }
         assert.deepEqual(trappedEs, [], `Entradas de PAIRS que no regresan a inglés: ${JSON.stringify(trappedEs.slice(0, 5))}`);
+    });
+});
+
+describe('Balanceador de cargas Caddy + Réplica app2 y Modal de Canción (#musicSongModal)', () => {
+    it('configura Caddy sticky-session load balancer, réplica app2 sin puertos públicos y locks en docker-compose', () => {
+        const caddyfile = readText('Caddyfile');
+        assert.match(caddyfile, /trusted_proxies\s+static\s+private_ranges/);
+        assert.match(caddyfile, /reverse_proxy\s+app:\{\$PORT:3000\}\s+app2:\{\$PORT:3000\}/);
+        assert.match(caddyfile, /lb_policy\s+cookie\s+pdh_lb/);
+        assert.match(caddyfile, /health_uri\s+\/healthz/);
+        assert.match(caddyfile, /fail_duration/);
+
+        const compose = readText('docker-compose.yml');
+        assert.match(compose, /^\s{2}app2:/m);
+        assert.match(compose, /container_name:\s*mood_app2/);
+        assert.match(compose, /REPLICA_ID=app2/);
+        assert.match(compose, /DISABLE_REMINDER_SCHEDULER=true/);
+        assert.match(compose, /DISABLE_CLEANUP_SCHEDULER=true/);
+        assert.match(compose, /LOG_DIR=\$\{LOG_DIR:-\/app\/logs\}\/app2/);
+        const app2BlockMatch = compose.match(/^\s{2}app2:[\s\S]*?(?=^\s{2}proxy:)/m);
+        assert.ok(app2BlockMatch, 'Debe existir sección app2 antes de proxy en docker-compose.yml');
+        assert.equal(/^\s+ports:/m.test(app2BlockMatch[0]), false, 'app2 no debe exponer puertos en el host');
+    });
+
+    it('ubica #musicSongForm dentro de #musicSongModal antes de #musicAlbumCreateModal para superposición limpia', () => {
+        const indexHtml = readText('public/index.html');
+        const songModalPos = indexHtml.indexOf('id="musicSongModal"');
+        const songFormPos = indexHtml.indexOf('id="musicSongForm"');
+        const albumModalPos = indexHtml.indexOf('id="musicAlbumCreateModal"');
+
+        assert.ok(songModalPos > -1, 'public/index.html debe definir #musicSongModal');
+        assert.ok(songFormPos > songModalPos, '#musicSongForm debe estar contenido dentro de #musicSongModal');
+        assert.ok(albumModalPos > songFormPos, '#musicAlbumCreateModal debe ir después de #musicSongModal en el DOM');
+        assert.equal(indexHtml.includes('id="btnMusicNewSong"'), true, 'Catálogo debe incluir botón #btnMusicNewSong');
+        assert.equal(indexHtml.includes('id="btnCloseMusicSongModal"'), true, '#musicSongModal debe incluir botón de cierre');
     });
 });

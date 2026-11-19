@@ -489,6 +489,7 @@
         ['Find Song', 'Buscar Canción'],
         ['Find on YouTube', 'Buscar en YouTube'],
         ['Find on YT Music', 'Buscar en YT Music'],
+        ['➕ Register New Song', '➕ Registrar Nueva Canción'],
         ['Register or Link Song', 'Registrar o Vincular Canción'],
         ['Cancel Edit', 'Cancelar Edición'],
         ['YouTube Music / YouTube URL or 11-char ID (optional)', 'URL de YouTube / YouTube Music o ID de 11 caracteres (opcional)'],

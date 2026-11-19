@@ -57,8 +57,11 @@ const ytmusicLyrics = require('./lib/ytmusic-lyrics');
 const externalLyricsAndMeta = require('./lib/external-lyrics-and-meta');
 const ytdlpService = require('./lib/ytdlp-service');
 const serverNotesService = require('./lib/server-notes-service');
+const { withMySqlAdvisoryLock } = require('./lib/distributed-lock');
 const { buildSafeRcloneExecEnv } = serverNotesService;
 const { createServerLogger } = require('./lib/server-logger');
+
+const REPLICA_ID = String(process.env.REPLICA_ID || os.hostname() || 'app').trim().slice(0, 64) || 'app';
 
 const serverLogger = createServerLogger({ rootDir: __dirname });
 serverLogger.installConsoleTee();
@@ -166,6 +169,7 @@ app.use((req, res, next) => {
 });
 
 app.get('/healthz', (_req, res) => {
+    res.setHeader('X-Replica-Id', REPLICA_ID);
     res.status(200).json({ ok: true });
 });
 
@@ -1014,7 +1018,9 @@ function limpiarRegistrosExpirados() {
     db.query('DELETE FROM RecordatoriosEstado WHERE actualizado_en < ?', [cutoff14Days], () => {});
 }
 
-setInterval(limpiarRegistrosExpirados, 6 * 60 * 60 * 1000).unref();
+if (process.env.DISABLE_CLEANUP_SCHEDULER !== 'true') {
+    setInterval(limpiarRegistrosExpirados, 6 * 60 * 60 * 1000).unref();
+}
 
 // Transporte de correo (Gmail SMTP)
 function escapeHtml(str) {
@@ -2610,6 +2616,18 @@ const englishQueue = createEncryptedPcQueue({
     fullMessage: 'English sync queue is full; please wait for your PC to pull pending entries.'
 });
 
+async function runWithDocxLock(lockName, taskFn) {
+    return ytdlpService.runWithHeavyTaskLock(() =>
+        withMySqlAdvisoryLock({
+            pool: db,
+            lockName,
+            timeoutSec: 25,
+            taskFn,
+            onWarn: (msg) => serverLogger.warn('DOCX_LOCK', msg, { replicaId: REPLICA_ID, lockName })
+        })
+    );
+}
+
 let _englishDriveRetryTimer = null;
 let _englishDriveRetryCount = 0;
 
@@ -2620,7 +2638,7 @@ function scheduleStudyDriveRetry() {
     _englishDriveRetryTimer = setTimeout(async () => {
         _englishDriveRetryTimer = null;
         try {
-            await ytdlpService.runWithHeavyTaskLock(async () => {
+            await runWithDocxLock('pdh_docx_english', async () => {
                 const localMirrorPath = serverNotesService.resolveLocalEnglishPath({ rootDir: __dirname });
                 if (!fs.existsSync(localMirrorPath)) return;
                 const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
@@ -2676,7 +2694,7 @@ app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requir
         }
         if (wordPassword) {
             try {
-                const writeRes = await ytdlpService.runWithHeavyTaskLock(() =>
+                const writeRes = await runWithDocxLock('pdh_docx_journal', () =>
                     serverNotesService.saveJournalNoteLocalEncrypted({
                         plainText: dec.plainText,
                         wordPassword,
@@ -2699,6 +2717,9 @@ app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requir
                 }
             } catch (err) {
                 console.error('[JOURNAL_LOCAL_WRITE_ERROR]', err.message);
+                if (err && err.code === 'LOCK_TIMEOUT') {
+                    return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+                }
                 return res.status(500).send('Error saving encrypted local Journal.');
             }
         }
@@ -2761,7 +2782,7 @@ app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requ
         } catch (_) {}
 
         try {
-            const saveRes = await ytdlpService.runWithHeavyTaskLock(() =>
+            const saveRes = await runWithDocxLock('pdh_docx_english', () =>
                 serverNotesService.saveEnglishEntryToCloudAndLocal({
                     entry: parsedEntry,
                     resolveRcloneFn: resolveRcloneConfigPath,
@@ -2796,6 +2817,9 @@ app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requ
             return res.status(500).send(saveRes?.error || 'Could not save English Notebook entry.');
         } catch (err) {
             console.error('[ENGLISH_SERVER_SAVE_EXC]', err.message);
+            if (err && err.code === 'LOCK_TIMEOUT') {
+                return res.status(503).send('Concurrent English Notebook file write busy; please retry shortly.');
+            }
             return res.status(500).send('Error saving English Notebook entry on server.');
         }
     }
@@ -5254,7 +5278,7 @@ async function runAutonomousJournalMidnightTick() {
     const yesterdayIso = dt.toISOString().slice(0, 10);
 
     try {
-        const res = await ytdlpService.runWithHeavyTaskLock(() =>
+        const res = await runWithDocxLock('pdh_docx_journal', () =>
             serverNotesService.saveJournalNoteLocalEncrypted({
                 plainText: 'Nothing to report.',
                 wordPassword,
@@ -7812,7 +7836,7 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
         return _studyNotebookFetchPromise;
     }
 
-    _studyNotebookFetchPromise = ytdlpService.runWithHeavyTaskLock(async () => {
+    _studyNotebookFetchPromise = runWithDocxLock('pdh_docx_english', async () => {
         const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
         const tmpDocxPath = path.join(os.tmpdir(), `English_Read_${process.pid}_${Date.now()}.docx`);
         try {
@@ -7860,11 +7884,18 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
             if (buf.length < 64 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
                 return readLocalMirror() || studyNotebookCache.parsed || null;
             }
-            // Mirror Drive copy locally for resilience if Drive is temporarily unreachable
+            // Mirror Drive copy locally via atomic rename so concurrent readers never observe partial bytes
+            let tmpMirrorPath = '';
             try {
                 fs.mkdirSync(path.dirname(localPath), { recursive: true });
-                fs.writeFileSync(localPath, buf, { mode: 0o600 });
-            } catch (_) {}
+                tmpMirrorPath = `${localPath}.${process.pid}.${Date.now()}.tmp`;
+                fs.writeFileSync(tmpMirrorPath, buf, { mode: 0o600 });
+                fs.renameSync(tmpMirrorPath, localPath);
+            } catch (_) {
+                if (tmpMirrorPath && fs.existsSync(tmpMirrorPath)) {
+                    try { fs.unlinkSync(tmpMirrorPath); } catch (_cleanupErr) {}
+                }
+            }
 
             const bufSha = crypto.createHash('sha256').update(buf).digest('hex');
             if (
@@ -8028,12 +8059,14 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             });
         }
 
-        const syncRes = await serverNotesService.uploadAndVerifyStudyDocx({
-            docxBuffer,
-            filePath: tmpDocxPath,
-            rcloneConf,
-            remoteTarget
-        });
+        const syncRes = await runWithDocxLock('pdh_docx_english', () =>
+            serverNotesService.uploadAndVerifyStudyDocx({
+                docxBuffer,
+                filePath: tmpDocxPath,
+                rcloneConf,
+                remoteTarget
+            })
+        );
 
         if (!syncRes.verified) {
             return res.status(502).json({
@@ -9851,7 +9884,10 @@ app.get('/api/version', apiReadLimiter.middleware, requireAuth, (req, res) => {
 app.get('/api/system/logs', apiReadLimiter.middleware, requireAdmin, (req, res) => {
     const kind = String(req.query.kind || 'server').trim().toLowerCase();
     const lines = Number.parseInt(String(req.query.lines || '120'), 10) || 120;
-    return res.json(serverLogger.getRecentLogTail({ kind, lines }));
+    return res.json({
+        replicaId: REPLICA_ID,
+        ...serverLogger.getRecentLogTail({ kind, lines })
+    });
 });
 
 // Manejo controlado de rutas inexistentes y errores inesperados en API (sin filtrar stack traces)
@@ -9869,6 +9905,7 @@ const PORT = process.env.PORT || 3000;
 const httpServer = app.listen(PORT, () => {
     console.log(`Backend server running at http://localhost:${PORT}`);
     serverLogger.info('SYSTEM', 'Servidor iniciado', {
+        replicaId: REPLICA_ID,
         port: PORT,
         tz: process.env.TZ || 'system',
         trustProxy: process.env.TRUST_PROXY || 'off',
