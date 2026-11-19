@@ -885,6 +885,19 @@
                         </div>
                     </div>
 
+                    <div class="card journal-coverage-card" id="journalDailyCoverageCard">
+                        <div class="journal-coverage-header">
+                            <div class="journal-coverage-title-wrap">
+                                <h3>📅 Daily Journal Verification</h3>
+                                <span id="journalCoverageBadge" class="journal-coverage-badge is-info">Checking...</span>
+                            </div>
+                            <button type="button" class="btn-secondary-pill" id="btnJournalVerifyDays"
+                                title="Check all past days and fill any empty or missing day with Nothing to report.">🔍 Verify &amp; Fill Missing Days</button>
+                        </div>
+                        <p id="journalCoverageSummary" class="journal-coverage-summary muted-text">Verifying that every day has an entry or "Nothing to report."...</p>
+                        <div id="journalRecentDaysStrip" class="journal-recent-days" aria-live="polite"></div>
+                    </div>
+
                     <div class="card view-main-card">
                         <form id="journalForm">
                             <div class="journal-editor-bar">
@@ -918,7 +931,10 @@
                                 <div class="word-proofing-issues" id="journalProofingIssues" hidden></div>
                             </div>
                             <div id="journalStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
-                            <button type="submit" class="btn-submit" id="btn-send-word" title="Cifrar y guardar esta nota en tu diario personal de Word">💾 Guardar en Diario (Word)</button>
+                            <div class="journal-submit-row">
+                                <button type="submit" class="btn-submit" id="btn-send-word" title="Cifrar y guardar esta nota en tu diario personal de Word">💾 Guardar en Diario (Word)</button>
+                                <button type="button" class="btn-journal-ntr" id="btnJournalNothingToReport" title="Mark today in your journal as Nothing to report.">📝 Nothing to report.</button>
+                            </div>
                         </form>
                     </div>
                 </div>

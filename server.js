@@ -2674,6 +2674,54 @@ function scheduleStudyDriveRetry() {
     _englishDriveRetryTimer.unref?.();
 }
 
+function shiftIsoDate(isoDateStr, deltaDays) {
+    const dt = new Date(`${isoDateStr}T12:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + deltaDays);
+    return dt.toISOString().slice(0, 10);
+}
+
+async function resolveAdminJournalLocalNow(userId = null) {
+    let tz = process.env.TZ || 'America/Monterrey';
+    if (userId) {
+        try {
+            const settings = await loadUserSettings(userId);
+            if (settings && settings.timezone) {
+                tz = settings.timezone;
+            }
+        } catch (_) {}
+    }
+    return getLocalNowParts(tz);
+}
+
+function buildEmptyJournalCoverage(todayIso) {
+    const yesterdayIso = shiftIsoDate(todayIso, -1);
+    const todayHeading = serverNotesService.computeJournalHeadingForDateIso(todayIso);
+    const yesterdayHeading = serverNotesService.computeJournalHeadingForDateIso(yesterdayIso);
+    return {
+        todayIso,
+        todayHeading,
+        todayStatus: 'missing',
+        yesterdayIso,
+        yesterdayHeading,
+        yesterdayStatus: 'missing',
+        firstDateIso: null,
+        lastDateIso: null,
+        totalDaysRecorded: 0,
+        filledCount: 0,
+        nothingToReportCount: 0,
+        emptyHeadingCount: 0,
+        missingPastDates: [],
+        missingPastHeadings: [],
+        allPastDaysFilled: true,
+        recentDays: [{
+            dateIso: todayIso,
+            heading: todayHeading,
+            status: 'missing',
+            isToday: true
+        }]
+    };
+}
+
 // Enviar nota de Journal cifrada al servidor local (o cola PC si aplica) (SOLO ADMIN)
 app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
     const { texto } = req.body || {};
@@ -2697,10 +2745,13 @@ app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requir
         }
         if (wordPassword) {
             try {
+                const localNow = await resolveAdminJournalLocalNow(req.user.id);
                 const writeRes = await runWithDocxLock('pdh_docx_journal', () =>
                     serverNotesService.saveJournalNoteLocalEncrypted({
                         plainText: dec.plainText,
                         wordPassword,
+                        targetDateIso: localNow.dateStr,
+                        backfillMissingBefore: true,
                         rootDir: __dirname
                     })
                 );
@@ -2708,8 +2759,13 @@ app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requir
                     serverLogger.info('JOURNAL', 'Nota local cifrada guardada en Diario.docx', {
                         heading: writeRes.heading,
                         bytes: writeRes.bytes,
-                        skipped: writeRes.skipped
+                        skipped: writeRes.skipped,
+                        replacedPlaceholder: Boolean(writeRes.replacedPlaceholder),
+                        backfilledCount: Array.isArray(writeRes.backfilledDates) ? writeRes.backfilledDates.length : 0
                     });
+                    if (writeRes.skipped) {
+                        return res.send(`Today already has a journal entry (${writeRes.heading}); "Nothing to report." was skipped.`);
+                    }
                     return res.send(`Note encrypted with password and saved locally (${writeRes.heading}).`);
                 }
                 if (writeRes && writeRes.reason === 'WRONG_PASSWORD') {
@@ -2744,7 +2800,8 @@ app.get('/api/journal/local-status', apiReadLimiter.middleware, requireAdmin, (_
         encrypted: status.encrypted,
         sizeBytes: status.sizeBytes,
         updatedAt: status.updatedAt,
-        passwordConfigured: status.passwordConfigured
+        passwordConfigured: status.passwordConfigured,
+        lastAutoVerifiedDate: _lastMidnightJournalDate || null
     });
 });
 
@@ -2757,6 +2814,265 @@ app.get('/api/journal/download', apiReadLimiter.middleware, requireAdmin, (_req,
         return res.status(403).send('Refusing to download unencrypted Journal file.');
     }
     return res.download(status.path, 'Diario.docx');
+});
+
+// Estado de cobertura diaria del Diario (solo metadatos, nunca texto privado)
+app.get('/api/journal/daily-status', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    const localNow = await resolveAdminJournalLocalNow(req.user.id);
+    const yesterdayIso = shiftIsoDate(localNow.dateStr, -1);
+    const todayHeading = serverNotesService.computeJournalHeadingForDateIso(localNow.dateStr);
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    const autonomousEnabled = serverNotesService.isServerAutonomousNotesEnabled();
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+
+    if (!autonomousEnabled || !wordPassword) {
+        return res.json({
+            ok: true,
+            autonomousEnabled,
+            passwordConfigured: Boolean(wordPassword),
+            exists: status.exists,
+            encrypted: status.encrypted,
+            todayIso: localNow.dateStr,
+            todayHeading,
+            yesterdayIso,
+            coverageAvailable: false,
+            reason: !autonomousEnabled ? 'AUTONOMOUS_DISABLED' : 'PASSWORD_MISSING',
+            lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+            coverage: null
+        });
+    }
+
+    if (!status.exists) {
+        return res.json({
+            ok: true,
+            autonomousEnabled: true,
+            passwordConfigured: true,
+            exists: false,
+            encrypted: false,
+            todayIso: localNow.dateStr,
+            todayHeading,
+            yesterdayIso,
+            coverageAvailable: true,
+            reason: null,
+            lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+            coverage: buildEmptyJournalCoverage(localNow.dateStr)
+        });
+    }
+
+    try {
+        const inspectRes = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.inspectJournalDailyCoverage({
+                wordPassword,
+                todayIso: localNow.dateStr,
+                rootDir: __dirname
+            })
+        );
+        if (inspectRes && inspectRes.ok) {
+            return res.json({
+                ok: true,
+                autonomousEnabled: true,
+                passwordConfigured: true,
+                exists: Boolean(inspectRes.exists),
+                encrypted: Boolean(inspectRes.encrypted),
+                todayIso: localNow.dateStr,
+                todayHeading: inspectRes.coverage?.todayHeading || todayHeading,
+                yesterdayIso,
+                coverageAvailable: true,
+                reason: null,
+                lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+                coverage: inspectRes.coverage || buildEmptyJournalCoverage(localNow.dateStr)
+            });
+        }
+        if (inspectRes && inspectRes.reason === 'MSOFFCRYPTO_MISSING') {
+            return res.json({
+                ok: true,
+                autonomousEnabled: true,
+                passwordConfigured: true,
+                exists: status.exists,
+                encrypted: status.encrypted,
+                todayIso: localNow.dateStr,
+                todayHeading,
+                yesterdayIso,
+                coverageAvailable: false,
+                reason: 'MSOFFCRYPTO_MISSING',
+                lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+                coverage: null
+            });
+        }
+        if (inspectRes && inspectRes.reason === 'WRONG_PASSWORD') {
+            return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+        }
+        return res.status(500).send(inspectRes?.error || 'Could not inspect local Diario.docx.');
+    } catch (err) {
+        if (err && err.code === 'LOCK_TIMEOUT') {
+            return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+        }
+        console.error('[JOURNAL_DAILY_STATUS_ERROR]', err.message);
+        return res.status(500).send('Error inspecting local Journal daily status.');
+    }
+});
+
+// Verificar y rellenar días faltantes del Diario con "Nothing to report." (SOLO ADMIN)
+app.post('/api/journal/verify-days', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 3000 }), async (req, res) => {
+    const localNow = await resolveAdminJournalLocalNow(req.user.id);
+    const yesterdayIso = shiftIsoDate(localNow.dateStr, -1);
+    const autonomousEnabled = serverNotesService.isServerAutonomousNotesEnabled();
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+
+    if (!autonomousEnabled || !wordPassword) {
+        return res.status(409).json({
+            ok: false,
+            reason: !autonomousEnabled ? 'AUTONOMOUS_DISABLED' : 'PASSWORD_MISSING',
+            error: 'Autonomous local journal is not active on this server.'
+        });
+    }
+
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    if (!status.exists) {
+        return res.json({
+            ok: true,
+            exists: false,
+            modified: false,
+            filledDates: [],
+            filledHeadings: [],
+            coverage: buildEmptyJournalCoverage(localNow.dateStr),
+            message: 'No journal file exists yet. Save your first entry or mark today as "Nothing to report." to start tracking.'
+        });
+    }
+
+    try {
+        const verifyRes = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.verifyJournalDailyCoverage({
+                wordPassword,
+                todayIso: localNow.dateStr,
+                throughDateIso: yesterdayIso,
+                createIfMissing: false,
+                fillIfEmptyDoc: true,
+                rootDir: __dirname
+            })
+        );
+        if (verifyRes && verifyRes.ok) {
+            _lastMidnightJournalDate = localNow.dateStr;
+            const filledDates = Array.isArray(verifyRes.filledDates) ? verifyRes.filledDates : [];
+            const filledCount = filledDates.length;
+            if (filledCount > 0) {
+                serverLogger.info('JOURNAL', 'Días faltantes completados en Diario.docx', {
+                    filledCount,
+                    filledDates
+                });
+            }
+            const message = filledCount > 0
+                ? `Filled ${filledCount} missing day(s) with "Nothing to report.".`
+                : 'All past days are already filled.';
+            return res.json({
+                ok: true,
+                exists: true,
+                modified: Boolean(verifyRes.modified),
+                filledDates,
+                filledHeadings: Array.isArray(verifyRes.filledHeadings) ? verifyRes.filledHeadings : [],
+                coverage: verifyRes.coverage || null,
+                message
+            });
+        }
+        if (verifyRes && verifyRes.reason === 'MSOFFCRYPTO_MISSING') {
+            return res.status(409).json({
+                ok: false,
+                reason: 'MSOFFCRYPTO_MISSING',
+                error: verifyRes.error || 'msoffcrypto-tool is not installed on this server.'
+            });
+        }
+        if (verifyRes && verifyRes.reason === 'WRONG_PASSWORD') {
+            return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+        }
+        return res.status(500).send(verifyRes?.error || 'Could not write encrypted local Diario.docx.');
+    } catch (err) {
+        if (err && err.code === 'LOCK_TIMEOUT') {
+            return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+        }
+        console.error('[JOURNAL_VERIFY_DAYS_ERROR]', err.message);
+        return res.status(500).send('Error verifying local Journal days.');
+    }
+});
+
+// Marcar explícitamente el día actual (u otra fecha <= hoy) como "Nothing to report." (SOLO ADMIN)
+app.post('/api/journal/nothing-to-report', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 5000 }), async (req, res) => {
+    const localNow = await resolveAdminJournalLocalNow(req.user.id);
+    const rawTarget = typeof req.body?.targetDateIso === 'string' ? req.body.targetDateIso.trim() : '';
+    let targetDateIso = localNow.dateStr;
+    if (rawTarget) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rawTarget)) {
+            return res.status(400).send('Invalid date format (expected YYYY-MM-DD).');
+        }
+        const parsedDt = new Date(`${rawTarget}T12:00:00Z`);
+        if (Number.isNaN(parsedDt.getTime()) || parsedDt.toISOString().slice(0, 10) !== rawTarget) {
+            return res.status(400).send('Invalid date format (expected YYYY-MM-DD).');
+        }
+        if (rawTarget > localNow.dateStr) {
+            return res.status(400).send('Cannot mark a future journal date.');
+        }
+        targetDateIso = rawTarget;
+    }
+
+    const autonomousEnabled = serverNotesService.isServerAutonomousNotesEnabled();
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+    if (!autonomousEnabled || !wordPassword) {
+        return res.status(409).json({
+            ok: false,
+            reason: !autonomousEnabled ? 'AUTONOMOUS_DISABLED' : 'PASSWORD_MISSING',
+            fallbackToPcQueue: true,
+            error: 'Autonomous local journal is not active; use encrypted PC sync queue.'
+        });
+    }
+
+    try {
+        const writeRes = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.saveJournalNoteLocalEncrypted({
+                plainText: 'Nothing to report.',
+                wordPassword,
+                targetDateIso,
+                backfillMissingBefore: true,
+                rootDir: __dirname
+            })
+        );
+        if (writeRes && writeRes.ok) {
+            _lastMidnightJournalDate = localNow.dateStr;
+            serverLogger.info('JOURNAL', 'Día marcado en Diario.docx', {
+                heading: writeRes.heading,
+                skipped: Boolean(writeRes.skipped),
+                backfilledCount: Array.isArray(writeRes.backfilledDates) ? writeRes.backfilledDates.length : 0
+            });
+            const message = writeRes.skipped
+                ? `Today already has a journal entry (${writeRes.heading}); "Nothing to report." was skipped.`
+                : `Marked "${writeRes.heading}" as "Nothing to report.".`;
+            return res.json({
+                ok: true,
+                skipped: Boolean(writeRes.skipped),
+                heading: writeRes.heading,
+                backfilledDates: Array.isArray(writeRes.backfilledDates) ? writeRes.backfilledDates : [],
+                backfilledHeadings: Array.isArray(writeRes.backfilledHeadings) ? writeRes.backfilledHeadings : [],
+                coverage: writeRes.coverage || null,
+                message
+            });
+        }
+        if (writeRes && writeRes.reason === 'MSOFFCRYPTO_MISSING') {
+            return res.status(409).json({
+                ok: false,
+                reason: 'MSOFFCRYPTO_MISSING',
+                fallbackToPcQueue: true,
+                error: writeRes.error || 'msoffcrypto-tool is not installed on this server.'
+            });
+        }
+        if (writeRes && writeRes.reason === 'WRONG_PASSWORD') {
+            return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+        }
+        return res.status(500).send(writeRes?.error || 'Could not write encrypted local Diario.docx.');
+    } catch (err) {
+        if (err && err.code === 'LOCK_TIMEOUT') {
+            return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+        }
+        console.error('[JOURNAL_NTR_ERROR]', err.message);
+        return res.status(500).send('Error saving encrypted local Journal.');
+    }
 });
 
 // Enviar entrada cifrada de English Learning Notebook directo a Google Drive (o cola PC si aplica) (SOLO ADMIN)
@@ -5268,29 +5584,47 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
 }
 
 let _lastMidnightJournalDate = '';
+let _lastMidnightJournalAttemptMs = 0;
 
-async function runAutonomousJournalMidnightTick() {
+async function runAutonomousJournalMidnightTick(adminTimeZone = null) {
     const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
     if (!wordPassword || !serverNotesService.isServerAutonomousNotesEnabled()) return;
 
-    const localNow = getLocalNowParts(process.env.TZ || 'America/Monterrey');
-    if (localNow.minutesOfDay >= 60 || _lastMidnightJournalDate === localNow.dateStr) return;
+    const localNow = getLocalNowParts(adminTimeZone || process.env.TZ || 'America/Monterrey');
+    if (_lastMidnightJournalDate === localNow.dateStr) return;
 
-    const dt = new Date(`${localNow.dateStr}T12:00:00Z`);
-    dt.setUTCDate(dt.getUTCDate() - 1);
-    const yesterdayIso = dt.toISOString().slice(0, 10);
+    const nowMs = Date.now();
+    if (_lastMidnightJournalAttemptMs > 0 && (nowMs - _lastMidnightJournalAttemptMs) < 5 * 60 * 1000) {
+        return;
+    }
+
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    if (!status.exists && localNow.minutesOfDay >= 60) {
+        return;
+    }
+
+    _lastMidnightJournalAttemptMs = nowMs;
+    const yesterdayIso = shiftIsoDate(localNow.dateStr, -1);
 
     try {
         const res = await runWithDocxLock('pdh_docx_journal', () =>
-            serverNotesService.saveJournalNoteLocalEncrypted({
-                plainText: 'Nothing to report.',
+            serverNotesService.verifyJournalDailyCoverage({
                 wordPassword,
-                targetDateIso: yesterdayIso,
+                todayIso: localNow.dateStr,
+                throughDateIso: yesterdayIso,
+                createIfMissing: localNow.minutesOfDay < 60,
+                fillIfEmptyDoc: true,
                 rootDir: __dirname
             })
         );
         if (res && res.ok) {
             _lastMidnightJournalDate = localNow.dateStr;
+            if (Array.isArray(res.filledDates) && res.filledDates.length > 0) {
+                serverLogger.info('JOURNAL', 'Verificación diaria automática completada en Diario.docx', {
+                    filledDates: res.filledDates,
+                    todayIso: localNow.dateStr
+                });
+            }
         }
     } catch (err) {
         console.warn('[MIDNIGHT_JOURNAL_WARN]', err.message);
@@ -5302,10 +5636,17 @@ async function runReminderSchedulerTick() {
     if (schedulerRunning) return;
     schedulerRunning = true;
     try {
-        await runAutonomousJournalMidnightTick();
         const admins = await dbQueryAsync(
             "SELECT id, nombre, email FROM Usuarios WHERE rol = 'admin' AND COALESCE(estado, 'activo') = 'activo'"
         );
+        let adminTz = null;
+        if (Array.isArray(admins) && admins.length > 0) {
+            try {
+                const adminSettings = await loadUserSettings(admins[0].id);
+                adminTz = adminSettings?.timezone || null;
+            } catch (_) {}
+        }
+        await runAutonomousJournalMidnightTick(adminTz);
         if (!Array.isArray(admins) || admins.length === 0) return;
         for (const adminUser of admins) {
             await evaluateAndDispatchUserReminders(adminUser, { dispatchPush: true });

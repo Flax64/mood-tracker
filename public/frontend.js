@@ -1432,6 +1432,7 @@ function showView(viewName, updateHash = true, options = {}) {
         if (typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
     } else if (targetView === 'journal') {
         updateE2eeKeyStatusUI();
+        if (typeof cargarEstadoDiarioJournal === 'function') cargarEstadoDiarioJournal({ silent: true });
     } else if (targetView === 'english') {
         updateE2eeKeyStatusUI();
         updateYouTubePlatformUI();
@@ -3242,9 +3243,157 @@ if (formSleep) {
 }
 
 // ==========================================
-// JOURNAL NOTES (ENCRYPTED NOTES TO PC WORD)
+// JOURNAL NOTES (ENCRYPTED NOTES & DAILY COVERAGE)
 // ==========================================
 const JOURNAL_DRAFT_KEY = 'mt_journal_draft';
+let lastJournalDailyStatus = null;
+
+function renderJournalDailyCoverage(data) {
+    const card = document.getElementById('journalDailyCoverageCard');
+    const badgeEl = document.getElementById('journalCoverageBadge');
+    const summaryEl = document.getElementById('journalCoverageSummary');
+    const stripEl = document.getElementById('journalRecentDaysStrip');
+    const verifyBtn = document.getElementById('btnJournalVerifyDays');
+    if (!card || !badgeEl || !summaryEl || !stripEl) return;
+
+    badgeEl.className = 'journal-coverage-badge';
+    stripEl.replaceChildren();
+
+    if (!data || !data.ok) {
+        badgeEl.classList.add('is-warn');
+        badgeEl.textContent = tUi('Unavailable', 'No disponible');
+        summaryEl.textContent = tUi(
+            'Could not verify daily journal coverage right now.',
+            'No se pudo verificar la cobertura diaria del diario en este momento.'
+        );
+        if (verifyBtn) verifyBtn.hidden = false;
+        return;
+    }
+
+    if (!data.coverageAvailable) {
+        badgeEl.classList.add('is-info');
+        badgeEl.textContent = tUi('PC Sync Mode', 'Modo Sync PC');
+        summaryEl.textContent = tUi(
+            'Automatic past-day checks run in your PC sync client (sincronizador.py) or once server encryption is configured. You can still send "Nothing to report." for today below.',
+            'La verificación de días anteriores corre en tu sincronizador PC (sincronizador.py) o al activar el cifrado en servidor. Aún puedes marcar "Nothing to report." para hoy abajo.'
+        );
+        if (verifyBtn) verifyBtn.hidden = true;
+        return;
+    }
+
+    if (verifyBtn) verifyBtn.hidden = false;
+    const cov = data.coverage || {};
+    const missingDates = Array.isArray(cov.missingPastDates) ? cov.missingPastDates : [];
+    const missingHeadings = Array.isArray(cov.missingPastHeadings) ? cov.missingPastHeadings : missingDates;
+    const missingCount = missingDates.length;
+    const todayStatus = cov.todayStatus || 'missing';
+
+    if (!data.exists) {
+        badgeEl.classList.add('is-info');
+        badgeEl.textContent = tUi('Ready to start', 'Listo para iniciar');
+        summaryEl.textContent = tUi(
+            'No Diario.docx has been created on the server yet. Save a note or click "Nothing to report." to begin.',
+            'Aún no existe Diario.docx en el servidor. Guarda una nota o pulsa "Nothing to report." para iniciar.'
+        );
+    } else if (missingCount > 0) {
+        badgeEl.classList.add('is-warn');
+        badgeEl.textContent = missingCount === 1
+            ? tUi('1 past day missing', '1 día previo faltante')
+            : `${missingCount} ${tUi('past days missing', 'días previos faltantes')}`;
+        const sampleHeadings = missingHeadings.slice(0, 6).join(', ') + (missingCount > 6 ? '…' : '');
+        summaryEl.textContent = `${tUi('Missing past day(s):', 'Día(s) previo(s) sin llenar:')} ${sampleHeadings}. ${tUi('Click "Verify & Fill Missing Days" to fill them with "Nothing to report.".', 'Pulsa "Verificar y Rellenar Días Faltantes" para llenarlos con "Nothing to report.".')}`;
+    } else {
+        if (todayStatus === 'filled') {
+            badgeEl.classList.add('is-ok');
+            badgeEl.textContent = tUi('All days filled · Today logged', 'Días al corriente · Hoy registrado');
+        } else if (todayStatus === 'nothing_to_report') {
+            badgeEl.classList.add('is-ok');
+            badgeEl.textContent = tUi('All days filled · Nothing to report.', 'Días al corriente · Nothing to report.');
+        } else {
+            badgeEl.classList.add('is-info');
+            badgeEl.textContent = tUi('Past days complete · Today pending', 'Días previos completos · Hoy pendiente');
+        }
+
+        const totalDays = Number(cov.totalDaysRecorded || 0);
+        const verifiedPrefix = tUi(
+            `Verified ${totalDays} day(s) with no gaps.`,
+            `Verificados ${totalDays} día(s) sin huecos.`
+        );
+        let todayMsg = '';
+        if (todayStatus === 'filled') {
+            todayMsg = tUi(
+                `Today (${cov.todayHeading || ''}) has a journal entry.`,
+                `Hoy (${cov.todayHeading || ''}) ya tiene una nota registrada.`
+            );
+        } else if (todayStatus === 'nothing_to_report') {
+            todayMsg = tUi(
+                `Today (${cov.todayHeading || ''}) is marked as "Nothing to report.".`,
+                `Hoy (${cov.todayHeading || ''}) está marcado como "Nothing to report.".`
+            );
+        } else {
+            todayMsg = tUi(
+                `Today (${cov.todayHeading || ''}) is still open — write a note or mark "Nothing to report.".`,
+                `Hoy (${cov.todayHeading || ''}) sigue abierto — escribe una nota o marca "Nothing to report.".`
+            );
+        }
+        summaryEl.textContent = `${verifiedPrefix} ${todayMsg}`;
+    }
+
+    const recentDays = Array.isArray(cov.recentDays) ? cov.recentDays : [];
+    recentDays.forEach(day => {
+        const chip = document.createElement('div');
+        const st = day.status || 'missing';
+        chip.className = 'journal-day-chip';
+        if (st === 'filled') chip.classList.add('is-filled');
+        else if (st === 'nothing_to_report') chip.classList.add('is-ntr');
+        else chip.classList.add('is-missing');
+        if (day.isToday) chip.classList.add('is-today');
+
+        const statusLabel = st === 'filled'
+            ? tUi('Entry recorded', 'Nota registrada')
+            : (st === 'nothing_to_report'
+                ? 'Nothing to report.'
+                : tUi('Pending / Empty', 'Pendiente / Vacío'));
+        chip.title = `${day.heading || day.dateIso}: ${statusLabel}`;
+
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'journal-day-date';
+        dateSpan.textContent = String(day.dateIso || '').slice(5);
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'journal-day-icon';
+        iconSpan.textContent = st === 'filled' ? '✓' : (st === 'nothing_to_report' ? '—' : '!');
+
+        chip.appendChild(dateSpan);
+        chip.appendChild(iconSpan);
+        stripEl.appendChild(chip);
+    });
+}
+
+async function cargarEstadoDiarioJournal({ silent = false } = {}) {
+    const card = document.getElementById('journalDailyCoverageCard');
+    if (!card || !currentUser || currentUser.rol !== 'admin') return null;
+    try {
+        const res = await fetch('/api/journal/daily-status', { cache: 'no-store' });
+        if (!res.ok) {
+            if (!silent) {
+                const errText = await res.text().catch(() => '');
+                showToast('err', tServer(formatHumanNetworkError(res.status, errText)));
+            }
+            return null;
+        }
+        const data = await res.json();
+        lastJournalDailyStatus = data;
+        renderJournalDailyCoverage(data);
+        return data;
+    } catch (err) {
+        if (!silent) {
+            showToast('err', tServer(err.message || 'Error inspecting local Journal daily status.'));
+        }
+        return null;
+    }
+}
+
 const journalForm = document.getElementById('journalForm');
 
 if (journalForm) {
@@ -3255,10 +3404,115 @@ if (journalForm) {
     const clearDraftBtn = document.getElementById('btnJournalClearDraft');
     const journalE2eeBtn = document.getElementById('journalE2eePill');
     const titleInput = document.getElementById('journalTitle');
+    const verifyDaysBtn = document.getElementById('btnJournalVerifyDays');
+    const nothingToReportBtn = document.getElementById('btnJournalNothingToReport');
 
     if (journalE2eeBtn) {
         journalE2eeBtn.addEventListener('click', () => {
             solicitarLlaveE2EEAsync({ forceEdit: true });
+        });
+    }
+
+    if (verifyDaysBtn) {
+        verifyDaysBtn.addEventListener('click', () => {
+            runWithButtonLock(verifyDaysBtn, async () => {
+                setInlineBanner('journalStatusBanner', '', '');
+                try {
+                    const res = await fetch('/api/journal/verify-days', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Idempotency-Key': createIdempotencyKey()
+                        },
+                        body: JSON.stringify({})
+                    });
+                    if (!res.ok) {
+                        const raw = await res.text().catch(() => '');
+                        let parsedErr = raw;
+                        try {
+                            const j = JSON.parse(raw);
+                            if (j && j.error) parsedErr = j.error;
+                        } catch (_) {}
+                        throw new Error(formatHumanNetworkError(res.status, parsedErr));
+                    }
+                    const data = await res.json();
+                    const msg = tServer(data.message || 'All past days are already filled.');
+                    setInlineBanner('journalStatusBanner', data.modified ? 'ok' : 'info', msg);
+                    showToast(data.modified ? 'ok' : 'info', msg);
+                    await cargarEstadoDiarioJournal({ silent: true });
+                } catch (err) {
+                    const errMsg = tServer(err.message);
+                    setInlineBanner('journalStatusBanner', 'err', errMsg);
+                    showToast('err', errMsg);
+                }
+            }, { loadingText: 'Verifying...' });
+        });
+    }
+
+    if (nothingToReportBtn) {
+        nothingToReportBtn.addEventListener('click', async () => {
+            if (busyActionElements.has(nothingToReportBtn) || nothingToReportBtn.disabled) return;
+            if (textInput && textInput.value.trim()) {
+                const ok = await openConfirmDialog({
+                    title: tUi('Mark Today as "Nothing to report."?', '¿Marcar hoy como "Nothing to report."?'),
+                    message: tUi(
+                        'You have unsent text in the box. Sending "Nothing to report." will leave your draft untouched. Continue?',
+                        'Tienes texto sin enviar en el cuadro. Enviar "Nothing to report." conservará tu borrador sin borrarlo. ¿Continuar?'
+                    ),
+                    confirmText: tUi('Mark Nothing to report.', 'Marcar Nothing to report.')
+                });
+                if (!ok) return;
+            }
+
+            setInlineBanner('journalStatusBanner', '', '');
+            runWithButtonLock(nothingToReportBtn, async () => {
+                try {
+                    const res = await fetch('/api/journal/nothing-to-report', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Idempotency-Key': createIdempotencyKey()
+                        },
+                        body: JSON.stringify({})
+                    });
+                    if (res.status === 409) {
+                        const data409 = await res.json().catch(() => null);
+                        if (data409 && data409.fallbackToPcQueue) {
+                            const llaveTexto = await solicitarLlaveE2EEAsync();
+                            if (!llaveTexto) return;
+                            const queueResp = await submitMutationRequest({
+                                url: '/api/send-to-pc',
+                                method: 'POST',
+                                scopeKey: 'journal-ntr',
+                                signature: `Nothing to report.:${Date.now()}`,
+                                buildBody: () => ({ texto: encriptarTextoE2EE('Nothing to report.', llaveTexto) })
+                            });
+                            const msg = String(queueResp || '').includes('was skipped.')
+                                ? tServer(queueResp)
+                                : tUi('Marked today as "Nothing to report." (queued for Word)!', '¡Hoy marcado como "Nothing to report." (enviado a Word)!');
+                            setInlineBanner('journalStatusBanner', 'ok', msg);
+                            showToast('ok', msg);
+                            await cargarEstadoDiarioJournal({ silent: true });
+                            return;
+                        }
+                        throw new Error(formatHumanNetworkError(res.status, data409?.error || ''));
+                    }
+                    if (!res.ok) {
+                        const raw = await res.text().catch(() => '');
+                        throw new Error(formatHumanNetworkError(res.status, raw));
+                    }
+                    const data = await res.json();
+                    const msg = tServer(data.message || 'Marked today as "Nothing to report.".').trim();
+                    const bannerType = data.skipped ? 'info' : 'ok';
+                    setInlineBanner('journalStatusBanner', bannerType, msg);
+                    showToast(bannerType, msg);
+                    await cargarEstadoDiarioJournal({ silent: true });
+                } catch (err) {
+                    const errMsg = tUi('Failed to send note: ', 'No se pudo enviar la nota: ') + tServer(err.message);
+                    setInlineBanner('journalStatusBanner', 'err', errMsg);
+                    showToast('err', errMsg);
+                }
+            }, { loadingText: 'Sending...' });
         });
     }
 
@@ -3348,7 +3602,7 @@ if (journalForm) {
 
         runWithButtonLock(btnEnviarWord, async () => {
             try {
-                await submitMutationRequest({
+                const respText = await submitMutationRequest({
                     url: '/api/send-to-pc',
                     method: 'POST',
                     scopeKey: 'journal',
@@ -3359,12 +3613,26 @@ if (journalForm) {
                 textInput.value = '';
                 if (titleInput) titleInput.value = '';
                 refreshJournalEditorMeta(true);
-                const msg = tUi(
-                    'Journal note encrypted with password & saved on server!',
-                    '¡Nota de Journal cifrada con contraseña y guardada localmente en el servidor!'
-                );
-                setInlineBanner('journalStatusBanner', 'ok', msg);
-                showToast('ok', msg);
+                const respStr = String(respText || '');
+                let bannerType = 'ok';
+                let msg = '';
+                if (respStr.includes('was skipped.')) {
+                    bannerType = 'info';
+                    msg = tServer(respStr);
+                } else if (respStr.toLowerCase().includes('queued for your pc')) {
+                    msg = tUi(
+                        'Journal note encrypted & queued for Word on your PC!',
+                        '¡Nota de Journal cifrada y enviada a la cola de Word en tu PC!'
+                    );
+                } else {
+                    msg = tUi(
+                        'Journal note encrypted with password & saved on server!',
+                        '¡Nota de Journal cifrada con contraseña y guardada localmente en el servidor!'
+                    );
+                }
+                setInlineBanner('journalStatusBanner', bannerType, msg);
+                showToast(bannerType, msg);
+                await cargarEstadoDiarioJournal({ silent: true });
             } catch (error) {
                 setInlineBanner('journalStatusBanner', 'err', tUi('Failed to send note: ', 'No se pudo enviar la nota: ') + tServer(error.message));
                 showToast('err', error.message);
@@ -14719,6 +14987,7 @@ function refreshDynamicLanguageViews() {
         else if (vid === 'view-mood' && typeof cargarMoodsHoy === 'function') cargarMoodsHoy();
         else if (vid === 'view-crisis' && typeof cargarCrisisRecientes === 'function') cargarCrisisRecientes();
         else if (vid === 'view-sueno' && typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
+        else if (vid === 'view-journal' && typeof renderJournalDailyCoverage === 'function' && lastJournalDailyStatus) renderJournalDailyCoverage(lastJournalDailyStatus);
         else if (vid === 'view-english') {
             if (typeof renderMusicCatalog === 'function') renderMusicCatalog();
             if (typeof renderMusicRepertoireNavigator === 'function') renderMusicRepertoireNavigator();

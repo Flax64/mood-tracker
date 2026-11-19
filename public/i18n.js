@@ -342,6 +342,12 @@
         ['✓ English Spelling & Grammar: Ready', '✓ Ortografía y Gramática en Inglés: Listo'],
         ['✨ Apply All Fixes', '✨ Aplicar Correcciones'],
         ['Encrypt E2EE & Send to Word (PC)', 'Cifrar E2EE y Enviar a Word (PC)'],
+        ['📅 Daily Journal Verification', '📅 Verificación Diaria del Diario'],
+        ['🔍 Verify & Fill Missing Days', '🔍 Verificar y Rellenar Días Faltantes'],
+        ['Verifying that every day has an entry or "Nothing to report."...', 'Verificando que cada día tenga una nota o "Nothing to report."...'],
+        ['Check all past days and fill any empty or missing day with Nothing to report.', 'Revisar todos los días anteriores y llenar cualquier día vacío o faltante con Nothing to report.'],
+        ['Mark today in your journal as Nothing to report.', 'Marcar el día de hoy en tu diario como Nothing to report.'],
+        ['📝 Nothing to report.', '📝 Nothing to report.'],
 
         // --- Language & Music Studio ---
         ['Language & Music Studio', 'Estudio de Idiomas y Música'],
@@ -1607,6 +1613,13 @@
         ['Error saving encrypted local Journal.', 'Error al guardar el Journal local cifrado.'],
         ['Local encrypted Diario.docx has not been created yet.', 'El archivo local cifrado Diario.docx aún no ha sido creado.'],
         ['Refusing to download unencrypted Journal file.', 'Descarga bloqueada: el archivo de Journal no está cifrado.'],
+        ['Cannot mark a future journal date.', 'No se puede marcar una fecha futura en el diario.'],
+        ['Error inspecting local Journal daily status.', 'Error al inspeccionar el estado diario del Diario local.'],
+        ['Error verifying local Journal days.', 'Error al verificar los días del Diario local.'],
+        ['Autonomous local journal is not active on this server.', 'El diario local autónomo no está activo en este servidor.'],
+        ['Autonomous local journal is not active; use encrypted PC sync queue.', 'El diario local autónomo no está activo; usa la cola cifrada de sincronización con PC.'],
+        ['All past days are already filled.', 'Todos los días anteriores ya están llenos.'],
+        ['No journal file exists yet. Save your first entry or mark today as "Nothing to report." to start tracking.', 'Aún no existe un archivo de diario. Guarda tu primera nota o marca hoy como "Nothing to report." para iniciar el seguimiento.'],
         ['Entry payload cannot be empty.', 'El contenido de la entrada no puede estar vacío.'],
         ['Saved to local mirror; Google Drive upload scheduled for retry.', 'Guardado en copia local; subida a Google Drive programada para reintento.'],
         ['Concurrent English Notebook file write busy; please retry shortly.', 'Escritura concurrente del cuaderno de idiomas ocupada; reintenta en un momento.'],
@@ -2167,6 +2180,26 @@
             return pick(
                 'Note encrypted with password and saved locally (' + m[1] + ').',
                 'Nota cifrada con contraseña y guardada localmente (' + m[1] + ').'
+            );
+        }
+        if ((m = trim.match(/^Today already has a journal entry \(([^)]+)\);\s*"Nothing to report\." was skipped\.?$/i))
+            || (m = trim.match(/^Hoy ya tiene una entrada en el diario \(([^)]+)\);\s*se omitió "Nothing to report\."\.?$/i))) {
+            return pick(
+                'Today already has a journal entry (' + m[1] + '); "Nothing to report." was skipped.',
+                'Hoy ya tiene una entrada en el diario (' + m[1] + '); se omitió "Nothing to report.".'
+            );
+        }
+        if ((m = trim.match(/^(?:Marked|Se marcó)\s*"([^"]+)"\s*(?:as|como)\s*"Nothing to report\."\.?$/i))) {
+            return pick(
+                'Marked "' + m[1] + '" as "Nothing to report.".',
+                'Se marcó "' + m[1] + '" como "Nothing to report.".'
+            );
+        }
+        if ((m = trim.match(/^Filled (\d+) missing day\(s\) with "Nothing to report\."\.?$/i))
+            || (m = trim.match(/^Se llenaron (\d+) día\(s\) faltante\(s\) con "Nothing to report\."\.?$/i))) {
+            return pick(
+                'Filled ' + m[1] + ' missing day(s) with "Nothing to report.".',
+                'Se llenaron ' + m[1] + ' día(s) faltante(s) con "Nothing to report.".'
             );
         }
         if ((m = trim.match(/^(?:Field|El campo)\s+([a-zA-Z0-9_]+)\s+(?:must be a boolean|debe ser booleano \(sí\/no\))\.?$/i))) {

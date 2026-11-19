@@ -4741,6 +4741,84 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         }
     });
 
+    it('expone estado de cobertura diaria, verificación y marcado Nothing to report. con RBAC', async () => {
+        const fs = require('node:fs');
+        const os = require('node:os');
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-jrn-cov-'));
+        const prevJrnPath = process.env.JOURNAL_LOCAL_PATH;
+        const prevWordPass = process.env.WORD_PASSWORD;
+
+        try {
+            process.env.JOURNAL_LOCAL_PATH = path.join(tmpDir, 'Diario.docx');
+            delete process.env.WORD_PASSWORD;
+
+            // 1. RBAC en GET /api/journal/daily-status, POST /api/journal/verify-days y POST /api/journal/nothing-to-report
+            assert.strictEqual((await request({ port, reqPath: '/api/journal/daily-status' })).status, 401);
+            assert.strictEqual((await request({ port, reqPath: '/api/journal/daily-status', headers: { Cookie: medicoCookie } })).status, 403);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', body: {} })).status, 401);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', headers: { Cookie: medicoCookie }, body: {} })).status, 403);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/nothing-to-report', body: {} })).status, 401);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/nothing-to-report', headers: { Cookie: medicoCookie }, body: {} })).status, 403);
+
+            // 2. Sin WORD_PASSWORD -> daily-status reporta coverageAvailable=false; verify-days y nothing-to-report devuelven 409
+            const noPwdStatus = await request({ port, reqPath: '/api/journal/daily-status', headers: { Cookie: adminCookie } });
+            assert.strictEqual(noPwdStatus.status, 200);
+            const noPwdData = JSON.parse(noPwdStatus.body);
+            assert.strictEqual(noPwdData.ok, true);
+            assert.strictEqual(noPwdData.coverageAvailable, false);
+            assert.strictEqual(noPwdData.reason, 'PASSWORD_MISSING');
+            assert.match(noPwdData.todayIso, /^\d{4}-\d{2}-\d{2}$/);
+            assert.ok(noPwdData.todayHeading);
+
+            const noPwdVerify = await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', headers: { Cookie: adminCookie }, body: {} });
+            assert.strictEqual(noPwdVerify.status, 409);
+
+            const noPwdNtr = await request({ port, method: 'POST', reqPath: '/api/journal/nothing-to-report', headers: { Cookie: adminCookie }, body: {} });
+            assert.strictEqual(noPwdNtr.status, 409);
+            assert.strictEqual(JSON.parse(noPwdNtr.body).fallbackToPcQueue, true);
+
+            // 3. Validaciones de targetDateIso en /api/journal/nothing-to-report
+            const badDateNtr = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/journal/nothing-to-report',
+                headers: { Cookie: adminCookie },
+                body: { targetDateIso: 'bad-date' }
+            });
+            assert.strictEqual(badDateNtr.status, 400);
+
+            const futureDateNtr = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/journal/nothing-to-report',
+                headers: { Cookie: adminCookie },
+                body: { targetDateIso: '2099-12-31' }
+            });
+            assert.strictEqual(futureDateNtr.status, 400);
+
+            // 4. Con WORD_PASSWORD y sin Diario.docx creado aún -> coverageAvailable=true, exists=false, allPastDaysFilled=true
+            process.env.WORD_PASSWORD = 'TestWordPassword2026!';
+            const readyStatus = await request({ port, reqPath: '/api/journal/daily-status', headers: { Cookie: adminCookie } });
+            assert.strictEqual(readyStatus.status, 200);
+            const readyData = JSON.parse(readyStatus.body);
+            assert.strictEqual(readyData.ok, true);
+            assert.strictEqual(readyData.coverageAvailable, true);
+            assert.strictEqual(readyData.exists, false);
+            assert.strictEqual(readyData.coverage.allPastDaysFilled, true);
+
+            const missingVerify = await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', headers: { Cookie: adminCookie }, body: {} });
+            assert.strictEqual(missingVerify.status, 200);
+            const missingVerifyData = JSON.parse(missingVerify.body);
+            assert.strictEqual(missingVerifyData.ok, true);
+            assert.strictEqual(missingVerifyData.exists, false);
+            assert.strictEqual(missingVerifyData.modified, false);
+        } finally {
+            if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
+            if (prevWordPass === undefined) delete process.env.WORD_PASSWORD; else process.env.WORD_PASSWORD = prevWordPass;
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
     it('sirve crypto-js local sin CDN, aplica cookie Secure solo bajo HTTPS (Tailscale) y respeta DB_RETENTION_DAYS=0', async () => {
         // 1. Asset vendor/crypto-js.min.js accesible localmente y CSP sin cdnjs.cloudflare.com
         const vendorRes = await request({ port, reqPath: '/vendor/crypto-js.min.js' });

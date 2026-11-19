@@ -159,6 +159,10 @@ describe('lib/server-notes-service & lib/docx_writer.py (Notas autónomas en Ubu
         const pyCmd = resolvePythonCmd();
         assert.ok(pyCmd, 'Python 3 debe estar disponible');
 
+        assert.strictEqual(serverNotes.computeJournalHeadingForDateIso('2026-08-30'), 'August 30th D-500');
+        assert.strictEqual(serverNotes.computeJournalHeadingForDateIso('2026-09-01'), 'September 01st D-498');
+        assert.strictEqual(serverNotes.computeJournalHeadingForDateIso('2026-11-18'), 'November 18th D-420');
+
         const pyCheck = spawnSync(
             pyCmd,
             [
@@ -170,6 +174,9 @@ describe('lib/server-notes-service & lib/docx_writer.py (Notas autónomas en Ubu
                     'assert dw.calcular_encabezado("2026-08-30") == "August 30th D-500"',
                     'assert dw.calcular_encabezado("2026-09-01") == "September 01st D-498"',
                     'assert dw.calcular_encabezado("2026-11-18") == "November 18th D-420"',
+                    'assert str(dw.parsear_fecha_encabezado_journal("November 18th D-420")) == "2026-11-18"',
+                    'assert str(dw.parsear_fecha_encabezado_journal("September 1st D-498")) == "2026-09-01"',
+                    'assert dw.parsear_fecha_encabezado_journal("Un párrafo cualquiera de diario") is None',
                     'plain = dw._build_minimal_docx_bytes(mode="journal")',
                     'p1, m1 = dw._append_journal_entry_to_docx_bytes(plain, "Primer pensamiento del día", "2026-11-18")',
                     'assert m1["heading"] == "November 18th D-420" and m1["skipped"] is False',
@@ -189,6 +196,83 @@ describe('lib/server-notes-service & lib/docx_writer.py (Notas autónomas en Ubu
         );
         assert.strictEqual(pyCheck.status, 0, pyCheck.stderr || pyCheck.stdout);
         assert.match(pyCheck.stdout, /JOURNAL_OOXML_OK/);
+    });
+
+    it('verifica continuidad diaria en Journal OOXML, rellena huecos cronológicos, respeta TOC y reemplaza placeholder', () => {
+        const pyCmd = resolvePythonCmd();
+        assert.ok(pyCmd, 'Python 3 debe estar disponible');
+
+        const pyCheck = spawnSync(
+            pyCmd,
+            [
+                '-c',
+                [
+                    'import sys, json, zipfile, io, xml.etree.ElementTree as ET',
+                    `sys.path.insert(0, ${JSON.stringify(path.join(ROOT, 'lib'))})`,
+                    'import docx_writer as dw',
+                    'W_NS = dw.W_NS_URI',
+                    '# 1. Crear entrada en 2026-11-15 y luego 2026-11-18 -> debe rellenar 2026-11-16 y 2026-11-17 en orden cronológico',
+                    'doc = dw._build_minimal_docx_bytes(mode="journal")',
+                    'doc, _ = dw._append_journal_entry_to_docx_bytes(doc, "Secreto privado dia 15", "2026-11-15")',
+                    '# Inyectar párrafo TOC1 falso + bookmark _Toc en Heading 1 + encabezado vacío para 2026-11-16',
+                    'with zipfile.ZipFile(io.BytesIO(doc), "r") as zin:',
+                    '    doc_xml = zin.read("word/document.xml")',
+                    '    styles_xml = zin.read("word/styles.xml")',
+                    '    other_files = {i.filename: zin.read(i.filename) for i in zin.infolist() if i.filename != "word/document.xml"}',
+                    'root = ET.fromstring(doc_xml)',
+                    'body = root.find(dw._w_tag("body"))',
+                    'toc_p = dw._crear_parrafo_texto(style_id="TOC1", text="November 14th D-424\t3")',
+                    'body.insert(1, toc_p)',
+                    '# Agregar bookmark _Toc dentro de November 15th D-423 y un heading vacío para November 16th D-422',
+                    'for el in list(body):',
+                    '    if el.tag == dw._w_tag("p") and "November 15th D-423" in dw._texto_parrafo_ooxml(el):',
+                    '        bm = ET.Element(dw._w_tag("bookmarkStart"), {dw._w_tag("id"): "0", dw._w_tag("name"): "_Toc999999"})',
+                    '        el.insert(1, bm)',
+                    'empty_h16 = dw._crear_parrafo_texto(style_id="Heading1", text="November 16th D-422", font_size=16, bold_all=True)',
+                    'body.insert(dw._indice_sectpr(body), empty_h16)',
+                    'buf_mod = io.BytesIO()',
+                    'with zipfile.ZipFile(buf_mod, "w") as zout:',
+                    '    for fn, payload in other_files.items(): zout.writestr(fn, payload)',
+                    '    zout.writestr("word/document.xml", dw._serializar_documento(root, doc_xml))',
+                    'doc_with_gap = buf_mod.getvalue()',
+                    '# Inspect antes de rellenar: debe detectar 2026-11-16 (empty) y 2026-11-17 (missing), ignorando TOC1 (2026-11-14)',
+                    'cov_before = dw.inspect_journal_docx_bytes(doc_with_gap, today_date="2026-11-18")',
+                    'assert cov_before["missingPastDates"] == ["2026-11-16", "2026-11-17"], cov_before',
+                    'assert cov_before["firstDateIso"] == "2026-11-15", cov_before',
+                    'assert "Secreto privado" not in json.dumps(cov_before)',
+                    '# 2. Escribir 2026-11-18 -> auto-rellena 2026-11-16 y 2026-11-17 con "Nothing to report." en orden cronológico',
+                    'doc_filled, meta18 = dw._append_journal_entry_to_docx_bytes(doc_with_gap, "Nota del dia 18", "2026-11-18")',
+                    'assert meta18["backfilledDates"] == ["2026-11-16", "2026-11-17"], meta18',
+                    'cov_after18 = dw.inspect_journal_docx_bytes(doc_filled, today_date="2026-11-19")',
+                    'assert cov_after18["missingPastDates"] == [], cov_after18',
+                    'assert cov_after18["allPastDaysFilled"] is True',
+                    'assert cov_after18["todayStatus"] == "missing"',
+                    '# Verificar orden cronológico exacto en word/document.xml',
+                    'with zipfile.ZipFile(io.BytesIO(doc_filled), "r") as zf: xml18 = zf.read("word/document.xml").decode("utf-8")',
+                    'pos15 = xml18.index("November 15th D-423")',
+                    'pos16 = xml18.index("November 16th D-422")',
+                    'pos17 = xml18.index("November 17th D-421")',
+                    'pos18 = xml18.index("November 18th D-420")',
+                    'assert pos15 < pos16 < pos17 < pos18, (pos15, pos16, pos17, pos18)',
+                    'assert xml18.count("Nothing to report.") == 2',
+                    '# 3. verify_and_backfill hasta 2026-11-20 rellena 19 y 20 (cuando hoy es 21) y es idempotente',
+                    'doc_v, vmeta = dw.verify_and_backfill_journal_docx_bytes(doc_filled, today_date="2026-11-21")',
+                    'assert vmeta["modified"] is True and vmeta["filledDates"] == ["2026-11-19", "2026-11-20"], vmeta',
+                    'doc_v2, vmeta2 = dw.verify_and_backfill_journal_docx_bytes(doc_v, today_date="2026-11-21")',
+                    'assert vmeta2["modified"] is False and vmeta2["filledDates"] == [], vmeta2',
+                    '# 4. Si luego se escribe una nota real en un día marcado "Nothing to report." (2026-11-19), reemplaza el placeholder',
+                    'doc_rep, rmeta = dw._append_journal_entry_to_docx_bytes(doc_v2, "Recordé algo del día 19", "2026-11-19", backfill_missing_before=False)',
+                    'assert rmeta["replacedPlaceholder"] is True, rmeta',
+                    'cov_rep = dw.inspect_journal_docx_bytes(doc_rep, today_date="2026-11-21")',
+                    'st19 = next(d for d in cov_rep["recentDays"] if d["dateIso"] == "2026-11-19")',
+                    'assert st19["status"] == "filled", st19',
+                    'print("JOURNAL_CONTINUITY_OK")'
+                ].join('\n')
+            ],
+            { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } }
+        );
+        assert.strictEqual(pyCheck.status, 0, pyCheck.stderr || pyCheck.stdout);
+        assert.match(pyCheck.stdout, /JOURNAL_CONTINUITY_OK/);
     });
 
     it('sincroniza English_Learning_Notebook.docx directo con Google Drive vía rclone mockeado y detecta reintentos', async () => {

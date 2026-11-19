@@ -19,7 +19,7 @@ import sys
 import zipfile
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape as _xml_escape
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 W_NS_URI = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS_URI = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -1357,15 +1357,432 @@ def update_english_docx_bytes(orig_bytes: bytes | None, raw_entry) -> tuple[byte
 
 
 # ---------------------------------------------------------------------------
-# Journal password-protected (.docx) writer via msoffcrypto-tool
+# Journal password-protected (.docx) writer & daily verifier via msoffcrypto-tool
 # ---------------------------------------------------------------------------
 
-def _append_journal_entry_to_docx_bytes(plain_bytes: bytes, text: str, target_date=None) -> tuple[bytes, dict]:
+NOTHING_TO_REPORT_TEXT = "Nothing to report."
+_JOURNAL_EPOCH_DATE = date(2026, 8, 30)
+_JOURNAL_EPOCH_D = 500
+_MONTH_NAME_TO_NUM = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+_RE_JOURNAL_DAY_HEADING = re.compile(
+    r"^(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|"
+    r"September|Sept|Sep|October|Oct|November|Nov|December|Dec)"
+    r"\s+(\d{1,2})(?:st|nd|rd|th)?\s+D\s*-\s*(-?\d+)$",
+    re.IGNORECASE,
+)
+
+
+def _parse_iso_date(val=None) -> date:
+    if val is None:
+        return datetime.now().date()
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    return datetime.strptime(str(val)[:10], "%Y-%m-%d").date()
+
+
+def _es_parrafo_toc_journal(p_elem: ET.Element) -> bool:
+    if p_elem.tag != _w_tag("p"):
+        return False
+    ppr = p_elem.find(_w_tag("pPr"))
+    if ppr is not None:
+        pstyle = ppr.find(_w_tag("pStyle"))
+        if pstyle is not None:
+            sid = pstyle.attrib.get(_w_tag("val"), "").strip()
+            if re.match(r"^(?:toc\d*|tocheading|tabladecontenido.*)$", sid, re.IGNORECASE):
+                return True
+    instr_tag = _w_tag("instrText")
+    for it in p_elem.iter(instr_tag):
+        upper = (it.text or "").upper()
+        if "TOC" in upper or "PAGEREF" in upper:
+            return True
+    return False
+
+
+def parsear_fecha_encabezado_journal(text: str):
+    cleaned = " ".join(str(text or "").split()).strip()
+    if not cleaned:
+        return None
+    m = _RE_JOURNAL_DAY_HEADING.match(cleaned)
+    if not m:
+        return None
+    month_num = _MONTH_NAME_TO_NUM.get(m.group(1).lower())
+    if not month_num:
+        return None
+    try:
+        day_num = int(m.group(2))
+        d_num = int(m.group(3))
+    except ValueError:
+        return None
+    expected = _JOURNAL_EPOCH_DATE + timedelta(days=_JOURNAL_EPOCH_D - d_num)
+    if expected.month == month_num and expected.day == day_num:
+        return expected
+    try:
+        candidate = date(expected.year, month_num, day_num)
+        if abs((candidate - expected).days) <= 2:
+            return candidate
+    except ValueError:
+        pass
+    return None
+
+
+def _elemento_tiene_contenido_no_textual(el: ET.Element) -> bool:
+    if el.tag == _w_tag("tbl"):
+        return True
+    for node in el.iter():
+        local_name = node.tag.split("}")[-1].lower()
+        if local_name in {"drawing", "pict", "object", "imagedata"}:
+            return True
+    return False
+
+
+def _es_parrafo_vacio_journal(el: ET.Element) -> bool:
+    return (
+        el.tag == _w_tag("p")
+        and not _texto_parrafo_ooxml(el)
+        and not _elemento_tiene_contenido_no_textual(el)
+    )
+
+
+def _extraer_secciones_journal(body: ET.Element) -> list[dict]:
+    children = list(body)
+    sect_idx = _indice_sectpr(body)
+    toc_range = _encontrar_rango_toc(children)
+    p_tag = _w_tag("p")
+
+    headings = []
+    for idx in range(sect_idx):
+        if toc_range and toc_range[0] <= idx < toc_range[1]:
+            continue
+        el = children[idx]
+        if el.tag != p_tag or _es_parrafo_toc_journal(el):
+            continue
+        txt = _texto_parrafo_ooxml(el)
+        dt = parsear_fecha_encabezado_journal(txt)
+        if dt is not None:
+            headings.append((idx, dt, txt))
+
+    sections = []
+    for pos, (start_idx, dt, heading_txt) in enumerate(headings):
+        end_idx = headings[pos + 1][0] if pos + 1 < len(headings) else sect_idx
+        content_indices = []
+        content_texts = []
+        has_non_text = False
+        for idx in range(start_idx + 1, end_idx):
+            if toc_range and toc_range[0] <= idx < toc_range[1]:
+                continue
+            el = children[idx]
+            if el.tag == p_tag and _es_parrafo_toc_journal(el):
+                continue
+            if _elemento_tiene_contenido_no_textual(el):
+                has_non_text = True
+            if el.tag == p_tag:
+                ptxt = _texto_parrafo_ooxml(el)
+                if ptxt:
+                    content_indices.append(idx)
+                    content_texts.append(ptxt)
+
+        if not content_texts and not has_non_text:
+            status = "empty"
+        elif (
+            not has_non_text
+            and all(t.strip().lower() == NOTHING_TO_REPORT_TEXT.lower() for t in content_texts)
+        ):
+            status = "nothing_to_report"
+        else:
+            status = "filled"
+
+        sections.append(
+            {
+                "date": dt,
+                "date_iso": dt.isoformat(),
+                "heading": heading_txt,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "content_indices": content_indices,
+                "content_texts": content_texts,
+                "has_non_text": has_non_text,
+                "status": status,
+            }
+        )
+    return sections
+
+
+def _agrupar_estado_por_fecha(sections: list[dict]) -> dict[date, str]:
+    priority = {"empty": 0, "nothing_to_report": 1, "filled": 2}
+    by_date: dict[date, str] = {}
+    for sec in sections:
+        dt = sec["date"]
+        cur = by_date.get(dt)
+        if cur is None or priority[sec["status"]] > priority[cur]:
+            by_date[dt] = sec["status"]
+    return by_date
+
+
+def _calcular_dias_faltantes_journal(
+    sections: list[dict],
+    through_date: date,
+    fill_if_empty_doc: bool = False,
+    max_days: int = 550,
+) -> list[date]:
+    if not sections:
+        return [through_date] if fill_if_empty_doc else []
+
+    by_date = _agrupar_estado_por_fecha(sections)
+    first_date = min(by_date.keys())
+    if first_date > through_date:
+        return []
+
+    window_start = through_date - timedelta(days=max(1, int(max_days)) - 1)
+    scan_start = max(first_date, window_start)
+    missing: list[date] = []
+    cur = scan_start
+    while cur <= through_date:
+        status = by_date.get(cur)
+        if status is None or status == "empty":
+            missing.append(cur)
+        cur += timedelta(days=1)
+    return missing
+
+
+def _construir_parrafos_texto_journal(estilo_ids: dict, texto_limpio: str) -> list[ET.Element]:
+    out: list[ET.Element] = []
+    for line in texto_limpio.split("\n"):
+        clean_line = line.rstrip()
+        if not clean_line.strip():
+            out.append(_w_el("p"))
+        else:
+            out.append(
+                _crear_parrafo_texto(
+                    style_id=estilo_ids["normal"],
+                    text=clean_line,
+                    font_size=11,
+                    bold_all=False,
+                )
+            )
+    return out
+
+
+def _insertar_o_actualizar_dia_en_body(
+    body: ET.Element,
+    estilo_ids: dict,
+    target_date: date,
+    text: str,
+) -> dict:
     texto_limpio = str(text or "").replace("\r", "").strip()
     if not texto_limpio:
         raise ValueError("Journal text cannot be empty.")
 
+    is_ntr = texto_limpio.lower() == NOTHING_TO_REPORT_TEXT.lower()
+    if is_ntr:
+        texto_limpio = NOTHING_TO_REPORT_TEXT
+
     encabezado = calcular_encabezado(target_date)
+    sections = _extraer_secciones_journal(body)
+    matching = [sec for sec in sections if sec["date"] == target_date]
+    entry_elems = _construir_parrafos_texto_journal(estilo_ids, texto_limpio)
+
+    if matching:
+        sec = matching[-1]
+        if is_ntr:
+            if sec["status"] in ("filled", "nothing_to_report"):
+                return {
+                    "heading": sec["heading"] or encabezado,
+                    "skipped": True,
+                    "replacedPlaceholder": False,
+                }
+            insert_at = sec["start_idx"] + 1
+            for offset, el in enumerate(entry_elems):
+                body.insert(insert_at + offset, el)
+            return {
+                "heading": sec["heading"] or encabezado,
+                "skipped": False,
+                "replacedPlaceholder": False,
+            }
+
+        if sec["status"] == "nothing_to_report" and sec["content_indices"]:
+            first_idx = sec["content_indices"][0]
+            children = list(body)
+            for idx_rem in reversed(sec["content_indices"]):
+                body.remove(children[idx_rem])
+            for offset, el in enumerate(entry_elems):
+                body.insert(first_idx + offset, el)
+            return {
+                "heading": sec["heading"] or encabezado,
+                "skipped": False,
+                "replacedPlaceholder": True,
+            }
+
+        if sec["status"] == "empty":
+            insert_at = sec["start_idx"] + 1
+            for offset, el in enumerate(entry_elems):
+                body.insert(insert_at + offset, el)
+            return {
+                "heading": sec["heading"] or encabezado,
+                "skipped": False,
+                "replacedPlaceholder": False,
+            }
+
+        children = list(body)
+        insert_at = sec["end_idx"]
+        while insert_at > sec["start_idx"] + 1 and _es_parrafo_vacio_journal(children[insert_at - 1]):
+            insert_at -= 1
+        to_insert: list[ET.Element] = []
+        if insert_at > sec["start_idx"] + 1 and not _es_parrafo_vacio_journal(children[insert_at - 1]):
+            to_insert.append(_w_el("p"))
+        to_insert.extend(entry_elems)
+        for offset, el in enumerate(to_insert):
+            body.insert(insert_at + offset, el)
+        return {
+            "heading": sec["heading"] or encabezado,
+            "skipped": False,
+            "replacedPlaceholder": False,
+        }
+
+    later_sec = next((sec for sec in sections if sec["date"] > target_date), None)
+    children = list(body)
+    heading_el = _crear_parrafo_texto(
+        style_id=estilo_ids["heading_1"],
+        text=encabezado,
+        font_size=16,
+        bold_all=True,
+        color="000000",
+    )
+
+    if later_sec is not None:
+        insert_at = later_sec["start_idx"]
+        while insert_at > 0 and _es_parrafo_vacio_journal(children[insert_at - 1]):
+            insert_at -= 1
+        has_content_before = any(
+            not _es_parrafo_vacio_journal(children[i]) for i in range(insert_at)
+        )
+        new_elems: list[ET.Element] = []
+        if has_content_before:
+            new_elems.append(_w_el("p"))
+        new_elems.append(heading_el)
+        new_elems.extend(entry_elems)
+        if insert_at == later_sec["start_idx"]:
+            new_elems.append(_w_el("p"))
+    else:
+        insert_at = _indice_sectpr(body)
+        has_content_before = any(
+            not _es_parrafo_vacio_journal(children[i]) for i in range(insert_at)
+        )
+        prev_is_blank = insert_at > 0 and _es_parrafo_vacio_journal(children[insert_at - 1])
+        new_elems = []
+        if has_content_before and not prev_is_blank:
+            new_elems.append(_w_el("p"))
+        new_elems.append(heading_el)
+        new_elems.extend(entry_elems)
+
+    for offset, el in enumerate(new_elems):
+        body.insert(insert_at + offset, el)
+    return {
+        "heading": encabezado,
+        "skipped": False,
+        "replacedPlaceholder": False,
+    }
+
+
+def _construir_resumen_cobertura(
+    sections: list[dict],
+    today_dt: date,
+    recent_window: int = 14,
+) -> dict:
+    by_date = _agrupar_estado_por_fecha(sections)
+    yesterday_dt = today_dt - timedelta(days=1)
+    missing_past = _calcular_dias_faltantes_journal(
+        sections, yesterday_dt, fill_if_empty_doc=False
+    )
+
+    first_date = min(by_date.keys()) if by_date else None
+    last_date = max(by_date.keys()) if by_date else None
+    filled_count = sum(1 for st in by_date.values() if st == "filled")
+    ntr_count = sum(1 for st in by_date.values() if st == "nothing_to_report")
+    empty_count = sum(1 for st in by_date.values() if st == "empty")
+
+    win = max(1, min(30, int(recent_window)))
+    if first_date is not None:
+        strip_start = max(first_date, today_dt - timedelta(days=win - 1))
+        if strip_start > today_dt:
+            strip_start = today_dt
+    else:
+        strip_start = today_dt
+
+    recent_days = []
+    cur = strip_start
+    while cur <= today_dt:
+        st = by_date.get(cur, "missing")
+        recent_days.append(
+            {
+                "dateIso": cur.isoformat(),
+                "heading": calcular_encabezado(cur),
+                "status": st,
+                "isToday": cur == today_dt,
+            }
+        )
+        cur += timedelta(days=1)
+
+    return {
+        "todayIso": today_dt.isoformat(),
+        "todayHeading": calcular_encabezado(today_dt),
+        "todayStatus": by_date.get(today_dt, "missing"),
+        "yesterdayIso": yesterday_dt.isoformat(),
+        "yesterdayHeading": calcular_encabezado(yesterday_dt),
+        "yesterdayStatus": by_date.get(yesterday_dt, "missing"),
+        "firstDateIso": first_date.isoformat() if first_date else None,
+        "lastDateIso": last_date.isoformat() if last_date else None,
+        "totalDaysRecorded": len(by_date),
+        "filledCount": filled_count,
+        "nothingToReportCount": ntr_count,
+        "emptyHeadingCount": empty_count,
+        "missingPastDates": [d.isoformat() for d in missing_past],
+        "missingPastHeadings": [calcular_encabezado(d) for d in missing_past],
+        "allPastDaysFilled": len(missing_past) == 0,
+        "recentDays": recent_days,
+    }
+
+
+def inspect_journal_docx_bytes(
+    plain_bytes: bytes,
+    today_date=None,
+    recent_window: int = 14,
+) -> dict:
+    today_dt = _parse_iso_date(today_date)
+    with zipfile.ZipFile(io.BytesIO(plain_bytes), "r") as zin:
+        orig_doc_bytes = zin.read("word/document.xml")
+    doc_root = ET.fromstring(orig_doc_bytes)
+    body = doc_root.find(_w_tag("body"))
+    if body is None:
+        raise ValueError("word/document.xml sin elemento w:body")
+    sections = _extraer_secciones_journal(body)
+    return _construir_resumen_cobertura(sections, today_dt, recent_window=recent_window)
+
+
+def verify_and_backfill_journal_docx_bytes(
+    plain_bytes: bytes,
+    today_date=None,
+    through_date=None,
+    fill_if_empty_doc: bool = False,
+    max_days: int = 550,
+) -> tuple[bytes, dict]:
+    today_dt = _parse_iso_date(today_date)
+    through_dt = _parse_iso_date(through_date) if through_date is not None else (today_dt - timedelta(days=1))
+
     with zipfile.ZipFile(io.BytesIO(plain_bytes), "r") as zin:
         estilos = _ooxml_cargar_estilos_mapa(zin)
         orig_doc_bytes = zin.read("word/document.xml")
@@ -1376,66 +1793,184 @@ def _append_journal_entry_to_docx_bytes(plain_bytes: bytes, text: str, target_da
     if body is None:
         raise ValueError("word/document.xml sin elemento w:body")
 
-    p_tag = _w_tag("p")
-    existing_texts = [_texto_parrafo_ooxml(el) for el in list(body) if el.tag == p_tag]
-    heading_exists = any(encabezado in t for t in existing_texts)
+    sections = _extraer_secciones_journal(body)
+    missing_dates = _calcular_dias_faltantes_journal(
+        sections,
+        through_dt,
+        fill_if_empty_doc=fill_if_empty_doc,
+        max_days=max_days,
+    )
 
-    if heading_exists and texto_limpio == "Nothing to report.":
-        return plain_bytes, {"heading": encabezado, "skipped": True}
+    filled_dates: list[str] = []
+    filled_headings: list[str] = []
+    for dt in missing_dates:
+        res = _insertar_o_actualizar_dia_en_body(body, estilo_ids, dt, NOTHING_TO_REPORT_TEXT)
+        if not res["skipped"]:
+            filled_dates.append(dt.isoformat())
+            filled_headings.append(res["heading"])
 
-    insert_at = _indice_sectpr(body)
-    new_elems: list[ET.Element] = []
-    if any(t.strip() for t in existing_texts):
-        new_elems.append(_w_el("p"))
-
-    if not heading_exists:
-        new_elems.append(
-            _crear_parrafo_texto(
-                style_id=estilo_ids["heading_1"],
-                text=encabezado,
-                font_size=16,
-                bold_all=True,
-                color="000000",
-            )
-        )
-
-    for line in texto_limpio.split("\n"):
-        clean_line = line.rstrip()
-        if not clean_line.strip():
-            new_elems.append(_w_el("p"))
-        else:
-            new_elems.append(
-                _crear_parrafo_texto(
-                    style_id=estilo_ids["normal"],
-                    text=clean_line,
-                    font_size=11,
-                    bold_all=False,
-                )
-            )
-
-    for offset, el in enumerate(new_elems):
-        body.insert(insert_at + offset, el)
+    if not filled_dates:
+        coverage = _construir_resumen_cobertura(sections, today_dt)
+        return plain_bytes, {
+            "modified": False,
+            "filledDates": [],
+            "filledHeadings": [],
+            "coverage": coverage,
+        }
 
     new_doc_bytes = _serializar_documento(doc_root, orig_doc_bytes)
     out_buf = io.BytesIO()
-    with zipfile.ZipFile(io.BytesIO(plain_bytes), "r") as zin, zipfile.ZipFile(out_buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+    with zipfile.ZipFile(io.BytesIO(plain_bytes), "r") as zin, zipfile.ZipFile(
+        out_buf, "w", compression=zipfile.ZIP_DEFLATED
+    ) as zout:
         for info in zin.infolist():
             payload = new_doc_bytes if info.filename == "word/document.xml" else zin.read(info.filename)
             zout.writestr(info, payload)
-    return out_buf.getvalue(), {"heading": encabezado, "skipped": False}
+
+    updated_sections = _extraer_secciones_journal(body)
+    coverage = _construir_resumen_cobertura(updated_sections, today_dt)
+    return out_buf.getvalue(), {
+        "modified": True,
+        "filledDates": filled_dates,
+        "filledHeadings": filled_headings,
+        "coverage": coverage,
+    }
 
 
-def write_encrypted_journal_docx(docx_path: str, password: str, text: str, target_date=None) -> dict:
-    if not password:
-        return {"ok": False, "reason": "PASSWORD_MISSING", "error": "WORD_PASSWORD is required for local encrypted Journal."}
+def _append_journal_entry_to_docx_bytes(
+    plain_bytes: bytes,
+    text: str,
+    target_date=None,
+    backfill_missing_before: bool = True,
+) -> tuple[bytes, dict]:
+    texto_limpio = str(text or "").replace("\r", "").strip()
+    if not texto_limpio:
+        raise ValueError("Journal text cannot be empty.")
 
+    target_dt = _parse_iso_date(target_date)
+    with zipfile.ZipFile(io.BytesIO(plain_bytes), "r") as zin:
+        estilos = _ooxml_cargar_estilos_mapa(zin)
+        orig_doc_bytes = zin.read("word/document.xml")
+
+    estilo_ids = estilos["ids"]
+    doc_root = ET.fromstring(orig_doc_bytes)
+    body = doc_root.find(_w_tag("body"))
+    if body is None:
+        raise ValueError("word/document.xml sin elemento w:body")
+
+    backfilled_dates: list[str] = []
+    backfilled_headings: list[str] = []
+    if backfill_missing_before:
+        sections_before = _extraer_secciones_journal(body)
+        prev_day = target_dt - timedelta(days=1)
+        missing_prior = _calcular_dias_faltantes_journal(
+            sections_before,
+            prev_day,
+            fill_if_empty_doc=False,
+        )
+        for dt in missing_prior:
+            bf_res = _insertar_o_actualizar_dia_en_body(
+                body, estilo_ids, dt, NOTHING_TO_REPORT_TEXT
+            )
+            if not bf_res["skipped"]:
+                backfilled_dates.append(dt.isoformat())
+                backfilled_headings.append(bf_res["heading"])
+
+    main_res = _insertar_o_actualizar_dia_en_body(body, estilo_ids, target_dt, texto_limpio)
+    if main_res["skipped"] and not backfilled_dates:
+        return plain_bytes, {
+            "heading": main_res["heading"],
+            "skipped": True,
+            "replacedPlaceholder": False,
+            "backfilledDates": [],
+            "backfilledHeadings": [],
+        }
+
+    new_doc_bytes = _serializar_documento(doc_root, orig_doc_bytes)
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(plain_bytes), "r") as zin, zipfile.ZipFile(
+        out_buf, "w", compression=zipfile.ZIP_DEFLATED
+    ) as zout:
+        for info in zin.infolist():
+            payload = new_doc_bytes if info.filename == "word/document.xml" else zin.read(info.filename)
+            zout.writestr(info, payload)
+    return out_buf.getvalue(), {
+        "heading": main_res["heading"],
+        "skipped": bool(main_res["skipped"]),
+        "replacedPlaceholder": bool(main_res["replacedPlaceholder"]),
+        "backfilledDates": backfilled_dates,
+        "backfilledHeadings": backfilled_headings,
+    }
+
+
+def _read_encrypted_journal_bytes(target: str, password: str) -> dict:
+    try:
+        import msoffcrypto
+    except ImportError as imp_err:
+        return {
+            "ok": False,
+            "reason": "MSOFFCRYPTO_MISSING",
+            "error": f"msoffcrypto-tool not installed: {imp_err}",
+        }
+
+    existed = os.path.exists(target) and os.path.getsize(target) > 0
+    if not existed:
+        return {
+            "ok": True,
+            "existed": False,
+            "was_encrypted": False,
+            "raw_bytes": None,
+            "plain_bytes": None,
+        }
+
+    with open(target, "rb") as fh:
+        raw_bytes = fh.read()
+    office = msoffcrypto.OfficeFile(io.BytesIO(raw_bytes))
+    if office.is_encrypted():
+        try:
+            office.load_key(password=password, verify_password=True)
+        except Exception as pwd_err:
+            return {
+                "ok": False,
+                "reason": "WRONG_PASSWORD",
+                "error": f"WORD_PASSWORD rejected by existing Diario.docx: {pwd_err}",
+            }
+        plain_io = io.BytesIO()
+        office.decrypt(plain_io)
+        return {
+            "ok": True,
+            "existed": True,
+            "was_encrypted": True,
+            "raw_bytes": raw_bytes,
+            "plain_bytes": plain_io.getvalue(),
+        }
+
+    return {
+        "ok": True,
+        "existed": True,
+        "was_encrypted": False,
+        "raw_bytes": raw_bytes,
+        "plain_bytes": raw_bytes,
+    }
+
+
+def _encrypt_and_atomic_write_journal(
+    target: str,
+    password: str,
+    updated_plain_bytes: bytes,
+    raw_bytes: bytes | None,
+    existed: bool,
+) -> dict:
     try:
         import msoffcrypto
         from msoffcrypto.format.ooxml import OOXMLFile
     except ImportError as imp_err:
-        return {"ok": False, "reason": "MSOFFCRYPTO_MISSING", "error": f"msoffcrypto-tool not installed: {imp_err}"}
+        return {
+            "ok": False,
+            "reason": "MSOFFCRYPTO_MISSING",
+            "error": f"msoffcrypto-tool not installed: {imp_err}",
+        }
 
-    target = os.path.abspath(docx_path)
     parent = os.path.dirname(target)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -1444,32 +1979,6 @@ def write_encrypted_journal_docx(docx_path: str, password: str, text: str, targe
         except OSError:
             pass
 
-    existed = os.path.exists(target) and os.path.getsize(target) > 0
-    was_encrypted = False
-    if existed:
-        with open(target, "rb") as fh:
-            raw_bytes = fh.read()
-        raw_io = io.BytesIO(raw_bytes)
-        office = msoffcrypto.OfficeFile(raw_io)
-        if office.is_encrypted():
-            was_encrypted = True
-            try:
-                office.load_key(password=password, verify_password=True)
-            except Exception as pwd_err:
-                return {"ok": False, "reason": "WRONG_PASSWORD", "error": f"WORD_PASSWORD rejected by existing Diario.docx: {pwd_err}"}
-            plain_io = io.BytesIO()
-            office.decrypt(plain_io)
-            plain_bytes = plain_io.getvalue()
-        else:
-            plain_bytes = raw_bytes
-    else:
-        plain_bytes = _build_minimal_docx_bytes(mode="journal")
-
-    updated_plain_bytes, meta = _append_journal_entry_to_docx_bytes(plain_bytes, text, target_date=target_date)
-    if meta.get("skipped") and existed and was_encrypted:
-        return {"ok": True, "skipped": True, "encrypted": True, "heading": meta["heading"], "path": target}
-
-    # Encrypt strictly in RAM via MS-OFFCRYPTO Agile Encryption
     enc_io = io.BytesIO()
     OOXMLFile(io.BytesIO(updated_plain_bytes)).encrypt(password, enc_io)
     encrypted_bytes = enc_io.getvalue()
@@ -1478,7 +1987,11 @@ def write_encrypted_journal_docx(docx_path: str, password: str, text: str, targe
     enc_io.seek(0)
     verify_office = msoffcrypto.OfficeFile(enc_io)
     if not verify_office.is_encrypted():
-        return {"ok": False, "reason": "ENCRYPT_VERIFY_FAILED", "error": "Output Diario.docx did not report as encrypted."}
+        return {
+            "ok": False,
+            "reason": "ENCRYPT_VERIFY_FAILED",
+            "error": "Output Diario.docx did not report as encrypted.",
+        }
     verify_office.load_key(password=password, verify_password=True)
     verify_plain = io.BytesIO()
     verify_office.decrypt(verify_plain)
@@ -1487,7 +2000,7 @@ def write_encrypted_journal_docx(docx_path: str, password: str, text: str, targe
         doc_xml = zchk.read("word/document.xml")
         ET.fromstring(doc_xml)
 
-    if existed:
+    if existed and raw_bytes is not None:
         bak_path = f"{target}.bak"
         tmp_bak = f"{bak_path}.tmp.{os.getpid()}"
         fd_bak = os.open(tmp_bak, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -1518,13 +2031,194 @@ def write_encrypted_journal_docx(docx_path: str, password: str, text: str, targe
             except OSError:
                 pass
 
+    return {"ok": True, "bytes": len(encrypted_bytes)}
+
+
+def write_encrypted_journal_docx(
+    docx_path: str,
+    password: str,
+    text: str,
+    target_date=None,
+    backfill_missing_before: bool = True,
+) -> dict:
+    if not password:
+        return {
+            "ok": False,
+            "reason": "PASSWORD_MISSING",
+            "error": "WORD_PASSWORD is required for local encrypted Journal.",
+        }
+
+    target = os.path.abspath(docx_path)
+    read_res = _read_encrypted_journal_bytes(target, password)
+    if not read_res.get("ok"):
+        return read_res
+
+    existed = read_res["existed"]
+    was_encrypted = read_res["was_encrypted"]
+    raw_bytes = read_res["raw_bytes"]
+    plain_bytes = read_res["plain_bytes"] or _build_minimal_docx_bytes(mode="journal")
+
+    target_dt = _parse_iso_date(target_date)
+    updated_plain_bytes, meta = _append_journal_entry_to_docx_bytes(
+        plain_bytes,
+        text,
+        target_date=target_dt,
+        backfill_missing_before=backfill_missing_before,
+    )
+    coverage = inspect_journal_docx_bytes(updated_plain_bytes, today_date=target_dt)
+
+    if meta.get("skipped") and not meta.get("backfilledDates") and existed and was_encrypted:
+        return {
+            "ok": True,
+            "skipped": True,
+            "replacedPlaceholder": False,
+            "backfilledDates": [],
+            "backfilledHeadings": [],
+            "encrypted": True,
+            "heading": meta["heading"],
+            "coverage": coverage,
+            "path": target,
+        }
+
+    write_res = _encrypt_and_atomic_write_journal(
+        target, password, updated_plain_bytes, raw_bytes, existed
+    )
+    if not write_res.get("ok"):
+        return write_res
+
     return {
         "ok": True,
         "skipped": bool(meta.get("skipped")),
+        "replacedPlaceholder": bool(meta.get("replacedPlaceholder")),
+        "backfilledDates": meta.get("backfilledDates") or [],
+        "backfilledHeadings": meta.get("backfilledHeadings") or [],
         "encrypted": True,
         "heading": meta["heading"],
-        "bytes": len(encrypted_bytes),
+        "bytes": write_res["bytes"],
+        "coverage": coverage,
         "path": target,
+    }
+
+
+def inspect_encrypted_journal_docx(
+    docx_path: str,
+    password: str,
+    today_date=None,
+) -> dict:
+    if not password:
+        return {
+            "ok": False,
+            "reason": "PASSWORD_MISSING",
+            "error": "WORD_PASSWORD is required to inspect local encrypted Journal.",
+        }
+
+    target = os.path.abspath(docx_path)
+    read_res = _read_encrypted_journal_bytes(target, password)
+    if not read_res.get("ok"):
+        return read_res
+
+    today_dt = _parse_iso_date(today_date)
+    if not read_res["existed"]:
+        return {
+            "ok": True,
+            "exists": False,
+            "encrypted": False,
+            "path": target,
+            "coverage": _construir_resumen_cobertura([], today_dt),
+        }
+
+    coverage = inspect_journal_docx_bytes(read_res["plain_bytes"], today_date=today_dt)
+    return {
+        "ok": True,
+        "exists": True,
+        "encrypted": bool(read_res["was_encrypted"]),
+        "path": target,
+        "coverage": coverage,
+    }
+
+
+def verify_encrypted_journal_docx(
+    docx_path: str,
+    password: str,
+    today_date=None,
+    through_date=None,
+    create_if_missing: bool = False,
+    fill_if_empty_doc: bool = False,
+) -> dict:
+    if not password:
+        return {
+            "ok": False,
+            "reason": "PASSWORD_MISSING",
+            "error": "WORD_PASSWORD is required to verify local encrypted Journal.",
+        }
+
+    target = os.path.abspath(docx_path)
+    read_res = _read_encrypted_journal_bytes(target, password)
+    if not read_res.get("ok"):
+        return read_res
+
+    today_dt = _parse_iso_date(today_date)
+    existed = read_res["existed"]
+    if not existed and not create_if_missing:
+        return {
+            "ok": True,
+            "exists": False,
+            "encrypted": False,
+            "modified": False,
+            "filledDates": [],
+            "filledHeadings": [],
+            "path": target,
+            "coverage": _construir_resumen_cobertura([], today_dt),
+        }
+
+    plain_bytes = read_res["plain_bytes"] or _build_minimal_docx_bytes(mode="journal")
+    updated_plain_bytes, meta = verify_and_backfill_journal_docx_bytes(
+        plain_bytes,
+        today_date=today_dt,
+        through_date=through_date,
+        fill_if_empty_doc=fill_if_empty_doc,
+    )
+
+    if not meta["modified"] and existed and read_res["was_encrypted"]:
+        return {
+            "ok": True,
+            "exists": True,
+            "encrypted": True,
+            "modified": False,
+            "filledDates": [],
+            "filledHeadings": [],
+            "path": target,
+            "coverage": meta["coverage"],
+        }
+
+    if not meta["modified"] and not existed:
+        return {
+            "ok": True,
+            "exists": False,
+            "encrypted": False,
+            "modified": False,
+            "filledDates": [],
+            "filledHeadings": [],
+            "path": target,
+            "coverage": meta["coverage"],
+        }
+
+    write_res = _encrypt_and_atomic_write_journal(
+        target, password, updated_plain_bytes, read_res["raw_bytes"], existed
+    )
+    if not write_res.get("ok"):
+        return write_res
+
+    return {
+        "ok": True,
+        "exists": True,
+        "encrypted": True,
+        "modified": bool(meta["modified"]),
+        "filledDates": meta["filledDates"],
+        "filledHeadings": meta["filledHeadings"],
+        "bytes": write_res["bytes"],
+        "path": target,
+        "coverage": meta["coverage"],
     }
 
 
@@ -1545,8 +2239,16 @@ def main() -> int:
     for i, a in enumerate(args):
         if a == "--mode" and i + 1 < len(args):
             mode = args[i + 1].strip().lower()
-    if mode not in ("english", "journal"):
-        print(json.dumps({"ok": False, "reason": "INVALID_MODE", "error": "Use --mode english|journal"}))
+    if mode not in ("english", "journal", "journal-inspect", "journal-verify"):
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "reason": "INVALID_MODE",
+                    "error": "Use --mode english|journal|journal-inspect|journal-verify",
+                }
+            )
+        )
         return 2
 
     try:
@@ -1575,11 +2277,33 @@ def main() -> int:
             print(json.dumps({"ok": True, "bytes": len(new_bytes), **meta}, ensure_ascii=True))
             return 0
 
+        if mode == "journal-inspect":
+            res = inspect_encrypted_journal_docx(
+                docx_path=str(payload.get("docxPath") or ""),
+                password=str(payload.get("password") or ""),
+                today_date=payload.get("todayIso") or None,
+            )
+            print(json.dumps(res, ensure_ascii=True))
+            return 0 if res.get("ok") else 1
+
+        if mode == "journal-verify":
+            res = verify_encrypted_journal_docx(
+                docx_path=str(payload.get("docxPath") or ""),
+                password=str(payload.get("password") or ""),
+                today_date=payload.get("todayIso") or None,
+                through_date=payload.get("throughDateIso") or None,
+                create_if_missing=bool(payload.get("createIfMissing", False)),
+                fill_if_empty_doc=bool(payload.get("fillIfEmptyDoc", False)),
+            )
+            print(json.dumps(res, ensure_ascii=True))
+            return 0 if res.get("ok") else 1
+
         res = write_encrypted_journal_docx(
             docx_path=str(payload.get("docxPath") or ""),
             password=str(payload.get("password") or ""),
             text=str(payload.get("text") or ""),
             target_date=payload.get("targetDateIso") or None,
+            backfill_missing_before=bool(payload.get("backfillMissingBefore", True)),
         )
         print(json.dumps(res, ensure_ascii=True))
         return 0 if res.get("ok") else 1

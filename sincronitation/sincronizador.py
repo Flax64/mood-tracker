@@ -28,7 +28,7 @@ except ImportError:
 import time
 import logging
 from logging.handlers import RotatingFileHandler
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 try:
     import pythoncom
@@ -877,13 +877,45 @@ def _firmar_pc_request(
     }
 
 
-def calcular_encabezado(fecha_objetivo=None):
-    if fecha_objetivo is None:
-        fecha_objetivo = datetime.now()
+JOURNAL_NOTHING_TO_REPORT = "Nothing to report."
+_JOURNAL_EPOCH_DATE = date(2026, 8, 30)
+_JOURNAL_EPOCH_D = 500
+_JOURNAL_MONTH_MAP = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+_RE_JOURNAL_ENCABEZADO = re.compile(
+    r"^(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|"
+    r"September|Sept|Sep|October|Oct|November|Nov|December|Dec)"
+    r"\s+(\d{1,2})(?:st|nd|rd|th)?\s+D\s*-\s*(-?\d+)$",
+    re.IGNORECASE,
+)
 
-    fecha_inicio = datetime(2026, 8, 30)
-    dias_pasados = (fecha_objetivo.date() - fecha_inicio.date()).days
-    d_actual = 500 - dias_pasados
+
+def _normalizar_fecha_journal(fecha_objetivo=None):
+    if fecha_objetivo is None:
+        return datetime.now().date()
+    if isinstance(fecha_objetivo, datetime):
+        return fecha_objetivo.date()
+    if isinstance(fecha_objetivo, date):
+        return fecha_objetivo
+    return datetime.strptime(str(fecha_objetivo)[:10], "%Y-%m-%d").date()
+
+
+def calcular_encabezado(fecha_objetivo=None):
+    fecha_dt = _normalizar_fecha_journal(fecha_objetivo)
+    dias_pasados = (fecha_dt - _JOURNAL_EPOCH_DATE).days
+    d_actual = _JOURNAL_EPOCH_D - dias_pasados
 
     meses_ingles = [
         "January",
@@ -899,8 +931,8 @@ def calcular_encabezado(fecha_objetivo=None):
         "November",
         "December",
     ]
-    mes = meses_ingles[fecha_objetivo.month - 1]
-    dia = fecha_objetivo.day
+    mes = meses_ingles[fecha_dt.month - 1]
+    dia = fecha_dt.day
 
     if 11 <= dia <= 13:
         sufijo = "th"
@@ -908,6 +940,116 @@ def calcular_encabezado(fecha_objetivo=None):
         sufijo = {1: "st", 2: "nd", 3: "rd"}.get(dia % 10, "th")
 
     return f"{mes} {dia:02d}{sufijo} D-{d_actual}"
+
+
+def parsear_fecha_encabezado(texto):
+    limpio = " ".join(str(texto or "").split()).strip()
+    if not limpio:
+        return None
+    m = _RE_JOURNAL_ENCABEZADO.match(limpio)
+    if not m:
+        return None
+    month_num = _JOURNAL_MONTH_MAP.get(m.group(1).lower())
+    if not month_num:
+        return None
+    try:
+        day_num = int(m.group(2))
+        d_num = int(m.group(3))
+    except ValueError:
+        return None
+    expected = _JOURNAL_EPOCH_DATE + timedelta(days=_JOURNAL_EPOCH_D - d_num)
+    if expected.month == month_num and expected.day == day_num:
+        return expected
+    try:
+        candidate = date(expected.year, month_num, day_num)
+        if abs((candidate - expected).days) <= 2:
+            return candidate
+    except ValueError:
+        pass
+    return None
+
+
+def _es_estilo_toc_journal(style_name):
+    low = str(style_name or "").strip().lower()
+    if not low:
+        return False
+    return bool(re.match(r"^(?:toc\s*\d*|toc\s+heading|tabla\s+de\s+contenido.*)$", low))
+
+
+def analizar_parrafos_journal(parrafos_info):
+    """Analiza [(idx, text, style_name), ...] y devuelve secciones diarias clasificadas."""
+    items = list(parrafos_info or [])
+    headings = []
+    for pos, (idx, text, style_name) in enumerate(items):
+        if _es_estilo_toc_journal(style_name):
+            continue
+        dt = parsear_fecha_encabezado(text)
+        if dt is not None:
+            headings.append((pos, idx, dt, str(text or "").strip()))
+
+    sections = []
+    total_items = len(items)
+    for h_i, (pos, start_idx, dt, heading_txt) in enumerate(headings):
+        next_pos = headings[h_i + 1][0] if h_i + 1 < len(headings) else total_items
+        end_idx = headings[h_i + 1][1] if h_i + 1 < len(headings) else (items[-1][0] + 1 if items else start_idx + 1)
+        content_indices = []
+        content_texts = []
+        for p_idx, p_txt, p_style in items[pos + 1 : next_pos]:
+            if _es_estilo_toc_journal(p_style):
+                continue
+            clean = str(p_txt or "").strip()
+            if clean:
+                content_indices.append(p_idx)
+                content_texts.append(clean)
+
+        if not content_texts:
+            status = "empty"
+        elif all(t.lower() == JOURNAL_NOTHING_TO_REPORT.lower() for t in content_texts):
+            status = "nothing_to_report"
+        else:
+            status = "filled"
+
+        sections.append(
+            {
+                "date": dt,
+                "date_iso": dt.isoformat(),
+                "heading": heading_txt,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "content_indices": content_indices,
+                "content_texts": content_texts,
+                "status": status,
+            }
+        )
+    return sections
+
+
+def calcular_dias_faltantes_journal(
+    fechas_existentes,
+    fecha_hasta,
+    fechas_vacias=None,
+    fill_if_empty_doc=True,
+    max_dias=550,
+):
+    hasta_dt = _normalizar_fecha_journal(fecha_hasta)
+    existentes = {_normalizar_fecha_journal(d) for d in (fechas_existentes or [])}
+    vacias = {_normalizar_fecha_journal(d) for d in (fechas_vacias or [])}
+    todas = existentes | vacias
+    if not todas:
+        return [hasta_dt] if fill_if_empty_doc else []
+
+    primera = min(todas)
+    if primera > hasta_dt:
+        return []
+
+    ventana_inicio = hasta_dt - timedelta(days=max(1, int(max_dias)) - 1)
+    cur = max(primera, ventana_inicio)
+    faltantes = []
+    while cur <= hasta_dt:
+        if cur not in existentes or cur in vacias:
+            faltantes.append(cur)
+        cur += timedelta(days=1)
+    return faltantes
 
 
 def _listar_pids_winword():
@@ -985,7 +1127,135 @@ def _iniciar_word_com_oculto():
     return com_init, word
 
 
-def agregar_texto_a_word(texto, fecha_objetivo=None):
+def _com_extraer_secciones_journal(doc):
+    parrafos_info = []
+    total = doc.Paragraphs.Count
+    for idx in range(1, total + 1):
+        p = doc.Paragraphs(idx)
+        raw_t = (p.Range.Text or "").replace("\r", "").replace("\x07", "").strip()
+        try:
+            st_name = str(p.Style.NameLocal or "")
+        except Exception:
+            st_name = ""
+        parrafos_info.append((idx, raw_t, st_name))
+    return analizar_parrafos_journal(parrafos_info)
+
+
+def _com_aplicar_estilo_normal(selection, doc):
+    selection.Style = doc.Styles(-1)
+    selection.Font.Name = "Arial"
+    selection.Font.Size = 11
+    selection.Font.Bold = False
+
+
+def _com_aplicar_estilo_heading1(selection, doc):
+    selection.Style = doc.Styles(-2)
+    selection.Font.Name = "Arial"
+    selection.Font.Size = 16
+    selection.Font.Bold = True
+    selection.Font.ColorIndex = 1
+
+
+def _com_insertar_o_actualizar_dia_word(word, doc, fecha_dt, texto):
+    texto_limpio = str(texto or "").strip()
+    if not texto_limpio:
+        return False, False
+    is_ntr = texto_limpio.lower() == JOURNAL_NOTHING_TO_REPORT.lower()
+    if is_ntr:
+        texto_limpio = JOURNAL_NOTHING_TO_REPORT
+
+    encabezado = calcular_encabezado(fecha_dt)
+    sections = _com_extraer_secciones_journal(doc)
+    matching = [sec for sec in sections if sec["date"] == fecha_dt]
+    selection = word.Selection
+
+    if matching:
+        sec = matching[-1]
+        if is_ntr and sec["status"] in ("filled", "nothing_to_report"):
+            return True, False
+
+        if not is_ntr and sec["status"] == "nothing_to_report" and sec["content_indices"]:
+            first_idx = sec["content_indices"][0]
+            for extra_idx in reversed(sec["content_indices"][1:]):
+                doc.Paragraphs(extra_idx).Range.Delete()
+            rng = doc.Paragraphs(first_idx).Range
+            if rng.End > rng.Start:
+                inner = doc.Range(rng.Start, max(rng.Start, rng.End - 1))
+                inner.Text = ""
+                inner.Select()
+            else:
+                rng.Collapse(1)
+                rng.Select()
+            _com_aplicar_estilo_normal(selection, doc)
+            selection.TypeText(texto_limpio)
+            return True, True
+
+        if sec["status"] == "empty":
+            if sec["start_idx"] < doc.Paragraphs.Count:
+                rng = doc.Paragraphs(sec["start_idx"] + 1).Range
+                rng.Collapse(1)
+                rng.Select()
+                _com_aplicar_estilo_normal(selection, doc)
+                selection.TypeText(texto_limpio)
+                selection.TypeParagraph()
+            else:
+                selection.EndKey(Unit=6)
+                selection.TypeParagraph()
+                _com_aplicar_estilo_normal(selection, doc)
+                selection.TypeText(texto_limpio)
+            return True, True
+
+        # Append inside existing filled section before the next day heading
+        last_idx = sec["content_indices"][-1] if sec["content_indices"] else sec["start_idx"]
+        if last_idx < doc.Paragraphs.Count:
+            rng = doc.Paragraphs(last_idx + 1).Range
+            rng.Collapse(1)
+            rng.Select()
+            selection.TypeParagraph()
+            _com_aplicar_estilo_normal(selection, doc)
+            selection.TypeText(texto_limpio)
+            selection.TypeParagraph()
+        else:
+            selection.EndKey(Unit=6)
+            selection.TypeParagraph()
+            selection.TypeParagraph()
+            _com_aplicar_estilo_normal(selection, doc)
+            selection.TypeText(texto_limpio)
+        return True, True
+
+    later_sec = next((sec for sec in sections if sec["date"] > fecha_dt), None)
+    if later_sec is not None:
+        later_idx = later_sec["start_idx"]
+        prev_has_text = False
+        if later_idx > 1:
+            prev_txt = (doc.Paragraphs(later_idx - 1).Range.Text or "").replace("\r", "").strip()
+            prev_has_text = bool(prev_txt)
+        rng = doc.Paragraphs(later_idx).Range
+        rng.Collapse(1)
+        rng.Select()
+        if prev_has_text:
+            selection.TypeParagraph()
+        _com_aplicar_estilo_heading1(selection, doc)
+        selection.TypeText(encabezado)
+        selection.TypeParagraph()
+        _com_aplicar_estilo_normal(selection, doc)
+        selection.TypeText(texto_limpio)
+        selection.TypeParagraph()
+        selection.TypeParagraph()
+        return True, True
+
+    selection.EndKey(Unit=6)
+    selection.TypeParagraph()
+    selection.TypeParagraph()
+    _com_aplicar_estilo_heading1(selection, doc)
+    selection.TypeText(encabezado)
+    selection.TypeParagraph()
+    _com_aplicar_estilo_normal(selection, doc)
+    selection.TypeText(texto_limpio)
+    return True, True
+
+
+def _ejecutar_en_journal_word(operacion_fn):
     ruta_journal, _ = resolver_rutas_word()
     if (not ruta_journal or not os.path.exists(ruta_journal)) and os.environ.get(
         "GITHUB_TOKEN", ""
@@ -1007,7 +1277,6 @@ def agregar_texto_a_word(texto, fecha_objetivo=None):
         doc = None
         watchdog = None
         timed_out_flag = {"triggered": False}
-        new_word_pids = set()
         try:
             pids_before = _listar_pids_winword()
             com_init, word = _iniciar_word_com_oculto()
@@ -1039,53 +1308,18 @@ def agregar_texto_a_word(texto, fecha_objetivo=None):
                 )
                 return False
 
-            selection = word.Selection
-            selection.EndKey(Unit=6)
-
-            encabezado = calcular_encabezado(fecha_objetivo)
-            texto_limpio = str(texto or "").strip()
-            texto_completo = doc.Content.Text
-
-            if encabezado in texto_completo:
-                if texto_limpio == "Nothing to report.":
-                    return True
-
-                selection.TypeParagraph()
-                selection.TypeParagraph()
-                selection.Style = doc.Styles(-1)
-
-                selection.Font.Name = "Arial"
-                selection.Font.Size = 11
-                selection.Font.Bold = False
-                selection.TypeText(texto_limpio)
-            else:
-                selection.TypeParagraph()
-                selection.TypeParagraph()
-
-                selection.Style = doc.Styles(-2)
-                selection.Font.Name = "Arial"
-                selection.Font.Size = 16
-                selection.Font.Bold = True
-                selection.Font.ColorIndex = 1
-                selection.TypeText(encabezado)
-
-                selection.TypeParagraph()
-                selection.Style = doc.Styles(-1)
-                selection.Font.Name = "Arial"
-                selection.Font.Size = 11
-                selection.Font.Bold = False
-                selection.TypeText(texto_limpio)
-
-            try:
-                if doc.TablesOfContents.Count > 0:
-                    doc.TablesOfContents(1).Update()
-            except Exception as toc_err:
-                logging.warning(
-                    f"No se pudo actualizar TOC en Journal Word (se guarda el texto igualmente): {toc_err}"
-                )
-
-            doc.Save()
-            logging.info(f"Registro exitoso bajo el dia: {encabezado}")
+            ok, modified = operacion_fn(word, doc)
+            if not ok:
+                return False
+            if modified:
+                try:
+                    if doc.TablesOfContents.Count > 0:
+                        doc.TablesOfContents(1).Update()
+                except Exception as toc_err:
+                    logging.warning(
+                        f"No se pudo actualizar TOC en Journal Word (se guarda el texto igualmente): {toc_err}"
+                    )
+                doc.Save()
             return True
 
         except Exception as e:
@@ -1120,6 +1354,75 @@ def agregar_texto_a_word(texto, fecha_objetivo=None):
                     pythoncom.CoUninitialize()
                 except Exception:
                     pass
+
+
+def agregar_texto_a_word(texto, fecha_objetivo=None):
+    target_dt = _normalizar_fecha_journal(fecha_objetivo)
+    encabezado = calcular_encabezado(target_dt)
+
+    def _op(word, doc):
+        sections = _com_extraer_secciones_journal(doc)
+        existentes = [s["date"] for s in sections if s["status"] in ("filled", "nothing_to_report")]
+        vacias = [s["date"] for s in sections if s["status"] == "empty"]
+        faltantes_previos = calcular_dias_faltantes_journal(
+            existentes,
+            target_dt - timedelta(days=1),
+            fechas_vacias=vacias,
+            fill_if_empty_doc=False,
+        )
+        any_modified = False
+        for d_miss in faltantes_previos:
+            ok_bf, mod_bf = _com_insertar_o_actualizar_dia_word(
+                word, doc, d_miss, JOURNAL_NOTHING_TO_REPORT
+            )
+            if not ok_bf:
+                return False, False
+            any_modified = any_modified or mod_bf
+
+        ok_main, mod_main = _com_insertar_o_actualizar_dia_word(word, doc, target_dt, texto)
+        if not ok_main:
+            return False, False
+        any_modified = any_modified or mod_main
+        if mod_main:
+            logging.info(f"Registro exitoso bajo el dia: {encabezado}")
+        return True, any_modified
+
+    return _ejecutar_en_journal_word(_op)
+
+
+def verificar_y_llenar_dias_faltantes_word(fecha_hasta=None):
+    hasta_dt = _normalizar_fecha_journal(
+        fecha_hasta if fecha_hasta is not None else (datetime.now().date() - timedelta(days=1))
+    )
+
+    def _op(word, doc):
+        sections = _com_extraer_secciones_journal(doc)
+        existentes = [s["date"] for s in sections if s["status"] in ("filled", "nothing_to_report")]
+        vacias = [s["date"] for s in sections if s["status"] == "empty"]
+        faltantes = calcular_dias_faltantes_journal(
+            existentes,
+            hasta_dt,
+            fechas_vacias=vacias,
+            fill_if_empty_doc=True,
+        )
+        if not faltantes:
+            return True, False
+
+        any_modified = False
+        for d_miss in faltantes:
+            ok_bf, mod_bf = _com_insertar_o_actualizar_dia_word(
+                word, doc, d_miss, JOURNAL_NOTHING_TO_REPORT
+            )
+            if not ok_bf:
+                return False, False
+            any_modified = any_modified or mod_bf
+        if any_modified:
+            logging.info(
+                f"Verificación diaria Word completada: {len(faltantes)} día(s) rellenados con '{JOURNAL_NOTHING_TO_REPORT}'."
+            )
+        return True, any_modified
+
+    return _ejecutar_en_journal_word(_op)
 
 
 SECCIONES_INGLES = {
@@ -6227,16 +6530,18 @@ if __name__ == "__main__":
     word_watch_thread.start()
 
     journal_backoff_sec = 3
+    ultimo_intento_verif_ts = 0.0
 
     # Bucle resiliente para Journal Word COM con long-poll instantáneo desde EC2
     while True:
         try:
             ahora = datetime.now()
 
-            # 1. VERIFICACIÓN DE MADRUGADA (Journal diario)
-            if ahora.hour == 0 and ultimo_dia_verificado != ahora.date():
-                ayer = ahora - timedelta(days=1)
-                exito = agregar_texto_a_word("Nothing to report.", fecha_objetivo=ayer)
+            # 1. VERIFICACIÓN DIARIA CONTINUA (al iniciar y cada cambio de día)
+            if ultimo_dia_verificado != ahora.date() and (time.time() - ultimo_intento_verif_ts) >= 120:
+                ultimo_intento_verif_ts = time.time()
+                ayer = ahora.date() - timedelta(days=1)
+                exito = verificar_y_llenar_dias_faltantes_word(fecha_hasta=ayer)
                 if exito:
                     ultimo_dia_verificado = ahora.date()
 
