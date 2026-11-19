@@ -1,8 +1,14 @@
-﻿'use strict';
+'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { isAllowedInnerTubeUrl, extractSongLyrics } = require('../lib/ytdlp-service');
-const { parseLyricsFromBrowse } = require('../lib/ytmusic-lyrics');
+const {
+    parseLyricsFromBrowse,
+    extractTrackInfo,
+    findSongCandidatesInSearch,
+    fetchYouTubeMusicTrackMetadata,
+    searchYouTubeMusicVideos
+} = require('../lib/ytmusic-lyrics');
 
 const LYRICS = 'Hello world\n안녕하세요\n\nこんにちは';
 const nextWithTab = { tabs: [{ tabRenderer: { endpoint: { browseEndpoint: { browseId: 'MPLYt_abc' } } } }] };
@@ -50,5 +56,121 @@ test('ytmusic InnerTube', async (t) => {
             assert.equal(res.ok, false);
             assert.equal(res.reason, 'ytdlp_missing');
         }
+    });
+
+    await t.test('extractTrackInfo parses collaborators, album, year and ignores views; search ranks studio candidates over instrumental/karaoke', async () => {
+        const nextPayload = {
+            contents: {
+                playlistPanelVideoRenderer: {
+                    videoId: 'vid12345678',
+                    title: { runs: [{ text: 'APT.' }] },
+                    longBylineText: {
+                        runs: [
+                            { text: 'ROSÉ' },
+                            { text: ' & ' },
+                            { text: 'Bruno Mars' },
+                            { text: ' • ' },
+                            { text: 'rosie' },
+                            { text: ' • ' },
+                            { text: '2024' }
+                        ]
+                    }
+                }
+            }
+        };
+        const info = extractTrackInfo(nextPayload, 'vid12345678');
+        assert.equal(info.title, 'APT.');
+        assert.equal(info.artist, 'ROSÉ');
+        assert.deepEqual(info.collaborators, ['Bruno Mars']);
+        assert.equal(info.album, 'rosie');
+        assert.equal(info.year, 2024);
+
+        const nextWithViews = {
+            contents: {
+                playlistPanelVideoRenderer: {
+                    videoId: 'vid87654321',
+                    title: { runs: [{ text: 'Supernova' }] },
+                    longBylineText: {
+                        runs: [
+                            { text: 'aespa' },
+                            { text: ' • ' },
+                            { text: '12M views' },
+                            { text: ' • ' },
+                            { text: '2:59' }
+                        ]
+                    }
+                }
+            }
+        };
+        const infoViews = extractTrackInfo(nextWithViews, 'vid87654321');
+        assert.equal(infoViews.artist, 'aespa');
+        assert.equal(infoViews.album, '');
+        assert.equal(infoViews.year, null);
+
+        const searchJson = {
+            items: [
+                {
+                    musicResponsiveListItemRenderer: {
+                        playlistItemData: { videoId: 'karaoke0001' },
+                        flexColumns: [
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'DRIP (Instrumental Karaoke)' }] } } },
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'Karaoke Star' }] } } }
+                        ]
+                    }
+                },
+                {
+                    musicResponsiveListItemRenderer: {
+                        playlistItemData: { videoId: 'remix000002' },
+                        flexColumns: [
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'DRIP (Sped Up Remix)' }] } } },
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'Nightcore DJ' }] } } }
+                        ]
+                    }
+                },
+                {
+                    musicResponsiveListItemRenderer: {
+                        playlistItemData: { videoId: 'official003' },
+                        flexColumns: [
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'DRIP' }] } } },
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'BABYMONSTER • DRIP • 2024' }] } } }
+                        ]
+                    }
+                }
+            ]
+        };
+        const ranked = findSongCandidatesInSearch(searchJson, 'orig0000000', { title: 'DRIP', artist: 'BABYMONSTER' });
+        assert.deepEqual(ranked, ['official003']);
+
+        const metaRes = await fetchYouTubeMusicTrackMetadata({
+            videoId: 'vid12345678',
+            isAllowedUrl: isAllowedInnerTubeUrl,
+            fetchImpl: mkFetch({ next: nextPayload })
+        });
+        assert.equal(metaRes.ok, true);
+        assert.equal(metaRes.year, 2024);
+        assert.deepEqual(metaRes.collaborators, ['Bruno Mars']);
+
+        const altVidSearch = {
+            items: [
+                {
+                    musicResponsiveListItemRenderer: {
+                        playlistItemData: { videoId: 'mvOfficial1' },
+                        flexColumns: [
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: "DRIP (Official Lyric Video)" }] } } },
+                            { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'BABYMONSTER' }] } } }
+                        ]
+                    }
+                }
+            ]
+        };
+        const vidSearchRes = await searchYouTubeMusicVideos({
+            title: 'DRIP',
+            artist: 'BABYMONSTER',
+            excludeVideoId: 'artTrack001',
+            isAllowedUrl: isAllowedInnerTubeUrl,
+            fetchImpl: mkFetch({ search: altVidSearch })
+        });
+        assert.equal(vidSearchRes.ok, true);
+        assert.deepEqual(vidSearchRes.videoIds, ['mvOfficial1']);
     });
 });

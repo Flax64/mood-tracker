@@ -703,7 +703,7 @@ const STUDY_DRAFTS_CONFIG = {
         'engNoteBody',
         'engNoteExample'
     ],
-    music: ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'],
+    music: ['musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'],
     ai: ['langAiQuestion']
 };
 const STUDY_DRAFTS_STORAGE_PREFIX = 'mt_study_draft_v1:';
@@ -1123,7 +1123,7 @@ async function autoQueueAiLearningToWord({ entry, hintEl, songToMarkSynced = nul
                 ? tUi('✅ Learning notes encrypted E2EE and sent to your PC Word automatically.', '✅ Aprendizaje cifrado E2EE y enviado a tu Word PC automáticamente.')
                 : serverAuto
                     ? tUi('☁️ Learning notes saved directly to English Notebook on Google Drive.', '☁️ Aprendizaje guardado directamente en tu cuaderno Word en Google Drive.')
-                    : tUi('☁️ PC offline: learning notes saved E2EE encrypted in server RAM (queued for Word when PC connects).', '☁️ PC apagada: aprendizaje guardado cifrado E2EE en la nube (se escribirá en Word al conectar tu PC).');
+                    : tUi('☁️ Learning notes saved E2EE encrypted on the server.', '☁️ Aprendizaje guardado cifrado E2EE en el servidor.');
         }
         return true;
     } catch (err) {
@@ -4110,24 +4110,13 @@ function initLanguageAiStudio() {
         });
     }
 
-    const btnMusicAi = document.getElementById('btnMusicAiExplainLyrics');
+    const btnMusicAi = document.getElementById('btnMusicCopyLyricsToStudy');
     const musicAiBox = document.getElementById('musicAiBreakdownPanel');
     const musicApplyRow = document.getElementById('musicAiApplyRow');
     const btnMusicInsert = document.getElementById('btnMusicAiInsertToNotes');
-    const studyLyricsFieldEl = document.getElementById('musicStudyLyrics');
-    if (studyLyricsFieldEl && studyLyricsFieldEl.dataset.manualEditWired !== 'true') {
-        studyLyricsFieldEl.dataset.manualEditWired = 'true';
-        studyLyricsFieldEl.addEventListener('input', ev => {
-            if (ev.isTrusted) {
-                studyLyricsFieldEl.dataset.syncedFromViewer = 'false';
-                studyLyricsFieldEl.dataset.filteredLang = '';
-            }
-        });
-    }
 
     const triggerMusicLyricsAi = () => {
         if (!btnMusicAi) return;
-        const studyLyricsEl = document.getElementById('musicStudyLyrics');
         const viewerLyricsEl = document.getElementById('musicSongLyricsViewer');
         const trackLangFilterEl = document.getElementById('musicLyricsTrackLangFilter');
         const activeFilter = String(
@@ -4135,41 +4124,30 @@ function initLanguageAiStudio() {
         ).trim().toLowerCase() || 'all';
         const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
         const structuredTracks = selected ? (musicState.sessionLyricsBySongId[selected.id]?.tracks || null) : null;
-        const viewerRaw = (viewerLyricsEl?.value || '').trim();
-
-        const shouldFilterFromViewer = Boolean(
-            studyLyricsEl
-            && viewerRaw
-            && (
-                !studyLyricsEl.value.trim()
-                || studyLyricsEl.dataset.syncedFromViewer === 'true'
-                || (activeFilter !== 'all' && studyLyricsEl.value.trim() === viewerRaw)
-                || (['ko', 'en', 'ja', 'es'].includes(activeFilter) && studyLyricsEl.dataset.filteredLang !== activeFilter && studyLyricsEl.dataset.syncedFromViewer !== 'false')
-            )
+        const viewerRaw = (
+            (viewerLyricsEl?.value || '').trim() ||
+            (selected ? String(musicState.sessionLyricsBySongId[selected.id]?.lyrics || '').trim() : '')
         );
 
-        let extractedInfo = null;
-        if (shouldFilterFromViewer && typeof extractLyricsForActiveLanguage === 'function') {
-            extractedInfo = extractLyricsForActiveLanguage(viewerRaw, activeFilter, structuredTracks);
-            if (!extractedInfo.text) {
-                showToast('info', tUi(
-                    'No lines available in the selected language for stanza analysis.',
-                    `No hay versos disponibles en el idioma "${activeFilter.toUpperCase()}" para analizar.`
-                ));
-                return;
-            }
-            studyLyricsEl.value = extractedInfo.text.slice(0, 12000);
-            studyLyricsEl.dataset.syncedFromViewer = 'true';
-            studyLyricsEl.dataset.filteredLang = extractedInfo.langCode || activeFilter;
-            studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        const lyrics = (studyLyricsEl?.value || '').trim();
-        if (!lyrics) {
+        if (!viewerRaw) {
             showToast('err', tUi('Extract or load the song lyrics first above.', 'Extrae o carga primero la letra de la canción arriba.'));
-            (viewerLyricsEl && !viewerLyricsEl.closest('[hidden]') ? viewerLyricsEl : studyLyricsEl)?.focus();
+            document.getElementById('btnMusicExtractLyrics')?.focus();
             return;
         }
+
+        const extractedInfo = typeof extractLyricsForActiveLanguage === 'function'
+            ? extractLyricsForActiveLanguage(viewerRaw, activeFilter, structuredTracks)
+            : { text: viewerRaw, langCode: activeFilter, apiLanguage: null };
+
+        if (!extractedInfo || !extractedInfo.text || !extractedInfo.text.trim()) {
+            showToast('info', tUi(
+                'No lines available in the selected language for stanza analysis.',
+                `No hay versos disponibles en el idioma "${activeFilter.toUpperCase()}" para analizar.`
+            ));
+            return;
+        }
+
+        const lyrics = extractedInfo.text.slice(0, 12000).trim();
 
         const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
         const artistName = selected
@@ -4203,6 +4181,9 @@ function initLanguageAiStudio() {
                 loadingByLang[activeFilter] || 'Desglosando letra, vocabulario y romanización...',
                 'sm'
             ));
+            if (typeof musicAiBox.scrollIntoView === 'function') {
+                musicAiBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         }
 
         runWithButtonLock(btnMusicAi, async () => {
@@ -5365,7 +5346,8 @@ const musicState = {
     openAlbumFolders: new Set(),
     sessionLyricsBySongId: {},
     sessionStudyFieldsBySongId: {},
-    activeLyricsLangFilter: 'all'
+    activeLyricsLangFilter: 'all',
+    lastAutoFillVideoId: null
 };
 
 function cleanCaptionTextToLyricsClient(rawText) {
@@ -5560,25 +5542,6 @@ function getDefaultEmbedModeForSong() {
     return 'iframe';
 }
 
-function actualizarBadgePuentePc() {
-    const pcBadge = document.getElementById('musicPcBridgeBadge');
-    if (!pcBadge) return;
-    const stat = musicState.ytdlpStatus;
-    if (stat && stat.pcOnline) {
-        pcBadge.textContent = tUi('🟢 PC online · Ready', '🟢 Computadora en línea · Lista');
-        pcBadge.className = 'badge-pill badge-pill-ok';
-    } else if (stat && stat.serverAutonomous && stat.available) {
-        pcBadge.textContent = tUi('🟢 Ubuntu Server · Autonomous', '🟢 Servidor autónomo · Listo');
-        pcBadge.className = 'badge-pill badge-pill-ok';
-    } else if (stat) {
-        pcBadge.textContent = tUi('⚪ PC offline', '⚪ Computadora apagada');
-        pcBadge.className = 'badge-pill badge-pill-subtle';
-    } else {
-        pcBadge.textContent = tUi('⚪ Checking PC...', '⚪ Verificando computadora...');
-        pcBadge.className = 'badge-pill badge-pill-subtle';
-    }
-}
-
 function renderMusicLyricsAlbumPlaylist(song) {
     const box = document.getElementById('musicLyricsAlbumPlaylistBox');
     if (!box) return;
@@ -5770,11 +5733,27 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                 }
             }
 
-            const tierMsg = tierNum === 1
-                ? tUi('✅ Lyrics loaded from Drive Word notebook (Tier 1 • 0 AI tokens).', '✅ Letra cargada desde tu Word en Drive (Tier 1 • 0 tokens IA).')
-                : (tierNum === 2
-                    ? tUi('✅ Lyrics extracted via YouTube Music in the cloud (Tier 2 • 0 AI tokens).', '✅ Letra extraída desde YouTube Music en la nube (Tier 2 • 0 tokens IA).')
-                    : tUi('✅ Lyrics extracted on cloud server via yt-dlp (Tier 3 • 0 AI tokens).', '✅ Letra extraída en el servidor vía yt-dlp (Tier 3 • 0 tokens IA).'));
+            const srcLower = String(cloudData.source || '').toLowerCase();
+            let tierMsg;
+            if (tierNum === 1) {
+                tierMsg = tUi('✅ Lyrics loaded from Drive Word notebook (Tier 1 • 0 AI tokens).', '✅ Letra cargada desde tu Word en Drive (Tier 1 • 0 tokens IA).');
+            } else if (tierNum === 2 || srcLower.includes('innertube') || srcLower.includes('ytmusic')) {
+                tierMsg = tUi('✅ Lyrics extracted via YouTube Music in the cloud (Tier 2 • 0 AI tokens).', '✅ Letra extraída desde YouTube Music en la nube (Tier 2 • 0 tokens IA).');
+            } else if (srcLower.includes('lrclib')) {
+                tierMsg = tUi('✅ Studio lyrics retrieved via LRCLIB (Tier 3 • 0 AI tokens).', '✅ Letra de estudio obtenida vía LRCLIB (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('lyrics-ovh')) {
+                tierMsg = tUi('✅ Lyrics retrieved via Lyrics.ovh (Tier 3 • 0 AI tokens).', '✅ Letra obtenida vía Lyrics.ovh (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('alt-description') || srcLower.includes('youtube:description')) {
+                tierMsg = tUi('✅ Lyrics extracted from YouTube video description (Tier 3 • 0 AI tokens).', '✅ Letra extraída de la descripción de YouTube (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('alt-captions')) {
+                tierMsg = tUi('✅ Lyrics extracted from alternative official YouTube video captions (Tier 3 • 0 AI tokens).', '✅ Letra extraída desde video oficial/lírico alternativo en YouTube (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('watch-captions')) {
+                tierMsg = tUi('✅ Official subtitles extracted from YouTube page (Tier 3 • 0 AI tokens).', '✅ Subtítulos oficiales extraídos desde YouTube (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('asr') && !srcLower.includes('+')) {
+                tierMsg = tUi('⚠️ Auto-generated YouTube captions loaded as fallback (Tier 3 • 0 AI tokens).', '⚠️ Subtítulos auto-generados de YouTube cargados como respaldo (Tier 3 • 0 tokens IA).');
+            } else {
+                tierMsg = tUi('✅ Lyrics extracted on cloud server via yt-dlp (Tier 3 • 0 AI tokens).', '✅ Letra extraída en el servidor vía yt-dlp (Tier 3 • 0 tokens IA).');
+            }
             if (hintEl) hintEl.textContent = tierMsg;
             if (!silent) showToast('ok', tierMsg);
             return true;
@@ -5794,12 +5773,10 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
         if (timer) clearTimeout(timer);
         if (liveStatusRes.ok) {
             musicState.ytdlpStatus = await liveStatusRes.json();
-            actualizarBadgePuentePc();
         }
     } catch (_) {
         if (musicState.ytdlpStatus) {
             musicState.ytdlpStatus.pcOnline = false;
-            actualizarBadgePuentePc();
         }
     }
 
@@ -5886,7 +5863,6 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
             if (jobResult) {
                 if (musicState.ytdlpStatus) musicState.ytdlpStatus.pcOnline = true;
-                actualizarBadgePuentePc();
                 if (jobResult.ok && jobResult.lyrics) {
                     applyResolvedLyricsPayload(song, jobResult, 'word-pc');
                     if (jobResult.wordSaved || jobResult.source === 'word-pc') markWordSyncedLocal();
@@ -6675,18 +6651,6 @@ function extractLyricsForActiveLanguage(rawLyrics = '', filterLang = 'all', stru
     };
 }
 
-function syncStudyLyricsFieldWithActiveLang(rawLyrics, filterLang) {
-    const studyLyricsEl = document.getElementById('musicStudyLyrics');
-    if (!studyLyricsEl || studyLyricsEl.dataset.syncedFromViewer !== 'true') return;
-    const selSong = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
-    const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
-    const extracted = extractLyricsForActiveLanguage(rawLyrics, filterLang, structuredTracks);
-    if (extracted.text) {
-        studyLyricsEl.value = extracted.text.slice(0, 12000);
-        studyLyricsEl.dataset.filteredLang = extracted.langCode || filterLang;
-    }
-}
-
 function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
     const host = document.getElementById('musicLyricsReadonlyBlocks');
     if (!host) return;
@@ -6705,7 +6669,6 @@ function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
             }
             const floatingSelBtn = document.getElementById('btnMusicTranslateLyricsSel');
             if (floatingSelBtn) floatingSelBtn.hidden = true;
-            syncStudyLyricsFieldWithActiveLang(rawLyrics, nextLang);
             renderReadonlyLyricsByLanguage(rawLyrics, nextLang);
         }
     });
@@ -6761,7 +6724,6 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         }
     }
 
-    actualizarBadgePuentePc();
     renderMusicLyricsAlbumPlaylist(song);
 
     const hasVideoId = Boolean(song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id)) || Boolean(song.yt_music_url);
@@ -7075,12 +7037,6 @@ function seleccionarCancionParaEstudio(song) {
         setFieldVal('musicStudyVocab', nextSaved?.vocab || '');
         setFieldVal('musicStudyPronunciation', nextSaved?.pronunciation || '');
         setFieldVal('musicStudyExtraNotes', nextSaved?.notes || '');
-        const lyricsInputEl = document.getElementById('musicStudyLyrics');
-        if (lyricsInputEl && !musicState.sessionLyricsBySongId[nextSongId]?.lyrics) {
-            lyricsInputEl.value = '';
-            lyricsInputEl.dataset.syncedFromViewer = 'true';
-            lyricsInputEl.dataset.filteredLang = '';
-        }
         const breakdownEl = document.getElementById('musicAiBreakdownPanel');
         if (breakdownEl) {
             breakdownEl.innerHTML = '';
@@ -7144,9 +7100,22 @@ function prepararAgregarCancionAAlbum({ mainArtist = '', artistType = '', albumT
     }
 }
 
+function clearMusicSongFormAutoFillFlags() {
+    const form = document.getElementById('musicSongForm');
+    if (!form) return;
+    form.querySelectorAll('input, select').forEach((el) => {
+        if (el.dataset) {
+            el.dataset.autofilled = '';
+            el.dataset.userEdited = '';
+        }
+    });
+}
+
 function cargarCancionEnFormularioEdicion(song) {
     if (!song) return;
     musicState.editingSongId = song.id;
+    musicState.lastAutoFillVideoId = null;
+    clearMusicSongFormAutoFillFlags();
     const setVal = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.value = val ?? '';
@@ -7191,10 +7160,12 @@ function cargarCancionEnFormularioEdicion(song) {
 
 function cancelarEdicionCancionMusica() {
     musicState.editingSongId = null;
+    musicState.lastAutoFillVideoId = null;
     const form = document.getElementById('musicSongForm');
     if (form) {
         form.reset();
         form.closest('.music-panel-card')?.classList.remove('is-editing-song');
+        clearMusicSongFormAutoFillFlags();
     }
     const langInput = document.getElementById('musicSongLanguage');
     if (langInput) langInput.value = 'English + Korean (K-Pop)';
@@ -8022,6 +7993,12 @@ function renderMusicCatalog() {
                     langBadge.textContent = song.idioma;
                     badgeRow.appendChild(langBadge);
                 }
+                if (!album.albumId && song.album_anio) {
+                    const yearBadge = document.createElement('span');
+                    yearBadge.className = 'music-word-badge';
+                    yearBadge.textContent = String(song.album_anio);
+                    badgeRow.appendChild(yearBadge);
+                }
                 if (song.word_sincronizado) {
                     const wordBadge = document.createElement('span');
                     wordBadge.className = 'music-word-badge';
@@ -8242,6 +8219,18 @@ if (englishMusicStudioRoot) {
         });
     }
 
+    if (songForm) {
+        const markUserTouched = (ev) => {
+            const target = ev?.target;
+            if (target && target.id && target.id !== 'musicSongYtUrl' && target.dataset) {
+                target.dataset.autofilled = '';
+                target.dataset.userEdited = '1';
+            }
+        };
+        songForm.addEventListener('input', markUserTouched);
+        songForm.addEventListener('change', markUserTouched);
+    }
+
     if (btnResolveYt) {
         btnResolveYt.addEventListener('click', () => {
             const urlInput = document.getElementById('musicSongYtUrl');
@@ -8269,48 +8258,106 @@ if (englishMusicStudioRoot) {
                         musicState.embeddableByVideoId[data.videoId] = data.embeddable;
                     }
 
+                    const isNewAutoFillTarget = Boolean(
+                        !musicState.editingSongId &&
+                        data.videoId &&
+                        musicState.lastAutoFillVideoId &&
+                        musicState.lastAutoFillVideoId !== data.videoId
+                    );
+                    if (data.videoId) {
+                        musicState.lastAutoFillVideoId = data.videoId;
+                    }
+
                     const titleEl = document.getElementById('musicSongTitle');
                     const artistEl = document.getElementById('musicMainArtist');
+                    const artistTypeEl = document.getElementById('musicMainArtistType');
                     const collabsEl = document.getElementById('musicCollaborators');
+                    const trackNumEl = document.getElementById('musicSongTrackNumber');
+                    const langEl = document.getElementById('musicSongLanguage');
                     const albumEl = document.getElementById('musicAlbumTitle');
                     const albumTypeEl = document.getElementById('musicAlbumType');
                     const albumYearEl = document.getElementById('musicAlbumYear');
 
+                    const applyAutoFillField = (el, val, extraCanOverwrite = false) => {
+                        if (!el) return false;
+                        const strVal = val === null || val === undefined ? '' : String(val).trim();
+                        if (!strVal) return false;
+                        const isEmpty = !String(el.value || '').trim();
+                        const wasAutofilled = Boolean(el.dataset && el.dataset.autofilled === '1');
+                        const userManuallyEdited = Boolean(el.dataset && el.dataset.userEdited === '1');
+                        if (isEmpty || (!userManuallyEdited && (extraCanOverwrite || (isNewAutoFillTarget && wasAutofilled)))) {
+                            el.value = strVal;
+                            if (el.dataset) {
+                                el.dataset.autofilled = '1';
+                                el.dataset.userEdited = '';
+                            }
+                            return true;
+                        }
+                        return false;
+                    };
+
                     const currentTitle = (titleEl?.value || '').trim();
-                    const looksRawYtTitle = !currentTitle || /[\[(]?(?:M\/V|Official\s+(?:Music\s+)?Video|Official\s+Audio|Lyric\s+Video)[\])]?|\s-\s*['"]/i.test(currentTitle);
-                    if (titleEl && looksRawYtTitle && data.suggestedTitle) {
-                        titleEl.value = data.suggestedTitle;
-                    }
+                    const looksRawYtTitle = !currentTitle || /[\[(]?(?:M\/V|MV|Official\s+(?:Music\s+)?Video|Official\s+Audio|Lyric\s+Video|Lyrics?)[\])]?|\s-\s*['"]/i.test(currentTitle);
+                    applyAutoFillField(titleEl, data.suggestedTitle, looksRawYtTitle);
 
                     const currentArtist = (artistEl?.value || '').trim();
-                    if (artistEl && (!currentArtist || /\s*-\s*Topic$/i.test(currentArtist)) && data.suggestedArtist) {
-                        artistEl.value = data.suggestedArtist;
+                    const looksTopicOrGeneric = !currentArtist || /\s*-\s*Topic$/i.test(currentArtist);
+                    applyAutoFillField(artistEl, data.suggestedArtist, looksTopicOrGeneric);
+
+                    if (artistTypeEl && data.suggestedArtistType) {
+                        const validArtistOpt = Array.from(artistTypeEl.options || []).some(o => o.value === data.suggestedArtistType);
+                        if (validArtistOpt && !musicState.editingSongId && artistTypeEl.dataset?.userEdited !== '1') {
+                            artistTypeEl.value = data.suggestedArtistType;
+                            if (artistTypeEl.dataset) artistTypeEl.dataset.autofilled = '1';
+                        }
                     }
 
-                    if (collabsEl && !collabsEl.value.trim() && data.suggestedCollaborators) {
-                        collabsEl.value = data.suggestedCollaborators;
+                    if (collabsEl) {
+                        if (data.suggestedCollaborators) {
+                            applyAutoFillField(collabsEl, data.suggestedCollaborators);
+                        } else if (isNewAutoFillTarget && collabsEl.dataset?.autofilled === '1') {
+                            collabsEl.value = '';
+                            collabsEl.dataset.autofilled = '';
+                        }
                     }
 
+                    if (trackNumEl && Number.isInteger(Number(data.suggestedTrackNumber)) && Number(data.suggestedTrackNumber) >= 1) {
+                        applyAutoFillField(trackNumEl, String(data.suggestedTrackNumber));
+                    }
+
+                    if (langEl && data.suggestedLanguage) {
+                        const hasLangOption = Array.from(langEl.options || []).some(o => o.value === data.suggestedLanguage);
+                        const canSetLang = !musicState.editingSongId && langEl.dataset?.userEdited !== '1';
+                        if (hasLangOption && canSetLang) {
+                            langEl.value = data.suggestedLanguage;
+                            if (langEl.dataset) langEl.dataset.autofilled = '1';
+                        }
+                    }
+
+                    // Album is completely optional: skip auto-filling when it is just a redundant single title copy
+                    const shouldFillAlbumTitle = Boolean(data.suggestedAlbumTitle && !data.suggestedAlbumIsSingleDuplicate);
                     let albumWasAutoFilled = false;
-                    if (albumEl && !albumEl.value.trim() && data.suggestedAlbumTitle) {
-                        albumEl.value = data.suggestedAlbumTitle;
-                        albumWasAutoFilled = true;
+                    if (shouldFillAlbumTitle) {
+                        albumWasAutoFilled = applyAutoFillField(albumEl, data.suggestedAlbumTitle);
+                    } else if (albumEl && isNewAutoFillTarget && albumEl.dataset?.autofilled === '1') {
+                        albumEl.value = '';
+                        albumEl.dataset.autofilled = '';
                     }
 
-                    if (albumTypeEl && data.suggestedAlbumType && (albumWasAutoFilled || albumTypeEl.value === 'album')) {
+                    if (albumTypeEl && data.suggestedAlbumType && (albumWasAutoFilled || albumTypeEl.dataset?.userEdited !== '1')) {
                         albumTypeEl.value = data.suggestedAlbumType;
+                        if (albumTypeEl.dataset) albumTypeEl.dataset.autofilled = '1';
                     }
 
-                    if (albumYearEl && !albumYearEl.value.trim() && data.suggestedAlbumYear) {
-                        albumYearEl.value = String(data.suggestedAlbumYear);
-                    }
+                    // Year is ALWAYS independent of whether album was filled
+                    applyAutoFillField(albumYearEl, data.suggestedAlbumYear);
 
                     const summaryParts = [];
                     if (data.suggestedTitle) summaryParts.push(`Track: "${data.suggestedTitle}"`);
                     if (data.suggestedArtist) summaryParts.push(`Artist: ${data.suggestedArtist}`);
-                    if (data.suggestedAlbumTitle) {
-                        summaryParts.push(`Album: ${data.suggestedAlbumTitle}${data.suggestedAlbumYear ? ` (${data.suggestedAlbumYear})` : ''}`);
-                    }
+                    if (data.suggestedAlbumYear) summaryParts.push(`Year: ${data.suggestedAlbumYear}`);
+                    if (data.suggestedLanguage) summaryParts.push(`Lang: ${data.suggestedLanguage}`);
+                    if (shouldFillAlbumTitle) summaryParts.push(`Album: ${data.suggestedAlbumTitle}`);
                     const embedWarning = data.embeddable === false
                         ? ' · ⚠️ Owner blocks iframe embed (use Ventana flotante in Study Player).'
                         : '';
@@ -8341,7 +8388,6 @@ if (englishMusicStudioRoot) {
 
     const btnMusicExtractLyrics = document.getElementById('btnMusicExtractLyrics');
     const btnMusicSaveLyrics = document.getElementById('btnMusicSaveLyrics');
-    const btnMusicCopyLyricsToStudy = document.getElementById('btnMusicCopyLyricsToStudy');
     const btnMusicTranslateLyricsSel = document.getElementById('btnMusicTranslateLyricsSel');
     const btnMusicTranslateFullLyricsEs = document.getElementById('btnMusicTranslateFullLyricsEs');
     const songLyricsViewerEl = document.getElementById('musicSongLyricsViewer');
@@ -8439,53 +8485,7 @@ if (englishMusicStudioRoot) {
         trackLangFilterEl.addEventListener('change', () => {
             musicState.activeLyricsLangFilter = trackLangFilterEl.value || 'all';
             if (btnMusicTranslateLyricsSel) btnMusicTranslateLyricsSel.hidden = true;
-            if (typeof syncStudyLyricsFieldWithActiveLang === 'function') {
-                syncStudyLyricsFieldWithActiveLang(songLyricsViewerEl.value, trackLangFilterEl.value);
-            }
             renderReadonlyLyricsByLanguage(songLyricsViewerEl.value, trackLangFilterEl.value);
-        });
-    }
-
-    if (btnMusicCopyLyricsToStudy) {
-        btnMusicCopyLyricsToStudy.addEventListener('click', () => {
-            const raw = (songLyricsViewerEl?.value || '').trim();
-            if (!raw) {
-                showToast('err', tUi('Extract or load the song lyrics first.', 'Primero extrae o carga la letra arriba.'));
-                songLyricsViewerEl?.focus();
-                return;
-            }
-            const activeLang = String(
-                trackLangFilterEl?.value || musicState.activeLyricsLangFilter || 'all'
-            ).trim().toLowerCase() || 'all';
-            const selSong = getCancionSeleccionada();
-            const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
-            const extracted = typeof extractLyricsForActiveLanguage === 'function'
-                ? extractLyricsForActiveLanguage(raw, activeLang, structuredTracks)
-                : { text: raw, langCode: activeLang };
-
-            if (!extracted.text) {
-                showToast('info', tUi(
-                    'No lines available in the selected language for stanza analysis.',
-                    `No hay versos disponibles en el idioma seleccionado (${activeLang.toUpperCase()}) para analizar.`
-                ));
-                return;
-            }
-
-            const studyLyricsEl = document.getElementById('musicStudyLyrics');
-            if (studyLyricsEl) {
-                studyLyricsEl.value = extracted.text.slice(0, 12000);
-                studyLyricsEl.dataset.syncedFromViewer = 'true';
-                studyLyricsEl.dataset.filteredLang = extracted.langCode || activeLang;
-                studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                studyLyricsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-            const btnAiExplain = document.getElementById('btnMusicAiExplainLyrics');
-            if (btnAiExplain) {
-                btnAiExplain.click();
-            } else if (studyLyricsEl) {
-                studyLyricsEl.focus();
-                showToast('ok', tUi('Filtered lyrics ready for stanza analysis.', 'Letra filtrada lista para analizar por estrofas.'));
-            }
         });
     }
 
@@ -8508,7 +8508,6 @@ if (englishMusicStudioRoot) {
                 }
 
                 const hintEl = document.getElementById('musicLyricsStatusHint');
-                const studyLyricsEl = document.getElementById('musicStudyLyrics');
                 const existingEs = extractExistingSpanishLyricsSection(rawLyrics);
                 const cachedTracks = musicState.sessionLyricsBySongId[song.id]?.tracks || null;
                 const forceAiRefresh = Boolean(ev.shiftKey);
@@ -8586,15 +8585,6 @@ if (englishMusicStudioRoot) {
                 const currentFilter = (langFilterEl ? langFilterEl.value : musicState.activeLyricsLangFilter) || 'all';
                 renderReadonlyLyricsByLanguage(updatedLyrics, currentFilter);
 
-                if (studyLyricsEl) {
-                    const extractedForStudy = typeof extractLyricsForActiveLanguage === 'function'
-                        ? extractLyricsForActiveLanguage(updatedLyrics, currentFilter, musicState.sessionLyricsBySongId[song.id]?.tracks)
-                        : { text: updatedLyrics, langCode: currentFilter };
-                    studyLyricsEl.value = (extractedForStudy.text || updatedLyrics).slice(0, 12000);
-                    studyLyricsEl.dataset.syncedFromViewer = 'true';
-                    studyLyricsEl.dataset.filteredLang = extractedForStudy.langCode || currentFilter;
-                }
-
                 const saved = alreadyInWordNotebook
                     ? true
                     : await guardarLetraYNotasEnWordPc(song, {
@@ -8616,25 +8606,6 @@ if (englishMusicStudioRoot) {
                 }
                 showToast('ok', tUi('Spanish translation added at the end & saved to Word!', '¡Traducción al español mostrada al final y guardada en Word!'));
             }, { loadingText: tUi('Translating lyrics to Spanish...', 'Traduciendo letra a español...') });
-        });
-    }
-
-    const btnCleanTimestamps = document.getElementById('btnMusicCleanTimestamps');
-
-    if (btnCleanTimestamps) {
-        btnCleanTimestamps.addEventListener('click', () => {
-            const lyricsEl = document.getElementById('musicStudyLyrics');
-            const raw = lyricsEl ? lyricsEl.value : '';
-            if (!raw.trim()) {
-                showToast('err', tUi('Paste or load lyrics first.', 'Pega o carga primero la letra.'));
-                return;
-            }
-            const cleaned = cleanCaptionTextToLyricsClient(raw);
-            if (lyricsEl && cleaned) {
-                lyricsEl.value = cleaned.slice(0, 12000);
-                lyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                showToast('ok', tUi(`Cleaned timestamps (${cleaned.split('\n').length} lines ready).`, `Texto limpiado (${cleaned.split('\n').length} líneas listas).`));
-            }
         });
     }
 
@@ -8712,13 +8683,19 @@ if (englishMusicStudioRoot) {
             e.preventDefault();
             const btnSend = document.getElementById('btnSendMusicWord');
             const val = id => (document.getElementById(id)?.value || '').trim();
-            const lyricsStudy = val('musicStudyLyrics');
-            if (!lyricsStudy) {
-                mostrarBannerMusica('musicWordStatusBanner', 'err', 'Write your personal song meanings or study lines first.');
+            const selected = getCancionSeleccionada();
+            const lyricsStudy = (
+                (selected ? String(musicState.sessionLyricsBySongId[selected.id]?.lyrics || '').trim() : '') ||
+                val('musicSongLyricsViewer')
+            );
+            const vocabVal = val('musicStudyVocab');
+            const pronVal = val('musicStudyPronunciation');
+            const notesVal = val('musicStudyExtraNotes');
+            if (!lyricsStudy && !vocabVal && !pronVal && !notesVal) {
+                mostrarBannerMusica('musicWordStatusBanner', 'err', 'Extract lyrics or write vocabulary, pronunciation, or notes first.');
                 return;
             }
 
-            const selected = getCancionSeleccionada();
             const fallbackTitle = val('musicSongTitle');
             const fallbackArtist = val('musicMainArtist');
 
@@ -8747,9 +8724,9 @@ if (englishMusicStudioRoot) {
                     yt_music_url: selected.yt_music_url || '',
                     focus_summary: selected.enfoque_corto || '',
                     lyrics_study: lyricsStudy,
-                    vocabulary_list: val('musicStudyVocab'),
-                    pronunciation_notes: val('musicStudyPronunciation'),
-                    notes: val('musicStudyExtraNotes')
+                    vocabulary_list: vocabVal,
+                    pronunciation_notes: pronVal,
+                    notes: notesVal
                 }
                 : {
                     category: 'music',
@@ -8764,16 +8741,16 @@ if (englishMusicStudioRoot) {
                     yt_music_url: val('musicSongYtUrl'),
                     focus_summary: val('musicFocusSummary'),
                     lyrics_study: lyricsStudy,
-                    vocabulary_list: val('musicStudyVocab'),
-                    pronunciation_notes: val('musicStudyPronunciation'),
-                    notes: val('musicStudyExtraNotes')
+                    vocabulary_list: vocabVal,
+                    pronunciation_notes: pronVal,
+                    notes: notesVal
                 };
 
             mostrarBannerMusica('musicWordStatusBanner', '', '');
 
             runWithButtonLock(btnSend, async () => {
                 try {
-                    const signature = `${entry.song_title}|${entry.artists_display}|${entry.lyrics_study}`;
+                    const signature = `${entry.song_title}|${entry.artists_display}|${entry.lyrics_study}|${entry.vocabulary_list}|${entry.pronunciation_notes}|${entry.notes}`;
                     await submitMutationRequest({
                         url: '/api/send-english',
                         method: 'POST',
@@ -8783,7 +8760,7 @@ if (englishMusicStudioRoot) {
                     });
 
                     clearStudyNoteDrafts('music');
-                    ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'].forEach(id => {
+                    ['musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.value = '';
                     });
@@ -14589,8 +14566,6 @@ function initKeyboardShortcuts() {
     bindEnterToButton('musicSongYtUrl', 'btnMusicResolveYt');
     // AI Question box -> Enter asks AI (Shift+Enter adds newline)
     bindEnterToButton('langAiQuestion', 'btnAskLangAi', { multilinePlainEnter: true });
-    // Lyrics study textarea -> Ctrl+Enter runs AI Lyrics Breakdown
-    bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
     // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
     bindEnterToButton('crisisMotivo', 'btnSaveCrisis', { ctrlOrCmd: true });
     // Sleep desvelo note textarea -> Ctrl+Enter saves sleep log
@@ -14620,7 +14595,6 @@ function refreshDynamicLanguageViews() {
     updateE2eeKeyStatusUI();
     updateYouTubePlatformUI();
     if (typeof updateAiMemoryBadgeUI === 'function') updateAiMemoryBadgeUI();
-    if (typeof actualizarBadgePuentePc === 'function') actualizarBadgePuentePc();
 
     const activeViewEl = document.querySelector('.app-view.active');
     if (activeViewEl && mobileViewTitle) {

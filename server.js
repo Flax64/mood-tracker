@@ -53,6 +53,8 @@ const {
     extractYouTubeWatchPageMetadata,
     mergeResolvedTrackMetadata
 } = require('./lib/youtube-metadata');
+const ytmusicLyrics = require('./lib/ytmusic-lyrics');
+const externalLyricsAndMeta = require('./lib/external-lyrics-and-meta');
 const ytdlpService = require('./lib/ytdlp-service');
 const serverNotesService = require('./lib/server-notes-service');
 const { buildSafeRcloneExecEnv } = serverNotesService;
@@ -489,6 +491,7 @@ function inicializarTablasSeguridad() {
             titulo VARCHAR(180) NOT NULL,
             numero_pista SMALLINT NULL,
             idioma VARCHAR(40) NOT NULL DEFAULT 'English',
+            anio SMALLINT NULL,
             yt_music_url VARCHAR(500) NULL,
             yt_video_id VARCHAR(32) NULL,
             thumbnail_url VARCHAR(500) NULL,
@@ -522,6 +525,18 @@ function inicializarTablasSeguridad() {
                         errAlt => {
                             if (errAlt && !/Duplicate column/i.test(errAlt.message || '')) {
                                 console.error('Error migrando fecha_lanzamiento en MusicaAlbumes:', errAlt.message);
+                            }
+                        }
+                    );
+                }
+            });
+            db.query("SHOW COLUMNS FROM MusicaCanciones LIKE 'anio'", (errCol, cols) => {
+                if (!errCol && Array.isArray(cols) && cols.length === 0) {
+                    db.query(
+                        'ALTER TABLE MusicaCanciones ADD COLUMN anio SMALLINT NULL AFTER idioma',
+                        errAlt => {
+                            if (errAlt && !/Duplicate column/i.test(errAlt.message || '')) {
+                                console.error('Error migrando anio en MusicaCanciones:', errAlt.message);
                             }
                         }
                     );
@@ -6587,6 +6602,17 @@ function validateAndExtractSongPayload(body) {
     };
 }
 
+async function ensureMusicaSchemaExtraColumns() {
+    await Promise.all([
+        dbQueryAsync('ALTER TABLE MusicaAlbumes ADD COLUMN fecha_lanzamiento DATE NULL DEFAULT NULL AFTER anio').catch(() => {}),
+        dbQueryAsync('ALTER TABLE MusicaCanciones ADD COLUMN anio SMALLINT NULL AFTER idioma').catch(() => {})
+    ]);
+}
+
+function isUnknownColumnDbError(err) {
+    return Boolean(err && (err.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(err.message || '')));
+}
+
 async function fetchUserMusicAlbumsAndSongs(uid) {
     const queryWithReleaseDate = () => Promise.all([
         dbQueryAsync(
@@ -6601,7 +6627,8 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
         ),
         dbQueryAsync(
             `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
-                    al.anio AS album_anio, DATE_FORMAT(al.fecha_lanzamiento, '%Y-%m-%d') AS album_fecha_lanzamiento,
+                    COALESCE(al.anio, c.anio) AS album_anio, c.anio AS cancion_anio,
+                    DATE_FORMAT(al.fecha_lanzamiento, '%Y-%m-%d') AS album_fecha_lanzamiento,
                     c.titulo, c.numero_pista, c.idioma,
                     c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
                     c.enfoque_corto, c.word_sincronizado,
@@ -6618,10 +6645,8 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
         const [albums, songs] = await queryWithReleaseDate();
         return { albums, songs };
     } catch (err) {
-        if (err && (err.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(err.message || ''))) {
-            await dbQueryAsync(
-                'ALTER TABLE MusicaAlbumes ADD COLUMN fecha_lanzamiento DATE NULL DEFAULT NULL AFTER anio'
-            ).catch(() => {});
+        if (isUnknownColumnDbError(err)) {
+            await ensureMusicaSchemaExtraColumns();
             try {
                 const [albums, songs] = await queryWithReleaseDate();
                 return { albums, songs };
@@ -6639,7 +6664,7 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
                     ),
                     dbQueryAsync(
                         `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
-                                al.anio AS album_anio, NULL AS album_fecha_lanzamiento,
+                                al.anio AS album_anio, NULL AS cancion_anio, NULL AS album_fecha_lanzamiento,
                                 c.titulo, c.numero_pista, c.idioma,
                                 c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
                                 c.enfoque_corto, c.word_sincronizado,
@@ -6655,6 +6680,53 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
             }
         }
         throw err;
+    }
+}
+
+async function insertMusicaCancionRow(valuesWithAnio) {
+    const [uid, albumId, titulo, numPista, idioma, anio, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto, wordSync] = valuesWithAnio;
+    const includeWordSync = wordSync !== undefined;
+    const insertWithAnio = () => (
+        includeWordSync
+            ? dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, anio, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, anio, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto, wordSync]
+            )
+            : dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, anio, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, anio, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto]
+            )
+    );
+    const insertLegacy = () => (
+        includeWordSync
+            ? dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto, wordSync]
+            )
+            : dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto]
+            )
+    );
+    try {
+        return await insertWithAnio();
+    } catch (err) {
+        if (!isUnknownColumnDbError(err)) throw err;
+        await ensureMusicaSchemaExtraColumns();
+        try {
+            return await insertWithAnio();
+        } catch (retryErr) {
+            if (!isUnknownColumnDbError(retryErr)) throw retryErr;
+            return await insertLegacy();
+        }
     }
 }
 
@@ -6701,24 +6773,23 @@ async function tryRestoreMusicCatalogFromDriveIfEmpty(uid) {
     for (const s of archSongs) {
         if (!s || !s.titulo) continue;
         const mappedAlbumId = s.album_id != null ? (albumByOldId.get(Number(s.album_id)) || null) : null;
-        const ins = await dbQueryAsync(
-            `INSERT INTO MusicaCanciones
-             (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                uid,
-                mappedAlbumId,
-                String(s.titulo).slice(0, 180),
-                s.numero_pista || null,
-                s.idioma || 'English',
-                s.yt_music_url || null,
-                s.yt_video_id || null,
-                s.thumbnail_url || null,
-                MUSIC_STUDY_STATES.has(s.estado_estudio) ? s.estado_estudio : 'to_study',
-                s.enfoque_corto || null,
-                s.word_sincronizado ? 1 : 0
-            ]
-        ).catch(() => null);
+        const songYear = Number.isInteger(Number(s.anio || s.cancion_anio || s.album_anio))
+            ? Number(s.anio || s.cancion_anio || s.album_anio)
+            : null;
+        const ins = await insertMusicaCancionRow([
+            uid,
+            mappedAlbumId,
+            String(s.titulo).slice(0, 180),
+            s.numero_pista || null,
+            s.idioma || 'English',
+            songYear,
+            s.yt_music_url || null,
+            s.yt_video_id || null,
+            s.thumbnail_url || null,
+            MUSIC_STUDY_STATES.has(s.estado_estudio) ? s.estado_estudio : 'to_study',
+            s.enfoque_corto || null,
+            s.word_sincronizado ? 1 : 0
+        ]).catch(() => null);
         const newSongId = ins && ins.insertId;
         if (!newSongId) continue;
         restoredCount += 1;
@@ -6935,10 +7006,19 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
     let oembed = null;
     let apiVideo = null;
     let watchMeta = null;
+    let ytmMeta = null;
+    let externalMeta = null;
+    let ytdlpMeta = null;
     let catalogAlbums = [];
     let catalogSongs = [];
+    let catalogArtists = [];
 
     const catalogPromise = fetchUserMusicAlbumsAndSongs(uid).catch(() => ({ albums: [], songs: [] }));
+    const artistsPromise = dbQueryAsync(
+        `SELECT id, nombre, tipo_artista, notas_cortas, creado_en
+         FROM MusicaArtistas WHERE usuario_id = ? ORDER BY nombre ASC`,
+        [uid]
+    ).catch(() => []);
 
     if (parsed.videoId) {
         const videoIdEnc = encodeURIComponent(parsed.videoId);
@@ -6949,7 +7029,7 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
             ? `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${videoIdEnc}&key=${encodeURIComponent(apiKey)}`
             : null;
 
-        const [oembedRes, apiRes, watchHtml, catRes] = await Promise.all([
+        const [oembedRes, apiRes, watchHtml, ytmRes, catRes, artRes] = await Promise.all([
             fetchExternalWithTimeout(oembedUrl, { timeoutMs: 4000, asJson: true }),
             apiUrl ? fetchExternalWithTimeout(apiUrl, { timeoutMs: 4000, asJson: true }) : Promise.resolve(null),
             fetchExternalWithTimeout(watchUrl, {
@@ -6957,31 +7037,85 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
                 asJson: false,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9'
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    Cookie: 'CONSENT=YES+1'
                 }
             }),
-            catalogPromise
+            ytmusicLyrics.fetchYouTubeMusicTrackMetadata({
+                videoId: parsed.videoId,
+                isAllowedUrl: ytdlpService.isAllowedInnerTubeUrl,
+                timeoutMs: 4200
+            }).catch(() => null),
+            catalogPromise,
+            artistsPromise
         ]);
 
         oembed = oembedRes;
         apiVideo = apiRes && Array.isArray(apiRes.items) && apiRes.items[0] ? apiRes.items[0] : null;
         watchMeta = watchHtml ? extractYouTubeWatchPageMetadata(watchHtml) : null;
+        ytmMeta = ytmRes && ytmRes.ok ? ytmRes : null;
         catalogAlbums = catRes.albums || [];
         catalogSongs = catRes.songs || [];
+        catalogArtists = Array.isArray(artRes) ? artRes : [];
     } else {
-        const catRes = await catalogPromise;
+        const [catRes, artRes] = await Promise.all([catalogPromise, artistsPromise]);
         catalogAlbums = catRes.albums || [];
         catalogSongs = catRes.songs || [];
+        catalogArtists = Array.isArray(artRes) ? artRes : [];
     }
 
-    const merged = mergeResolvedTrackMetadata({
+    const preliminary = mergeResolvedTrackMetadata({
         videoId: parsed.videoId,
         oembed,
         apiVideo,
         watchMeta,
+        ytmMeta,
         catalogSongs,
-        catalogAlbums
+        catalogAlbums,
+        catalogArtists
     });
+
+    if (parsed.videoId && preliminary.suggestedTitle) {
+        externalMeta = await externalLyricsAndMeta.fetchExternalTrackMetadata({
+            title: preliminary.suggestedTitle,
+            artist: preliminary.suggestedArtist || '',
+            timeoutMs: 3200
+        }).catch(() => null);
+    }
+
+    let merged = mergeResolvedTrackMetadata({
+        videoId: parsed.videoId,
+        oembed,
+        apiVideo,
+        watchMeta,
+        ytmMeta,
+        externalMeta,
+        catalogSongs,
+        catalogAlbums,
+        catalogArtists
+    });
+
+    if (parsed.videoId && (!merged.suggestedTitle || !merged.suggestedAlbumYear)) {
+        const ytdlpRes = await ytdlpService.fetchVideoMetadataViaYtDlp({
+            videoId: parsed.videoId,
+            timeoutMs: 6000
+        }).catch(() => null);
+        if (ytdlpRes && ytdlpRes.ok) {
+            ytdlpMeta = ytdlpRes;
+            merged = mergeResolvedTrackMetadata({
+                videoId: parsed.videoId,
+                oembed,
+                apiVideo,
+                watchMeta,
+                ytmMeta,
+                externalMeta,
+                ytdlpMeta,
+                catalogSongs,
+                catalogAlbums,
+                catalogArtists
+            });
+        }
+    }
 
     res.json({
         videoId: parsed.videoId,
@@ -7030,23 +7164,19 @@ app.post('/api/english/music/songs', apiWriteLimiter.middleware, requireAdmin, r
             mainArtistId
         });
 
-        const insertedSong = await dbQueryAsync(
-            `INSERT INTO MusicaCanciones
-             (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                uid,
-                albumId,
-                d.titulo,
-                d.numeroPista,
-                d.idioma,
-                d.ytMusicUrl,
-                d.ytVideoId,
-                d.thumbnailUrl,
-                d.estadoEstudio,
-                d.enfoqueCorto
-            ]
-        );
+        const insertedSong = await insertMusicaCancionRow([
+            uid,
+            albumId,
+            d.titulo,
+            d.numeroPista,
+            d.idioma,
+            d.albumYear,
+            d.ytMusicUrl,
+            d.ytVideoId,
+            d.thumbnailUrl,
+            d.estadoEstudio,
+            d.enfoqueCorto
+        ]);
         const songId = insertedSong.insertId;
         await syncMusicaCancionArtistas(uid, songId, mainArtistId, d.collaborators, false);
 
@@ -7088,7 +7218,28 @@ app.put('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin
             mainArtistId
         });
 
-        await dbQueryAsync(
+        const updateWithAnio = () => dbQueryAsync(
+            `UPDATE MusicaCanciones
+             SET album_id = ?, titulo = ?, numero_pista = ?, idioma = ?, anio = ?,
+                 yt_music_url = ?, yt_video_id = ?, thumbnail_url = ?,
+                 estado_estudio = ?, enfoque_corto = ?
+             WHERE id = ? AND usuario_id = ?`,
+            [
+                albumId,
+                d.titulo,
+                d.numeroPista,
+                d.idioma,
+                d.albumYear,
+                d.ytMusicUrl,
+                d.ytVideoId,
+                d.thumbnailUrl,
+                d.estadoEstudio,
+                d.enfoqueCorto,
+                songId,
+                uid
+            ]
+        );
+        const updateLegacy = () => dbQueryAsync(
             `UPDATE MusicaCanciones
              SET album_id = ?, titulo = ?, numero_pista = ?, idioma = ?,
                  yt_music_url = ?, yt_video_id = ?, thumbnail_url = ?,
@@ -7108,6 +7259,19 @@ app.put('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin
                 uid
             ]
         );
+
+        try {
+            await updateWithAnio();
+        } catch (updErr) {
+            if (!isUnknownColumnDbError(updErr)) throw updErr;
+            await ensureMusicaSchemaExtraColumns();
+            try {
+                await updateWithAnio();
+            } catch (retryUpdErr) {
+                if (!isUnknownColumnDbError(retryUpdErr)) throw retryUpdErr;
+                await updateLegacy();
+            }
+        }
 
         await syncMusicaCancionArtistas(uid, songId, mainArtistId, d.collaborators, true);
 
@@ -7950,8 +8114,48 @@ app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verif
     }
 });
 
-const AUTONOMOUS_LYRICS_DEADLINE_MS = 28000;
+const AUTONOMOUS_LYRICS_DEADLINE_MS = 34000;
 const autonomousLyricsInFlight = new Map();
+
+async function resolveSongArtistAndAlbumForLyrics(song, uid) {
+    let artistName = String(song.artista_principal_nombre || song.artistName || '').trim();
+    let albumTitle = String(song.album_titulo || song.albumTitle || '').trim();
+    try {
+        const [catData, songArtists] = await Promise.all([
+            fetchUserMusicAlbumsAndSongs(uid).catch(() => ({ albums: [], songs: [] })),
+            dbQueryAsync(
+                `SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre
+                 FROM MusicaCancionArtistas mca
+                 INNER JOIN MusicaCanciones c ON c.id = mca.cancion_id
+                 INNER JOIN MusicaArtistas ma ON ma.id = mca.artista_id
+                 WHERE c.usuario_id = ?
+                 ORDER BY mca.orden ASC, ma.nombre ASC`,
+                [uid]
+            ).catch(() => [])
+        ]);
+        const fullSong = Array.isArray(catData?.songs)
+            ? catData.songs.find((s) => Number(s.id) === Number(song.id))
+            : null;
+        if (fullSong && !albumTitle) {
+            albumTitle = String(fullSong.album_titulo || '').trim();
+        }
+        if (!artistName && Array.isArray(songArtists) && songArtists.length) {
+            const linked = songArtists.filter((l) => Number(l.cancion_id) === Number(song.id));
+            const mainLink = linked.find((l) => l.rol === 'main') || linked[0];
+            if (mainLink && mainLink.nombre) {
+                artistName = String(mainLink.nombre).trim();
+            }
+        }
+        if (fullSong && fullSong.album_id && Array.isArray(catData?.albums)) {
+            const albumObj = catData.albums.find((a) => Number(a.id) === Number(fullSong.album_id));
+            if (albumObj) {
+                if (!artistName) artistName = String(albumObj.artista_principal_nombre || '').trim();
+                if (!albumTitle) albumTitle = String(albumObj.titulo || '').trim();
+            }
+        }
+    } catch (_) {}
+    return { artistName, albumTitle };
+}
 
 /**
  * Evita que varios clics sobre la misma canción apilen trabajos pesados (rclone / yt-dlp) en la
@@ -7993,24 +8197,7 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
         return { ok: false, tier: 4, reason: 'song_not_found', error: 'Song not found.', storedInDb: false };
     }
 
-    let artistName = String(song.artista_principal_nombre || song.artistName || '').trim();
-    let albumTitle = String(song.album_titulo || song.albumTitle || '').trim();
-    try {
-        const catData = await fetchUserMusicAlbumsAndSongs(uid);
-        const fullSong = Array.isArray(catData?.songs)
-            ? catData.songs.find((s) => Number(s.id) === Number(song.id))
-            : null;
-        if (fullSong) {
-            if (!albumTitle) albumTitle = String(fullSong.album_titulo || '').trim();
-            if (!artistName && fullSong.album_id && Array.isArray(catData?.albums)) {
-                const albumObj = catData.albums.find((a) => Number(a.id) === Number(fullSong.album_id));
-                if (albumObj) {
-                    artistName = String(albumObj.artista_principal_nombre || '').trim();
-                    if (!albumTitle) albumTitle = String(albumObj.titulo || '').trim();
-                }
-            }
-        }
-    } catch (_) {}
+    const { artistName, albumTitle } = await resolveSongArtistAndAlbumForLyrics(song, uid);
 
     const videoId =
         ytdlpService.extractValidYouTubeVideoId(song.yt_video_id) ||
@@ -8075,17 +8262,19 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
         };
     }
 
-    // Tier 2 (YouTube Music InnerTube WEB_REMIX / MPLYt_) + Tier 3 (Server yt-dlp captionTracks)
+    // Tier 2 (YouTube Music InnerTube WEB_REMIX / MPLYt_) + Tier 3 (yt-dlp + LRCLIB + Watch Page + Alt Video + Lyrics.ovh + ASR)
     const extracted = await ytdlpService.extractSongLyrics({
         videoId,
         url: song.yt_music_url || '',
         idioma: song.idioma || '',
         preferredLangs,
         useInnerTube: true,
+        useExternalFallbacks: true,
         enrichCaptions: true,
-        budgetMs: 22000,
+        budgetMs: 30000,
         trackTitle: song.titulo || '',
-        trackArtist: artistName
+        trackArtist: artistName,
+        trackAlbum: albumTitle
     });
 
     if (extracted.ok && extracted.lyrics) {
@@ -8175,6 +8364,7 @@ app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middlewa
             return res.status(400).send('This song does not have a valid YouTube or YouTube Music link yet.');
         }
 
+        const { artistName, albumTitle } = await resolveSongArtistAndAlbumForLyrics(song, uid);
         const preferredLangs = Array.isArray(req.body?.preferredLangs) ? req.body.preferredLangs : null;
         const extracted = await ytdlpService.extractSongLyrics({
             videoId,
@@ -8182,9 +8372,12 @@ app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middlewa
             idioma: song.idioma || '',
             preferredLangs,
             useInnerTube: true,
+            useExternalFallbacks: true,
             enrichCaptions: true,
+            budgetMs: 30000,
             trackTitle: song.titulo || '',
-            trackArtist: song.artista_principal_nombre || ''
+            trackArtist: artistName,
+            trackAlbum: albumTitle
         });
 
         if (extracted.ok && extracted.lyrics) {

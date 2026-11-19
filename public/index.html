@@ -1275,6 +1275,7 @@
                                                 <option value="English + Korean (K-Pop)" selected>🎵 English + Korean (K-Pop)</option>
                                                 <option value="Japanese">🇯🇵 Japanese (日本語)</option>
                                                 <option value="English + Japanese (J-Pop)">🎌 English + Japanese (JP-EN)</option>
+                                                <option value="Spanish">🇪🇸 Spanish (Español)</option>
                                                 <option value="Other">🌐 Other</option>
                                             </select>
                                         </div>
@@ -1329,8 +1330,8 @@
                                             </select>
                                         </div>
                                         <div class="form-group">
-                                            <label for="musicAlbumYear">Year</label>
-                                            <input type="number" id="musicAlbumYear" min="1950" max="2100" placeholder="2024">
+                                            <label for="musicAlbumYear">Release Year</label>
+                                            <input type="number" id="musicAlbumYear" min="1900" max="2100" placeholder="2024">
                                         </div>
                                     </div>
                                 </div>
@@ -1429,7 +1430,6 @@
                                     <div class="music-lyrics-viewer-title-wrap">
                                         <h4>📄 Letra de la Canción (Modo Estudio)</h4>
                                         <span id="musicLyricsMetaBadge" class="badge-pill">Cuaderno Word</span>
-                                        <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle" title="Indicates whether your computer is online for local fallback or saving to Word">⚪ Checking PC...</span>
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
                                         <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
@@ -1443,11 +1443,11 @@
                                             <option value="es">🇪🇸 Español</option>
                                         </select>
                                         <button type="button" class="btn-primary btn-small" id="btnMusicExtractLyrics"
-                                            title="Extraer la letra desde tu cuaderno Word o automáticamente desde tu computadora">
+                                            title="Extraer la letra desde tu cuaderno Word o automáticamente desde el servidor">
                                             📄 Extraer letra
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy"
-                                            title="Enviar únicamente los versos del idioma seleccionado al analizador por estrofas">
+                                            title="Analizar directamente por estrofas los versos del idioma seleccionado">
                                             ✨ Analizar Estrofas
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateFullLyricsEs"
@@ -1476,15 +1476,6 @@
                             <form id="musicWordNotesForm">
                                 <input type="hidden" id="musicWordSongId" value="">
                                 <div class="form-group">
-                                    <div class="music-lyrics-label-row">
-                                        <label for="musicStudyLyrics">Desglose por Estrofas, Significados y Notas (Guardado privado en Word)</label>
-                                        <div class="music-lyrics-label-actions">
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCleanTimestamps" title="Limpiar marcas de tiempo si pegaste una letra manualmente">🧹 Limpiar Texto</button>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics" title="Dividir la canción en estrofas (Intro, Pre-Coro, Coro, Rap) y explicar vocabulario y pronunciación">✨ Desglosar por Estrofas</button>
-                                        </div>
-                                    </div>
-                                    <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
-                                        placeholder="La letra aparecerá aquí al presionar 'Extraer letra' o 'Desglosar por Estrofas' para generar tu guía frase por frase..."></textarea>
                                     <div class="ai-autosync-bar">
                                         <label class="ai-autosync-toggle" title="Guarda el análisis directamente en tu cuaderno de Word organizado por álbum y pista">
                                             <input type="checkbox" id="chkAutoSyncAiToWord" checked>

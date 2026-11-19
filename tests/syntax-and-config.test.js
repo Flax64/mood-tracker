@@ -317,7 +317,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnStartMicPronunciation"',
             'id="languageAiPanel"',
             'id="btnAskLangAi"',
-            'id="btnMusicAiExplainLyrics"',
             'id="transportSecurityCard"',
             'id="btnTransportBenchmark"',
             'id="setGeminiModel"',
@@ -346,7 +345,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="sleepEsDesvelo"',
             'id="sleepStillAwake"',
             'id="resumenSleepDetailsList"',
-            'id="btnMusicCleanTimestamps"',
             'id="btnTestGeminiConnection"',
             'id="settingsGeminiTestResult"',
             'id="floatingTranslatorModal"',
@@ -360,7 +358,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'translator-extension-textarea',
             'id="musicLyricsViewerCard"',
             'id="musicLyricsMetaBadge"',
-            'id="musicPcBridgeBadge"',
             'id="musicLyricsAlbumPlaylistBox"',
             'id="btnMusicExtractLyrics"',
             'id="btnMusicCopyLyricsToStudy"',
@@ -382,9 +379,22 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="musicYtdlpHelperBox"',
             'id="musicDockedTranslatorPane"',
             'id="musicDockedTransInput"',
-            'id="btnMusicDockedTranslateRun"'
+            'id="btnMusicDockedTranslateRun"',
+            'id="musicStudyLyrics"',
+            'id="btnMusicAiExplainLyrics"',
+            'id="btnMusicCleanTimestamps"',
+            'id="musicPcBridgeBadge"'
         ]) {
             assert.equal(indexHtml.includes(removedId), false, `public/index.html debe retirar el elemento obsoleto ${removedId}`);
+        }
+        const frontendSrcCheck = readText('public/frontend.js');
+        for (const removedFrontendRef of [
+            'musicStudyLyrics',
+            'btnMusicAiExplainLyrics',
+            'btnMusicCleanTimestamps',
+            'musicPcBridgeBadge'
+        ]) {
+            assert.equal(frontendSrcCheck.includes(removedFrontendRef), false, `public/frontend.js no debe referenciar ${removedFrontendRef}`);
         }
         assert.equal(
             indexHtml.includes('id="languageTranslatorPanel"'),

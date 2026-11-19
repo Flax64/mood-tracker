@@ -599,4 +599,280 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         const ckIdx = capturedArgs.indexOf('--cookies');
         assert.ok(ckIdx >= 0 && capturedArgs[ckIdx + 1] === '/app/ytdlp-config/cookies.txt');
     });
+
+    it('cascada multi-fuente (useExternalFallbacks): LRCLIB vence a ASR, Watch captions/descripción, búsqueda cruzada YT Music->YT, Lyrics.ovh, fallback ASR y anti-SSRF', async () => {
+        const externalMod = require('../lib/external-lyrics-and-meta');
+        const asrVtt = 'WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n<00:00:01.100><c>Auto</c><00:00:01.500><c> generated line</c>\n';
+
+        const execAsrOnly = async (_bin, args) => {
+            const outIdx = args.indexOf('--output');
+            const outTpl = args[outIdx + 1];
+            await fs.promises.writeFile(outTpl.replace('%(id)s.%(ext)s', 'vidCase0001.en.vtt'), asrVtt, 'utf8');
+            return { stdout: '', stderr: '' };
+        };
+
+        // 1. LRCLIB vence a ASR de yt-dlp y clasifica en los 5 apartados
+        const lrclibFetch = async (url) => {
+            const u = String(url);
+            if (u.includes('music.youtube.com')) return { ok: true, status: 200, json: async () => ({}) };
+            if (u.includes('lrclib.net/api/get')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        trackName: 'DRIP',
+                        artistName: 'BABYMONSTER',
+                        instrumental: false,
+                        plainLyrics: 'Baby got no chill\n눈을 감고 느껴봐\n숨이 멎을 것만 같아'
+                    })
+                };
+            }
+            return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+        };
+        const lrclibRes = await extractSongLyrics({
+            videoId: 'vidCase0001',
+            idioma: 'English + Korean (K-Pop)',
+            trackTitle: 'DRIP',
+            trackArtist: 'BABYMONSTER',
+            ytdlpPath: '/usr/local/bin/yt-dlp',
+            useInnerTube: true,
+            useExternalFallbacks: true,
+            execFileImpl: execAsrOnly,
+            fetchImpl: lrclibFetch
+        });
+        assert.equal(lrclibRes.ok, true);
+        assert.equal(lrclibRes.source, 'lrclib');
+        assert.equal(lrclibRes.tracks.ko, '눈을 감고 느껴봐\n숨이 멎을 것만 같아');
+        assert.equal(lrclibRes.tracks.en, 'Baby got no chill');
+
+        // 2. Fallback a Watch Page manual captions y a Lyrics: en descripción cuando yt-dlp falla / no tiene binario
+        const emptyFs = { ...fs, existsSync: () => false };
+        const watchCaptionsFetch = async (url) => {
+            const u = String(url);
+            if (u.includes('youtube.com/watch?v=watchManual')) {
+                const playerResp = {
+                    videoDetails: { title: 'Test Song', author: 'Test Artist', shortDescription: 'Official' },
+                    captions: {
+                        playerCaptionsTracklistRenderer: {
+                            captionTracks: [
+                                { baseUrl: 'https://www.youtube.com/api/timedtext?v=watchManual&lang=en', languageCode: 'en' }
+                            ]
+                        }
+                    }
+                };
+                return { ok: true, status: 200, text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResp)};</script>` };
+            }
+            if (u.includes('youtube.com/api/timedtext?v=watchManual')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () => '<transcript><text start="0" dur="3">Manual watch caption one</text><text start="3" dur="3">Manual watch caption two</text></transcript>'
+                };
+            }
+            return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+        };
+        const watchCapRes = await extractSongLyrics({
+            videoId: 'watchManual',
+            idioma: 'English',
+            trackTitle: 'Test Song',
+            trackArtist: 'Test Artist',
+            env: {},
+            platform: 'linux',
+            fsImpl: emptyFs,
+            useInnerTube: false,
+            useExternalFallbacks: true,
+            fetchImpl: watchCaptionsFetch
+        });
+        assert.equal(watchCapRes.ok, true);
+        assert.match(watchCapRes.source, /watch-captions/);
+        assert.match(watchCapRes.lyrics, /Manual watch caption one/);
+
+        const descLyricsText = [
+            'Official Video Promo',
+            '',
+            'Lyrics:',
+            'First verse floating through the night',
+            'Second line shining in the light',
+            'Third line echoing forevermore',
+            'Fourth line knocking at my door',
+            'Fifth line singing to the sky',
+            'Sixth line never saying goodbye',
+            '',
+            'Produced by Studio Team'
+        ].join('\n');
+        const extractedDesc = externalMod.extractLyricsFromVideoDescription(descLyricsText);
+        assert.match(extractedDesc, /First verse floating/);
+        assert.doesNotMatch(extractedDesc, /Produced by Studio Team/);
+
+        // 3. Búsqueda cruzada Art Track YT Music -> video alternativo de YouTube -> subtítulos
+        const crossFetch = async (url) => {
+            const u = String(url);
+            if (u.includes('music.youtube.com/youtubei/v1/next')) return { ok: true, status: 200, json: async () => ({}) };
+            if (u.includes('music.youtube.com/youtubei/v1/search')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        items: [{
+                            musicResponsiveListItemRenderer: {
+                                playlistItemData: { videoId: 'altLyricVid' },
+                                flexColumns: [
+                                    { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'Song X (Official Lyric Video)' }] } } },
+                                    { musicResponsiveListItemFlexColumnRenderer: { text: { runs: [{ text: 'Artist X' }] } } }
+                                ]
+                            }
+                        }]
+                    })
+                };
+            }
+            if (u.includes('youtube.com/watch?v=altLyricVid')) {
+                const playerResp = {
+                    videoDetails: { title: 'Song X (Official Lyric Video)', author: 'Artist X', shortDescription: '' },
+                    captions: {
+                        playerCaptionsTracklistRenderer: {
+                            captionTracks: [{ baseUrl: 'https://www.youtube.com/api/timedtext?v=altLyricVid&lang=en', languageCode: 'en' }]
+                        }
+                    }
+                };
+                return { ok: true, status: 200, text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResp)};</script>` };
+            }
+            if (u.includes('youtube.com/api/timedtext?v=altLyricVid')) {
+                return { ok: true, status: 200, text: async () => 'WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nAlt video lyric line one\nAlt video lyric line two' };
+            }
+            return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+        };
+        const crossRes = await extractSongLyrics({
+            videoId: 'artTrack001',
+            trackTitle: 'Song X',
+            trackArtist: 'Artist X',
+            idioma: 'English',
+            env: {},
+            platform: 'linux',
+            fsImpl: emptyFs,
+            useInnerTube: true,
+            useExternalFallbacks: true,
+            fetchImpl: crossFetch
+        });
+        assert.equal(crossRes.ok, true);
+        assert.equal(crossRes.source, 'youtube:alt-captions');
+        assert.equal(crossRes.altVideoId, 'altLyricVid');
+        assert.match(crossRes.lyrics, /Alt video lyric line one/);
+
+        // 4. Fallback a Lyrics.ovh + último recurso ASR
+        const ovhFetch = async (url) => {
+            if (String(url).includes('api.lyrics.ovh/v1/')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        lyrics: 'Paroles de la chanson Test par Artist\nWalking under city lights tonight\nHolding onto every hopeful dream'
+                    })
+                };
+            }
+            return { ok: false, status: 404, json: async () => ({}), text: async () => '' };
+        };
+        const ovhRes = await extractSongLyrics({
+            videoId: 'ovhTrack001',
+            trackTitle: 'Test',
+            trackArtist: 'Artist',
+            env: {},
+            platform: 'linux',
+            fsImpl: emptyFs,
+            useInnerTube: false,
+            useExternalFallbacks: true,
+            fetchImpl: ovhFetch
+        });
+        assert.equal(ovhRes.ok, true);
+        assert.equal(ovhRes.source, 'lyrics-ovh');
+        assert.doesNotMatch(ovhRes.lyrics, /Paroles de la chanson/);
+
+        const asrFallbackRes = await extractSongLyrics({
+            videoId: 'vidCase0001',
+            trackTitle: 'Unknown Track XYZ',
+            trackArtist: 'Unknown Artist XYZ',
+            ytdlpPath: '/usr/local/bin/yt-dlp',
+            useInnerTube: false,
+            useExternalFallbacks: true,
+            execFileImpl: execAsrOnly,
+            fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => '' })
+        });
+        assert.equal(asrFallbackRes.ok, true);
+        assert.equal(asrFallbackRes.source, 'yt-dlp:asr');
+        assert.equal(asrFallbackRes.isAutoGenerated, true);
+
+        // 5. Anti-SSRF y iTunes earliest studio year (evita Greatest Hits) + fallback MusicBrainz
+        assert.equal(externalMod.isAllowedLrclibUrl('https://lrclib.net/api/get?track_name=a'), true);
+        assert.equal(externalMod.isAllowedLrclibUrl('http://lrclib.net/api/get'), false);
+        assert.equal(externalMod.isAllowedLrclibUrl('https://user@lrclib.net/api/get'), false);
+        assert.equal(externalMod.isAllowedItunesUrl('https://itunes.apple.com/search?term=test'), true);
+        assert.equal(externalMod.isAllowedItunesUrl('https://127.0.0.1/search'), false);
+        assert.equal(externalMod.isAllowedMusicBrainzUrl('https://musicbrainz.org/ws/2/recording/?query=a'), true);
+        assert.equal(externalMod.isAllowedMusicBrainzUrl('https://evil.com/ws/2/'), false);
+        assert.equal(externalMod.isAllowedLyricsOvhUrl('https://api.lyrics.ovh/v1/Artist/Title'), true);
+        assert.equal(externalMod.isAllowedLyricsOvhUrl('https://evil.com/v1/a/b'), false);
+        assert.equal(externalMod.isAllowedYouTubeWatchUrl('https://www.youtube.com/watch?v=abc12345678'), true);
+        assert.equal(externalMod.isAllowedYouTubeWatchUrl('https://evil.com/watch?v=abc12345678'), false);
+
+        const itunesMeta = await externalMod.fetchExternalTrackMetadata({
+            title: 'Viva La Vida',
+            artist: 'Coldplay',
+            fetchImpl: async (url) => {
+                if (String(url).includes('itunes.apple.com')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            results: [
+                                {
+                                    trackName: 'Viva La Vida',
+                                    artistName: 'Coldplay',
+                                    collectionName: 'Greatest Hits',
+                                    releaseDate: '2024-01-01T00:00:00Z',
+                                    primaryGenreName: 'Alternative'
+                                },
+                                {
+                                    trackName: 'Viva La Vida',
+                                    artistName: 'Coldplay',
+                                    collectionName: 'Viva La Vida or Death and All His Friends',
+                                    releaseDate: '2008-06-12T07:00:00Z',
+                                    trackNumber: 7,
+                                    primaryGenreName: 'Alternative'
+                                }
+                            ]
+                        })
+                    };
+                }
+                return { ok: false, status: 404, json: async () => ({}) };
+            }
+        });
+        assert.ok(itunesMeta);
+        assert.equal(itunesMeta.releaseYear, 2008);
+        assert.equal(itunesMeta.trackNumber, 7);
+
+        const mbFallbackMeta = await externalMod.fetchExternalTrackMetadata({
+            title: 'Moonlight Song',
+            artist: 'Indie Artist',
+            fetchImpl: async (url) => {
+                if (String(url).includes('musicbrainz.org')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            recordings: [{
+                                score: 95,
+                                title: 'Moonlight Song',
+                                'first-release-date': '2017-09-14',
+                                'artist-credit': [{ name: 'Indie Artist' }],
+                                releases: [{ title: 'Nocturne' }]
+                            }]
+                        })
+                    };
+                }
+                return { ok: false, status: 404, json: async () => ({}) };
+            }
+        });
+        assert.ok(mbFallbackMeta);
+        assert.equal(mbFallbackMeta.releaseYear, 2017);
+        assert.equal(mbFallbackMeta.source, 'musicbrainz');
+    });
 });

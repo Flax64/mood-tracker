@@ -141,6 +141,10 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                     ]);
                 }
 
+                if (normalized.startsWith("SHOW COLUMNS FROM MusicaCanciones LIKE 'anio'")) {
+                    return finish(null, [{ Field: 'anio' }]);
+                }
+
                 if (normalized.startsWith('SELECT id, rol, estado FROM Usuarios WHERE id = ?')) {
                     const targetId = Number(params[0]);
                     const u = users.find((x) => x.id === targetId);
@@ -551,7 +555,20 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('INSERT INTO MusicaCanciones')) {
-                    const [uid, albumId, titulo, numPista, idioma, ytUrl, ytId, thumb, estado, enfoque] = params;
+                    const hasAnioCol = normalized.includes(', anio,');
+                    const uid = params[0];
+                    const albumId = params[1];
+                    const titulo = params[2];
+                    const numPista = params[3];
+                    const idioma = params[4];
+                    const anio = hasAnioCol ? params[5] : null;
+                    const offset = hasAnioCol ? 1 : 0;
+                    const ytUrl = params[5 + offset];
+                    const ytId = params[6 + offset];
+                    const thumb = params[7 + offset];
+                    const estado = params[8 + offset];
+                    const enfoque = params[9 + offset];
+                    const wordSync = params[10 + offset] ? 1 : 0;
                     const id = musicSongs.length + 1;
                     musicSongs.push({
                         id,
@@ -560,12 +577,13 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         titulo,
                         numero_pista: numPista,
                         idioma,
+                        anio: anio || null,
                         yt_music_url: ytUrl,
                         yt_video_id: ytId,
                         thumbnail_url: thumb,
                         estado_estudio: estado,
                         enfoque_corto: enfoque,
-                        word_sincronizado: 0,
+                        word_sincronizado: wordSync,
                         ultimo_estudio_en: null,
                         creado_en: '2026-11-14 16:00:00',
                         actualizado_en: '2026-11-14 16:00:00'
@@ -627,7 +645,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                                     ...c,
                                     album_titulo: al ? al.titulo : null,
                                     album_tipo: al ? al.tipo_lanzamiento : null,
-                                    album_anio: al ? al.anio : null
+                                    album_anio: (al && al.anio != null) ? al.anio : (c.anio ?? null),
+                                    cancion_anio: c.anio ?? null
                                 };
                             })
                     );
@@ -672,7 +691,20 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('UPDATE MusicaCanciones SET album_id = ?')) {
-                    const [albumId, titulo, numPista, idioma, ytUrl, ytId, thumb, estado, enfoque, songId, uid] = params;
+                    const hasAnioCol = normalized.includes('anio = ?');
+                    const albumId = params[0];
+                    const titulo = params[1];
+                    const numPista = params[2];
+                    const idioma = params[3];
+                    const anio = hasAnioCol ? params[4] : null;
+                    const off = hasAnioCol ? 1 : 0;
+                    const ytUrl = params[4 + off];
+                    const ytId = params[5 + off];
+                    const thumb = params[6 + off];
+                    const estado = params[7 + off];
+                    const enfoque = params[8 + off];
+                    const songId = params[9 + off];
+                    const uid = params[10 + off];
                     const song = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
                     if (song) {
                         Object.assign(song, {
@@ -680,6 +712,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                             titulo,
                             numero_pista: numPista,
                             idioma,
+                            ...(hasAnioCol ? { anio: anio || null } : {}),
                             yt_music_url: ytUrl,
                             yt_video_id: ytId,
                             thumbnail_url: thumb,
@@ -3540,6 +3573,189 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             assert.strictEqual(wguData.suggestedAlbumYear, 2025);
             assert.strictEqual(wguData.embeddable, true);
         } finally {
+            global.fetch = origFetch;
+        }
+    });
+
+    it('persiste año sin álbum, pasa artista vinculado al resolver letras sin álbum e integra InnerTube+iTunes en resolve', async () => {
+        const ytdlpService = require(path.join(ROOT, 'lib', 'ytdlp-service'));
+        const origExtract = ytdlpService.extractSongLyrics;
+        const origFetch = global.fetch;
+
+        try {
+            // 1. Crear canción CON año (2019) y SIN álbum (albumTitle vacío)
+            const createNoAlbum = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/songs',
+                headers: { Cookie: adminCookie },
+                body: {
+                    titulo: 'Blueming',
+                    mainArtist: 'IU',
+                    artistType: 'solo',
+                    albumTitle: '',
+                    albumType: 'single',
+                    albumYear: 2019,
+                    idioma: 'English + Korean (K-Pop)',
+                    ytMusicUrl: 'https://www.youtube.com/watch?v=D1PvIWdJ8xo'
+                }
+            });
+            assert.strictEqual(createNoAlbum.status, 201);
+            const { songId: noAlbumSongId } = JSON.parse(createNoAlbum.body);
+            assert.ok(noAlbumSongId);
+
+            // Verificar que el catálogo devuelve album_anio=2019 aunque album_titulo sea null
+            const catRes = await request({
+                port,
+                reqPath: '/api/english/music/catalog',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(catRes.status, 200);
+            const catJson = JSON.parse(catRes.body);
+            const savedNoAlbum = catJson.songs.find((s) => Number(s.id) === Number(noAlbumSongId));
+            assert.ok(savedNoAlbum);
+            assert.strictEqual(savedNoAlbum.album_titulo, null);
+            assert.strictEqual(savedNoAlbum.album_anio, 2019);
+
+            // 2. Resolver letras sobre canción SIN álbum -> extractSongLyrics recibe trackArtist='IU' y useExternalFallbacks=true
+            let capturedExtractOpts = null;
+            ytdlpService.extractSongLyrics = async (opts) => {
+                capturedExtractOpts = opts;
+                return {
+                    ok: true,
+                    videoId: opts.videoId,
+                    lyrics: '[KO]\n뭐해라는 두 글자에\n[EN]\nI feel blue',
+                    source: 'lrclib',
+                    language: 'ko,en',
+                    tracks: { original: '', ko: '뭐해라는 두 글자에', en: 'I feel blue', ja: '', es: '' },
+                    trackList: [],
+                    ytdlpAvailable: true,
+                    availableLangs: []
+                };
+            };
+
+            const resLyrics = await request({
+                port,
+                method: 'POST',
+                reqPath: `/api/english/music/songs/${noAlbumSongId}/resolve-lyrics`,
+                headers: { Cookie: adminCookie },
+                body: { forceExtract: true }
+            });
+            assert.strictEqual(resLyrics.status, 200);
+            const resLyricsJson = JSON.parse(resLyrics.body);
+            assert.strictEqual(resLyricsJson.ok, true);
+            assert.strictEqual(resLyricsJson.source, 'lrclib');
+            assert.ok(capturedExtractOpts);
+            assert.strictEqual(capturedExtractOpts.trackArtist, 'IU');
+            assert.strictEqual(capturedExtractOpts.useExternalFallbacks, true);
+
+            // 3. Auto-fill POST /api/english/music/resolve integrando YT Music InnerTube + iTunes (lyric video 2025 de canción de 2019)
+            global.fetch = async (url) => {
+                const target = String(url);
+                if (target.includes('youtube.com/oembed')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            title: '[MV] IU(아이유) _ Blueming(블루밍)',
+                            author_name: '1theK (원더케이)'
+                        })
+                    };
+                }
+                if (target.includes('youtube.com/watch?v=lyr2025vid1')) {
+                    const playerResp = {
+                        videoDetails: {
+                            title: 'Blueming (Color Coded Lyrics Eng/Rom/Han)',
+                            author: 'Jaeguchi',
+                            shortDescription: 'Lyric video uploaded in 2025'
+                        },
+                        microformat: {
+                            playerMicroformatRenderer: { publishDate: '2025-02-10' }
+                        },
+                        playabilityStatus: { status: 'OK', playableInEmbed: true }
+                    };
+                    return {
+                        ok: true,
+                        text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResp)};</script>`
+                    };
+                }
+                if (target.includes('music.youtube.com/youtubei/v1/next')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            contents: {
+                                singleColumnMusicWatchNextResultsRenderer: {
+                                    tabbedRenderer: {
+                                        watchNextTabbedResultsRenderer: {
+                                            tabs: [{
+                                                tabRenderer: {
+                                                    content: {
+                                                        musicQueueRenderer: {
+                                                            content: {
+                                                                playlistPanelRenderer: {
+                                                                    contents: [{
+                                                                        playlistPanelVideoRenderer: {
+                                                                            videoId: 'lyr2025vid1',
+                                                                            title: { runs: [{ text: 'Blueming' }] },
+                                                                            longBylineText: {
+                                                                                runs: [
+                                                                                    { text: 'IU' },
+                                                                                    { text: ' • ' },
+                                                                                    { text: 'Blueming - Single' },
+                                                                                    { text: ' • ' },
+                                                                                    { text: '2019' }
+                                                                                ]
+                                                                            }
+                                                                        }
+                                                                    }]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                    };
+                }
+                if (target.includes('itunes.apple.com/search')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            results: [{
+                                trackName: 'Blueming',
+                                artistName: 'IU',
+                                collectionName: 'Blueming - Single',
+                                releaseDate: '2019-11-18T08:00:00Z',
+                                trackNumber: 1,
+                                primaryGenreName: 'K-Pop',
+                                trackTimeMillis: 217000
+                            }]
+                        })
+                    };
+                }
+                return { ok: false };
+            };
+
+            const extResolveRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/resolve',
+                headers: { Cookie: adminCookie },
+                body: { url: 'https://www.youtube.com/watch?v=lyr2025vid1' }
+            });
+            assert.strictEqual(extResolveRes.status, 200);
+            const extJson = JSON.parse(extResolveRes.body);
+            assert.strictEqual(extJson.suggestedTitle, 'Blueming');
+            assert.strictEqual(extJson.suggestedArtist, 'IU');
+            assert.strictEqual(extJson.suggestedAlbumYear, 2019);
+            assert.strictEqual(extJson.suggestedLanguage, 'English + Korean (K-Pop)');
+            assert.strictEqual(extJson.suggestedArtistType, 'solo');
+            assert.strictEqual(extJson.suggestedAlbumIsSingleDuplicate, true);
+        } finally {
+            ytdlpService.extractSongLyrics = origExtract;
             global.fetch = origFetch;
         }
     });
