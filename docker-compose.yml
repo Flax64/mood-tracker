@@ -4,13 +4,22 @@ services:
     container_name: mood_db
     restart: always
     mem_limit: 1024m
-    # Optimización para Ubuntu Server (8 GB RAM + 1 TB almacenamiento, sin binlogs ni performance_schema)
+    cpus: "2.0"
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    # Optimización para Ubuntu Server (8 GB RAM + Intel i7 + ~500 GB HDD, optimizado para reducir I/O de disco mecánico)
     command:
       - --performance-schema=OFF
       - --mysqlx=0
       - --skip-log-bin
-      - --innodb-buffer-pool-size=256M
+      - --innodb-buffer-pool-size=384M
       - --innodb-log-buffer-size=16M
+      - --innodb-flush-method=O_DIRECT
+      - --innodb-flush-log-at-trx-commit=2
+      - --innodb-io-capacity=150
+      - --innodb-io-capacity-max=300
+      - --innodb-redo-log-capacity=64M
       - --max-connections=50
       - --table-open-cache=256
       - --table-definition-cache=400
@@ -34,7 +43,7 @@ services:
       # Ejecuta el script SQL al crear el contenedor por primera vez
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
       interval: 10s
       timeout: 10s
       retries: 12
@@ -44,9 +53,20 @@ services:
     build: .
     container_name: mood_app
     restart: always
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     mem_limit: 1024m
+    cpus: "2.0"
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+      - /dev/shm:rw,noexec,nosuid,nodev,size=64m
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      # Enlazado solo a loopback; exponer remotamente únicamente mediante Tailscale Serve o Caddy
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
     volumes:
       # Journal personal cifrado con contraseña (100% local, nunca en Drive ni Git)
       - ./data/journal:/app/journal-data
@@ -73,7 +93,12 @@ services:
       - LOG_MAX_BYTES=${LOG_MAX_BYTES:-5242880}
       - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
       - TRUST_PROXY=${TRUST_PROXY:-1}
+      - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
+      - REQUIRE_PC_BRIDGE_AUTH=${REQUIRE_PC_BRIDGE_AUTH:-true}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
       - SERVER_AUTONOMOUS_NOTES=${SERVER_AUTONOMOUS_NOTES:-true}
+      - DB_RETENTION_DAYS=${DB_RETENTION_DAYS:-0}
+      - ENABLE_LOGIN_MFA=${ENABLE_LOGIN_MFA:-false}
       - JOURNAL_LOCAL_PATH=${JOURNAL_LOCAL_PATH:-/app/journal-data/Diario.docx}
       - ENGLISH_WORD_FILE_PATH=${ENGLISH_WORD_FILE_PATH:-/app/english-notes/English_Learning_Notebook.docx}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
@@ -90,11 +115,12 @@ services:
       - RCLONE_CONF_B64=${RCLONE_CONF_B64:-}
       - STUDY_RCLONE_CONF_B64=${STUDY_RCLONE_CONF_B64:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       - YT_DLP_PATH=${YT_DLP_PATH:-}
       - YTDLP_COOKIES_PATH=${YTDLP_COOKIES_PATH:-}
       - YTM_INNERTUBE=${YTM_INNERTUBE:-1}
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -108,6 +134,14 @@ services:
     container_name: mood_proxy
     restart: always
     mem_limit: 64m
+    cpus: "0.5"
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
       # Puertos alternos por defecto para no chocar con `tailscale serve` en :443
       - "127.0.0.1:${PROXY_HTTP_PORT:-8080}:80"
@@ -120,7 +154,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

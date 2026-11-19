@@ -187,7 +187,7 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
     });
 
     it('valida formato Unix (LF), cabecera e higiene de los scripts bash', () => {
-        const scripts = ['scripts/backup.sh', 'scripts/env-vault.sh', 'scripts/restore.sh'];
+        const scripts = ['scripts/backup.sh', 'scripts/env-vault.sh', 'scripts/restore.sh', 'scripts/verify-ubuntu-local.sh'];
         for (const rel of scripts) {
             const full = path.join(ROOT, rel);
             const content = fs.readFileSync(full, 'utf8');
@@ -484,6 +484,11 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(dockerfile, /FROM node:20-alpine/);
         assert.match(dockerfile, /npm ci --omit=dev/);
         assert.match(dockerfile, /--max-old-space-size=768/);
+        assert.match(dockerfile, /\btzdata\b/);
+        assert.match(dockerfile, /XDG_CACHE_HOME=\/tmp\/\.cache/);
+        assert.match(dockerfile, /OOXMLFile/);
+        assert.match(dockerfile, /\/app\/lib\/docx_writer\.py/);
+        assert.match(dockerfile, /chown -R 1000:1000/);
         assert.match(dockerfile, /msoffcrypto-tool/);
         assert.match(dockerfile, /\bffmpeg\b/);
         assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp/);
@@ -491,8 +496,27 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
 
         const compose = readText('docker-compose.yml');
         assert.match(compose, /mem_limit:\s*1024m/);
+        assert.match(compose, /no-new-privileges:true/);
+        assert.match(compose, /cap_drop:/);
+        assert.match(compose, /pids_limit:/);
+        assert.match(compose, /noexec,nosuid,nodev/);
+        assert.match(compose, /REQUIRE_HTTPS=/);
+        assert.match(compose, /REQUIRE_PC_BRIDGE_AUTH=/);
+        assert.match(compose, /\/healthz/);
         assert.match(compose, /--performance-schema=OFF/);
         assert.match(compose, /--skip-log-bin/);
+        assert.match(compose, /--innodb-buffer-pool-size=384M/);
+        assert.match(compose, /--innodb-flush-method=O_DIRECT/);
+        assert.match(compose, /--innodb-flush-log-at-trx-commit=2/);
+        assert.match(compose, /--innodb-io-capacity=150/);
+        assert.match(compose, /--innodb-redo-log-capacity=64M/);
+        assert.match(compose, /mysqladmin",\s*"ping",\s*"-h",\s*"127\.0\.0\.1"/);
+        assert.match(compose, /user:\s*"\$\{APP_UID:-1000\}:\$\{APP_GID:-1000\}"/);
+        assert.match(compose, /"127\.0\.0\.1:\$\{PORT:-3000\}:\$\{PORT:-3000\}"/);
+        assert.equal(/^\s*-\s*"\$\{PORT:-3000\}:\$\{PORT:-3000\}"/m.test(compose), false, 'app port no debe exponerse en 0.0.0.0');
+        assert.match(compose, /DB_RETENTION_DAYS=\$\{DB_RETENTION_DAYS:-0\}/);
+        assert.match(compose, /ENABLE_LOGIN_MFA=\$\{ENABLE_LOGIN_MFA:-false\}/);
+        assert.match(compose, /YOUTUBE_API_KEY=\$\{YOUTUBE_API_KEY:-\}/);
         assert.match(compose, /\/app\/journal-data/);
         assert.match(compose, /\/app\/english-notes/);
         assert.match(compose, /\/app\/logs/);
@@ -502,6 +526,86 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(compose, /YT_DLP_PATH=\$\{YT_DLP_PATH:-\}/);
         assert.ok((compose.match(/restart:\s*always/g) || []).length >= 3, 'db, app y proxy deben usar restart: always');
         assert.ok((compose.match(/healthcheck:/g) || []).length >= 3, 'db, app y proxy deben definir healthcheck');
+
+        // CryptoJS 100% local sin CDN externo + interoperabilidad E2EE y TransportCrypto
+        const cryptoVendorPath = path.join(ROOT, 'public', 'vendor', 'crypto-js.min.js');
+        assert.ok(fs.existsSync(cryptoVendorPath), 'Debe existir public/vendor/crypto-js.min.js');
+        assert.ok(fs.statSync(cryptoVendorPath).size > 30000, 'crypto-js.min.js debe estar completo (> 30 KB)');
+        const indexHtmlMain = readText('public/index.html');
+        assert.ok(indexHtmlMain.includes('src="vendor/crypto-js.min.js"'), 'index.html debe cargar vendor/crypto-js.min.js local');
+        assert.equal(indexHtmlMain.includes('cdnjs.cloudflare.com'), false, 'index.html no debe depender de cdnjs.cloudflare.com');
+        const serverSrc = readText('server.js');
+        assert.equal(serverSrc.includes('cdnjs.cloudflare.com'), false, 'server.js CSP no debe incluir cdnjs.cloudflare.com');
+        assert.match(serverSrc, /script-src 'self'/);
+
+        const { webcrypto } = require('node:crypto');
+        const serverNotes = require(path.join(ROOT, 'lib', 'server-notes-service.js'));
+        const vendorSandbox = {
+            window: { crypto: webcrypto },
+            self: { crypto: webcrypto },
+            globalThis: { crypto: webcrypto },
+            crypto: webcrypto
+        };
+        vm.runInNewContext(fs.readFileSync(cryptoVendorPath, 'utf8'), vendorSandbox);
+        const C = vendorSandbox.CryptoJS || vendorSandbox.window.CryptoJS;
+        assert.ok(C && C.AES && C.HmacSHA256 && C.mode.CBC && C.pad.Pkcs7);
+        const e2eeKey = '12345678901234567890123456789012';
+        const iv = C.lib.WordArray.random(16);
+        const encObj = C.AES.encrypt('Nota local Ubuntu Tailscale', C.enc.Utf8.parse(e2eeKey), { iv });
+        const envelope = iv.toString(C.enc.Hex) + ':' + encObj.toString();
+        const decCheck = serverNotes.decryptClientE2ee(envelope, e2eeKey);
+        assert.equal(decCheck.ok, true);
+        assert.equal(decCheck.plainText, 'Nota local Ubuntu Tailscale');
+
+        const transportSandbox = {
+            window: { crypto: webcrypto, CryptoJS: C },
+            globalThis: { crypto: webcrypto, CryptoJS: C },
+            CryptoJS: C,
+            crypto: webcrypto,
+            TextEncoder,
+            TextDecoder,
+            btoa: (str) => Buffer.from(str, 'binary').toString('base64'),
+            atob: (b64) => Buffer.from(b64, 'base64').toString('binary')
+        };
+        vm.runInNewContext(readText('public/transport-crypto.js'), transportSandbox);
+        const tcClient = transportSandbox.window.TransportCrypto || transportSandbox.globalThis.TransportCrypto;
+        assert.ok(tcClient && typeof tcClient.aes256CtrTransform === 'function');
+        const ctrKey = new Uint8Array(32).fill(7);
+        const ctrIv = new Uint8Array(16).fill(3);
+        const rawBytes = new TextEncoder().encode('Ubuntu 100% local');
+        const cipherBytes = tcClient.aes256CtrTransform(ctrKey, ctrIv, rawBytes, C);
+        const plainBytes = tcClient.aes256CtrTransform(ctrKey, ctrIv, cipherBytes, C);
+        assert.equal(new TextDecoder().decode(plainBytes), 'Ubuntu 100% local');
+
+        // Backup 100% local o Drive verificado, .backup.meta con DB_RETENTION_DAYS y .gitignore con node_modules/
+        const envVaultSh = readText('scripts/env-vault.sh');
+        assert.match(envVaultSh, /DB_RETENTION_DAYS/);
+        assert.match(envVaultSh, /REQUIRE_DRIVE_BACKUP/);
+        const backupShCfg = readText('scripts/backup.sh');
+        assert.match(backupShCfg, /DRIVE_ENABLED=0/);
+        assert.match(backupShCfg, /--require-drive/);
+        assert.match(backupShCfg, /REQUIRE_DRIVE_BACKUP/);
+        assert.match(backupShCfg, /lsf "\$\{REMOTE_NAME\}:\$\{REMOTE_DIR\}" --include "respaldo_mood_tracker\.sql\.gz"/);
+        const verifyUbuntuSh = readText('scripts/verify-ubuntu-local.sh');
+        assert.match(verifyUbuntuSh, /\[9\/10\].*Google Drive/);
+        assert.match(verifyUbuntuSh, /\[10\/10\].*Blindaje/);
+        assert.match(verifyUbuntuSh, /Strict-Transport-Security/);
+        assert.match(verifyUbuntuSh, /426/);
+        assert.match(verifyUbuntuSh, /evil\.example/);
+        assert.match(verifyUbuntuSh, /respaldo_mood_tracker\.sql\.gz/);
+        assert.match(readText('.gitignore'), /^node_modules\/$/m);
+
+        const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
+        assert.match(ubuntuGuide, /authorized_keys/);
+        assert.match(ubuntuGuide, /NOPASSWD:ALL/);
+        assert.match(ubuntuGuide, /TS_OAUTH_CLIENT_ID/);
+        assert.match(ubuntuGuide, /SERVER_SSH_KEY/);
+        assert.match(ubuntuGuide, /--require-drive/);
+        assert.match(ubuntuGuide, /hidepid=2/);
+        assert.match(ubuntuGuide, /fail2ban/);
+        assert.match(ubuntuGuide, /unattended-upgrades/);
+        assert.match(ubuntuGuide, /tcp_syncookies/);
+        assert.match(ubuntuGuide, /auditd/);
     });
 
     it('mantiene sincronizadas las variables env y envs en deploy.yml sin dejar .env en disco', () => {
@@ -520,6 +624,21 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
                 `La variable ${key} está en env: pero falta en envs: de ssh-action`
             );
         }
+
+        // Validación de Tailscale CI OAuth sin evaluar secrets.* dentro de expresiones if:
+        assert.match(deploy, /uses:\s*tailscale\/github-action@v3/);
+        assert.match(deploy, /steps\.ts_mode\.outputs\.mode\s*==\s*'oauth'/);
+        assert.equal(/if:\s*[^\r\n]*\bsecrets\./.test(deploy), false, 'GitHub Actions no permite secrets.* dentro de expresiones if:');
+        assert.match(deploy, /SERVER_HOST/);
+        assert.match(deploy, /SERVER_SSH_KEY/);
+        assert.match(deploy, /SECRET_DB_RETENTION_DAYS/);
+        assert.match(deploy, /SECRET_REQUIRE_DRIVE_BACKUP/);
+        assert.match(deploy, /SECRET_REQUIRE_HTTPS/);
+        assert.match(deploy, /SECRET_REQUIRE_PC_BRIDGE_AUTH/);
+        assert.match(deploy, /SECRET_CORS_ALLOWED_ORIGINS/);
+        assert.match(deploy, /APP_UID=/);
+        assert.match(deploy, /docker exec -u 0 mood_app yt-dlp -U/);
+        assert.match(deploy, /printf 'DB_RETENTION_DAYS=%s\\n' "\$FINAL_DB_RETENTION_DAYS"/);
 
         assert.match(deploy, /cleanup_deploy_env/);
         assert.match(deploy, /git remote set-url origin "https:\/\/github\.com\/\$\{GITHUB_REPO\}\.git"/);
@@ -822,6 +941,8 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         const caddyfile = readText('Caddyfile');
         assert.match(caddyfile, /reverse_proxy\s+app:/);
         assert.match(caddyfile, /tls internal/);
+        assert.match(caddyfile, /max_size\s+16MB/);
+        assert.match(caddyfile, /header -Server/);
 
         const compose = readText('docker-compose.yml');
         assert.match(compose, /caddy:2-alpine/);
@@ -995,6 +1116,71 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
 
         const dividedPureKo = Array.from(sandbox.parseAndDivideLyricsByLanguage('', { original: '사랑해\n영원히', ko: '사랑해\n영원히', en: '', ja: '', es: '' }));
         assert.deepEqual(dividedPureKo.map(s => s.code), ['ko'], 'Canción en coreano puro debe renderizarse únicamente en Coreano puro');
+
+        // Verificación exhaustiva de división de letras en todos los idiomas predefinidos (EN, KO, EN_KO, JA, EN_JA, ES, ORIGINAL, ALL)
+        const adlibKpop = [
+            '[EN_KO]',
+            'Baby, 사랑해 (forever)!',
+            '사랑해, baby, 영원히',
+            '사랑해!',
+            '사랑해 (영원히)',
+            'Shining bright in the night'
+        ].join('\n');
+        const dividedAdlibKpop = Array.from(sandbox.parseAndDivideLyricsByLanguage(adlibKpop));
+        assert.deepEqual(dividedAdlibKpop.map(s => s.code), ['original', 'ko', 'en']);
+        const koSecAdlib = dividedAdlibKpop.find(s => s.code === 'ko');
+        assert.deepEqual(
+            Array.from(koSecAdlib.lines),
+            ['사랑해', '사랑해, 영원히', '사랑해!', '사랑해 (영원히)'],
+            'El apartado KO debe quitar palabras/ad-libs latinos con puntuación y conservar puntuación CJK real'
+        );
+        const enSecAdlib = dividedAdlibKpop.find(s => s.code === 'en');
+        assert.equal(enSecAdlib.lines.join('\n'), 'Shining bright in the night');
+
+        // J-Pop mixto (EN_JA) con structuredTracks solo en original + español
+        const jpopMixed = Array.from(sandbox.parseAndDivideLyricsByLanguage('', {
+            original: '愛してる, my love!\n夢を見る (tonight)\nShining bright in the dark',
+            ko: '',
+            en: '',
+            ja: '',
+            es: 'Te amo por siempre\nSueño esta noche'
+        }));
+        assert.deepEqual(jpopMixed.map(s => s.code), ['original', 'en', 'ja', 'es']);
+        assert.deepEqual(Array.from(jpopMixed.find(s => s.code === 'ja').lines), ['愛してる', '夢を見る']);
+        const jpopEnText = jpopMixed.find(s => s.code === 'en').lines.join('\n');
+        assert.equal(jpopEnText, 'my love!\nShining bright in the dark');
+        assert.equal(/tonight|愛してる|夢を見る|Te amo/i.test(jpopEnText), false);
+
+        // Filtro 'en' en _cleanLinesForLanguageAnalysis debe rechazar español y extraer bloques multi-palabra en inglés
+        const cleanedEn = Array.from(sandbox._cleanLinesForLanguageAnalysis([
+            '사랑해 forever',
+            '사랑해 shining night together',
+            'Te amo por siempre',
+            'Every single step'
+        ], 'en'));
+        assert.deepEqual(cleanedEn, ['shining night together', 'Every single step']);
+
+        // Validar extractLyricsForActiveLanguage con los 6 filtros predefinidos + original + all
+        const fullMulti = [
+            '[ORIGINAL]',
+            'Baby, 사랑해 (forever)!',
+            'Shining night together',
+            '[JA]',
+            '愛してる, my love!',
+            '夢を見る (tonight)',
+            '[ES]',
+            'Te amo por siempre',
+            'Noche brillante juntos'
+        ].join('\n');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'ko').text, '사랑해');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en').text, 'Shining night together');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'ja').text, '愛してる\n夢を見る');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'es').text, 'Te amo por siempre\nNoche brillante juntos');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en_ko').apiLanguage, 'en_ko');
+        assert.ok(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en_ko').text.includes('Baby, 사랑해 (forever)!'));
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en_ja').apiLanguage, 'en_ja');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'original').langCode, 'original');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'all').langCode, 'all');
 
         // Regresión Planificador Semanal V2: orden Título/Descripción arriba, Posponer, Skip, Repeticiones y Calendarios
         for (const reqAgendaSel of [

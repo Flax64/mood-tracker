@@ -322,6 +322,23 @@ describe('lib/server-notes-service & lib/docx_writer.py (Notas autónomas en Ubu
             assert.match(errText, /\[ERROR\] \[HTTP\]/);
             assert.equal(errText.includes('[SYSTEM]'), false, 'error.log solo debe incluir WARN/ERROR/CRASH');
 
+            // Verificar redacción estricta de llaves Google/Tailscale/GitHub, PEM y variables .env en logs
+            const leakedSample = [
+                'GEMINI=AIzaSyDummyGoogleKey1234567890abcdef',
+                'TS=tskey-auth-kSecretTailscaleKey999',
+                'GH=ghp_1234567890abcdefghijklmnopqr',
+                'WORD_PASSWORD=miClaveSuperSecreta',
+                'DB_PASS=mysqlRootPass99',
+                'RCLONE_CONF_B64=dG9rZW49c2VjcmV0bw==',
+                '-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----'
+            ].join(' ');
+            const sanitized = serverLoggerMod.sanitizeMessageText(leakedSample);
+            assert.equal(/DummyGoogleKey|kSecretTailscaleKey|abcdefghijklmnopqr|miClaveSuperSecreta|mysqlRootPass99|dG9rZW49c2VjcmV0bw|abc123/.test(sanitized), false);
+            assert.match(sanitized, /\[REDACTED_GOOGLE_KEY\]/);
+            assert.match(sanitized, /\[REDACTED_TS_KEY\]/);
+            assert.match(sanitized, /\[REDACTED_GH_TOKEN\]/);
+            assert.match(sanitized, /\[REDACTED_PRIVATE_KEY\]/);
+
             const tail = logger.getRecentLogTail({ kind: 'server', lines: 2 });
             assert.strictEqual(tail.ok, true);
             assert.strictEqual(tail.lines.length, 2);

@@ -1,4 +1,4 @@
-name: Deploy to AWS EC2
+name: Deploy to Ubuntu Server (Tailscale / SSH)
 
 on:
   push:
@@ -101,13 +101,42 @@ jobs:
       - name: Checkout del repositorio
         uses: actions/checkout@v4
 
-      - name: Desplegar y migrar en AWS EC2 vía SSH
+      - name: Detectar modo Tailscale para conexión SSH privada
+        id: ts_mode
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          if [ -n "${TS_OAUTH_CLIENT_ID:-}" ] && [ -n "${TS_OAUTH_SECRET:-}" ]; then
+            echo "mode=oauth" >> "$GITHUB_OUTPUT"
+          elif [ -n "${TS_AUTHKEY:-}" ]; then
+            echo "mode=authkey" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Conectar runner a Tailscale (OAuth recomendado)
+        if: steps.ts_mode.outputs.mode == 'oauth'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: ${{ vars.TS_TAGS || 'tag:ci' }}
+
+      - name: Conectar runner a Tailscale (Auth Key)
+        if: steps.ts_mode.outputs.mode == 'authkey'
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Desplegar en Ubuntu Server vía SSH
         uses: appleboy/ssh-action@v1.0.0
         env:
           GITHUB_REPO: ${{ github.repository }}
           APP_VERSION: ${{ needs.release.outputs.version }}
           RELEASE_HISTORY_B64: ${{ needs.release.outputs.history_b64 }}
-          DEPLOY_EC2_HOST: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
+          DEPLOY_EC2_HOST: ${{ vars.SERVER_HOST || secrets.SERVER_HOST || vars.EC2_HOST || secrets.EC2_HOST }}
           SECRET_DB_HOST: ${{ secrets.DB_HOST || vars.DB_HOST }}
           SECRET_DB_USER: ${{ secrets.DB_USER || vars.DB_USER }}
           SECRET_DB_PASS: ${{ secrets.DB_PASS }}
@@ -123,6 +152,9 @@ jobs:
           SECRET_APP_BASE_URL: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
           SEAL_ENV_AFTER_DEPLOY: ${{ vars.SEAL_ENV_AFTER_DEPLOY || secrets.SEAL_ENV_AFTER_DEPLOY }}
           BACKUP_CRON_SCHEDULE: ${{ vars.BACKUP_CRON_SCHEDULE || secrets.BACKUP_CRON_SCHEDULE }}
+          SECRET_DB_RETENTION_DAYS: ${{ vars.DB_RETENTION_DAYS || secrets.DB_RETENTION_DAYS }}
+          SECRET_ENABLE_LOGIN_MFA: ${{ vars.ENABLE_LOGIN_MFA || secrets.ENABLE_LOGIN_MFA }}
+          SECRET_REQUIRE_DRIVE_BACKUP: ${{ vars.REQUIRE_DRIVE_BACKUP || secrets.REQUIRE_DRIVE_BACKUP }}
           SECRET_RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE }}
           SECRET_RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR }}
           RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
@@ -130,14 +162,21 @@ jobs:
           SECRET_STUDY_RCLONE_DIR: ${{ vars.STUDY_RCLONE_DIR || secrets.STUDY_RCLONE_DIR }}
           STUDY_RCLONE_CONF_B64: ${{ secrets.STUDY_RCLONE_CONF_B64 }}
           SECRET_SITE_ADDRESS: ${{ vars.SITE_ADDRESS || secrets.SITE_ADDRESS }}
+          SECRET_PROXY_HTTP_PORT: ${{ vars.PROXY_HTTP_PORT || secrets.PROXY_HTTP_PORT }}
+          SECRET_PROXY_HTTPS_PORT: ${{ vars.PROXY_HTTPS_PORT || secrets.PROXY_HTTPS_PORT }}
+          SECRET_REQUIRE_HTTPS: ${{ vars.REQUIRE_HTTPS || secrets.REQUIRE_HTTPS }}
+          SECRET_REQUIRE_PC_BRIDGE_AUTH: ${{ vars.REQUIRE_PC_BRIDGE_AUTH || secrets.REQUIRE_PC_BRIDGE_AUTH }}
+          SECRET_CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS || secrets.CORS_ALLOWED_ORIGINS }}
           SECRET_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SECRET_YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           SECRET_YT_DLP_PATH: ${{ vars.YT_DLP_PATH || secrets.YT_DLP_PATH }}
         with:
-          host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
-          username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ vars.SERVER_HOST || secrets.SERVER_HOST || vars.EC2_HOST || secrets.EC2_HOST }}
+          username: ${{ vars.SERVER_USER || secrets.SERVER_USER || vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
+          port: ${{ vars.SERVER_SSH_PORT || secrets.SERVER_SSH_PORT || 22 }}
+          key: ${{ secrets.SERVER_SSH_KEY || secrets.EC2_SSH_KEY }}
           command_timeout: 25m
-          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_SITE_ADDRESS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
+          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_SITE_ADDRESS,SECRET_PROXY_HTTP_PORT,SECRET_PROXY_HTTPS_PORT,SECRET_REQUIRE_HTTPS,SECRET_REQUIRE_PC_BRIDGE_AUTH,SECRET_CORS_ALLOWED_ORIGINS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_DB_RETENTION_DAYS,SECRET_ENABLE_LOGIN_MFA,SECRET_REQUIRE_DRIVE_BACKUP,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YOUTUBE_API_KEY,SECRET_YT_DLP_PATH
           script: |
             set -euo pipefail
 
@@ -150,28 +189,30 @@ jobs:
             }
             trap cleanup_deploy_env EXIT INT TERM
 
-            # 0. Activar memoria Swap 2 GB primero (critico al migrar o desplegar en instancias con poca RAM como EC2 t3.micro 1 GB)
+            # 0. Activar memoria Swap 2 GB primero si el sistema aún no cuenta con >= 2 GB de swap (soporta /swap.img nativo de Ubuntu o /swapfile)
             SUDO=""
             if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
               SUDO="sudo"
             fi
-            CURRENT_SWAP_BYTES="$(stat -c%s /swapfile 2>/dev/null || echo 0)"
-            if ! swapon --show=NAME --noheadings 2>/dev/null | grep -q . || [ "${CURRENT_SWAP_BYTES:-0}" -lt 2000000000 ]; then
-              echo "💾 Configurando y activando memoria Swap persistente (2 GB)..."
+            TOTAL_SWAP_BYTES="$(free -b 2>/dev/null | awk '/^Swap:/{print $2}' || echo 0)"
+            if [ "${TOTAL_SWAP_BYTES:-0}" -lt 2000000000 ]; then
+              echo "💾 Configurando y activando memoria Swap persistente (2 GB en /swapfile)..."
               $SUDO swapoff /swapfile 2>/dev/null || true
               $SUDO rm -f /swapfile
               $SUDO fallocate -l 2G /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
               $SUDO chmod 600 /swapfile
               $SUDO mkswap /swapfile >/dev/null 2>&1 || true
               $SUDO swapon /swapfile || true
+              if [ -f /etc/fstab ] && ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
+                echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+              fi
             else
-              echo "💾 Memoria Swap (2 GB) ya activa en la instancia."
-            fi
-            if [ -f /etc/fstab ] && ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
-              echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+              echo "💾 Memoria Swap suficiente ya activa (${TOTAL_SWAP_BYTES} bytes)."
             fi
             $SUDO sysctl -w vm.swappiness=15 vm.vfs_cache_pressure=50 >/dev/null 2>&1 || true
-            if [ -f /etc/sysctl.conf ]; then
+            if [ -d /etc/sysctl.d ]; then
+              printf 'vm.swappiness=15\nvm.vfs_cache_pressure=50\n' | $SUDO tee /etc/sysctl.d/99-mood-tuning.conf >/dev/null 2>&1 || true
+            elif [ -f /etc/sysctl.conf ]; then
               if grep -qE '^vm\.swappiness=' /etc/sysctl.conf; then
                 $SUDO sed -i 's/^vm\.swappiness=.*/vm.swappiness=15/' /etc/sysctl.conf
               else
@@ -280,6 +321,12 @@ jobs:
               exit 1
             fi
 
+            APP_UID="$(id -u)"
+            APP_GID="$(id -g)"
+            mkdir -p data/journal data/ytdlp english-notes logs
+            chmod 700 data data/journal data/ytdlp english-notes logs
+            $SUDO chown -R "${APP_UID}:${APP_GID}" data/ english-notes/ logs/ 2>/dev/null || true
+
             FINAL_DB_HOST="${SECRET_DB_HOST:-${OLD_DB_HOST:-db}}"
             FINAL_DB_USER="${SECRET_DB_USER:-${OLD_DB_USER:-root}}"
             FINAL_DB_NAME="${SECRET_DB_NAME:-${OLD_DB_NAME:-MoodTrackerLocal}}"
@@ -291,13 +338,35 @@ jobs:
             FINAL_JOURNAL_SECRET_KEY="${SECRET_JOURNAL_SECRET_KEY:-${OLD_JOURNAL_SECRET_KEY:-}}"
             FINAL_SMTP_USER="${SECRET_SMTP_USER:-${OLD_SMTP_USER:-$FINAL_ADMIN_EMAIL}}"
             FINAL_SMTP_PASS="${SECRET_SMTP_PASS:-${OLD_SMTP_PASS:-}}"
-            FINAL_APP_BASE_URL="${SECRET_APP_BASE_URL:-http://${DEPLOY_EC2_HOST}:${FINAL_PORT}}"
+            FINAL_APP_BASE_URL="${SECRET_APP_BASE_URL:-${OLD_APP_BASE_URL:-}}"
+            if [ -z "$FINAL_APP_BASE_URL" ] && command -v tailscale >/dev/null 2>&1; then
+              TS_DNS="$(tailscale status --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('Self',{}).get('DNSName') or '').rstrip('.'))" 2>/dev/null || true)"
+              if [ -n "$TS_DNS" ]; then
+                FINAL_APP_BASE_URL="https://${TS_DNS}"
+              fi
+            fi
+            FINAL_APP_BASE_URL="${FINAL_APP_BASE_URL:-http://${DEPLOY_EC2_HOST}:${FINAL_PORT}}"
             FINAL_SITE_ADDRESS="${SECRET_SITE_ADDRESS:-${OLD_SITE_ADDRESS:-:80}}"
+            FINAL_PROXY_HTTP_PORT="${SECRET_PROXY_HTTP_PORT:-${OLD_PROXY_HTTP_PORT:-8080}}"
+            FINAL_PROXY_HTTPS_PORT="${SECRET_PROXY_HTTPS_PORT:-${OLD_PROXY_HTTPS_PORT:-8443}}"
+            FINAL_REQUIRE_HTTPS="${SECRET_REQUIRE_HTTPS:-${OLD_REQUIRE_HTTPS:-}}"
+            if [ -z "$FINAL_REQUIRE_HTTPS" ]; then
+              case "$FINAL_APP_BASE_URL" in
+                https://*) FINAL_REQUIRE_HTTPS="true" ;;
+                *) FINAL_REQUIRE_HTTPS="false" ;;
+              esac
+            fi
+            FINAL_REQUIRE_PC_BRIDGE_AUTH="${SECRET_REQUIRE_PC_BRIDGE_AUTH:-${OLD_REQUIRE_PC_BRIDGE_AUTH:-true}}"
+            FINAL_CORS_ALLOWED_ORIGINS="${SECRET_CORS_ALLOWED_ORIGINS:-${OLD_CORS_ALLOWED_ORIGINS:-}}"
+            FINAL_DB_RETENTION_DAYS="${SECRET_DB_RETENTION_DAYS:-${OLD_DB_RETENTION_DAYS:-0}}"
+            FINAL_ENABLE_LOGIN_MFA="${SECRET_ENABLE_LOGIN_MFA:-${OLD_ENABLE_LOGIN_MFA:-false}}"
+            FINAL_REQUIRE_DRIVE_BACKUP="${SECRET_REQUIRE_DRIVE_BACKUP:-${OLD_REQUIRE_DRIVE_BACKUP:-false}}"
             FINAL_RCLONE_REMOTE="${SECRET_RCLONE_REMOTE:-${OLD_RCLONE_REMOTE:-gdrive}}"
             FINAL_RCLONE_BACKUP_DIR="${SECRET_RCLONE_BACKUP_DIR:-${OLD_RCLONE_BACKUP_DIR:-RespaldosApp}}"
             FINAL_STUDY_RCLONE_REMOTE="${SECRET_STUDY_RCLONE_REMOTE:-${OLD_STUDY_RCLONE_REMOTE:-}}"
             FINAL_STUDY_RCLONE_DIR="${SECRET_STUDY_RCLONE_DIR:-${OLD_STUDY_RCLONE_DIR:-NotasIdiomas}}"
             FINAL_GEMINI_API_KEY="${SECRET_GEMINI_API_KEY:-${OLD_GEMINI_API_KEY:-}}"
+            FINAL_YOUTUBE_API_KEY="${SECRET_YOUTUBE_API_KEY:-${OLD_YOUTUBE_API_KEY:-}}"
             FINAL_YT_DLP_PATH="${SECRET_YT_DLP_PATH:-${OLD_YT_DLP_PATH:-}}"
 
             ENV_TMP_DIR="/dev/shm"
@@ -314,6 +383,16 @@ jobs:
               printf 'DB_NAME=%s\n' "$FINAL_DB_NAME"
               printf 'PORT=%s\n' "$FINAL_PORT"
               printf 'TZ=%s\n' "$FINAL_TZ"
+              printf 'APP_UID=%s\n' "$APP_UID"
+              printf 'APP_GID=%s\n' "$APP_GID"
+              printf 'TRUST_PROXY=1\n'
+              printf 'REQUIRE_HTTPS=%s\n' "$FINAL_REQUIRE_HTTPS"
+              printf 'REQUIRE_PC_BRIDGE_AUTH=%s\n' "$FINAL_REQUIRE_PC_BRIDGE_AUTH"
+              printf 'CORS_ALLOWED_ORIGINS=%s\n' "$FINAL_CORS_ALLOWED_ORIGINS"
+              printf 'SERVER_AUTONOMOUS_NOTES=true\n'
+              printf 'DB_RETENTION_DAYS=%s\n' "$FINAL_DB_RETENTION_DAYS"
+              printf 'ENABLE_LOGIN_MFA=%s\n' "$FINAL_ENABLE_LOGIN_MFA"
+              printf 'REQUIRE_DRIVE_BACKUP=%s\n' "$FINAL_REQUIRE_DRIVE_BACKUP"
               printf 'ADMIN_EMAIL=%s\n' "$FINAL_ADMIN_EMAIL"
               printf 'ADMIN_SECRET=%s\n' "$FINAL_ADMIN_SECRET"
               printf 'WORD_PASSWORD=%s\n' "$FINAL_WORD_PASSWORD"
@@ -322,6 +401,8 @@ jobs:
               printf 'SMTP_PASS=%s\n' "$FINAL_SMTP_PASS"
               printf 'APP_BASE_URL=%s\n' "$FINAL_APP_BASE_URL"
               printf 'SITE_ADDRESS=%s\n' "$FINAL_SITE_ADDRESS"
+              printf 'PROXY_HTTP_PORT=%s\n' "$FINAL_PROXY_HTTP_PORT"
+              printf 'PROXY_HTTPS_PORT=%s\n' "$FINAL_PROXY_HTTPS_PORT"
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
               printf 'STUDY_RCLONE_REMOTE=%s\n' "$FINAL_STUDY_RCLONE_REMOTE"
@@ -329,10 +410,11 @@ jobs:
               printf 'RCLONE_CONF_B64=%s\n' "$(printf '%s' "${RCLONE_CONF_B64:-}" | tr -d ' \n\r')"
               printf 'STUDY_RCLONE_CONF_B64=%s\n' "$(printf '%s' "${STUDY_RCLONE_CONF_B64:-}" | tr -d ' \n\r')"
               printf 'GEMINI_API_KEY=%s\n' "$FINAL_GEMINI_API_KEY"
+              printf 'YOUTUBE_API_KEY=%s\n' "$FINAL_YOUTUBE_API_KEY"
               printf 'YT_DLP_PATH=%s\n' "$FINAL_YT_DLP_PATH"
             } > "$DEPLOY_ENV_FILE"
 
-            # 4. Configurar rclone automáticamente (Drive 1 Clínico + Drive 2 Estudio opcional) con permisos 700/600
+            # 4. Configurar rclone automáticamente (Drive 1 Clínico + Drive 2 Estudio opcional) con permisos 700/600 y verificar conectividad
             if [ -n "${RCLONE_CONF_B64:-}" ] || [ -n "${STUDY_RCLONE_CONF_B64:-}" ]; then
               mkdir -p "$HOME/.config/rclone"
               chmod 700 "$HOME/.config/rclone"
@@ -348,7 +430,22 @@ jobs:
             fi
             unset RCLONE_CONF_B64 STUDY_RCLONE_CONF_B64
 
-            chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh
+            if command -v rclone >/dev/null 2>&1 && [ -s "$HOME/.config/rclone/rclone.conf" ]; then
+              if rclone --config "$HOME/.config/rclone/rclone.conf" listremotes 2>/dev/null | grep -qx "${FINAL_RCLONE_REMOTE}:" \
+                && rclone --config "$HOME/.config/rclone/rclone.conf" mkdir "${FINAL_RCLONE_REMOTE}:${FINAL_RCLONE_BACKUP_DIR}" >/dev/null 2>&1; then
+                echo "✅ Google Drive remoto '${FINAL_RCLONE_REMOTE}:${FINAL_RCLONE_BACKUP_DIR}' verificado."
+              else
+                echo "⚠️ No se pudo verificar Google Drive (${FINAL_RCLONE_REMOTE}:${FINAL_RCLONE_BACKUP_DIR}). Revisa RCLONE_CONF_B64." >&2
+                if [ "$FINAL_REQUIRE_DRIVE_BACKUP" = "true" ]; then
+                  exit 1
+                fi
+              fi
+            elif [ "$FINAL_REQUIRE_DRIVE_BACKUP" = "true" ]; then
+              echo "ERROR: REQUIRE_DRIVE_BACKUP=true pero falta rclone o RCLONE_CONF_B64." >&2
+              exit 1
+            fi
+
+            chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh scripts/verify-ubuntu-local.sh
 
             # 5. Levantar o actualizar los contenedores Docker leyendo el entorno desde RAM
             $DOCKER_CMD compose --env-file "$DEPLOY_ENV_FILE" up -d --build
@@ -379,12 +476,14 @@ jobs:
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
               printf 'BACKUP_LOCAL_DIR=%s\n' "$HOME/projects/respaldos"
+              printf 'DB_RETENTION_DAYS=%s\n' "$FINAL_DB_RETENTION_DAYS"
+              printf 'REQUIRE_DRIVE_BACKUP=%s\n' "$FINAL_REQUIRE_DRIVE_BACKUP"
             } > "$HOME/projects/respaldos/.backup.meta"
             chmod 600 "$HOME/projects/respaldos/.backup.meta"
 
             FINAL_CRON_SCHEDULE="${BACKUP_CRON_SCHEDULE:-30 3 * * *}"
             CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
-            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec mood_app yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
+            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec -u 0 mood_app yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" | grep -v "yt-dlp -U" || true; printf '%s\n%s\n' "$CRON_JOB" "$YTDLP_CRON_JOB") | crontab -
 
             # 9. Garantizar cero .env en disco por defecto (salvo que SEAL_ENV_AFTER_DEPLOY=false)

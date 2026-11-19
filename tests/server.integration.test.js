@@ -4233,6 +4233,93 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.match(String(ytCapsEsData.spanishLyrics || ''), /Cierra los ojos ahora/);
     });
 
+    it('aplica REQUIRE_HTTPS, /healthz, CORS estricto y REQUIRE_PC_BRIDGE_AUTH en /api/pull-*', async () => {
+        // 1. /healthz responde 200 OK aun bajo REQUIRE_HTTPS=true y sin TLS
+        const prevReqHttps = process.env.REQUIRE_HTTPS;
+        const prevPcAuth = process.env.REQUIRE_PC_BRIDGE_AUTH;
+        const prevSecretKey = process.env.JOURNAL_SECRET_KEY;
+        try {
+            process.env.REQUIRE_HTTPS = 'true';
+            process.env.REQUIRE_PC_BRIDGE_AUTH = 'true';
+            process.env.JOURNAL_SECRET_KEY = '12345678901234567890123456789012';
+
+            const healthRes = await request({ port, reqPath: '/healthz' });
+            assert.strictEqual(healthRes.status, 200);
+            assert.deepStrictEqual(JSON.parse(healthRes.body), { ok: true });
+
+            // 2. API por HTTP plano sin TLS devuelve 426 Upgrade Required
+            const plainApi = await request({ port, reqPath: '/api/auth/me' });
+            assert.strictEqual(plainApi.status, 426);
+
+            // 3. Navegador por HTTP plano redirige 308 -> https://
+            const plainHtml = await request({ port, reqPath: '/index.html' });
+            assert.strictEqual(plainHtml.status, 308);
+            assert.match(String(plainHtml.headers.location || ''), /^https:\/\//);
+
+            // 4. Con X-Forwarded-Proto: https sirve 200 + HSTS + upgrade-insecure-requests en CSP
+            const httpsHtml = await request({
+                port,
+                reqPath: '/index.html',
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            assert.strictEqual(httpsHtml.status, 200);
+            assert.match(String(httpsHtml.headers['strict-transport-security'] || ''), /max-age=31536000/);
+            assert.match(String(httpsHtml.headers['content-security-policy'] || ''), /upgrade-insecure-requests/);
+
+            // 5. CORS estricto: rechaza orígenes externos hostiles y permite *.ts.net (Tailscale)
+            const evilCors = await request({
+                port,
+                reqPath: '/api/auth/me',
+                headers: { 'X-Forwarded-Proto': 'https', Origin: 'https://evil.example' }
+            });
+            assert.strictEqual(evilCors.headers['access-control-allow-origin'], undefined);
+            assert.strictEqual(evilCors.headers['access-control-allow-credentials'], undefined);
+
+            const tailscaleCors = await request({
+                port,
+                reqPath: '/api/auth/me',
+                headers: { 'X-Forwarded-Proto': 'https', Origin: 'https://dailyhub-srv.tail1234.ts.net' }
+            });
+            assert.strictEqual(tailscaleCors.headers['access-control-allow-origin'], 'https://dailyhub-srv.tail1234.ts.net');
+            assert.strictEqual(tailscaleCors.headers['access-control-allow-credentials'], 'true');
+
+            // 6. Con REQUIRE_PC_BRIDGE_AUTH=true, /api/pull-text y /api/pull-english rechazan peticiones sin HMAC (401)
+            const pullTextUnauth = await request({
+                port,
+                reqPath: '/api/pull-text',
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            assert.strictEqual(pullTextUnauth.status, 401);
+
+            const pullEngUnauth = await request({
+                port,
+                reqPath: '/api/pull-english',
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            assert.strictEqual(pullEngUnauth.status, 401);
+
+            // Y permiten petición firmada con HMAC-SHA256 válido
+            const tsSec = String(Math.floor(Date.now() / 1000));
+            const emptyBodyHash = crypto.createHash('sha256').update('', 'utf8').digest('hex');
+            const canonical = `GET:/api/pull-text:${tsSec}:${emptyBodyHash}`;
+            const sig = crypto.createHmac('sha256', process.env.JOURNAL_SECRET_KEY).update(canonical, 'utf8').digest('hex');
+            const pullTextSigned = await request({
+                port,
+                reqPath: '/api/pull-text',
+                headers: {
+                    'X-Forwarded-Proto': 'https',
+                    'x-pc-timestamp': tsSec,
+                    'x-pc-signature': sig
+                }
+            });
+            assert.strictEqual(pullTextSigned.status, 200);
+        } finally {
+            if (prevReqHttps === undefined) delete process.env.REQUIRE_HTTPS; else process.env.REQUIRE_HTTPS = prevReqHttps;
+            if (prevPcAuth === undefined) delete process.env.REQUIRE_PC_BRIDGE_AUTH; else process.env.REQUIRE_PC_BRIDGE_AUTH = prevPcAuth;
+            if (prevSecretKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevSecretKey;
+        }
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;
@@ -4413,5 +4500,80 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
             if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
+    });
+
+    it('sirve crypto-js local sin CDN, aplica cookie Secure solo bajo HTTPS (Tailscale) y respeta DB_RETENTION_DAYS=0', async () => {
+        // 1. Asset vendor/crypto-js.min.js accesible localmente y CSP sin cdnjs.cloudflare.com
+        const vendorRes = await request({ port, reqPath: '/vendor/crypto-js.min.js' });
+        assert.strictEqual(vendorRes.status, 200);
+        assert.ok(vendorRes.body.length > 30000 && vendorRes.body.includes('CryptoJS'));
+
+        const htmlRes = await request({ port, reqPath: '/index.html' });
+        assert.strictEqual(htmlRes.status, 200);
+        const csp = String(htmlRes.headers['content-security-policy'] || '');
+        assert.equal(csp.includes('cdnjs.cloudflare.com'), false);
+        assert.ok(csp.includes("script-src 'self'"));
+
+        // 2. Cookie de sesión con Tailscale HTTPS (X-Forwarded-Proto: https) incluye Secure; HTTP plano la omite
+        const httpLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'admin@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(httpLogin.status, 200);
+        const httpCookies = [].concat(httpLogin.headers['set-cookie'] || []).join('; ');
+        assert.ok(httpCookies.includes('HttpOnly'));
+        assert.equal(/;\s*Secure\b/i.test(httpCookies), false, 'HTTP local no debe marcar Secure');
+
+        const httpsLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            headers: { 'X-Forwarded-Proto': 'https' },
+            body: { email: 'admin@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(httpsLogin.status, 200);
+        const httpsCookies = [].concat(httpsLogin.headers['set-cookie'] || []).join('; ');
+        assert.ok(/;\s*Secure\b/i.test(httpsCookies), 'Tailscale HTTPS debe marcar cookie Secure');
+
+        const httpsCookiePair = (httpsLogin.headers['set-cookie'] || []).find((c) => c.startsWith('mt_session=')).split(';')[0];
+
+        // 3. DB_RETENTION_DAYS=0 reportado correctamente en /api/archive/drive-range sin requerir rclone
+        const prevRet = process.env.DB_RETENTION_DAYS;
+        const prevRclone = process.env.RCLONE_CONFIG;
+        try {
+            process.env.DB_RETENTION_DAYS = '0';
+            process.env.RCLONE_CONFIG = path.join(require('node:os').tmpdir(), `nonexistent-rclone-${Date.now()}.conf`);
+            const rangeRes = await request({
+                port,
+                reqPath: '/api/archive/drive-range?months=6&begin=2020-01-01&end=2026-11-18',
+                headers: { Cookie: httpsCookiePair }
+            });
+            assert.strictEqual(rangeRes.status, 200);
+            const rangeData = JSON.parse(rangeRes.body);
+            assert.strictEqual(rangeData.ok, true);
+            assert.strictEqual(rangeData.localRetentionDays, 0);
+
+            const oldMoods = await request({
+                port,
+                reqPath: '/api/get-moods?begin=2020-01-01&end=2020-01-07',
+                headers: { Cookie: httpsCookiePair }
+            });
+            assert.strictEqual(oldMoods.status, 200);
+        } finally {
+            if (prevRet === undefined) delete process.env.DB_RETENTION_DAYS; else process.env.DB_RETENTION_DAYS = prevRet;
+            if (prevRclone === undefined) delete process.env.RCLONE_CONFIG; else process.env.RCLONE_CONFIG = prevRclone;
+        }
+
+        const httpsLogout = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/logout',
+            headers: { Cookie: httpsCookiePair, 'X-Forwarded-Proto': 'https' }
+        });
+        assert.strictEqual(httpsLogout.status, 200);
+        const logoutCookies = [].concat(httpsLogout.headers['set-cookie'] || []).join('; ');
+        assert.ok(/;\s*Secure\b/i.test(logoutCookies), 'Logout HTTPS también debe limpiar cookie con atributo Secure');
     });
 });

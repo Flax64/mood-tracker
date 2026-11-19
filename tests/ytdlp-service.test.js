@@ -10,6 +10,12 @@ const {
     isAllowedCaptionUrl,
     resolveYtDlpBinary,
     cleanSubtitleText,
+    stripStandaloneLatinFromCjkLine,
+    normalizePreferredLangs,
+    getBaseLanguageCode,
+    mapSectionTagToKey,
+    isolateKoreanOnlyLyrics,
+    isolateJapaneseLyrics,
     parseWatchPageCaptionTracks,
     runYtDlp,
     extractSongLyrics,
@@ -504,5 +510,93 @@ describe('lib/ytdlp-service (yt-dlp multiplataforma, letras y streaming seguro)'
         assert.equal(enriched.tracks.ko, '눈을 감고 느껴봐');
         assert.equal(enriched.tracks.en, 'Baby got no chill');
         assert.equal(enriched.tracks.es, 'La nena no se calma\nCierra los ojos y siente');
+    });
+
+    it('normaliza idiomas predefinidos, limpia ad-libs con puntuación en CJK, separa pistas compuestas y reenvía cookies en streaming', async () => {
+        // 1. Ad-libs / puntuación pegada en coreano y japonés sin corromper puntuación CJK genuina
+        assert.equal(stripStandaloneLatinFromCjkLine('Baby, 사랑해 (forever)!'), '사랑해');
+        assert.equal(stripStandaloneLatinFromCjkLine('사랑해, baby!'), '사랑해');
+        assert.equal(stripStandaloneLatinFromCjkLine('사랑해, baby, 영원히'), '사랑해, 영원히');
+        assert.equal(stripStandaloneLatinFromCjkLine("Don't stop 나를 믿어 (yeah, yeah)"), '나를 믿어');
+        assert.equal(stripStandaloneLatinFromCjkLine('사랑해!'), '사랑해!');
+        assert.equal(stripStandaloneLatinFromCjkLine('사랑해, 나도'), '사랑해, 나도');
+        assert.equal(stripStandaloneLatinFromCjkLine('사랑해 (영원히)'), '사랑해 (영원히)');
+        assert.equal(stripStandaloneLatinFromCjkLine('愛してる, my love!'), '愛してる');
+
+        const kpopIso = isolateKoreanOnlyLyrics('Baby, 사랑해 (forever)!\n사랑해, 나도\nOnly English here');
+        assert.equal(kpopIso, '사랑해\n사랑해, 나도');
+        const jpopIso = isolateJapaneseLyrics('愛してる, my love!\n夢を見る (tonight)\nEnglish chorus line');
+        assert.equal(jpopIso, '愛してる\n夢を見る');
+
+        // 2. Prioridades en normalizePreferredLangs para todos los códigos y alias predefinidos
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'en' }), ['en', 'ko', 'es', 'ja']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'ko' }), ['ko', 'en', 'es', 'ja']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'en_ko' }), ['ko', 'en', 'es', 'ja']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'kpop' }), ['ko', 'en', 'es', 'ja']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'Coreano' }), ['ko', 'en', 'es', 'ja']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'ja' }), ['ja', 'en', 'ko', 'es']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'en_ja' }), ['ja', 'en', 'ko', 'es']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'jp-en' }), ['ja', 'en', 'ko', 'es']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'Japonés' }), ['ja', 'en', 'ko', 'es']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'es' }), ['es', 'en', 'ko', 'ja']);
+        assert.deepEqual(normalizePreferredLangs({ idioma: 'Español' }), ['es', 'en', 'ko', 'ja']);
+
+        // 3. Etiquetas y códigos compuestos (en_ko / en_ja / und)
+        assert.equal(getBaseLanguageCode('en_ko'), 'original');
+        assert.equal(getBaseLanguageCode('en_ja'), 'original');
+        assert.equal(mapSectionTagToKey('EN_KO'), 'original');
+        assert.equal(mapSectionTagToKey('EN-JA'), 'original');
+
+        const { deduplicateAndFormatLyricTracks } = require('../lib/ytdlp-service');
+        const genericMixed = deduplicateAndFormatLyricTracks([
+            {
+                rawLanguage: 'und',
+                language: 'und',
+                lyrics: 'Baby, 사랑해 (forever)!\nShining night together',
+                source: 'mock-sub',
+                score: 50
+            },
+            {
+                rawLanguage: 'es',
+                language: 'es',
+                lyrics: 'Te amo por siempre\nNoche brillante juntos',
+                source: 'mock-sub',
+                score: 40
+            }
+        ], 5, { preferredLangs: ['ko', 'en', 'es', 'ja'] });
+        assert.equal(genericMixed.tracks.ko, '사랑해');
+        assert.equal(genericMixed.tracks.en, 'Shining night together');
+        assert.equal(genericMixed.tracks.es, 'Te amo por siempre\nNoche brillante juntos');
+        assert.ok(genericMixed.tracks.original.includes('사랑해') && genericMixed.tracks.original.includes('Shining night together'));
+
+        // 4. resolvePlayableMediaStream pasa --cookies cuando YTDLP_COOKIES_PATH existe
+        let capturedArgs = null;
+        const mockFs = {
+            ...fs,
+            existsSync: (p) => String(p) === '/app/ytdlp-config/cookies.txt' || fs.existsSync(p)
+        };
+        const mockStreamExec = async (_bin, args) => {
+            capturedArgs = args;
+            return {
+                stdout: JSON.stringify({
+                    url: 'https://rr1---sn-example.googlevideo.com/videoplayback?id=123',
+                    ext: 'mp4',
+                    vcodec: 'avc1',
+                    acodec: 'mp4a'
+                }),
+                stderr: ''
+            };
+        };
+        const streamRes = await resolvePlayableMediaStream({
+            videoId: 'Zp-Jhuhq0bQ',
+            ytdlpPath: '/usr/local/bin/yt-dlp',
+            env: { YTDLP_COOKIES_PATH: '/app/ytdlp-config/cookies.txt' },
+            fsImpl: mockFs,
+            execFileImpl: mockStreamExec
+        });
+        assert.equal(streamRes.ok, true);
+        assert.ok(Array.isArray(capturedArgs));
+        const ckIdx = capturedArgs.indexOf('--cookies');
+        assert.ok(ckIdx >= 0 && capturedArgs[ckIdx + 1] === '/app/ytdlp-config/cookies.txt');
     });
 });

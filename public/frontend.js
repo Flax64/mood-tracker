@@ -1037,6 +1037,9 @@ function obtenerLlaveE2EE() {
 }
 
 function encriptarTextoE2EE(textoPlano, llaveTexto) {
+    if (typeof CryptoJS === 'undefined') {
+        throw new Error('Local CryptoJS library failed to load. Reload the page.');
+    }
     const keyWords = CryptoJS.enc.Utf8.parse(llaveTexto);
     const iv = CryptoJS.lib.WordArray.random(16);
     const encrypted = CryptoJS.AES.encrypt(textoPlano, keyWords, { iv: iv });
@@ -1044,6 +1047,9 @@ function encriptarTextoE2EE(textoPlano, llaveTexto) {
 }
 
 function desencriptarTextoE2EE(textoCifrado, llaveTexto) {
+    if (typeof CryptoJS === 'undefined') {
+        throw new Error('Local CryptoJS library failed to load. Reload the page.');
+    }
     if (!textoCifrado || typeof textoCifrado !== 'string' || !textoCifrado.includes(':')) {
         throw new Error('Formato de respuesta cifrada E2EE inválido.');
     }
@@ -3692,13 +3698,13 @@ if (englishForm) {
 
         runWithButtonLock(btn, async () => {
             try {
-                await submitMutationRequest({
+                const saveRespText = String(await submitMutationRequest({
                     url: '/api/send-english',
                     method: 'POST',
                     scopeKey: `english:${category}`,
                     signature,
                     buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
-                });
+                }) || '');
                 sentEnglishSignatures.add(signature);
                 appendRecentEnglishItem(entry);
                 limpiarCamposEnglish(category);
@@ -3723,12 +3729,23 @@ if (englishForm) {
                     })
                     .catch(() => { });
 
-                const msg = tUi(
-                    'Saved! Your English Notebook on Google Drive has been updated automatically.',
-                    '¡Guardado! Tu Cuaderno de Idiomas en Google Drive se actualizó automáticamente.'
-                );
+                const isLocalVolumeSave = /local english notebook volume/i.test(saveRespText);
+                const msg = isLocalVolumeSave
+                    ? tUi(
+                        'Saved! Your local Word English Notebook has been updated automatically.',
+                        '¡Guardado! Tu Cuaderno de Idiomas Word local se actualizó automáticamente.'
+                    )
+                    : tUi(
+                        'Saved! Your English Notebook on Google Drive has been updated automatically.',
+                        '¡Guardado! Tu Cuaderno de Idiomas en Google Drive se actualizó automáticamente.'
+                    );
                 mostrarEstadoEnglish('ok', msg);
-                showToast('ok', tUi('English note saved to Cloud Drive & AI Memory!', '¡Nota guardada en Google Drive y Memoria IA!'));
+                showToast(
+                    'ok',
+                    isLocalVolumeSave
+                        ? tUi('English note saved to Local Word & AI Memory!', '¡Nota guardada en Word local y Memoria IA!')
+                        : tUi('English note saved to Cloud Drive & AI Memory!', '¡Nota guardada en Google Drive y Memoria IA!')
+                );
             } catch (err) {
                 mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
                 showToast('err', err.message);
@@ -4430,7 +4447,7 @@ function initLanguageAiStudio() {
                                 box.appendChild(det);
                             });
                         }
-                        if (prac.wordPayload && (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline !== false)) {
+                        if (prac.wordPayload && (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline !== false || musicState.ytdlpStatus.serverAutonomous === true)) {
                             await autoQueueAiLearningToWord({ entry: prac.wordPayload, hintEl });
                         }
                         await cargarLeccionesSecuencialesUI();
@@ -5960,10 +5977,27 @@ function _isLikelySpanishLineClient(line) {
 }
 
 function _stripStandaloneLatinFromCjkClient(line) {
-    return String(line || '')
-        .replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ')
+    let s = String(line || '');
+    s = s
+        .replace(/\s*\([^()\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*[A-Za-z][^()\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*\)(?:[.,!?;:]+)?/g, ' ')
+        .replace(/\s*\[[^\[\]\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*[A-Za-z][^\[\]\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*\](?:[.,!?;:]+)?/g, ' ')
+        .replace(/\s*["“][^"”\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*[A-Za-z][^"”\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*["”](?:[.,!?;:]+)?/g, ' ');
+    const latinTokenRe = /(^|[\s(\[{"'“‘¿¡,;/|·–—-\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF])[A-Za-z][A-Za-z'’\-]*(?:[.,!?;:]*)(?=$|[\s)\]}"'”’,;/|·–—-\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF])/g;
+    let prev;
+    do {
+        prev = s;
+        s = s.replace(latinTokenRe, '$1 ');
+    } while (prev !== s);
+    return s
+        .replace(/[\(\[]\s*[,.\-?!;:/|·]*\s*[\)\]]/g, ' ')
+        .replace(/([(\[])\s*[,;:\s]+/g, '$1')
+        .replace(/\s+\)/g, ')')
+        .replace(/[,;:]\s*([)\]])/g, '$1')
+        .replace(/(?:^|\s)["'“‘”’]+(?=\s|$)/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/([,;])\s*([,;])+/g, '$1')
         .replace(/\s+/g, ' ')
-        .replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '')
+        .replace(/^[\s/|·,;:–—-]+|[\s/|·,;:–—-]+$/g, '')
         .trim();
 }
 
@@ -6076,9 +6110,19 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
             else if (k === 'en') cleanStructured[k] = rawArr.some(ln => /[\uAC00-\uD7A3\u3040-\u30FF\u4E00-\u9FFF]/.test(ln)) ? _isolateEnglishLinesClient(rawArr) : rawArr;
             else cleanStructured[k] = rawArr;
         }
-        if (cleanStructured.original && (!cleanStructured.en || !cleanStructured.en.some(l => l.trim()))) {
-            const isoEn = _isolateEnglishLinesClient(cleanStructured.original);
-            if (isoEn.some(l => l.trim())) cleanStructured.en = isoEn;
+        if (cleanStructured.original) {
+            if (!cleanStructured.ko || !cleanStructured.ko.some(l => l.trim())) {
+                const isoKo = _isolateHangulLinesClient(cleanStructured.original);
+                if (isoKo.some(l => l.trim())) cleanStructured.ko = isoKo;
+            }
+            if (!cleanStructured.ja || !cleanStructured.ja.some(l => l.trim())) {
+                const isoJa = _isolateJapaneseLinesClient(cleanStructured.original);
+                if (isoJa.some(l => l.trim())) cleanStructured.ja = isoJa;
+            }
+            if (!cleanStructured.en || !cleanStructured.en.some(l => l.trim())) {
+                const isoEn = _isolateEnglishLinesClient(cleanStructured.original);
+                if (isoEn.some(l => l.trim())) cleanStructured.en = isoEn;
+            }
         }
         const normOrig = cleanStructured.original ? normLineKey(cleanStructured.original) : '';
         if (
@@ -6118,7 +6162,11 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
 
     const classifyTag = rawTag => {
         if (rawTag === 'WORD') return null;
-        if (rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL') || rawTag.startsWith('MULTI') || rawTag.startsWith('MIX') || rawTag.includes('JP-EN') || rawTag.includes('EN-JP')) {
+        if (
+            rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL')
+            || rawTag.startsWith('MULTI') || rawTag.startsWith('MIX')
+            || /(?:EN[-_\s/&]+(?:KO|KR|JA|JP)|(?:KO|KR|JA|JP)[-_\s/&]+EN)/.test(rawTag)
+        ) {
             return SECTION_META.original;
         }
         if (rawTag.startsWith('KO') || rawTag.startsWith('KR') || rawTag.includes('COREANO') || rawTag.includes('KOREAN')) {
@@ -6199,6 +6247,8 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
 
     // Si existe [KO] o [JA] con mezcla EN+KR / EN+JP sin apartado original explícito, separar original + pista pura + inglés
     let hasOriginal = rawBlocks.some(b => b.code === 'original');
+    const hasExplicitKo = rawBlocks.some(b => b.code === 'ko');
+    const hasExplicitJa = rawBlocks.some(b => b.code === 'ja');
     const hasExplicitEn = rawBlocks.some(b => b.code === 'en');
     const normalized = [];
     for (const b of rawBlocks) {
@@ -6250,10 +6300,29 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
             }
         } else if (b.code === 'original') {
             normalized.push(b);
+            if (!hasExplicitKo) {
+                const koFromOrig = _isolateHangulLinesClient(b.lines);
+                if (koFromOrig.some(l => l.trim())) {
+                    normalized.push({
+                        ...SECTION_META.ko,
+                        lines: koFromOrig
+                    });
+                }
+            }
+            if (!hasExplicitJa) {
+                const jaFromOrig = _isolateJapaneseLinesClient(b.lines);
+                if (jaFromOrig.some(l => l.trim())) {
+                    normalized.push({
+                        ...SECTION_META.ja,
+                        lines: jaFromOrig
+                    });
+                }
+            }
             if (!hasExplicitEn) {
                 const englishFromOrig = _isolateEnglishLinesClient(b.lines);
                 const hasCjkInOrig = b.lines.some(ln => /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(ln));
-                if (hasCjkInOrig && englishFromOrig.some(l => l.trim())) {
+                const hasSpanishInOrig = b.lines.some(ln => _isLikelySpanishLineClient(ln));
+                if ((hasCjkInOrig || hasSpanishInOrig) && englishFromOrig.some(l => l.trim())) {
                     normalized.push({
                         ...SECTION_META.en,
                         lines: englishFromOrig
@@ -6494,7 +6563,7 @@ function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
             if (_isStructuralLyricTagClient(line)) {
                 keep = true;
             } else if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line)) {
-                line = line.replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '').trim();
+                line = _stripStandaloneLatinFromCjkClient(line);
                 keep = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line);
             } else {
                 keep = false;
@@ -6503,13 +6572,29 @@ function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
             if (_isStructuralLyricTagClient(line)) {
                 keep = true;
             } else if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line)) {
-                line = line.replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '').trim();
+                line = _stripStandaloneLatinFromCjkClient(line);
                 keep = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line);
             } else {
                 keep = false;
             }
         } else if (langCode === 'en') {
-            keep = _isStructuralLyricTagClient(line) || isLatinOnlyEnglish(line);
+            if (_isStructuralLyricTagClient(line)) {
+                keep = true;
+            } else if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line)) {
+                const asciiChunk = line
+                    .replace(/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '')
+                    .trim();
+                if (/[A-Za-z]{2,}\s+[A-Za-z'’]{1,}/.test(asciiChunk) && !_isLikelySpanishLineClient(asciiChunk)) {
+                    line = asciiChunk;
+                    keep = true;
+                } else {
+                    keep = false;
+                }
+            } else {
+                keep = isLatinOnlyEnglish(line) && !_isLikelySpanishLineClient(line);
+            }
         }
 
         if (keep) {
@@ -15298,7 +15383,9 @@ function initStudyNotebookViewer() {
 
             if (!result) {
                 if (forceRefresh && statusBar) {
-                    statusBar.textContent = tUi('Refreshing from PC / Google Drive...', 'Actualizando desde PC / Google Drive...');
+                    statusBar.textContent = musicState?.ytdlpStatus?.serverAutonomous && musicState?.ytdlpStatus?.pcOnline === false
+                        ? tUi('Refreshing from local Word notebook / Google Drive...', 'Actualizando desde cuaderno Word local / Google Drive...')
+                        : tUi('Refreshing from PC / Google Drive...', 'Actualizando desde PC / Google Drive...');
                 }
                 const pcPayload = {
                     action: 'read_study_notebook',
@@ -15322,7 +15409,7 @@ function initStudyNotebookViewer() {
                             : tUi('Word File', 'Archivo Word');
                     }
                 }
-                if (!result && (obtenerLlaveE2EE() || forceRefresh)) {
+                if (!result && musicState?.ytdlpStatus?.pcOnline !== false && (obtenerLlaveE2EE() || forceRefresh)) {
                     try {
                         const pcRes = await fetchNotebookFromPcBridge(pcPayload);
                         if (pcRes && pcRes.ok) {
@@ -15334,10 +15421,17 @@ function initStudyNotebookViewer() {
             }
 
             if (!result) {
-                throw new Error(tUi(
-                    'No copy is available on Drive yet and PC sync is offline.',
-                    'No hay copia disponible aún en Drive ni sincronizador PC activo.'
-                ));
+                throw new Error(
+                    musicState?.ytdlpStatus?.serverAutonomous
+                        ? tUi(
+                            'No entries are saved in your local Word notebook or Google Drive yet.',
+                            'Aún no hay entradas guardadas en tu cuaderno Word del servidor ni en Google Drive.'
+                        )
+                        : tUi(
+                            'No copy is available on Drive yet and PC sync is offline.',
+                            'No hay copia disponible aún en Drive ni sincronizador PC activo.'
+                        )
+                );
             }
             if (!result.ok) throw new Error(result.error || tUi('Could not read the Word notebook.', 'No se pudo leer el cuaderno Word.'));
 

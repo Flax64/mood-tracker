@@ -3,12 +3,20 @@
 }
 
 {$SITE_ADDRESS::80} {
+    header -Server
+    request_body {
+        max_size 16MB
+    }
     encode zstd gzip
     reverse_proxy app:{$PORT:3000}
 }
 
 :443 {
     tls internal
+    header -Server
+    request_body {
+        max_size 16MB
+    }
     encode zstd gzip
     reverse_proxy app:{$PORT:3000}
 }

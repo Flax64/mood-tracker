@@ -72,7 +72,53 @@ if (process.env.TRUST_PROXY === 'loopback') {
 }
 app.use(serverLogger.createHttpLoggerMiddleware());
 
-// Cabeceras de seguridad HTTP
+function isRequestHttps(req) {
+    if (!req) return false;
+    if (req.secure) return true;
+    const xfProto = String(req.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    return xfProto === 'https';
+}
+
+function isAllowedCorsOrigin(rawOrigin, req) {
+    if (!rawOrigin) return false;
+    let parsed;
+    try {
+        parsed = new URL(String(rawOrigin));
+    } catch (_) {
+        return false;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+    }
+    const originNorm = parsed.origin.toLowerCase();
+    const baseUrl = String(process.env.APP_BASE_URL || '').trim();
+    if (baseUrl) {
+        try {
+            if (new URL(baseUrl).origin.toLowerCase() === originNorm) return true;
+        } catch (_) {}
+    }
+    const hostHeader = String(req?.headers?.host || '').split(',')[0].trim().toLowerCase();
+    if (hostHeader && parsed.host.toLowerCase() === hostHeader) {
+        return true;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1') {
+        return true;
+    }
+    if (hostname.endsWith('.ts.net')) {
+        return true;
+    }
+    const extraList = String(process.env.CORS_ALLOWED_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+    if (extraList.some((entry) => entry === originNorm || entry === hostname)) {
+        return true;
+    }
+    return false;
+}
+
+// Cabeceras de seguridad HTTP + refuerzo HTTPS
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -82,22 +128,54 @@ app.use((req, res, next) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
+    const isHttps = isRequestHttps(req);
+    const baseCsp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'";
     res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+        isHttps ? `${baseCsp}; upgrade-insecure-requests` : baseCsp
     );
-    const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-    if (req.secure || proto === 'https') {
+    if (isHttps) {
         res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    if (
+        String(process.env.REQUIRE_HTTPS || '').trim().toLowerCase() === 'true'
+        && !isHttps
+        && req.path !== '/healthz'
+    ) {
+        if (req.path.startsWith('/api')) {
+            return res.status(426).send('HTTPS is required for all API requests.');
+        }
+        const rawBaseUrl = String(process.env.APP_BASE_URL || '').trim();
+        if (rawBaseUrl) {
+            try {
+                const parsedBase = new URL(rawBaseUrl);
+                if (parsedBase.protocol === 'https:') {
+                    return res.redirect(308, `${parsedBase.origin}${req.originalUrl || '/'}`);
+                }
+            } catch (_) {}
+        }
+        const hostHdr = String(req.headers.host || '').split(',')[0].trim();
+        if (/^[a-zA-Z0-9.-]+(?::\d{1,5})?$/.test(hostHdr)) {
+            return res.redirect(308, `https://${hostHdr}${req.originalUrl || '/'}`);
+        }
+        return res.status(426).send('HTTPS is required.');
     }
     next();
 });
 
-app.use(cors({
-    origin: true,
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'X-Idempotency-Key', 'X-Transport-Session', 'X-Transport-Accept-Enc'],
-    exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
+app.get('/healthz', (_req, res) => {
+    res.status(200).json({ ok: true });
+});
+
+app.use(cors((req, callback) => {
+    const origin = String(req.headers.origin || '').trim();
+    const allowed = origin ? isAllowedCorsOrigin(origin, req) : false;
+    callback(null, {
+        origin: allowed ? origin : false,
+        credentials: Boolean(allowed),
+        allowedHeaders: ['Content-Type', 'X-Idempotency-Key', 'X-Transport-Session', 'X-Transport-Accept-Enc'],
+        exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
+    });
 }));
 const wordDriveSyncJsonParser = express.json({ limit: '15mb' });
 const defaultApiJsonParser = express.json({ limit: '512kb' });
@@ -233,6 +311,10 @@ app.use('/api', (req, res, next) => {
         }
     }
     return next();
+});
+app.use((req, res, next) => {
+    if (req.path === '/healthz' || req.path.startsWith('/api')) return next();
+    return staticGlobalLimiter.middleware(req, res, next);
 });
 app.use(express.static(path.join(__dirname, 'public'), {
     etag: true,
@@ -691,18 +773,20 @@ function parseCookies(req) {
     return out;
 }
 
-function setSessionCookie(res, rawToken, expiresAt) {
+function setSessionCookie(res, rawToken, expiresAt, req = null) {
     const maxAgeSec = Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+    const secureAttr = isRequestHttps(req) ? '; Secure' : '';
     res.setHeader(
         'Set-Cookie',
-        `mt_session=${encodeURIComponent(rawToken)}; HttpOnly; Path=/; Max-Age=${maxAgeSec}; Expires=${expiresAt.toUTCString()}; SameSite=Lax`
+        `mt_session=${encodeURIComponent(rawToken)}; HttpOnly; Path=/; Max-Age=${maxAgeSec}; Expires=${expiresAt.toUTCString()}; SameSite=Lax${secureAttr}`
     );
 }
 
-function clearSessionCookie(res) {
+function clearSessionCookie(res, req = null) {
+    const secureAttr = isRequestHttps(req) ? '; Secure' : '';
     res.setHeader(
         'Set-Cookie',
-        'mt_session=; HttpOnly; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
+        `mt_session=; HttpOnly; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${secureAttr}`
     );
 }
 
@@ -890,6 +974,19 @@ const transportHandshakeLimiter = createRateLimiter({
     message: 'Too many transport handshake attempts. Please wait a moment.'
 });
 
+const staticGlobalLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_STATIC_MAX, 600),
+    windowMs: 60 * 1000,
+    message: 'Too many requests to the server. Please slow down briefly.'
+});
+
+function requirePcBridgeAuthIfConfigured(req, res, next) {
+    if (String(process.env.REQUIRE_PC_BRIDGE_AUTH || '').trim().toLowerCase() === 'true') {
+        return verifyPcBridgeAuth(req, res, next);
+    }
+    return next();
+}
+
 // Middleware global anti-DoS sobre /api/*
 app.use('/api', apiGlobalLimiter.middleware);
 
@@ -992,13 +1089,13 @@ function requireAuth(req, res, next) {
             return res.status(500).send('Error verifying session.');
         }
         if (!rows || rows.length === 0) {
-            clearSessionCookie(res);
+            clearSessionCookie(res, req);
             return res.status(401).send('Your session has expired. Please sign in again.');
         }
 
         const estadoCuenta = rows[0].estado || 'activo';
         if (estadoCuenta !== 'activo') {
-            clearSessionCookie(res);
+            clearSessionCookie(res, req);
             db.query('DELETE FROM SesionesAuth WHERE token_hash = ?', [tokenHash], () => {});
             return res.status(403).send('Your account is inactive or suspended. Contact the administrator.');
         }
@@ -1196,7 +1293,7 @@ function pruneExcessUserSessions(userId) {
     );
 }
 
-function issueUserSession(res, user, { statusCode = 200, message, errorMessage = 'Error creating session.' }) {
+function issueUserSession(res, user, { statusCode = 200, message, errorMessage = 'Error creating session.', req = null }) {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = sha256Hex(rawToken);
     const expiresAt = getNextSundayMidnight();
@@ -1211,7 +1308,7 @@ function issueUserSession(res, user, { statusCode = 200, message, errorMessage =
                 return res.status(500).send(errorMessage);
             }
             pruneExcessUserSessions(user.id);
-            setSessionCookie(res, rawToken, expiresAt);
+            setSessionCookie(res, rawToken, expiresAt, req);
             return res.status(statusCode).json({
                 message,
                 user: {
@@ -1344,7 +1441,8 @@ app.post('/api/auth/register', registerLimiter.middleware, requireNonEmptyBody, 
                             {
                                 statusCode: 201,
                                 message: 'Account verified and created successfully.',
-                                errorMessage: 'Account created, but an error occurred while signing in.'
+                                errorMessage: 'Account created, but an error occurred while signing in.',
+                                req
                             }
                         );
                     }
@@ -1478,7 +1576,8 @@ app.post('/api/auth/login', loginIpLimiter.middleware, requireNonEmptyBody, prev
         issueUserSession(res, user, {
             statusCode: 200,
             message: 'Signed in successfully.',
-            errorMessage: 'Error creating session.'
+            errorMessage: 'Error creating session.',
+            req
         });
     });
 });
@@ -1523,7 +1622,8 @@ app.post('/api/auth/verify-login-mfa', mfaVerifyLimiter.middleware, requireNonEm
                 issueUserSession(res, user, {
                     statusCode: 200,
                     message: 'Signed in successfully.',
-                    errorMessage: 'Error creating session.'
+                    errorMessage: 'Error creating session.',
+                    req
                 });
             });
         });
@@ -1534,7 +1634,7 @@ app.post('/api/auth/verify-login-mfa', mfaVerifyLimiter.middleware, requireNonEm
 app.post('/api/auth/logout', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
     const cookies = parseCookies(req);
     const rawToken = cookies.mt_session;
-    clearSessionCookie(res);
+    clearSessionCookie(res, req);
 
     if (!rawToken) {
         return res.json({ message: 'Signed out.' });
@@ -2019,7 +2119,16 @@ let _driveArchiveRamCache = {
 };
 const DRIVE_RAM_CACHE_TTL_MS = 90 * 1000; // Vive solo 90 segundos en RAM durante la consulta
 
-function isDateOlderThanLocalWindow(dateStr, retentionDays = Number(process.env.DB_RETENTION_DAYS || 30)) {
+function getEffectiveDbRetentionDays() {
+    const raw = process.env.DB_RETENTION_DAYS;
+    if (raw === undefined || raw === null || String(raw).trim() === '') return 30;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return 30;
+    return Math.floor(parsed);
+}
+
+function isDateOlderThanLocalWindow(dateStr, retentionDays = getEffectiveDbRetentionDays()) {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return false;
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
     const targetMs = Date.parse(`${dateStr}T00:00:00Z`);
     if (!Number.isFinite(targetMs)) return false;
@@ -2310,7 +2419,7 @@ app.get('/api/archive/drive-range', apiReadLimiter.middleware, requireAuth, asyn
         res.json({
             ok: true,
             source: _driveArchiveRamCache.data ? 'google_drive_ram + mysql_local_1m' : 'mysql_local_1m',
-            localRetentionDays: Number(process.env.DB_RETENTION_DAYS || 30),
+            localRetentionDays: getEffectiveDbRetentionDays(),
             monthsRequested: months,
             begin,
             end,
@@ -2584,7 +2693,7 @@ app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requir
 });
 
 // Ruta para que tu PC consulte notas de Journal pendientes (compatibilidad puente PC)
-app.get('/api/pull-text', pcPullLimiter.middleware, journalQueue.pull);
+app.get('/api/pull-text', pcPullLimiter.middleware, requirePcBridgeAuthIfConfigured, journalQueue.pull);
 
 // Estado e descarga segura (solo Admin) del Journal local cifrado con contraseña
 app.get('/api/journal/local-status', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
@@ -2680,7 +2789,7 @@ app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requ
 });
 
 // Ruta para que tu PC consulte entradas de inglés pendientes (compatibilidad puente PC)
-app.get('/api/pull-english', pcPullLimiter.middleware, englishQueue.pull);
+app.get('/api/pull-english', pcPullLimiter.middleware, requirePcBridgeAuthIfConfigured, englishQueue.pull);
 
 // ==========================================
 // RUTAS PARA LA AGENDA PERSONAL SEMANAL (SOLO ADMIN)
@@ -9564,17 +9673,23 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
     console.log(`Backend server running at http://localhost:${PORT}`);
     serverLogger.info('SYSTEM', 'Servidor iniciado', {
         port: PORT,
         tz: process.env.TZ || 'system',
         trustProxy: process.env.TRUST_PROXY || 'off',
+        requireHttps: String(process.env.REQUIRE_HTTPS || '').toLowerCase() === 'true',
         autonomousNotes: serverNotesService.isServerAutonomousNotesEnabled(),
         fileLogs: serverLogger.fileEnabled,
         logDir: serverLogger.logDir
     });
 });
+// Protección anti-Slowloris / agotamiento de sockets HTTP
+httpServer.keepAliveTimeout = 15000;
+httpServer.headersTimeout = 20000;
+httpServer.requestTimeout = 90000;
+httpServer.maxHeadersCount = 64;
 
 // Capturar errores imprevistos para saber por qué se cayó
 process.on('uncaughtException', (err) => {
