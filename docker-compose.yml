@@ -30,8 +30,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "25m"
+        max-file: "5"
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASS}
       MYSQL_DATABASE: ${DB_NAME}
@@ -80,8 +80,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "25m"
+        max-file: "5"
     environment:
       - REPLICA_ID=app
       - DISABLE_REMINDER_SCHEDULER=${DISABLE_REMINDER_SCHEDULER:-false}
@@ -94,8 +94,8 @@ services:
       - TZ=${TZ:-America/Monterrey}
       - LOG_DIR=${LOG_DIR:-/app/logs}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-5242880}
-      - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
+      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-20971520}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-10}
       - TRUST_PROXY=${TRUST_PROXY:-1}
       - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
       - REQUIRE_PC_BRIDGE_AUTH=${REQUIRE_PC_BRIDGE_AUTH:-true}
@@ -157,8 +157,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "25m"
+        max-file: "5"
     environment:
       - REPLICA_ID=app2
       - DISABLE_REMINDER_SCHEDULER=true
@@ -171,8 +171,8 @@ services:
       - TZ=${TZ:-America/Monterrey}
       - LOG_DIR=${LOG_DIR:-/app/logs}/app2
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-5242880}
-      - LOG_MAX_FILES=${LOG_MAX_FILES:-5}
+      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-20971520}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-10}
       - TRUST_PROXY=${TRUST_PROXY:-1}
       - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
       - REQUIRE_PC_BRIDGE_AUTH=${REQUIRE_PC_BRIDGE_AUTH:-true}
@@ -234,6 +234,11 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "5"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/healthz || exit 1"]
       interval: 30s

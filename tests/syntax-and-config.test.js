@@ -1456,4 +1456,25 @@ describe('Balanceador de cargas Caddy + Réplica app2 y Modal de Canción (#musi
         assert.equal(indexHtml.includes('id="btnMusicNewSong"'), true, 'Catálogo debe incluir botón #btnMusicNewSong');
         assert.equal(indexHtml.includes('id="btnCloseMusicSongModal"'), true, '#musicSongModal debe incluir botón de cierre');
     });
+
+    it('amplía retención local y respaldos para discos >= 300 GB en backup.sh, docker-compose y deploy.yml', () => {
+        const backupSh = readText('scripts/backup.sh');
+        assert.match(backupSh, /RETENTION_DAYS="\$\{DB_RETENTION_DAYS:-0\}"/);
+        assert.match(backupSh, /LOCAL_SQL_DAILY_BACKUP_DAYS="\$\{LOCAL_SQL_DAILY_BACKUP_DAYS:-180\}"/);
+        assert.match(backupSh, /LOCAL_WORD_BACKUP_DAYS="\$\{LOCAL_WORD_BACKUP_DAYS:-365\}"/);
+        assert.ok(backupSh.includes('$RUTA_LOCAL/diario_sql'), 'backup.sh debe guardar respaldos SQL diarios locales en diario_sql/');
+
+        const compose = readText('docker-compose.yml');
+        assert.match(compose, /LOG_MAX_BYTES=\$\{LOG_MAX_BYTES:-20971520\}/);
+        assert.match(compose, /LOG_MAX_FILES=\$\{LOG_MAX_FILES:-10\}/);
+        assert.match(compose, /max-size:\s*"25m"/);
+        assert.match(compose, /max-file:\s*"5"/);
+
+        const verifySh = readText('scripts/verify-ubuntu-local.sh');
+        assert.equal(
+            /RCLONE_BACKUP_DIR=.*tr -d '"\r '/.test(verifySh),
+            false,
+            'verify-ubuntu-local.sh no debe eliminar espacios internos de RCLONE_BACKUP_DIR (ej. Personal Daily Hub/RespaldosApp)'
+        );
+    });
 });

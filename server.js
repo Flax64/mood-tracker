@@ -1012,10 +1012,10 @@ app.use('/api', apiGlobalLimiter.middleware);
 // Limpieza periódica de sesiones y códigos vencidos para ahorrar espacio en MySQL
 function limpiarRegistrosExpirados() {
     const nowSql = formatMySqlDateTime(new Date());
-    const cutoff14Days = formatMySqlDateTime(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000));
+    const cutoff90Days = formatMySqlDateTime(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
     db.query('DELETE FROM SesionesAuth WHERE expira_en <= ?', [nowSql], () => {});
     db.query('DELETE FROM CodigosSeguridad WHERE usado = 1 OR expira_en <= ?', [nowSql], () => {});
-    db.query('DELETE FROM RecordatoriosEstado WHERE actualizado_en < ?', [cutoff14Days], () => {});
+    db.query('DELETE FROM RecordatoriosEstado WHERE actualizado_en < ?', [cutoff90Days], () => {});
 }
 
 if (process.env.DISABLE_CLEANUP_SCHEDULER !== 'true') {
@@ -2142,9 +2142,9 @@ const DRIVE_RAM_CACHE_TTL_MS = 90 * 1000; // Vive solo 90 segundos en RAM durant
 
 function getEffectiveDbRetentionDays() {
     const raw = process.env.DB_RETENTION_DAYS;
-    if (raw === undefined || raw === null || String(raw).trim() === '') return 30;
+    if (raw === undefined || raw === null || String(raw).trim() === '') return 0;
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed < 0) return 30;
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
     return Math.floor(parsed);
 }
 
@@ -2397,7 +2397,7 @@ app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) =>
 
     const sql = begin && end
         ? 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, hora DESC, id DESC'
-        : 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis ORDER BY fecha DESC, hora DESC, id DESC LIMIT 50';
+        : 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis ORDER BY fecha DESC, hora DESC, id DESC LIMIT 500';
     const params = begin && end ? [begin, end] : [];
 
     db.query(sql, params, async (err, result) => {
@@ -2412,10 +2412,10 @@ app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) =>
     });
 });
 
-// Endpoint para extraer temporalmente de Google Drive los últimos X meses (ej. 6 meses) en RAM sin llenar la instancia
+// Endpoint para extraer temporalmente de Google Drive hasta 120 meses (10 años) combinados con MySQL local
 app.get('/api/archive/drive-range', apiReadLimiter.middleware, requireAuth, async (req, res) => {
     try {
-        const months = Math.max(1, Math.min(24, Number.parseInt(String(req.query.months || '6'), 10) || 6));
+        const months = Math.max(1, Math.min(120, Number.parseInt(String(req.query.months || '6'), 10) || 6));
         const endDt = new Date();
         const beginDt = new Date(endDt.getFullYear(), endDt.getMonth() - months, endDt.getDate());
         const begin = String(req.query.begin || beginDt.toISOString().slice(0, 10)).slice(0, 10);
@@ -2437,10 +2437,13 @@ app.get('/api/archive/drive-range', apiReadLimiter.middleware, requireAuth, asyn
             mergeLocalRowsWithDriveRam('crisis', localCrises, begin, end, true)
         ]);
 
+        const localRetentionDays = getEffectiveDbRetentionDays();
+        const localSourceTag = localRetentionDays === 0 ? 'mysql_local_full' : `mysql_local_${localRetentionDays}d`;
+
         res.json({
             ok: true,
-            source: _driveArchiveRamCache.data ? 'google_drive_ram + mysql_local_1m' : 'mysql_local_1m',
-            localRetentionDays: getEffectiveDbRetentionDays(),
+            source: _driveArchiveRamCache.data ? `google_drive_ram + ${localSourceTag}` : localSourceTag,
+            localRetentionDays,
             monthsRequested: months,
             begin,
             end,

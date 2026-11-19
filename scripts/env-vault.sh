@@ -23,6 +23,8 @@ write_backup_meta() {
     local rclone_dir="RespaldosApp"
     local backup_dir="$HOME/projects/respaldos"
     local db_retention_days=""
+    local local_sql_daily_days=""
+    local local_word_days=""
     local require_drive_backup=""
 
     while IFS= read -r line || [ -n "$line" ]; do
@@ -40,6 +42,8 @@ write_backup_meta() {
             RCLONE_BACKUP_DIR) [ -n "$v" ] && rclone_dir="$v" ;;
             BACKUP_LOCAL_DIR) [ -n "$v" ] && backup_dir="$v" ;;
             DB_RETENTION_DAYS) [ -n "$v" ] && db_retention_days="$v" ;;
+            LOCAL_SQL_DAILY_BACKUP_DAYS) [ -n "$v" ] && local_sql_daily_days="$v" ;;
+            LOCAL_WORD_BACKUP_DAYS) [ -n "$v" ] && local_word_days="$v" ;;
             REQUIRE_DRIVE_BACKUP) [ -n "$v" ] && require_drive_backup="$v" ;;
         esac
     done < "$ENV_FILE"
@@ -52,6 +56,12 @@ write_backup_meta() {
         printf 'BACKUP_LOCAL_DIR=%s\n' "$backup_dir"
         if [ -n "$db_retention_days" ]; then
             printf 'DB_RETENTION_DAYS=%s\n' "$db_retention_days"
+        fi
+        if [ -n "$local_sql_daily_days" ]; then
+            printf 'LOCAL_SQL_DAILY_BACKUP_DAYS=%s\n' "$local_sql_daily_days"
+        fi
+        if [ -n "$local_word_days" ]; then
+            printf 'LOCAL_WORD_BACKUP_DAYS=%s\n' "$local_word_days"
         fi
         if [ -n "$require_drive_backup" ]; then
             printf 'REQUIRE_DRIVE_BACKUP=%s\n' "$require_drive_backup"

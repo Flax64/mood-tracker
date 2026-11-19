@@ -247,8 +247,21 @@ fi
 # Purgar archivos temporales antiguos en disco local (> 7 días) para mantener cero saturación en servidor
 find "$RUTA_LOCAL" -maxdepth 1 -type f -name '*.sql.gz.*' -mtime +7 -delete 2>/dev/null || true
 
-# Instantánea rotativa SOLO LOCAL del Diario cifrado con contraseña (nunca se sube a Google Drive)
+# Instantáneas diarias locales (SQL 180 días por defecto; Word 365 días por defecto para discos >= 300 GB)
 TODAY_TAG="$(date '+%Y-%m-%d')"
+LOCAL_SQL_DAILY_BACKUP_DAYS="${LOCAL_SQL_DAILY_BACKUP_DAYS:-180}"
+LOCAL_WORD_BACKUP_DAYS="${LOCAL_WORD_BACKUP_DAYS:-365}"
+
+LOCAL_SQL_DAILY_DIR="$RUTA_LOCAL/diario_sql"
+mkdir -p "$LOCAL_SQL_DAILY_DIR"
+chmod 700 "$LOCAL_SQL_DAILY_DIR" 2>/dev/null || true
+cp -f "$ARCHIVO" "$LOCAL_SQL_DAILY_DIR/respaldo_${TODAY_TAG}.sql.gz"
+chmod 600 "$LOCAL_SQL_DAILY_DIR/respaldo_${TODAY_TAG}.sql.gz" 2>/dev/null || true
+if [[ "$LOCAL_SQL_DAILY_BACKUP_DAYS" =~ ^[0-9]+$ ]] && [ "$LOCAL_SQL_DAILY_BACKUP_DAYS" -ge 7 ]; then
+    find "$LOCAL_SQL_DAILY_DIR" -maxdepth 1 -type f -name 'respaldo_*.sql.gz' -mtime +"$LOCAL_SQL_DAILY_BACKUP_DAYS" -delete 2>/dev/null || true
+fi
+
+# Instantánea rotativa SOLO LOCAL del Diario cifrado con contraseña (nunca se sube a Google Drive)
 LOCAL_JOURNAL_FILE="$PROJECT_DIR/data/journal/Diario.docx"
 if [ -f "$LOCAL_JOURNAL_FILE" ]; then
     if [ -r "$LOCAL_JOURNAL_FILE" ]; then
@@ -257,7 +270,9 @@ if [ -f "$LOCAL_JOURNAL_FILE" ]; then
         chmod 700 "$LOCAL_JOURNAL_BAK_DIR" 2>/dev/null || true
         cp -f "$LOCAL_JOURNAL_FILE" "$LOCAL_JOURNAL_BAK_DIR/Diario_${TODAY_TAG}.docx"
         chmod 600 "$LOCAL_JOURNAL_BAK_DIR/Diario_${TODAY_TAG}.docx" 2>/dev/null || true
-        find "$LOCAL_JOURNAL_BAK_DIR" -maxdepth 1 -type f -name 'Diario_*.docx' -mtime +30 -delete 2>/dev/null || true
+        if [[ "$LOCAL_WORD_BACKUP_DAYS" =~ ^[0-9]+$ ]] && [ "$LOCAL_WORD_BACKUP_DAYS" -ge 7 ]; then
+            find "$LOCAL_JOURNAL_BAK_DIR" -maxdepth 1 -type f -name 'Diario_*.docx' -mtime +"$LOCAL_WORD_BACKUP_DAYS" -delete 2>/dev/null || true
+        fi
     else
         echo "Aviso: $LOCAL_JOURNAL_FILE no es legible por $(id -un); corrige permisos con: sudo chown -R \$(id -u):\$(id -g) \"$PROJECT_DIR/data/journal\"" >&2
     fi
@@ -272,14 +287,16 @@ if [ -f "$LOCAL_ENGLISH_FILE" ]; then
         chmod 700 "$LOCAL_ENGLISH_BAK_DIR" 2>/dev/null || true
         cp -f "$LOCAL_ENGLISH_FILE" "$LOCAL_ENGLISH_BAK_DIR/English_Learning_Notebook_${TODAY_TAG}.docx"
         chmod 600 "$LOCAL_ENGLISH_BAK_DIR/English_Learning_Notebook_${TODAY_TAG}.docx" 2>/dev/null || true
-        find "$LOCAL_ENGLISH_BAK_DIR" -maxdepth 1 -type f -name 'English_Learning_Notebook_*.docx' -mtime +30 -delete 2>/dev/null || true
+        if [[ "$LOCAL_WORD_BACKUP_DAYS" =~ ^[0-9]+$ ]] && [ "$LOCAL_WORD_BACKUP_DAYS" -ge 7 ]; then
+            find "$LOCAL_ENGLISH_BAK_DIR" -maxdepth 1 -type f -name 'English_Learning_Notebook_*.docx' -mtime +"$LOCAL_WORD_BACKUP_DAYS" -delete 2>/dev/null || true
+        fi
     else
         echo "Aviso: $LOCAL_ENGLISH_FILE no es legible por $(id -un); corrige permisos con: sudo chown -R \$(id -u):\$(id -g) \"$PROJECT_DIR/english-notes\"" >&2
     fi
 fi
 
-# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días, o 0 para conservar todo en ~500 GB local)
-RETENTION_DAYS="${DB_RETENTION_DAYS:-30}"
+# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (0 por defecto para conservar todo en disco >= 300 GB)
+RETENTION_DAYS="${DB_RETENTION_DAYS:-0}"
 if [ "$RETENTION_DAYS" = "0" ]; then
     PURGE_SESSIONS_SQL="
         DELETE FROM SesionesAuth WHERE expira_en < NOW();
@@ -301,6 +318,8 @@ else
     echo "Aviso: Se omitió la poda automática en MySQL porque el respaldo histórico acumulativo no se verificó aún (ARCHIVE_READY=$ARCHIVE_READY)." >&2
 fi
 
+DISK_FREE_TXT="$(df -BG "$RUTA_LOCAL" 2>/dev/null | awk 'NR==2{print $4 " libres de " $2}' || df -h "$RUTA_LOCAL" 2>/dev/null | awk 'NR==2{print $4 " libres de " $2}' || echo 'desconocido')"
+RET_LABEL=$([ "$RETENTION_DAYS" = "0" ] && echo "ilimitada (DB_RETENTION_DAYS=0)" || echo "${RETENTION_DAYS} días")
 MODO_TXT=$([ "$SEALED_MODE" -eq 1 ] && echo "sellado" || echo "env")
 DESTINO_TXT=$([ "$DRIVE_ENABLED" -eq 1 ] && echo "local + ${REMOTE_NAME}:${REMOTE_DIR}" || echo "100% local ($RUTA_LOCAL)")
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completo + archivo histórico completados (${DESTINO_TXT}) y ventana local de ${RETENTION_DAYS} días aplicada (modo=$MODO_TXT)"
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completo + archivo histórico completados (${DESTINO_TXT}; disco=${DISK_FREE_TXT}; diario_sql=${LOCAL_SQL_DAILY_BACKUP_DAYS}d; word_bak=${LOCAL_WORD_BACKUP_DAYS}d) y retención local ${RET_LABEL} aplicada (modo=$MODO_TXT)"

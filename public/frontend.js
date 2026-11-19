@@ -2214,14 +2214,10 @@ function cargarResumenSemanalActual() {
     const reqToken = resumenTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
-    const beginMs = Date.parse(`${begin}T00:00:00Z`);
-    const isHistoricalRange = Number.isFinite(beginMs) && (Date.now() - beginMs) > (28 * 24 * 60 * 60 * 1000);
     const resumenBanner = document.getElementById('resumenLoadingBanner');
     if (resumenBanner) {
         resumenBanner.replaceChildren(createLoadingBanner(
-            isHistoricalRange
-                ? tUi('Loading records from over 1 month ago (may take a moment longer)...', 'Cargando registros anteriores a 1 mes (puede tardar un poco más)...')
-                : tUi('Loading weekly data...', 'Cargando datos semanales...'),
+            tUi('Loading weekly data...', 'Cargando datos semanales...'),
             'sm'
         ));
         resumenBanner.hidden = false;

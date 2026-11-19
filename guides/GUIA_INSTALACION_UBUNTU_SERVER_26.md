@@ -557,8 +557,10 @@ docker compose ps
   * `historico_sql/respaldo_YYYY-MM.sql.gz` (instantánea SQL mensual).
   * `historico_completo.json.gz` (archivo histórico JSON acumulativo).
   * `NotasIdiomas/English_Learning_Notebook.docx` (sincronizado con lock distribuido `pdh_docx_english`).
-* **100 % solo en disco local Ubuntu (NUNCA se sube a Google Drive):**
-  * `./data/journal/Diario.docx` y sus copias rotativas diarias (30 días) en `~/projects/respaldos/journal_local_backups/` (cifradas con `WORD_PASSWORD`, coordinadas con lock `pdh_docx_journal`).
+* **100 % solo en disco local Ubuntu (aprovechando almacenamiento >= 300 GB, NUNCA se sube `Diario.docx` a Google Drive):**
+  * **Base de datos MySQL (`mood_db`):** retención local **ilimitada** por defecto (`DB_RETENTION_DAYS=0`), con consultas históricas locales y combinadas ampliadas hasta **120 meses (10 años)**.
+  * **Instantáneas SQL locales:** copias diarias en `~/projects/respaldos/diario_sql/respaldo_YYYY-MM-DD.sql.gz` durante **180 días** (`LOCAL_SQL_DAILY_BACKUP_DAYS=180`), más archivos mensuales permanentes en `~/projects/respaldos/historico_sql/`.
+  * **Copias rotativas de Word (365 días por defecto, `LOCAL_WORD_BACKUP_DAYS=365`):** `./data/journal/Diario.docx` respaldado diariamente en `~/projects/respaldos/journal_local_backups/` (cifrado con `WORD_PASSWORD`) y `English_Learning_Notebook.docx` en `~/projects/respaldos/english_local_backups/`.
 
 Comandos de respaldo y logs:
 ```bash
@@ -743,7 +745,7 @@ curl -i -H "X-Forwarded-Proto: https" -H "Origin: https://evil.example" http://1
    * `mood_app`: `1024m` RAM / `2.0` CPUs / `128` PIDs
    * `mood_app2`: `1024m` RAM / `2.0` CPUs / `128` PIDs
    * `mood_proxy`: `64m` RAM / `0.5` CPUs / `64` PIDs
-   * Todos corren sin privilegios (`no-new-privileges:true`, `cap_drop: ALL`), con rotación de logs Docker (`10m x 3`) y `/tmp` + `/dev/shm` montados con `noexec,nosuid,nodev`.
+   * Todos corren sin privilegios (`no-new-privileges:true`, `cap_drop: ALL`), con rotación de logs Docker ampliada para disco >= 300 GB (`25m x 5` por contenedor y logs internos `20 MB x 10` por réplica) y `/tmp` + `/dev/shm` montados con `noexec,nosuid,nodev`.
    * Restauración rápida ante corrupción desde Drive:
      ```bash
      # Si existe .env plano en disco:

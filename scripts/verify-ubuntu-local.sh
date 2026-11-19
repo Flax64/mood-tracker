@@ -61,6 +61,16 @@ else
 fi
 
 df -h "$PROJECT_DIR" 2>/dev/null | sed 's/^/  /' || true
+DISK_STATS_GB="$(df -BG --output=size,avail "$PROJECT_DIR" 2>/dev/null | awk 'NR==2{gsub(/G/,""); print $1 "|" $2}' || true)"
+if [ -n "$DISK_STATS_GB" ]; then
+    DISK_TOTAL_GB="${DISK_STATS_GB%%|*}"
+    DISK_AVAIL_GB="${DISK_STATS_GB##*|}"
+    if [[ "$DISK_TOTAL_GB" =~ ^[0-9]+$ ]] && [ "$DISK_TOTAL_GB" -ge 250 ] && [ "${DISK_AVAIL_GB:-0}" -ge 100 ]; then
+        pass "Capacidad de disco adecuada para retención local ilimitada (${DISK_AVAIL_GB} GB libres de ${DISK_TOTAL_GB} GB totales)."
+    elif [[ "$DISK_AVAIL_GB" =~ ^[0-9]+$ ]]; then
+        warn "Espacio en disco reducido para backups históricos extendidos (${DISK_AVAIL_GB} GB libres de ${DISK_TOTAL_GB} GB; recomendado >= 300 GB / >= 100 GB libres)."
+    fi
+fi
 if command -v lsblk >/dev/null 2>&1; then
     echo "Discos físicos:"
     lsblk -d -o NAME,ROTA,SIZE,MODEL 2>/dev/null | sed 's/^/  /' || true
@@ -316,18 +326,27 @@ echo "--- [9/10] Respaldos Google Drive (rclone) y Cron ---"
 VERIFY_REMOTE="${RCLONE_REMOTE:-gdrive}"
 VERIFY_REMOTE_DIR="${RCLONE_BACKUP_DIR:-RespaldosApp}"
 VERIFY_RETENTION="${DB_RETENTION_DAYS:-}"
+VERIFY_SQL_DAILY_DAYS="${LOCAL_SQL_DAILY_BACKUP_DAYS:-}"
+VERIFY_WORD_DAYS="${LOCAL_WORD_BACKUP_DAYS:-}"
 for cfg_src in "$HOME/projects/respaldos/.backup.meta" "$PROJECT_DIR/.env"; do
     if [ -r "$cfg_src" ]; then
         V_REM="$(grep -E '^RCLONE_REMOTE=' "$cfg_src" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
-        V_DIR="$(grep -E '^RCLONE_BACKUP_DIR=' "$cfg_src" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
+        V_DIR="$(grep -E '^RCLONE_BACKUP_DIR=' "$cfg_src" | tail -n 1 | cut -d= -f2- | tr -d "\"'\r" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)"
         V_RET="$(grep -E '^DB_RETENTION_DAYS=' "$cfg_src" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
+        V_SQL_D="$(grep -E '^LOCAL_SQL_DAILY_BACKUP_DAYS=' "$cfg_src" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
+        V_WRD_D="$(grep -E '^LOCAL_WORD_BACKUP_DAYS=' "$cfg_src" | tail -n 1 | cut -d= -f2- | tr -d '"\r ' || true)"
         [ -n "$V_REM" ] && VERIFY_REMOTE="$V_REM"
         [ -n "$V_DIR" ] && VERIFY_REMOTE_DIR="$V_DIR"
         [ -n "$V_RET" ] && VERIFY_RETENTION="$V_RET"
+        [ -n "$V_SQL_D" ] && VERIFY_SQL_DAILY_DAYS="$V_SQL_D"
+        [ -n "$V_WRD_D" ] && VERIFY_WORD_DAYS="$V_WRD_D"
     fi
 done
 [ -z "$VERIFY_RETENTION" ] && VERIFY_RETENTION="0"
-echo "Config backups: remoto=${VERIFY_REMOTE}:${VERIFY_REMOTE_DIR} | DB_RETENTION_DAYS=${VERIFY_RETENTION}"
+[ -z "$VERIFY_SQL_DAILY_DAYS" ] && VERIFY_SQL_DAILY_DAYS="180"
+[ -z "$VERIFY_WORD_DAYS" ] && VERIFY_WORD_DAYS="365"
+RET_MODE_DESC=$([ "$VERIFY_RETENTION" = "0" ] && echo "0 (ilimitado)" || echo "${VERIFY_RETENTION}d")
+echo "Config backups: remoto=${VERIFY_REMOTE}:${VERIFY_REMOTE_DIR} | DB_RETENTION_DAYS=${RET_MODE_DESC} | diario_sql=${VERIFY_SQL_DAILY_DAYS}d | word_bak=${VERIFY_WORD_DAYS}d"
 
 VERIFY_RCLONE_CONF="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 RCLONE_BIN_HOST="$(command -v rclone || true)"

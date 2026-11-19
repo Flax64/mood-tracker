@@ -4778,21 +4778,34 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
 
         const httpsCookiePair = (httpsLogin.headers['set-cookie'] || []).find((c) => c.startsWith('mt_session=')).split(';')[0];
 
-        // 3. DB_RETENTION_DAYS=0 reportado correctamente en /api/archive/drive-range sin requerir rclone
+        // 3. DB_RETENTION_DAYS=0 por defecto (ilimitado) y rango ampliado hasta 120 meses en /api/archive/drive-range
         const prevRet = process.env.DB_RETENTION_DAYS;
         const prevRclone = process.env.RCLONE_CONFIG;
         try {
-            process.env.DB_RETENTION_DAYS = '0';
+            delete process.env.DB_RETENTION_DAYS;
             process.env.RCLONE_CONFIG = path.join(require('node:os').tmpdir(), `nonexistent-rclone-${Date.now()}.conf`);
             const rangeRes = await request({
                 port,
-                reqPath: '/api/archive/drive-range?months=6&begin=2020-01-01&end=2026-11-18',
+                reqPath: '/api/archive/drive-range?months=120&begin=2020-01-01&end=2026-11-18',
                 headers: { Cookie: httpsCookiePair }
             });
             assert.strictEqual(rangeRes.status, 200);
             const rangeData = JSON.parse(rangeRes.body);
             assert.strictEqual(rangeData.ok, true);
             assert.strictEqual(rangeData.localRetentionDays, 0);
+            assert.strictEqual(rangeData.monthsRequested, 120);
+            assert.strictEqual(rangeData.source, 'mysql_local_full');
+
+            process.env.DB_RETENTION_DAYS = '90';
+            const cappedRes = await request({
+                port,
+                reqPath: '/api/archive/drive-range?months=6&begin=2020-01-01&end=2026-11-18',
+                headers: { Cookie: httpsCookiePair }
+            });
+            assert.strictEqual(cappedRes.status, 200);
+            const cappedData = JSON.parse(cappedRes.body);
+            assert.strictEqual(cappedData.localRetentionDays, 90);
+            assert.strictEqual(cappedData.source, 'mysql_local_90d');
 
             const oldMoods = await request({
                 port,
