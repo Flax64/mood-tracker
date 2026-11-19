@@ -1335,6 +1335,85 @@ describe('Traductor Global por Selección e Integridad Bilingüe EN/ES', () => {
         }
         assert.deepEqual(trappedEs, [], `Entradas de PAIRS que no regresan a inglés: ${JSON.stringify(trappedEs.slice(0, 5))}`);
     });
+
+    it('cubre tooltips (title), mensajes de error del servidor, toasts, banners, loadingText y patrones dinámicos en EN <-> ES', () => {
+        const i18nSrc = readText('public/i18n.js');
+        const frontendJs = readText('public/frontend.js');
+        const mockDoc = {
+            readyState: 'loading',
+            title: '',
+            documentElement: { lang: 'en', style: {}, setAttribute() {}, querySelector() { return null; } },
+            getElementById() { return null; },
+            querySelector() { return null; },
+            querySelectorAll() { return []; },
+            addEventListener() {},
+            dispatchEvent() {}
+        };
+        const sandbox = {
+            window: {},
+            document: mockDoc,
+            localStorage: { getItem: () => 'en', setItem() {} },
+            CustomEvent: function CustomEvent(name, opts) { this.type = name; this.detail = opts && opts.detail; },
+            NodeFilter: { SHOW_TEXT: 4 },
+            dispatchEvent() {}
+        };
+        sandbox.window = sandbox;
+        vm.runInNewContext(i18nSrc, sandbox);
+        const i18n = sandbox.DailyHubI18n;
+
+        // 1. Todos los tooltips (title="...") en index.html y translator-popup.html deben diferir entre EN y ES
+        const missingTooltips = [];
+        for (const htmlFile of ['public/index.html', 'public/translator-popup.html']) {
+            const html = readText(htmlFile);
+            const titleRe = /\btitle="([^"]+)"/g;
+            let m;
+            while ((m = titleRe.exec(html))) {
+                const raw = m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+                if (!raw || !/[a-zA-ZáéíóúñÁÉÍÓÚÑ]/.test(raw)) continue;
+                i18n.setLang('en');
+                const enVal = i18n.translateServerMessage(raw);
+                i18n.setLang('es');
+                const esVal = i18n.translateServerMessage(raw);
+                if (enVal === esVal) {
+                    missingTooltips.push(`${htmlFile}: ${raw}`);
+                }
+            }
+        }
+        assert.deepEqual(missingTooltips, [], `Tooltips sin traducción bidireccional: ${JSON.stringify(missingTooltips)}`);
+
+        // 2. Verificar que mostrarBannerMusica y runWithButtonLock traduzcan mensajes/loadingText con tServer
+        assert.ok(frontendJs.includes('el.textContent = tServer(String(msg));'), 'mostrarBannerMusica debe traducir mensajes con tServer');
+        assert.ok(frontendJs.includes('label.textContent = tServer(String(loadingText));'), 'runWithButtonLock debe traducir loadingText con tServer');
+
+        // 3. Mensajes representativos de servidor, validaciones, toasts, banners y patrones dinámicos EN <-> ES
+        const samples = [
+            ['HTTPS is required for all API requests.', 'Se requiere HTTPS para todas las peticiones a la API.'],
+            ['Too many requests to the server. Please slow down briefly.', 'Demasiadas peticiones al servidor. Reduce el ritmo brevemente.'],
+            ['Concurrent English Notebook file write busy; please retry shortly.', 'Escritura concurrente del cuaderno de idiomas ocupada; reintenta en un momento.'],
+            ['Concurrent journal file write busy; please retry shortly.', 'Escritura concurrente de Diario.docx ocupada; reintenta en un momento.'],
+            ['Record updated successfully\nYou were still within the edit window.', 'Registro actualizado correctamente. Aún estabas dentro de la ventana de edición.'],
+            ['Invalid date format (expected YYYY-MM-DD).', 'Fecha inválida (formato esperado YYYY-MM-DD).'],
+            ['Intensity must be an integer between 1 and 5.', 'La intensidad debe ser un entero entre 1 y 5.'],
+            ['Google Drive upload could not be verified with matching byte size.', 'La subida a Google Drive no pudo verificarse con el mismo tamaño en bytes.'],
+            ['Song study notes encrypted & queued for Word!', '¡Notas de estudio de la canción cifradas y enviadas a Word!'],
+            ['Saving...', 'Guardando...'],
+            ['Edit Song: DRIP', 'Editar canción: DRIP'],
+            ['Edit Album: BABYMONS7ER', 'Editar álbum: BABYMONS7ER'],
+            ['Studying: BABYMONSTER — DRIP', 'Estudiando: BABYMONSTER — DRIP'],
+            ['Late bedtime (03:15) saved! Complete your wake-up time when you get up.', '¡Hora de dormir tardía (03:15) guardada! Completa tu hora de despertar cuando te levantes.'],
+            ['Note encrypted with password and saved locally (Nov 19th D-001).', 'Nota cifrada con contraseña y guardada localmente (Nov 19th D-001).'],
+            ['Write the crisis reason or trigger (max 250 characters).', 'Escribe el motivo o detonante de la crisis (máx. 250 caracteres).'],
+            ['You must complete the previous lesson first: "Lesson 1".', 'Debes completar primero la lección previa: "Lesson 1".'],
+            ['Synced 4 schedule item(s) to Weekly Agenda (1 vacation day(s) skipped)', 'Se sincronizaron 4 actividades a tu Agenda Semanal (1 día(s) de vacaciones omitidos)'],
+            ['Failed to send note: Network Error', 'No se pudo enviar la nota: Network Error']
+        ];
+        for (const [enExpected, esExpected] of samples) {
+            i18n.setLang('es');
+            assert.equal(i18n.translateServerMessage(enExpected), esExpected, `EN -> ES falló para "${enExpected}"`);
+            i18n.setLang('en');
+            assert.equal(i18n.translateServerMessage(esExpected), enExpected.replace(/\n/g, ' '), `ES -> EN falló para "${esExpected}"`);
+        }
+    });
 });
 
 describe('Balanceador de cargas Caddy + Réplica app2 y Modal de Canción (#musicSongModal)', () => {
@@ -1356,6 +1435,13 @@ describe('Balanceador de cargas Caddy + Réplica app2 y Modal de Canción (#musi
         const app2BlockMatch = compose.match(/^\s{2}app2:[\s\S]*?(?=^\s{2}proxy:)/m);
         assert.ok(app2BlockMatch, 'Debe existir sección app2 antes de proxy en docker-compose.yml');
         assert.equal(/^\s+ports:/m.test(app2BlockMatch[0]), false, 'app2 no debe exponer puertos en el host');
+
+        const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
+        assert.match(ubuntuGuide, /mood_app2/);
+        assert.match(ubuntuGuide, /127\.0\.0\.1:8080/);
+        assert.match(ubuntuGuide, /pdh_lb/);
+        assert.match(ubuntuGuide, /\[1\/10\]/);
+        assert.match(ubuntuGuide, /\[10\/10\]/);
     });
 
     it('ubica #musicSongForm dentro de #musicSongModal antes de #musicAlbumCreateModal para superposición limpia', () => {

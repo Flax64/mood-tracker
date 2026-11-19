@@ -1,6 +1,6 @@
 # Guía Paso a Paso: Desinstalar Windows, Instalar Ubuntu Server 26.04 LTS y Desplegar con Tailscale — Personal Daily Hub
 
-> Guía completa para convertir una PC local (Intel Core i7, ~8 GB RAM, ~500 GB HDD) en un **servidor Ubuntu Server 26.04 LTS 100 % autónomo y local**, eliminando Windows por completo, exponiendo la app de forma privada con **Tailscale HTTPS** (`tailscale serve`) y operando **Notas de Idiomas locales (con Google Drive opcional)**, **Journal local cifrado con contraseña (`Diario.docx`)** y **`yt-dlp`** sin depender de otra computadora ni de servicios externos obligatorios.
+> Guía completa y detallada para convertir una PC local (Intel Core i7, ~8 GB RAM, ~500 GB HDD) en un **servidor Ubuntu Server 26.04 LTS 100 % autónomo y local**, ejecutando **4 contenedores Docker** (`mood_db` MySQL 8.0 + 2 réplicas `mood_app` y `mood_app2` + balanceador Caddy `mood_proxy` con sticky sessions `pdh_lb` y locks distribuidos `GET_LOCK`), exponiendo la app de forma privada mediante **Tailscale HTTPS** (`tailscale serve`) y operando **Notas de Idiomas locales (con Google Drive opcional)**, **Journal local cifrado con contraseña (`Diario.docx`)** y **`yt-dlp` autónomo**.
 
 ---
 
@@ -8,98 +8,124 @@
 
 | Paso | Sección |
 | :--- | :--- |
-| 1 | [1. Respaldo obligatorio antes de borrar Windows](#1-respaldo-obligatorio-antes-de-borrar-windows) |
-| 2 | [2. Descargar Ubuntu Server 26.04 LTS y crear USB booteable](#2-descargar-ubuntu-server-2604-lts-y-crear-usb-booteable) |
+| 1 | [1. Respaldo previo: AWS a Google Drive y archivos de Windows](#1-respaldo-previo-aws-a-google-drive-y-archivos-de-windows) |
+| 2 | [2. Descargar Ubuntu Server 26.04 LTS y crear USB booteable (Rufus)](#2-descargar-ubuntu-server-2604-lts-y-crear-usb-booteable-rufus) |
 | 3 | [3. Configurar BIOS / UEFI para servidor 24/7](#3-configurar-bios--uefi-para-servidor-247) |
 | 4 | [4. Arrancar el instalador, desinstalar Windows y particionar el disco de ~500 GB](#4-arrancar-el-instalador-desinstalar-windows-y-particionar-el-disco-de-500-gb) |
 | 5 | [5. Configuración del sistema dentro del instalador (Red, Usuario, OpenSSH)](#5-configuración-del-sistema-dentro-del-instalador-red-usuario-openssh) |
-| 6 | [6. Post-instalación: actualizaciones, Docker, SSH seguro y sudo para CI](#6-post-instalación-actualizaciones-docker-ssh-seguro-y-sudo-para-ci) |
-| 7 | [7. Instalar Tailscale (OAuth CI + HTTPS Serve) y Firewall UFW](#7-instalar-tailscale-oauth-ci--https-serve-y-firewall-ufw) |
-| 8 | [8. Desplegar 100 % con GitHub Secrets/Variables (o despliegue manual)](#8-desplegar-100--con-github-secretsvariables-o-despliegue-manual) |
-| 9 | [9. Verificación de Google Drive, backups automáticos, `yt-dlp` y diagnóstico](#9-verificación-de-google-drive-backups-automáticos-yt-dlp-y-diagnóstico) |
+| 6 | [6. Post-instalación: sistema, Docker, `rclone`, SSH seguro y `sudo` para CI](#6-post-instalación-sistema-docker-rclone-ssh-seguro-y-sudo-para-ci) |
+| 7 | [7. Instalar Tailscale (OAuth CI + HTTPS Serve al Balanceador) y Firewall UFW](#7-instalar-tailscale-oauth-ci--https-serve-al-balanceador-y-firewall-ufw) |
+| 8 | [8. Migrar archivos, desplegar vía GitHub Actions o manual y restaurar BD](#8-migrar-archivos-desplegar-vía-github-actions-o-manual-y-restaurar-bd) |
+| 9 | [9. Verificación del Balanceador, 4 Contenedores, Google Drive, `yt-dlp` y App Web](#9-verificación-del-balanceador-4-contenedores-google-drive-yt-dlp-y-app-web) |
 | 10 | [10. Seguridad avanzada: HTTPS total, secretos blindados, anti-hackers y anti-DoS/DDoS](#10-seguridad-avanzada-https-total-secretos-blindados-anti-hackers-y-anti-dosddos) |
+| 11 | [11. Operación diaria, cambio seguro de `DB_PASS` y solución de problemas](#11-operación-diaria-cambio-seguro-de-db_pass-y-solución-de-problemas) |
 
 ---
 
-## 1. Respaldo obligatorio antes de borrar Windows
+## 1. Respaldo previo: AWS a Google Drive y archivos de Windows
 
 > [!WARNING]
-> Al instalar Ubuntu Server usando todo el disco, **Windows y todos los archivos en esa PC se eliminarán de forma irreversible**. Realiza este respaldo en una memoria USB externa o disco externo antes de continuar.
+> Al instalar Ubuntu Server usando todo el disco, **Windows y todos los archivos en esa PC se eliminarán de forma irreversible**. Completa tanto el respaldo de tu instancia AWS (si aún está activa) como la copia de tus archivos locales en una USB o disco externo antes de continuar.
 
-Copia desde tu PC actual (y verifica que abran correctamente):
+### 1.1 Respaldo final desde tu instancia AWS EC2 hacia Google Drive
+
+Si actualmente tienes datos corriendo en tu servidor AWS, entra por SSH a esa instancia y sube un respaldo actualizado antes de apagarla:
+
+```bash
+# Opción A: Usar el script oficial del proyecto en la instancia AWS
+cd ~/projects/mood-tracker && ./scripts/backup.sh --require-drive
+```
+
+*(Si tu instancia AWS tiene una versión anterior del script sin `--require-drive`, o prefieres hacer una extracción **100 % de solo lectura** sin podar registros viejos en AWS, ejecuta este comando en una línea)*:
+
+```bash
+docker exec mood_db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump --single-transaction --routines --triggers --no-tablespaces -u root "$MYSQL_DATABASE"' \
+  | gzip > ~/respaldo_mood_tracker.sql.gz \
+  && gzip -t ~/respaldo_mood_tracker.sql.gz \
+  && rclone copyto ~/respaldo_mood_tracker.sql.gz gdrive:RespaldosApp/respaldo_mood_tracker.sql.gz \
+  && rclone lsl gdrive:RespaldosApp --include "respaldo_mood_tracker.sql.gz" --include "historico_completo.json.gz"
+```
+
+*(Si tu usuario en AWS necesita `sudo` para Docker, antepón `sudo` a `docker exec`).*
+
+Cuando veas `respaldo_mood_tracker.sql.gz` con la fecha de hoy y tamaño mayor a 0 bytes, tu base de datos estará lista para restaurarse automáticamente en Ubuntu Server mediante `./scripts/restore.sh`.
+
+### 1.2 Respaldo de tus archivos locales en Windows (en USB externa)
+
+Copia a una USB externa (y verifica que abran correctamente):
 
 1. **Tu Diario personal cifrado (`Diario.docx`):**
-   * El archivo `.docx` que usabas en `WORD_FILE_PATH` protegido con `WORD_PASSWORD`.
+   * El archivo `.docx` que usabas localmente protegido con `WORD_PASSWORD`. En Ubuntu Server vivirá dentro de `./data/journal/Diario.docx` (cifrado con `msoffcrypto-tool` usando la misma contraseña `WORD_PASSWORD`, y **nunca** se subirá a Google Drive ni Git).
 2. **Tu Cuaderno de Idiomas (`English_Learning_Notebook.docx`):**
-   * Ubicado en `english-notes/English_Learning_Notebook.docx` (aunque también esté respaldado en Google Drive, guarda una copia de seguridad).
-3. **Tus secretos y configuración:**
-   * Tu `.env` (o descifra `.env.enc` temporalmente con `node scripts/local-vault.js decrypt` para anotar `DB_PASS`, `ADMIN_EMAIL`, `ADMIN_SECRET`, `WORD_PASSWORD`, `JOURNAL_SECRET_KEY`, `SMTP_USER`, `SMTP_PASS`, `GEMINI_API_KEY`).
-   * Tu archivo de configuración de Google Drive (`rclone.conf`, normalmente en `%APPDATA%\rclone\rclone.conf` o generado vía `RCLONE_CONF_B64`).
-   * Tus llaves SSH de `.ssh/` si las necesitas.
-4. **Cualquier otro documento personal** en *Documentos*, *Descargas*, *Escritorio*, navegadores, etc.
+   * Ubicado en `english-notes/English_Learning_Notebook.docx` (y/o en Google Drive `gdrive:RespaldosApp/NotasIdiomas`).
+3. **Tus secretos y llaves actuales:**
+   * Si usas bóveda local `.env.enc`, descífrala temporalmente en PowerShell con `node scripts/local-vault.js decrypt` (o revisa tu `.env`) y respalda de forma segura: `DB_PASS`, `ADMIN_EMAIL`, `ADMIN_SECRET`, `WORD_PASSWORD`, `JOURNAL_SECRET_KEY`, `SMTP_USER`, `SMTP_PASS` y `GEMINI_API_KEY`.
+   * **Notas clave sobre variables al migrar:**
+     * **`JOURNAL_SECRET_KEY` (32 caracteres):** **sigue siendo obligatoria** en Ubuntu Server para el cifrado E2EE entre el navegador y Node.js.
+     * **`WORD_FILE_PATH`, `AWS_HOST` y `YT_DLP_PATH`:** ya son **obsoletas** en Ubuntu Server (el servidor usa `/app/journal-data/Diario.docx`, `/usr/local/bin/yt-dlp` y tu dominio `*.ts.net`).
+     * **Cambiar `DB_PASS` antes de instalar:** el respaldo SQL de Google Drive **no guarda la contraseña del usuario `root` de MySQL**. Si quieres usar una nueva `DB_PASS` más segura en Ubuntu Server, simplemente colócala en tu `.env` / GitHub Secret antes del primer levantamiento con Docker (o consulta la [Sección 11.3](#113-cambiar-db_pass-en-caliente-sin-perder-datos) si ya la desplegaste).
+   * Tu archivo `rclone.conf` (en Windows suele estar en `%APPDATA%\rclone\rclone.conf`) o su cadena Base64 (`RCLONE_CONF_B64`).
+   * Tus llaves SSH de `~/.ssh/` si las necesitas.
+4. **Cualquier otro documento personal** de *Documentos*, *Descargas*, *Escritorio* o navegadores.
 
 ---
 
-## 2. Descargar Ubuntu Server 26.04 LTS y crear USB booteable
+## 2. Descargar Ubuntu Server 26.04 LTS y crear USB booteable (Rufus)
 
-Necesitas una memoria USB de al menos **4 GB** (se formateará durante el proceso) y otra computadora (o esta misma PC antes de borrar Windows):
+Necesitas una memoria USB de al menos **4 GB** (se formateará durante el proceso):
 
 1. **Descarga la ISO oficial de Ubuntu Server 26.04 LTS (64-bit AMD64 / x86_64):**
    * Sitio oficial: `https://ubuntu.com/download/server`
-   * Verifica que el archivo sea la edición **Server** (sin entorno gráfico), por ejemplo `ubuntu-26.04-live-server-amd64.iso`.
-2. **Graba la ISO en tu memoria USB:**
-   * En Windows, descarga **Rufus** (`https://rufus.ie`) o **balenaEtcher**.
-   * En **Rufus**:
-     * **Dispositivo:** selecciona tu USB.
-     * **Elección de arranque:** selecciona la ISO `ubuntu-26.04-live-server-amd64.iso`.
-     * **Esquema de partición:** `GPT` (para PCs modernas con UEFI; si es una PC muy antigua sin UEFI usa `MBR`).
-     * **Sistema de destino:** `UEFI (no CSM)`.
-     * Haz clic en **EMPEZAR** (si pregunta entre *Modo Imagen ISO* o *Modo DD*, cualquiera funciona, *Imagen ISO* suele ser el predeterminado).
-3. Cuando termine, expulsa el USB de forma segura.
+   * Verifica que el archivo sea edición **Server** (sin entorno gráfico), por ejemplo `ubuntu-26.04-live-server-amd64.iso`.
+2. **Graba la ISO en tu memoria USB con Rufus (Windows):**
+   * Descarga **Rufus** desde `https://rufus.ie` (o **balenaEtcher**).
+   * Configura exactamente estos valores en **Rufus**:
+     * **Dispositivo:** tu memoria USB.
+     * **Elección de arranque:** selecciona `ubuntu-26.04-live-server-amd64.iso`.
+     * **Esquema de partición:** **`GPT`** *(si es una PC muy antigua sin UEFI, usa `MBR`)*.
+     * **Sistema de destino:** **`UEFI (no CSM)`**.
+     * Haz clic en **EMPEZAR**.
+   * En la ventana emergente **`ISOHybrid image detected`**: selecciona **`Write in ISO Image mode (Recommended)`** y presiona **OK** *(solo usa DD mode si la BIOS de tu placa fallara al arrancar con modo ISO)*.
+3. Cuando termine la barra en **LISTO**, expulsa la USB de forma segura.
 
 ---
 
 ## 3. Configurar BIOS / UEFI para servidor 24/7
 
-Conecta el servidor por **cable Ethernet** al router (muy recomendable frente a Wi-Fi para estabilidad 24/7) e inserta el USB booteable:
+Conecta el servidor por **cable Ethernet** al router (más estable y rápido que Wi-Fi para SSH y Docker) e inserta el USB booteable:
 
-1. Enciende o reinicia la PC y presiona repetidamente la tecla de BIOS/Boot Menu (`F2`, `F12`, `Del/Supr`, `F10` o `Esc` según la marca).
-2. Dentro del **BIOS/UEFI**:
-   * **Desactiva Fast Boot** (si existe) para facilitar arranques/diagnósticos futuros.
-   * **Asegura modo UEFI** (recomendado) y modo de disco **AHCI** (evita Intel RST/RAID propietario si el instalador no detecta el disco NVMe/SATA).
-   * **Muy importante para servidor en casa — `Restore on AC Power Loss` (o `After Power Loss`):** cámbialo a **`Power On`** (o *Last State*). Así, si se va la luz en tu casa y regresa, la PC encenderá sola automáticamente sin que tengas que apretar el botón.
-   * Si es una laptop y la usarás con la tapa cerrada, verifica que tenga buena ventilación.
-3. Guarda cambios (`F10`) y arranca desde el **USB** en el Boot Menu.
+1. Enciende la PC y presiona repetidamente la tecla de BIOS o Boot Menu (`F2`, `F12`, `Del/Supr`, `F10` o `Esc` según el fabricante).
+2. Ajusta estas opciones en el **BIOS/UEFI**:
+   * **Desactiva `Fast Boot`** (facilita entrar al BIOS/arranque ante mantenimiento).
+   * **Modo de arranque:** **`UEFI`** (recomendado) y modo SATA **`AHCI`** (evita Intel RST/RAID propietario para que Linux detecte el disco de 500 GB sin problemas).
+   * **`Restore on AC Power Loss` / `AC Power Recovery`:** cámbialo a **`Power On`** (o *Last State*). Así, tras cualquier corte eléctrico, la PC vuelve a encender automáticamente sin pulsar el botón físico.
+   * Si usas una laptop con la tapa cerrada, colócala en un sitio ventilado.
+3. Guarda cambios (`F10`) y arranca desde la **memoria USB**.
 
 ---
 
 ## 4. Arrancar el instalador, desinstalar Windows y particionar el disco de ~500 GB
 
-Al elegir **`Try or Install Ubuntu Server`** en el menú GRUB, sigue estos pasos en el instalador de texto:
+Elige **`Try or Install Ubuntu Server`** en el menú GRUB y avanza por cada pantalla del instalador de texto:
 
-1. **Idioma (`Language`):** elige `English` (recomendado en servidores para mensajes de error estándar) o `Español`.
-2. **Actualización del instalador (`Installer update`):** si pregunta si quieres actualizar el instalador, puedes elegir `Continue without updating` (o actualizar si tienes Ethernet conectado).
-3. **Teclado (`Keyboard configuration`):** selecciona tu distribución (`Spanish` o `English (US)` / `Latin American`) y confirma con **Done**.
-4. **Tipo de instalación (`Choose type of install`):** deja **`Ubuntu Server`** (instalación estándar, NO minimal si prefieres utilidades base listas, aunque ambas funcionan; `Ubuntu Server` es lo más cómodo).
-5. **Configuración de red (`Network connections`):**
-   * Verás tu tarjeta Ethernet (`enp...` o `eth0`) con IP por DHCP.
-   * **Recomendación:** configura una IP local estática o reserva esa MAC en tu router para que tu PC siempre tenga la misma IP en casa (aunque con **Tailscale** siempre la alcanzarás por su IP `100.x.y.z` y nombre `*.ts.net`).
-6. **Proxy y Mirror (`Configure proxy` / `Ubuntu archive mirror`):**
-   * Proxy: déjalo vacío y presiona **Done**.
-   * Mirror: deja el mirror sugerido por defecto y presiona **Done**.
-7. **ELIMINAR WINDOWS Y PARTICIONAR EL DISCO (`Guided storage configuration`):**
-   * Aquí es donde se desinstala Windows completamente y se usa todo el disco HDD de ~500 GB:
-   * Selecciona **`Use an entire disk`** (Usar un disco completo).
-   * Verifica que el disco seleccionado sea tu unidad de **~500 GB HDD** (NO el USB de instalación).
-   * Marca **`Set up this disk as an LVM group`** (recomendado para gestionar volúmenes con flexibilidad).
-   * **Sobre cifrado de disco completo (`Encrypt the LVM group with LUKS`):**
-     * *Si NO marcas LUKS:* tras un corte de luz la PC arranca **100 % sola** hasta levantar Docker y Tailscale (ideal para acceso remoto 24/7), mientras tu `Diario.docx` ya queda cifrado individualmente con `WORD_PASSWORD`.
-     * *Si SÍ marcas LUKS:* máxima protección física si roban el disco, pero **requerirá escribir la clave físicamente con teclado tras cada apagón** antes de que arranque Linux/SSH/Tailscale.
-   * Presiona **Done**.
-8. **Resumen de almacenamiento (`Storage configuration`):**
-   * En la pantalla verás las particiones nuevas (`/boot/efi`, `/boot`, LVM `ubuntu-vg / ubuntu-lv`) y abajo las particiones antiguas de Windows marcadas para destruirse.
-   * **Opcional recomendado para aprovechar los ~500 GB HDD:** si el instalador asignó solo 100–200 GB a `ubuntu-lv` dejando espacio libre en el grupo LVM, selecciona `ubuntu-lv` -> `Edit` y aumenta el tamaño al máximo disponible (dejando libre si quieres para snapshots, o usando el ~95–100 %).
-   * Selecciona **Done** y en el cuadro rojo **`Confirm destructive action`** elige **`Continue`** (esto borra Windows y formatea el disco limpio para Ubuntu Server).
+1. **Idioma (`Language`):** `English` (recomendado en servidores para logs estándar) o `Español`.
+2. **Actualización del instalador (`Installer update`):** elige `Continue without updating` (o actualiza si conectaste Ethernet).
+3. **Teclado (`Keyboard configuration`):** elige tu distribución (`Latin American`, `Spanish` o `English (US)`) y confirma con **`Done`**.
+4. **Tipo de instalación (`Choose type of install`):** deja **`Ubuntu Server`** (instalación estándar) -> **`Done`**.
+5. **Red (`Network connections`):** verás tu tarjeta Ethernet (`enp...` / `eth0`) con IP por DHCP.
+   * *Recomendación:* asigna una reserva DHCP por dirección MAC en tu router para mantener fija tu IP LAN (y además usarás **Tailscale** con IP `100.x.y.z` y dominio `*.ts.net`).
+6. **Proxy y Mirror:** deja Proxy vacío -> **`Done`**; deja el mirror de Ubuntu sugerido -> **`Done`**.
+7. **ELIMINAR WINDOWS Y USAR TODO EL DISCO (`Guided storage configuration`):**
+   * Selecciona **`Use an entire disk`** y confirma que sea tu disco duro interno de **~500 GB HDD** (NO tu USB de arranque).
+   * Deja marcado **`Set up this disk as an LVM group`**.
+   * **Sobre cifrado completo de disco (`Encrypt the LVM group with LUKS`):**
+     * *Sin LUKS (recomendado para operación remota 24/7):* tras un apagón el servidor arranca **100 % solo** hasta levantar Docker, MySQL, Caddy y Tailscale. Tu diario privado ya viaja cifrado con `WORD_PASSWORD`.
+     * *Con LUKS:* protege todo el disco si roban el hardware, pero **exige escribir contraseña con teclado físico** tras cada reinicio o corte de luz.
+   * Selecciona **`Done`**.
+8. **Resumen de particiones (`Storage configuration`):**
+   * Verifica que aparezcan las nuevas particiones Linux (`/boot/efi`, `/boot`, `ubuntu-vg / ubuntu-lv`) y que abajo figuren las viejas particiones NTFS de Windows marcadas para eliminación.
+   * **Aprovechar todo el disco de 500 GB:** el instalador a veces asigna solo 100 GB a `ubuntu-lv`; selecciónalo -> **`Edit`** -> sube el tamaño al máximo disponible (`max`) -> **`Save`**.
+   * Selecciona **`Done`** y en **`Confirm destructive action`** elige **`Continue`** (esto borra Windows y formatea limpio para Ubuntu Server).
 
 ---
 
@@ -107,96 +133,131 @@ Al elegir **`Try or Install Ubuntu Server`** en el menú GRUB, sigue estos pasos
 
 1. **Perfil (`Profile setup`):**
    * **Your name:** tu nombre.
-   * **Your server's name:** por ejemplo `dailyhub-srv` (será tu hostname).
-   * **Pick a username:** por ejemplo `ubuntu` o tu usuario personal (sin espacios ni mayúsculas).
-   * **Choose a password:** contraseña fuerte para `sudo` y consola.
-2. **Ubuntu Pro:** elige **`Skip for now`** -> **Continue**.
+   * **Your server's name:** por ejemplo `dailyhub-srv`.
+   * **Pick a username:** por ejemplo `ubuntu` o `flavio` *(en minúsculas y sin espacios; en esta guía usaremos `TU_USUARIO`)*.
+   * **Choose a password:** contraseña fuerte para iniciar sesión y `sudo`.
+2. **Ubuntu Pro:** elige **`Skip for now`** -> **`Continue`**.
 3. **Configuración SSH (`SSH Setup`):**
-   * **MARCA `[X] Install OpenSSH server`** (obligatorio para administrar sin monitor ni teclado).
-   * Puedes dejar `Import SSH identity` en `No` (o importar desde GitHub si ya usas llaves ahí).
+   * **Marca `[X] Install OpenSSH server`** (obligatorio para operar sin monitor ni teclado).
+   * Deja `Import SSH identity` en `No` -> **`Done`**.
 4. **Featured Server Snaps:**
-   * **NO marques Docker aquí** (es mejor instalar **Docker Engine oficial** por `apt` en el paso 6, ya que el snap de Docker suele dar problemas con volúmenes fuera de `/home` y permisos de `docker compose`).
-   * Baja hasta **Done** y presiona Enter.
-5. **Instalación y reinicio:**
-   * Espera a que termine de descargar paquetes e instalar el kernel (verás `Install complete!` arriba).
-   * Selecciona **`Reboot Now`**.
-   * Cuando te pida **`Please remove the installation medium, then press ENTER`**, retira la memoria USB y presiona **Enter**.
+   * **NO selecciones `docker` aquí.** Instalaremos **Docker Engine oficial** por `apt` en el paso 6 (el paquete Snap suele restringir rutas y volúmenes locales). Baja hasta **`Done`**.
+5. **Finalizar instalación:**
+   * Al ver **`Install complete!`**, selecciona **`Reboot Now`**.
+   * Cuando aparezca **`Please remove the installation medium, then press ENTER`**, desconecta la memoria USB y pulsa **Enter**.
 
 ---
 
-## 6. Post-instalación: actualizaciones, Docker, SSH seguro y sudo para CI
+## 6. Post-instalación: sistema, Docker, `rclone`, SSH seguro y `sudo` para CI
 
-Inicia sesión en la consola (o por SSH desde tu laptop en la red local: `ssh tu_usuario@IP_LOCAL_DEL_SERVIDOR`) y ejecuta:
+Inicia sesión directamente en la PC o desde otra computadora en tu red local por SSH (`ssh TU_USUARIO@IP_LOCAL_DEL_SERVIDOR`):
 
-### 6.1 Actualizar el sistema y utilidades base
+### 6.1 Actualizar Ubuntu e instalar paquetes esenciales
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl ca-certificates openssl rclone unzip cron ufw openssh-server
 ```
 
-### 6.2 Ajustar zona horaria, tuning HDD/8 GB RAM y evitar que la PC se duerma
+Verifica versiones instaladas:
 ```bash
-# Ajusta tu zona horaria (ej. America/Monterrey)
-sudo timedatectl set-timezone America/Monterrey
+git --version && rclone version | head -n 2
+```
 
-# Evita suspensión o hibernación automática en servidor 24/7
+### 6.2 Zona horaria, tuning para 8 GB RAM + ~500 GB HDD y cero suspensión 24/7
+```bash
+# 1) Ajustar zona horaria para logs, Node.js, MySQL, Python y crons
+sudo timedatectl set-timezone America/Monterrey
+timedatectl
+
+# 2) Deshabilitar por completo reposo, suspensión e hibernación automática
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
-# Reduce escrituras swap innecesarias sobre disco mecánico HDD con 8 GB de RAM
+# 3) Configurar Swap 2 GB (si aún no existe) y minimizar swap thrashing en HDD mecánico
+sudo swapon --show
 echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-hdd-tuning.conf
 sudo sysctl --system
 ```
-*(Si usas una laptop y cerrarás la tapa, edita `/etc/systemd/logind.conf`, descomenta y deja `HandleLidSwitch=ignore` y `HandleLidSwitchExternalPower=ignore`, luego ejecuta `sudo systemctl restart systemd-logind`).*
 
-### 6.3 Instalar Docker Engine y Docker Compose oficial
+*(Si tu servidor es una laptop y cerrarás la tapa, ejecuta también)*:
+```bash
+sudo sed -i 's/^#\?HandleLidSwitch=.*/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
+sudo sed -i 's/^#\?HandleLidSwitchExternalPower=.*/HandleLidSwitchExternalPower=ignore/' /etc/systemd/logind.conf
+grep -q '^HandleLidSwitch=' /etc/systemd/logind.conf || echo 'HandleLidSwitch=ignore' | sudo tee -a /etc/systemd/logind.conf
+grep -q '^HandleLidSwitchExternalPower=' /etc/systemd/logind.conf || echo 'HandleLidSwitchExternalPower=ignore' | sudo tee -a /etc/systemd/logind.conf
+sudo systemctl restart systemd-logind
+```
+
+### 6.3 Instalar Docker Engine y Docker Compose v2 oficiales
 ```bash
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker "$USER"
+sudo systemctl enable --now docker
 ```
-Cierra sesión SSH (`exit`) y vuelve a entrar para que el grupo `docker` aplique sin usar `sudo`. Verifica:
+
+Cierra la sesión SSH (`exit`), vuelve a conectar por SSH para aplicar el grupo `docker` y verifica:
 ```bash
 docker --version
 docker compose version
 ```
 
-### 6.4 Configurar OpenSSH, llaves SSH (Admin + GitHub Actions), `sudo` sin contraseña y hardening
-Para administrar el servidor sin monitor ni teclado y permitir que **GitHub Actions despliegue automáticamente por SSH**, prepara lo siguiente:
+### 6.4 Configurar `rclone` (Google Drive opcional) en Ubuntu
 
-1. **Verificar que el servicio SSH arranque siempre con el sistema:**
+Puedes configurar `rclone` de cualquiera de estas dos maneras:
+
+* **Opción A (si ya tienes tu `rclone.conf` de Windows o AWS en Base64):**
+  ```bash
+  mkdir -p ~/.config/rclone && chmod 700 ~/.config/rclone
+  echo "PEGA_AQUI_TU_CADENA_RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d > ~/.config/rclone/rclone.conf
+  chmod 600 ~/.config/rclone/rclone.conf
+  rclone listremotes
+  ```
+* **Opción B (configurar cuenta Google Drive desde cero vía SSH):**
+  ```bash
+  rclone config
+  ```
+  *(Elige `n` -> nombre `gdrive` -> `drive` -> deja client_id/secret vacíos -> scope `1` (Full access) -> `n` auto config -> pega el token obtenido desde tu PC con `rclone authorize "drive"` -> confirma). Luego valida:*
+  ```bash
+  rclone listremotes
+  rclone ls gdrive:RespaldosApp
+  # Generar la cadena Base64 de una sola línea para GitHub Secret RCLONE_CONF_B64:
+  base64 -w 0 ~/.config/rclone/rclone.conf && echo ""
+  ```
+
+### 6.5 Configurar OpenSSH, llaves Ed25519 (Admin + GitHub Actions) y `sudo` sin contraseña
+
+1. **Asegurar servicio SSH y carpeta `~/.ssh`:**
    ```bash
    sudo systemctl enable --now ssh
    mkdir -p ~/.ssh && chmod 700 ~/.ssh
    touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
    ```
-2. **Llave SSH personal de administrador (desde tu laptop/PC Windows):**
-   En PowerShell de tu laptop (si aún no tienes llave Ed25519):
+2. **Llave SSH de administrador desde tu laptop Windows (PowerShell):**
    ```powershell
+   # Solo si aún no tienes ~/.ssh/id_ed25519.pub:
    ssh-keygen -t ed25519 -C "admin-dailyhub"
-   # Copia tu llave pública al servidor:
+   # Enviar llave pública al servidor Ubuntu:
    type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh TU_USUARIO@IP_LOCAL "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
    ```
-3. **Llave SSH dedicada para GitHub Actions (`SERVER_SSH_KEY` / `EC2_SSH_KEY`):**
-   Genera en RAM (`/dev/shm`) dentro de Ubuntu una llave exclusiva para CI/CD (sin passphrase para que GitHub Actions pueda usarla):
+3. **Llave SSH exclusiva para GitHub Actions (`SERVER_SSH_KEY` / `EC2_SSH_KEY`):**
+   Genera el par Ed25519 directamente en RAM (`/dev/shm`) dentro de Ubuntu (sin passphrase para CI):
    ```bash
    ssh-keygen -t ed25519 -N "" -C "github-actions-deploy" -f /dev/shm/github_actions_dailyhub
    cat /dev/shm/github_actions_dailyhub.pub >> ~/.ssh/authorized_keys
    chmod 600 ~/.ssh/authorized_keys
-   echo "--- COPIA ESTA LLAVE PRIVADA COMPLETA AL SECRET SERVER_SSH_KEY (o EC2_SSH_KEY) EN GITHUB ---"
+   echo "--- COPIA ESTA LLAVE PRIVADA COMPLETA AL SECRET SERVER_SSH_KEY EN GITHUB ---"
    cat /dev/shm/github_actions_dailyhub
    ```
-   Una vez pegada la llave privada (incluyendo `BEGIN/END OPENSSH PRIVATE KEY`) en GitHub Secrets, bórrala de RAM:
+   En cuanto pegues el bloque completo (`-----BEGIN OPENSSH PRIVATE KEY-----` ... `-----END OPENSSH PRIVATE KEY-----`) en GitHub Secrets, bórrala de RAM:
    ```bash
    shred -u -z -n 1 /dev/shm/github_actions_dailyhub /dev/shm/github_actions_dailyhub.pub
    ```
-4. **Habilitar `sudo` sin contraseña para despliegues SSH no interactivos:**
-   A diferencia de AWS EC2, Ubuntu Server local pide contraseña en `sudo` por defecto y colgaría GitHub Actions al instalar paquetes o ajustar `timedatectl`/`cron`:
+4. **Habilitar `sudo` sin contraseña para despliegues automáticos por SSH:**
    ```bash
    echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/90-${USER}-nopasswd"
    sudo chmod 440 "/etc/sudoers.d/90-${USER}-nopasswd"
    sudo visudo -cf "/etc/sudoers.d/90-${USER}-nopasswd"
    ```
-5. **Endurecer OpenSSH (desactivar login por contraseña y root):**
-   *(Haz esto solo DESPUÉS de confirmar que puedes entrar usando tu llave Ed25519).*
+5. **Desactivar login por contraseña en OpenSSH** *(ejecútalo SOLO después de verificar en otra terminal que ya entras con tu llave SSH)*:
    ```bash
    sudo tee /etc/ssh/sshd_config.d/99-hardening.conf >/dev/null <<'EOF'
    PasswordAuthentication no
@@ -208,267 +269,381 @@ Para administrar el servidor sin monitor ni teclado y permitir que **GitHub Acti
    sudo sshd -t && sudo systemctl reload ssh
    ```
    > [!IMPORTANT]
-   > No cierres tu sesión SSH actual tras `reload ssh`. Abre una **segunda ventana de terminal** y comprueba `ssh TU_USUARIO@IP_LOCAL` antes de cerrar la primera.
+   > No cierres la sesión SSH actual tras `reload ssh`: abre **otra terminal** y prueba entrar con `ssh TU_USUARIO@IP_LOCAL` antes de cerrar la primera.
 
 ---
 
-## 7. Instalar Tailscale (OAuth CI + HTTPS Serve) y Firewall UFW
+## 7. Instalar Tailscale (OAuth CI + HTTPS Serve al Balanceador) y Firewall UFW
 
 ### 7.1 Instalar y vincular Tailscale en Ubuntu Server
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
-1. Abre en tu navegador el enlace de autenticación que aparece en pantalla e inicia sesión con tu cuenta personal de Tailscale.
-2. Anota el nombre MagicDNS e IP Tailscale de tu equipo (`tailscale ip -4` y `tailscale status`).
-3. En el panel web de Tailscale (`https://login.tailscale.com/admin/machines`):
-   * Busca tu servidor (`dailyhub-srv`), abre el menú `...` -> **`Disable key expiry`** (para que el servidor nunca caduque su sesión automáticamente).
-   * Verifica que **MagicDNS** y **HTTPS Certificates** estén habilitados en `DNS`.
 
-### 7.2 Configurar Tailscale OAuth para que GitHub Actions conecte por SSH privado
-El workflow `.github/workflows/deploy.yml` incluye `tailscale/github-action@v3` para que el runner de GitHub se conecte de forma **efímera** a tu Tailnet, ejecute el despliegue vía SSH contra tu servidor privado y se desconecte al terminar:
+Verifica tu IP y dominio MagicDNS asignados:
+```bash
+tailscale ip -4
+tailscale status
+```
 
-1. En **Tailscale Admin Console** -> **Access controls** (ACLs), declara el tag `tag:ci` bajo `tagOwners`:
+En la consola web de Tailscale (`https://login.tailscale.com/admin/machines`):
+* En tu servidor (`dailyhub-srv`) abre `...` -> **`Disable key expiry`** para que no caduque la autenticación.
+* En la pestaña **DNS**, confirma que **MagicDNS** y **HTTPS Certificates** estén activados.
+
+### 7.2 Configurar Tailscale OAuth para que GitHub Actions despliegue por SSH privado
+
+1. En **Tailscale Admin Console** -> **Access controls** (ACLs), declara `tag:ci` bajo `tagOwners`:
    ```json
    "tagOwners": {
      "tag:ci": ["autogroup:admin"]
    }
    ```
-   *(Si usas reglas ACL estrictas en vez del permiso por defecto, asegúrate de permitir `tag:ci` hacia puerto `22` de tu servidor).*
-2. Ve a **Settings** -> **OAuth clients** -> **Generate OAuth client**:
-   * Descripción: `GitHub Actions Deploy`.
-   * Scope requerido: **`Auth Keys`** -> **`Write`** (asigna la etiqueta `tag:ci`).
-3. Guarda el **Client ID** en el GitHub Secret `TS_OAUTH_CLIENT_ID` y el **Client Secret** en `TS_OAUTH_SECRET`.
-   *(Alternativa rápida: también soporta un **Auth Key** en `TS_AUTHKEY`, pero OAuth no caduca cada 90 días).*
+2. En **Settings** -> **OAuth clients** -> **Generate OAuth client**:
+   * **Description:** `GitHub Actions Deploy`
+   * **Scopes:** **`Auth Keys`** -> **`Write`** con tag **`tag:ci`**.
+3. Guarda **Client ID** en el GitHub Secret **`TS_OAUTH_CLIENT_ID`** y **Client Secret** en **`TS_OAUTH_SECRET`**.
 
-### 7.3 Configurar Firewall UFW (acceso privado solo por Tailscale)
-Si quieres que el servidor sea accesible **únicamente a través de tu Tailnet** (bloqueando entradas directas por la red Wi-Fi/LAN de casa):
+### 7.3 Firewall UFW (acceso privado exclusivo vía `tailscale0`)
 ```bash
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-# Permitir todo el tráfico (HTTPS Serve y SSH) que entre por la interfaz cifrada de Tailscale
+# Permitir tráfico HTTPS Serve y SSH únicamente dentro del túnel cifrado Tailscale
 sudo ufw allow in on tailscale0
-# Opcional temporal: mantener SSH en LAN mientras validas Tailscale SSH (luego bórralo con: sudo ufw delete allow 22/tcp)
+# Temporal mientras validas Tailscale SSH (luego bórralo con: sudo ufw delete allow 22/tcp)
 sudo ufw allow 22/tcp
 sudo ufw enable
 sudo ufw status verbose
 ```
-Una vez verificado que `ssh TU_USUARIO@<tu-servidor>.<tu-tailnet>.ts.net` funciona desde tu laptop conectada a Tailscale, elimina `22/tcp` en LAN (`sudo ufw delete allow 22/tcp`) para cerrar el puerto hacia toda tu red local.
 
-### 7.4 Activar Tailscale Serve (HTTPS automático en `*.ts.net`)
-Una vez que el contenedor `mood_app` esté corriendo en `127.0.0.1:3000`, ejecuta:
+Cuando compruebes desde tu laptop conectada a Tailscale que `ssh TU_USUARIO@<tu-servidor>.<tu-tailnet>.ts.net` entra bien, cierra el puerto `22/tcp` en tu red LAN local:
 ```bash
-sudo tailscale serve --bg http://127.0.0.1:3000
+sudo ufw delete allow 22/tcp
+sudo ufw status verbose
+```
+
+### 7.4 Activar Tailscale Serve apuntando al Balanceador Caddy (`127.0.0.1:8080`)
+
+La arquitectura local encadena el túnel cifrado de Tailscale directo hacia el **balanceador Caddy (`mood_proxy`)**, que reparte las peticiones con *sticky sessions* (`pdh_lb`) entre ambas réplicas de Node.js:
+
+```text
+Celular / PC (HTTPS :443 en *.ts.net)
+   └──► Tailscale Serve (TLS 1.3)
+           └──► Caddy mood_proxy (127.0.0.1:8080 · sticky cookie pdh_lb · health_uri /healthz)
+                   ├──► mood_app  (:3000 · schedulers activos)
+                   └──► mood_app2 (:3000 · réplica failover sin schedulers duplicados)
+                           └──► mood_db (MySQL 8.0 + advisory locks GET_LOCK para .docx)
+```
+
+Una vez levantados los contenedores Docker (Paso 8), ejecuta:
+```bash
+# Si alguna vez apuntaste Tailscale a :3000, limpia primero con: sudo tailscale serve reset
+sudo tailscale serve --bg http://127.0.0.1:8080
 tailscale serve status
 ```
-Tendrás una URL HTTPS privada con certificado válido (por ejemplo `https://dailyhub-srv.tailXXXX.ts.net`) accesible únicamente desde tus dispositivos conectados a Tailscale (celular/laptop).
+
+* Tu app quedará disponible de forma privada con certificado TLS válido en `https://<tu-servidor>.<tu-tailnet>.ts.net`.
+* **Sobre el Minireproductor de YouTube en *Learn with Music*:** funciona sin problema bajo Tailscale HTTPS porque el navegador de tu celular o PC carga el `<iframe>` oficial de YouTube directamente (sin pasar audio por tu servidor ni consumir tu CPU). Accede siempre por la URL `https://*.ts.net` (no por HTTP plano) para que no falle el header `Referer` de YouTube.
 
 ---
 
-## 8. Desplegar 100 % con GitHub Secrets/Variables (o despliegue manual)
+## 8. Migrar archivos, desplegar vía GitHub Actions o manual y restaurar BD
 
-### 8.1 Migrar tus archivos Word locales antes del primer despliegue
+### 8.1 Crear carpetas de datos y migrar archivos Word locales
+
+En Ubuntu Server, crea las carpetas con permisos estrictos (`700`):
 ```bash
-mkdir -p ~/projects/mood-tracker/data/journal ~/projects/mood-tracker/data/ytdlp ~/projects/mood-tracker/english-notes ~/projects/mood-tracker/logs ~/projects/respaldos
-chmod 700 ~/projects/mood-tracker/data ~/projects/mood-tracker/data/journal ~/projects/mood-tracker/data/ytdlp ~/projects/mood-tracker/english-notes ~/projects/mood-tracker/logs ~/projects/respaldos
+mkdir -p ~/projects/mood-tracker/data/journal \
+         ~/projects/mood-tracker/data/ytdlp \
+         ~/projects/mood-tracker/english-notes \
+         ~/projects/mood-tracker/logs \
+         ~/projects/respaldos
+chmod 700 ~/projects/mood-tracker/data \
+          ~/projects/mood-tracker/data/journal \
+          ~/projects/mood-tracker/data/ytdlp \
+          ~/projects/mood-tracker/english-notes \
+          ~/projects/mood-tracker/logs \
+          ~/projects/respaldos
 ```
-* **Si ya tienes tu `Diario.docx` protegido con contraseña desde Windows:**
-  Cópialo vía `scp` o USB a `~/projects/mood-tracker/data/journal/Diario.docx` (`chmod 600`).
-* **Si ya tienes `English_Learning_Notebook.docx`:**
-  Cópialo a `~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx` (`chmod 600`), o deja que se descargue de Drive.
-* *(Si ya existía la BD en tu respaldo previo de Google Drive, el primer deploy ejecuta `./scripts/restore.sh --if-empty` automáticamente al ver la BD vacía).*
 
-### 8.2 Configurar GitHub Repository Secrets y Variables (Despliegue 100 % automatizado en RAM)
-El workflow `.github/workflows/deploy.yml` toma todas las credenciales desde GitHub Actions, arma la configuración en `/dev/shm` (RAM) durante el despliegue y no deja `.env` en texto plano en disco cuando `SEAL_ENV_AFTER_DEPLOY=true`.
+Copia desde Windows PowerShell hacia Ubuntu Server (usando tu USB o `scp` con la ruta donde guardaste tu respaldo):
+```powershell
+scp "C:\respaldo\Diario.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/data/journal/Diario.docx
+scp "C:\respaldo\English_Learning_Notebook.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx
+```
+
+Asegura propiedad y permisos `600` dentro de Ubuntu Server:
+```bash
+sudo chown -R "$(id -u):$(id -g)" ~/projects/mood-tracker/data ~/projects/mood-tracker/english-notes ~/projects/mood-tracker/logs
+chmod 600 ~/projects/mood-tracker/data/journal/Diario.docx 2>/dev/null || true
+chmod 600 ~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx 2>/dev/null || true
+```
+
+*(Opcional si YouTube llega a pedir cookies de sesión para subtítulos difíciles)*: coloca tu archivo Netscape `cookies.txt` en `~/projects/mood-tracker/data/ytdlp/cookies.txt` (`chmod 600`) y declara `YTDLP_COOKIES_PATH=/app/ytdlp-config/cookies.txt`.
+
+### 8.2 Despliegue Opción A (Recomendado): GitHub Actions automático (100 % en RAM)
+
+`.github/workflows/deploy.yml` construye la configuración en `/dev/shm` (RAM), levanta los 4 contenedores (`mood_db`, `mood_app`, `mood_app2`, `mood_proxy`), restaura la BD desde Google Drive si está vacía (`./scripts/restore.sh --if-empty`), registra los crons y elimina cualquier `.env` en disco cuando `SEAL_ENV_AFTER_DEPLOY=true`.
 
 #### **Repository Secrets** (`Settings -> Secrets and variables -> Actions -> Secrets`)
 | Secret | Estado | Descripción |
 | :--- | :--- | :--- |
-| `SERVER_SSH_KEY` *(o `EC2_SSH_KEY`)* | **Obligatorio** | Llave privada Ed25519 creada en el paso 6.4 (`~/.ssh/authorized_keys`). |
-| `TS_OAUTH_CLIENT_ID` | **Recomendado** | Client ID OAuth de Tailscale (con scope `Auth Keys: Write` y `tag:ci`). |
-| `TS_OAUTH_SECRET` | **Recomendado** | Client Secret OAuth de Tailscale (permite a GitHub Actions entrar por Tailscale SSH). |
-| `DB_PASS` | **Obligatorio** | Contraseña de MySQL (`mood_db`). |
-| `ADMIN_EMAIL` | **Obligatorio** | Correo administrador para autenticación/códigos. |
-| `ADMIN_SECRET` | **Obligatorio** | Clave secreta personal para registro de administrador. |
-| `WORD_PASSWORD` | **Obligatorio** | Contraseña real del archivo cifrado local `Diario.docx`. |
+| **`SERVER_SSH_KEY`** *(o `EC2_SSH_KEY`)* | **Obligatorio** | Llave privada Ed25519 agregada a `~/.ssh/authorized_keys` (Paso 6.5). |
+| **`TS_OAUTH_CLIENT_ID`** | **Recomendado** | Client ID OAuth de Tailscale (`Auth Keys: Write`, `tag:ci`). |
+| **`TS_OAUTH_SECRET`** | **Recomendado** | Client Secret OAuth de Tailscale para SSH privado desde GitHub Actions. |
+| `DB_PASS` | **Obligatorio** | Contraseña de MySQL (`mood_db`). Puedes definir aquí tu contraseña nueva más fuerte antes del primer arranque. |
+| `ADMIN_EMAIL` | **Obligatorio** | Correo administrador para login y códigos de seguridad. |
+| `ADMIN_SECRET` | **Obligatorio** | Clave secreta personal de registro de administrador. |
+| `WORD_PASSWORD` | **Obligatorio** | Contraseña real del archivo cifrado `Diario.docx`. |
 | `JOURNAL_SECRET_KEY` | **Obligatorio** | Llave E2EE exacta de 32 caracteres. |
-| `SMTP_USER` | **Obligatorio** | Cuenta Gmail emisora de códigos de seguridad. |
+| `SMTP_USER` | **Obligatorio** | Cuenta Gmail emisora de códigos. |
 | `SMTP_PASS` | **Obligatorio** | Contraseña de aplicación Gmail (16 caracteres). |
-| `RCLONE_CONF_B64` | **Obligatorio p/ Drive** | `rclone.conf` codificado en una línea Base64 (`base64 -w 0 ~/.config/rclone/rclone.conf`). |
-| `GEMINI_API_KEY` | **Recomendado** | Clave de Google AI Studio para Language Studio. |
-| `STUDY_RCLONE_CONF_B64` | Opcional | Solo si usas una segunda cuenta Google Drive separada para notas de estudio. |
-| `YOUTUBE_API_KEY` | Opcional | Clave API YouTube Data v3 (búsquedas extendidas). |
+| `RCLONE_CONF_B64` | **Obligatorio p/ Drive** | Salida en una línea de `base64 -w 0 ~/.config/rclone/rclone.conf`. |
+| `GEMINI_API_KEY` | **Recomendado** | Clave de Google AI Studio para *Language Studio*. |
+| `STUDY_RCLONE_CONF_B64` | Opcional | Segunda cuenta Google Drive separada exclusiva para notas de estudio. |
+| `YOUTUBE_API_KEY` | Opcional | Clave YouTube Data v3 (búsquedas extendidas). |
 
 #### **Repository Variables** (`Settings -> Secrets and variables -> Actions -> Variables`)
 | Variable | Valor sugerido | Estado | Notas |
 | :--- | :--- | :--- | :--- |
-| `SERVER_HOST` *(o `EC2_HOST`)* | `dailyhub-srv.tailXXXX.ts.net` *(o IP Tailscale `100.x.y.z`)* | **Actualizar** | Reemplaza la antigua IP pública de AWS EC2. |
-| `SERVER_USER` *(o `EC2_USER`)* | Tu usuario Ubuntu *(ej. `ubuntu` o `flavio`)* | **Verificar** | Usuario con el que entras por SSH en Ubuntu Server. |
-| `APP_BASE_URL` | `https://dailyhub-srv.tailXXXX.ts.net` | **Recomendado** | URL Tailscale Serve (si se omite, `deploy.yml` intenta autodetectarla). |
+| `SERVER_HOST` *(o `EC2_HOST`)* | `dailyhub-srv.tailXXXX.ts.net` | **Actualizar** | Reemplaza la antigua IP de AWS EC2. |
+| `SERVER_USER` *(o `EC2_USER`)* | Tu usuario Ubuntu *(ej. `ubuntu`)* | **Verificar** | Usuario con `NOPASSWD:ALL` en Ubuntu Server. |
+| `APP_BASE_URL` | `https://dailyhub-srv.tailXXXX.ts.net` | **Recomendado** | URL HTTPS de Tailscale Serve. |
 | `DB_HOST` | `db` | Mantener | Nombre del servicio MySQL en Docker Compose. |
 | `DB_NAME` | `MoodTrackerLocal` | Mantener | Nombre de la base de datos. |
 | `DB_USER` | `root` | Mantener | Usuario MySQL. |
-| `PORT` | `3000` | Mantener | Puerto interno enlazado solo a `127.0.0.1:3000`. |
-| `TZ` | `America/Monterrey` | Mantener | Zona horaria para Node, MySQL, Python y cron. |
-| `RCLONE_REMOTE` | `gdrive` | Mantener | Nombre exacto del remoto dentro de `RCLONE_CONF_B64`. |
+| `PORT` | `3000` | Mantener | Puerto interno de `app` y `app2`. |
+| `SITE_ADDRESS` | `:80` | **Nuevo/Mantener** | Dirección interna de escucha de Caddy (`mood_proxy`). |
+| `PROXY_HTTP_PORT` | `8080` | **Nuevo/Mantener** | Puerto loopback del balanceador Caddy (`127.0.0.1:8080`). |
+| `TZ` | `America/Monterrey` | Mantener | Zona horaria unificada para contenedores y crons. |
+| `RCLONE_REMOTE` | `gdrive` | Mantener | Nombre exacto del remoto en `RCLONE_CONF_B64`. |
 | `RCLONE_BACKUP_DIR` | `RespaldosApp` | Mantener | Carpeta destino de respaldos en Google Drive. |
-| `DB_RETENTION_DAYS` | `0` | **Añadir (`0`)** | Conserva todo el histórico local sin podar en MySQL. |
-| `REQUIRE_DRIVE_BACKUP` | `true` | **Recomendado** | Falla el cron/deploy si Google Drive no está operativo o token expiró. |
-| `SEAL_ENV_AFTER_DEPLOY` | `true` | Mantener | Borra `.env` en disco tras desplegar; `.backup.meta` + `rclone.conf` mantienen los crons funcionando. |
+| `DB_RETENTION_DAYS` | `0` | **Añadir (`0`)** | Conserva todo el histórico local sin podar registros en MySQL. |
+| `REQUIRE_DRIVE_BACKUP` | `true` | **Recomendado** | Valida subida real a Drive en cada respaldo/deploy. |
+| `SEAL_ENV_AFTER_DEPLOY` | `true` | Mantener | Destruye el `.env` temporal tras levantar contenedores y guarda `.backup.meta`. |
 | `BACKUP_CRON_SCHEDULE` | `30 3 * * *` | Mantener | Horario diario de `scripts/backup.sh`. |
-| `YT_DLP_PATH` | *(Eliminar)* | **Ya NO necesaria** | Era exclusiva de Windows; en Docker Linux se usa `/usr/local/bin/yt-dlp` automático. |
+| `AWS_HOST` / `WORD_FILE_PATH` / `YT_DLP_PATH` | *(Eliminar)* | **Obsoletas** | Ya no se usan en el servidor Ubuntu local. |
 
-> [!NOTE]
-> Cuando `SEAL_ENV_AFTER_DEPLOY=true`, `deploy.yml` inyecta las variables directamente en los contenedores creados (`restart: always`, por lo que siguen arrancando tras cortes de luz sin `.env` en disco) y guarda los parámetros no secretos (`DB_RETENTION_DAYS`, `RCLONE_REMOTE`, `RCLONE_BACKUP_DIR`, `REQUIRE_DRIVE_BACKUP`) en `~/projects/respaldos/.backup.meta` junto con `~/.config/rclone/rclone.conf` para que `scripts/backup.sh` siga subiendo a Google Drive automáticamente cada noche.
+Para lanzar el despliegue ve a GitHub -> **Actions -> Deploy to Ubuntu Server (Tailscale / SSH) -> Run workflow** (o haz `git push origin main`). Después conecta Tailscale Serve al balanceador:
+```bash
+sudo tailscale serve --bg http://127.0.0.1:8080
+tailscale serve status
+```
 
-### 8.3 Lanzar el despliegue desde GitHub (o manual local)
-* **Vía GitHub Actions (recomendado):** cada `push` a `main` o ejecución manual desde **Actions -> Deploy to Ubuntu Server (Tailscale / SSH) -> Run workflow** despliega todo en tu servidor vía Tailscale SSH.
-* **Despliegue manual opcional en el servidor:** si en algún momento despliegas sin GitHub Actions, copia `.env.example` a `.env` (`chmod 600`), configura tus valores (`APP_UID=$(id -u)`, `APP_GID=$(id -g)`), ejecuta `docker compose up -d --build` (o usa `./scripts/env-vault.sh encrypt` + `./scripts/env-vault.sh up`).
+### 8.3 Despliegue Opción B: Manual paso a paso en el servidor local
+
+Si prefieres levantar o probar todo manualmente por SSH sin esperar a GitHub Actions:
+
+```bash
+# 1) Clonar el repositorio (si aún no está clonado)
+mkdir -p ~/projects && cd ~/projects
+git clone https://github.com/TU_USUARIO_GH/TU_REPO.git mood-tracker
+cd ~/projects/mood-tracker
+
+# 2) Preparar .env con permisos estrictos 600
+cp .env.example .env
+chmod 600 .env
+```
+
+Edita `.env` con `nano .env` y asegúrate de configurar al menos estos valores clave:
+```dotenv
+DB_HOST=db
+DB_USER=root
+DB_PASS=TU_CONTRASENA_MYSQL_SEGURA
+DB_NAME=MoodTrackerLocal
+PORT=3000
+TZ=America/Monterrey
+APP_UID=1000   # Confirma el tuyo con: id -u
+APP_GID=1000   # Confirma el tuyo con: id -g
+
+ADMIN_EMAIL=tu_correo@ejemplo.com
+ADMIN_SECRET=tu_clave_secreta_admin
+SMTP_USER=tu_correo_envio@gmail.com
+SMTP_PASS=tu_app_password_16_letras
+WORD_PASSWORD=tu_contrasena_real_de_word
+JOURNAL_SECRET_KEY=tu_llave_e2ee_exacta_de_32_caracteres
+GEMINI_API_KEY=tu_api_key_gemini
+
+APP_BASE_URL=https://tu-servidor.tu-tailnet.ts.net
+TRUST_PROXY=2
+REQUIRE_HTTPS=true
+REQUIRE_PC_BRIDGE_AUTH=true
+SITE_ADDRESS=:80
+PROXY_HTTP_PORT=8080
+PROXY_HTTPS_PORT=8443
+
+SERVER_AUTONOMOUS_NOTES=true
+RCLONE_REMOTE=gdrive
+RCLONE_BACKUP_DIR=RespaldosApp
+DB_RETENTION_DAYS=0
+```
+
+*(Tip rápido para inyectar automáticamente tus IDs reales de usuario Ubuntu en `.env`)*:
+```bash
+sed -i "s/^APP_UID=.*/APP_UID=$(id -u)/; s/^APP_GID=.*/APP_GID=$(id -g)/" .env
+```
+
+Levanta la base de datos y ambas réplicas + balanceador Caddy:
+```bash
+# 3) Construir y arrancar los 4 contenedores (mood_db, mood_app, mood_app2, mood_proxy)
+docker compose up -d --build
+
+# 4) Esperar a que todos reporten (healthy)
+docker compose ps
+
+# 5) Restaurar tu base de datos desde Google Drive (si ya respaldaste desde AWS en el Paso 1.1)
+chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh scripts/verify-ubuntu-local.sh
+./scripts/restore.sh --if-empty
+# *(Si deseas sobreescribir una BD recién inicializada con el respaldo de Drive usa: ./scripts/restore.sh --force)*
+
+# 6) Conectar Tailscale Serve HTTPS hacia el balanceador Caddy
+sudo tailscale serve --bg http://127.0.0.1:8080
+tailscale serve status
+
+# 7) Opcional recomendado: sellar .env en texto plano dentro de .env.enc (AES-256-CBC + PBKDF2)
+./scripts/env-vault.sh encrypt
+./scripts/env-vault.sh status
+```
+
+*(Si despliegas manualmente sin `deploy.yml`, registra también los crons nocturnos de respaldo y actualización semanal de `yt-dlp`)*:
+```bash
+mkdir -p "$HOME/projects/respaldos" && chmod 700 "$HOME/projects/respaldos"
+CRON_BAK="30 3 * * * $HOME/projects/mood-tracker/scripts/backup.sh --require-drive >> $HOME/projects/respaldos/backup.log 2>&1"
+CRON_YTDLP="0 4 * * 0 (docker exec -u 0 mood_app yt-dlp -U || true) && (docker exec -u 0 mood_app2 yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
+(crontab -l 2>/dev/null | grep -v "scripts/backup.sh" | grep -v "yt-dlp -U" || true; printf '%s\n%s\n' "$CRON_BAK" "$CRON_YTDLP") | crontab -
+crontab -l
+```
 
 ---
 
-## 9. Verificación de Google Drive, backups automáticos, `yt-dlp` y diagnóstico
+## 9. Verificación del Balanceador, 4 Contenedores, Google Drive, `yt-dlp` y App Web
 
-### 9.1 ¿Qué se respalda en Google Drive y qué queda solo local?
-* **En Google Drive (`${RCLONE_REMOTE}:${RCLONE_BACKUP_DIR}`, ej. `gdrive:RespaldosApp`):**
-  * `respaldo_mood_tracker.sql.gz` (volcado diario completo de MySQL).
-  * `historico_sql/respaldo_YYYY-MM.sql.gz` (instantánea SQL mensual acumulada).
-  * `historico_completo.json.gz` (archivo JSON acumulativo histórico).
-  * `NotasIdiomas/English_Learning_Notebook.docx` (sincronizado en automático desde `mood_app` usando `RCLONE_CONF_B64`).
-* **100 % solo en disco local Ubuntu (NUNCA se sube a Google Drive):**
-  * `./data/journal/Diario.docx` y sus copias rotativas diarias (30 días) en `~/projects/respaldos/journal_local_backups/` (cifradas con `WORD_PASSWORD`).
-
-### 9.2 Probar y verificar los respaldos reales en Google Drive
-```bash
-# 1) Ejecutar respaldo manual exigiendo confirmación remota en Drive
-~/projects/mood-tracker/scripts/backup.sh --require-drive
-
-# 2) Confirmar los archivos subidos directamente en Google Drive
-rclone ls gdrive:RespaldosApp
-
-# 3) Ver los logs de cron y servicios
-tail -n 30 ~/projects/respaldos/backup.log
-tail -n 50 ~/projects/mood-tracker/logs/server.log
-```
-El workflow `deploy.yml` registra automáticamente ambos crons en Ubuntu: respaldo diario (`30 3 * * *`) y actualización semanal de `yt-dlp` (`0 4 * * 0` usando `docker exec -u 0 mood_app yt-dlp -U`).
-
-### 9.3 Verificación integral automatizada (`yt-dlp`, `node`, `docker`, `python`, Tailscale y Drive)
+### 9.1 Verificación automatizada completa (`[1/10]`–`[10/10]`)
 ```bash
 cd ~/projects/mood-tracker
-chmod +x scripts/verify-ubuntu-local.sh
 ./scripts/verify-ubuntu-local.sh
 ```
-Este diagnóstico (`[1/9]`–`[9/9]`) valida CPU/RAM/HDD, salud de los 3 contenedores, tuning InnoDB, puertos solo en `127.0.0.1`, UFW + Tailscale Serve, `node` + `tzdata`, `python3` + `msoffcrypto OOXMLFile`, `yt-dlp --js-runtimes node` + `ffmpeg`, carga local de `/vendor/crypto-js.min.js` sin CDNs, permisos de volúmenes, conectividad real contra Google Drive y registro de crons.
+
+Este script audita automáticamente las 10 secciones:
+* **`[1/10]`–`[2/10]`:** Hardware/RAM/HDD (`vm.swappiness`) y estado `running (healthy)` de los **4 contenedores** (`mood_db`, `mood_app`, `mood_app2`, `mood_proxy`) + tuning InnoDB.
+* **`[3/10]`–`[6/10]`:** Red loopback (`127.0.0.1`), UFW, `tailscale serve`, `node` + `tzdata`, `python3` + `msoffcrypto OOXMLFile`, `yt-dlp --js-runtimes node` + `ffmpeg`.
+* **`[7/10]`–`[8/10]`:** Salud en `127.0.0.1:3000/healthz` **y** balanceador Caddy en `127.0.0.1:8080/healthz` con sticky cookie `pdh_lb` + `X-Replica-Id`, carga local de `/vendor/crypto-js.min.js` sin CDNs, HTTPS/HSTS/426/CORS y permisos en `./data/journal`, `./english-notes`, `./logs`.
+* **`[9/10]`–`[10/10]`:** Conectividad con Google Drive (`rclone`), existencia de `respaldo_mood_tracker.sql.gz` y `historico_completo.json.gz`, cron de `yt-dlp -U`, hardening de contenedores, cero `.env` plano, `tcp_syncookies`, `PasswordAuthentication no`, `fail2ban`, `unattended-upgrades` y `/proc` con `hidepid=2`.
+
+### 9.2 Probar manualmente el Balanceador de Cargas y Failover (Zero-Downtime)
+
+```bash
+# 1) Primera petición al balanceador Caddy: observa Set-Cookie: pdh_lb=... y X-Replica-Id: app (o app2)
+curl -i http://127.0.0.1:8080/healthz
+
+# 2) Guardar cookie y verificar Sticky Session (misma réplica en múltiples peticiones)
+COOKIE_LB=$(curl -sD - -o /dev/null http://127.0.0.1:8080/healthz | grep -i '^Set-Cookie:' | sed -n 's/.*\(pdh_lb=[^;]*\).*/\1/p' | head -n 1)
+curl -i -H "Cookie: $COOKIE_LB" http://127.0.0.1:8080/healthz
+curl -i -H "Cookie: $COOKIE_LB" http://127.0.0.1:8080/healthz
+
+# 3) Prueba real de Failover: detener una réplica y comprobar que el balanceador sigue sirviendo sin caída
+docker stop mood_app2
+curl -i http://127.0.0.1:8080/healthz   # Debe seguir devolviendo HTTP 200 con X-Replica-Id: app
+
+# 4) Volver a levantar mood_app2 y esperar que regrese a healthy
+docker start mood_app2
+docker compose ps
+```
+
+### 9.3 Respaldos Google Drive vs almacenamiento estrictamente local
+
+* **En Google Drive (`${RCLONE_REMOTE}:${RCLONE_BACKUP_DIR}`, ej. `gdrive:RespaldosApp`):**
+  * `respaldo_mood_tracker.sql.gz` (volcado diario completo de MySQL).
+  * `historico_sql/respaldo_YYYY-MM.sql.gz` (instantánea SQL mensual).
+  * `historico_completo.json.gz` (archivo histórico JSON acumulativo).
+  * `NotasIdiomas/English_Learning_Notebook.docx` (sincronizado con lock distribuido `pdh_docx_english`).
+* **100 % solo en disco local Ubuntu (NUNCA se sube a Google Drive):**
+  * `./data/journal/Diario.docx` y sus copias rotativas diarias (30 días) en `~/projects/respaldos/journal_local_backups/` (cifradas con `WORD_PASSWORD`, coordinadas con lock `pdh_docx_journal`).
+
+Comandos de respaldo y logs:
+```bash
+# Respaldo manual exigiendo verificación en Drive
+~/projects/mood-tracker/scripts/backup.sh --require-drive
+rclone lsl gdrive:RespaldosApp
+
+# Logs de backups y de ambas réplicas (app y app2)
+tail -n 30 ~/projects/respaldos/backup.log
+tail -n 40 ~/projects/mood-tracker/logs/server.log
+tail -n 40 ~/projects/mood-tracker/logs/app2/server.log
+tail -n 30 ~/projects/mood-tracker/logs/error.log
+```
+
+*(Nota: el cron semanal `deploy.yml` actualiza `yt-dlp` automáticamente cada domingo a las 4:00 AM en **ambas** réplicas: `mood_app` y `mood_app2`).*
 
 ### 9.4 Checklist rápido en la app web
-1. **Acceso privado por Tailscale HTTPS:** abre `https://<tu-servidor>.<tu-tailnet>.ts.net` desde tu celular/laptop con Tailscale activo.
-2. **Notas de Idiomas:** guarda una entrada en *Language Studio* y verifica su respaldo en `./english-notes/English_Learning_Notebook.docx` y `rclone ls gdrive:RespaldosApp/NotasIdiomas`.
-3. **Word Journal local cifrado:** guarda una nota en *Journal Notes* y confirma `Diario.docx` cifrado (`OLE2 MS-OFFCRYPTO`) en `./data/journal/Diario.docx`.
-4. **Letras con `yt-dlp` y división por idiomas:** en *Learn with Music*, confirma el estado **`🟢 Servidor autónomo · Listo`** y prueba las pestañas `Original`, `Coreano`, `Inglés`, `Japonés`, `Español`.
+1. **Acceso HTTPS privado:** entra desde celular/PC (con Tailscale activo) a `https://<tu-servidor>.<tu-tailnet>.ts.net`.
+2. **Módulo de Música (Catálogo y Modal):** verifica que el catálogo use el ancho completo, abre **`➕ Registrar Nueva Canción`** para probar la ventana emergente (`Auto-fill` con URL de YT Music o YouTube normal, con año independiente sin álbum obligatorio), y prueba el botón **`Reproductor`** dentro de Tailscale HTTPS.
+3. **Extracción multi-fuente de letras y estudio:** usa **`📄 Extraer letra`**, navega por las pestañas (`Original`, `Coreano`, `Inglés`, `Japonés`, `Español`) y pulsa **`✨ Analizar Estrofas`** directo sobre la letra cargada.
+4. **Word local y Cuaderno Drive:** guarda una nota en *Journal Notes* (confirma `./data/journal/Diario.docx` cifrado) y una en *Language Studio* (confirma `rclone ls gdrive:RespaldosApp/NotasIdiomas`).
 
 ---
 
 ## 10. Seguridad avanzada: HTTPS total, secretos blindados, anti-hackers y anti-DoS/DDoS
 
 ### 10.1 Cifrado extremo a extremo en tránsito (4 capas simultáneas)
-Todo el tráfico hacia tu servidor viaja cifrado con **4 capas superpuestas**:
-1. **Capa 1 — Túnel WireGuard (Tailscale):** todo paquete entre tu celular/laptop y Ubuntu Server va cifrado en red privada (`100.x.y.z` / `*.ts.net`) sin abrir puertos en tu router hacia Internet.
-2. **Capa 2 — HTTPS TLS 1.3 (`tailscale serve` + `REQUIRE_HTTPS=true`):**
-   * Tailscale Serve termina TLS válido (`https://<tu-servidor>.<tu-tailnet>.ts.net`) y envía `X-Forwarded-Proto: https` hacia `127.0.0.1:3000`.
-   * Cuando `REQUIRE_HTTPS=true` está activo en `.env` / GitHub Deploy, Node responde **HSTS** (`Strict-Transport-Security: max-age=31536000; includeSubDomains`), activa CSP `upgrade-insecure-requests`, marca cookies de sesión como **`HttpOnly; Secure; SameSite=Lax`** y rechaza peticiones HTTP planas sin TLS (`HTTP 426` en `/api/*` o redirección `308` a `https://` en navegador, excluyendo `/healthz`).
-   * **CORS estricto:** `server.js` solo acepta peticiones cross-origin desde `APP_BASE_URL`, tu propio `Host`, loopback o dominios `*.ts.net`.
-3. **Capa 3 — Túnel de Transporte (`TransportCrypto`):** cifrado adicional a nivel de aplicación dentro de `/api/*` con intercambio efímero **X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256**.
-4. **Capa 4 — Cifrado E2EE de notas (`JOURNAL_SECRET_KEY`):** tus notas de *Journal* y *Language Studio* salen cifradas en **AES-256-CBC** desde el navegador con tu llave de 32 caracteres antes de tocar la red.
+Todo el tráfico hacia tu servidor viaja cifrado en **4 capas**:
+1. **Capa 1 — Túnel WireGuard (Tailscale):** red privada cifrada (`100.x.y.z` / `*.ts.net`) con **0 puertos abiertos** en tu router.
+2. **Capa 2 — HTTPS TLS 1.3 (`tailscale serve` -> Caddy `mood_proxy` `127.0.0.1:8080` + `REQUIRE_HTTPS=true`):**
+   * Caddy recibe el `X-Forwarded-Proto: https` confiable desde Tailscale (`trusted_proxies static private_ranges`) y lo reenvía a `mood_app` / `mood_app2`.
+   * Node responde **HSTS** (`Strict-Transport-Security: max-age=31536000; includeSubDomains`), activa CSP `upgrade-insecure-requests`, marca cookies de sesión como **`HttpOnly; Secure; SameSite=Lax`** y rechaza tráfico sin TLS (`HTTP 426` en `/api/*` o redirección `308` a `https://`, salvo `/healthz`).
+   * **CORS estricto:** solo permite `APP_BASE_URL`, el propio `Host`, loopback y orígenes `*.ts.net`.
+3. **Capa 3 — Túnel de Transporte (`TransportCrypto`):** cifrado adicional dentro de `/api/*` (**X25519 + HKDF-SHA256 + AES-256-CTR + HMAC-SHA256**; las sesiones ECDH en RAM funcionan sin fallos entre réplicas gracias al sticky routing `pdh_lb`).
+4. **Capa 4 — Cifrado E2EE de notas (`JOURNAL_SECRET_KEY`):** sobres **AES-256-CBC** cifrados en el navegador antes de viajar por la red.
 
-**Comandos para comprobar HTTPS estricto y CORS desde Ubuntu:**
+**Comandos para comprobar HTTPS estricto y CORS a través del balanceador (`127.0.0.1:8080`):**
 ```bash
-# 1) Debe responder HTTP 426 porque exige HTTPS en /api/* (cuando REQUIRE_HTTPS=true)
-curl -i http://127.0.0.1:3000/api/auth/me
+# 1) Debe devolver HTTP 426 porque /api/* exige HTTPS cuando REQUIRE_HTTPS=true
+curl -i http://127.0.0.1:8080/api/auth/me
 
-# 2) Simulando el proxy HTTPS de Tailscale Serve: debe devolver Strict-Transport-Security y upgrade-insecure-requests
-curl -I -H "X-Forwarded-Proto: https" http://127.0.0.1:3000/
+# 2) Simulando Tailscale Serve HTTPS: debe incluir Strict-Transport-Security y Set-Cookie: pdh_lb=
+curl -I -H "X-Forwarded-Proto: https" http://127.0.0.1:8080/
 
-# 3) Origen externo hostil: NO debe aparecer Access-Control-Allow-Origin: https://evil.example
-curl -i -H "X-Forwarded-Proto: https" -H "Origin: https://evil.example" http://127.0.0.1:3000/api/auth/me
-
-# 4) Verificar URL pública privada HTTPS en Tailscale desde tu laptop o celular con Tailscale activo
-tailscale serve status
+# 3) Origen externo hostil: NO debe devolver Access-Control-Allow-Origin: https://evil.example
+curl -i -H "X-Forwarded-Proto: https" -H "Origin: https://evil.example" http://127.0.0.1:8080/api/auth/me
 ```
 
----
-
-### 10.2 Protección de `.env`, contraseñas y secretos en el servidor (aislamiento local y físico)
+### 10.2 Protección de `.env`, contraseñas y secretos en disco
 
 > [!IMPORTANT]
-> **Realidad de seguridad en Linux:** ningún sistema operativo puede impedir que un atacante que ya obtuvo privilegios **`root` reales en un servidor encendido** inspeccione la memoria RAM de procesos activos. Por eso la defensa se basa en **dos frentes**:
-> 1. **Que el atacante NUNCA llegue a tu usuario ni a `root`** (cero puertos expuestos, Tailscale ACLs, SSH con llave, Fail2ban, contenedores sin privilegios).
-> 2. **Que si alguien roba el disco duro apagado o entra como usuario local no privilegiado, tampoco pueda leer secretos ni archivos personales.**
+> **Realidad de seguridad en Linux:** ningún sistema operativo impide que un atacante con privilegios reales de **`root`** inspeccione la memoria de procesos activos. Por eso protegemos dos frentes: evitar que alguien llegue a tu usuario/`root`, e impedir que se lean secretos en disco o desde otra cuenta local.
 
-Aplica estos pasos en Ubuntu Server:
-
-1. **Cero `.env` en texto plano sobre disco y cero secretos en logs:**
-   * En despliegue automatizado con GitHub Actions mantén **`SEAL_ENV_AFTER_DEPLOY=true`** (`deploy.yml` crea el entorno temporal en `/dev/shm` RAM, arranca Docker y destruye el archivo con `shred`).
-   * Si despliegas manualmente en local, cifra `.env` en `.env.enc` (**AES-256-CBC + PBKDF2 600,000 iteraciones**):
-     ```bash
-     cd ~/projects/mood-tracker
-     ./scripts/env-vault.sh encrypt
-     ./scripts/env-vault.sh status   # Debe indicar [OK] .env en texto plano NO existe en disco y [SELLADO] .env.enc
-     ```
-   * Los logs en `./logs/server.log` y `./logs/error.log` redactan automáticamente `DB_PASS`, `WORD_PASSWORD`, `JOURNAL_SECRET_KEY`, tokens `AIza...`, `tskey-...`, `ghp_...`, cookies `mt_session=` y bloques de llaves privadas.
-   * Las rutas puente legadas `/api/pull-text` y `/api/pull-english` quedan bloqueadas con firma HMAC (`REQUIRE_PC_BRIDGE_AUTH=true`).
-
-2. **Ocultar procesos y variables de entorno a otros usuarios locales (`/proc` con `hidepid=2`):**
-   Evita que cuentas de servicio o usuarios sin privilegios vean qué procesos corres ni lean `/proc/<pid>/environ`:
+1. **Cero `.env` plano en disco y logs sanitizados:**
+   * En GitHub Actions usa `SEAL_ENV_AFTER_DEPLOY=true` (crea el entorno temporal en `/dev/shm` y aplica `shred`).
+   * En despliegue manual usa `./scripts/env-vault.sh encrypt` (**AES-256-CBC + PBKDF2 600,000 iteraciones**).
+   * `./logs/server.log`, `./logs/app2/server.log` y `./logs/error.log` redactan automáticamente `DB_PASS`, `WORD_PASSWORD`, `JOURNAL_SECRET_KEY`, API keys `AIza...`, `tskey-...`, `ghp_...`, cookies `mt_session=` y llaves privadas.
+2. **Aislar `/proc` entre usuarios locales (`hidepid=2`):**
    ```bash
-   # Respalda fstab antes de editar
    sudo cp /etc/fstab /etc/fstab.bak
-
-   # Añade o actualiza /proc con hidepid=2 si no existe aún
    if ! grep -qE '^\s*proc\s+/proc\s' /etc/fstab; then
      echo 'proc /proc proc defaults,hidepid=2 0 0' | sudo tee -a /etc/fstab
    else
      sudo sed -i 's|^\(\s*proc\s\+/proc\s\+proc\s\+[^ ]*\)|\1,hidepid=2|' /etc/fstab
    fi
-
-   # Aplica de inmediato sin reiniciar y verifica
    sudo mount -o remount /proc
    grep -E '\s/proc\s' /proc/mounts
    ```
-   *(En Docker moderno sobre Ubuntu 26.04, `hidepid=2` es compatible con `root` / systemd; si notas algún servicio de monitoreo que necesite leer `/proc`, verifica `docker ps` justo después del `remount`).*
-
-3. **Bloquear permisos de directorios personales, llaves, `rclone` y respaldos:**
+3. **Bloquear permisos de directorios personales, `rclone`, SSH y datos:**
    ```bash
-   # Tu directorio personal accesible SOLO para tu usuario
-   chmod 700 "$HOME"
-   chmod 700 "$HOME/.ssh" "$HOME/.config" "$HOME/.config/rclone" "$HOME/projects" "$HOME/projects/respaldos"
+   chmod 700 "$HOME" "$HOME/.ssh" "$HOME/.config" "$HOME/.config/rclone" "$HOME/projects" "$HOME/projects/respaldos"
    chmod 600 "$HOME/.ssh/authorized_keys" "$HOME/.config/rclone/rclone.conf"
    chmod 600 "$HOME/projects/respaldos/.backup.meta" 2>/dev/null || true
-
-   # Carpetas sensibles de datos de la app
-   chmod 700 "$HOME/projects/mood-tracker/data" "$HOME/projects/mood-tracker/data/journal" "$HOME/projects/mood-tracker/english-notes" "$HOME/projects/mood-tracker/logs"
-
-   # Auditar qué usuarios pertenecen a grupos privilegiados (solo debe aparecer tu usuario)
+   chmod 700 "$HOME/projects/mood-tracker/data" "$HOME/projects/mood-tracker/data/journal" \
+             "$HOME/projects/mood-tracker/english-notes" "$HOME/projects/mood-tracker/logs"
    getent group sudo docker adm
    ```
 
-4. **Opcional — Restringir `sudo` o activar cifrado completo de disco (`LUKS2`):**
-   * **Endurecer `sudoers` tras despliegue manual (opcional):** si en algún momento dejas de usar GitHub Actions y prefieres que incluso tu usuario pida contraseña para `sudo`, elimina la regla sin contraseña: `sudo rm -f /etc/sudoers.d/90-*-nopasswd` *(nota: mientras `deploy.yml` despliegue por SSH automáticamente, esa regla es necesaria para `apt-get`, `timedatectl` y `cron`)*.
-   * **Robo físico del disco HDD:** tu `Diario.docx` ya está cifrado por archivo con `WORD_PASSWORD`. Si además quieres que ni MySQL ni el sistema operativo sean legibles si alguien saca el disco SATA del gabinete, debes usar **LUKS2** al particionar (Paso 4), sabiendo que tras cada corte de luz requerirá introducir la contraseña físicamente frente al teclado al arrancar.
+### 10.3 Blindaje anti-hackers (red invisible, Tailscale ACL, Fail2ban, parches y `auditd`)
 
----
-
-### 10.3 Blindaje anti-hackers (evitar robo de datos o destrucción del servidor)
-
-1. **Red 100 % invisible hacia Internet y LAN:**
-   * En tu router de casa: **NO abras ningún puerto (Port Forwarding = 0)**.
-   * Docker enlaza todos los puertos únicamente a `127.0.0.1` (`127.0.0.1:3000`, `127.0.0.1:3306`, `127.0.0.1:8080`).
-   * Verifica desde la consola del servidor que nada escuche en `0.0.0.0`:
-     ```bash
-     ss -lntup
-     ```
-
+1. **Red 100 % invisible hacia Internet y LAN:** no abras puertos en tu router (`Port Forwarding = 0`). Todos los puertos Docker escuchan solo en `127.0.0.1` (`3000`, `3306`, `8080`, `8443`):
+   ```bash
+   ss -lntup
+   ```
 2. **Reglas ACL estrictas en Tailscale Admin Console (`Access Controls`):**
-   Aunque alguien lograra entrar a otro dispositivo antiguo, limita explícitamente en Tailscale qué dispositivos pueden tocar los puertos `443` (Web HTTPS) y `22` (SSH):
    ```json
    {
      "tagOwners": {
@@ -481,13 +656,10 @@ Aplica estos pasos en Ubuntu Server:
      ]
    }
    ```
-   *(Aplica la etiqueta `tag:server` a tu servidor Ubuntu en Tailscale Admin Console -> Machines -> `...` -> Edit ACL tags; reemplaza `"autogroup:owner"` si tu correo personal usa rol miembro/admin).*
-
-3. **Instalar y configurar `Fail2ban` (bloqueo automático ante fuerza bruta SSH):**
+   *(Etiqueta tu servidor con `tag:server` en Tailscale Admin Console -> Machines -> `...` -> Edit ACL tags).*
+3. **Instalar `Fail2ban` contra fuerza bruta SSH:**
    ```bash
-   sudo apt update
-   sudo apt install -y fail2ban
-
+   sudo apt update && sudo apt install -y fail2ban
    sudo tee /etc/fail2ban/jail.local >/dev/null <<'EOF'
    [DEFAULT]
    bantime = 1h
@@ -500,26 +672,18 @@ Aplica estos pasos en Ubuntu Server:
    port = ssh
    mode = aggressive
    EOF
-
    sudo systemctl enable --now fail2ban
    sudo fail2ban-client status sshd
    ```
-   Cualquier IP que falle 3 intentos SSH en 10 minutos queda bloqueada automáticamente durante 1 hora.
-
-4. **Actualizaciones automáticas de parches de seguridad (`unattended-upgrades`):**
-   Cierra vulnerabilidades críticas de kernel, OpenSSL, SSH y Docker automáticamente:
+4. **Parches de seguridad automáticos (`unattended-upgrades`):**
    ```bash
    sudo apt install -y unattended-upgrades apt-listchanges
    sudo dpkg-reconfigure -f noninteractive unattended-upgrades
-
-   # Verificar que los timers diarios de actualización estén activos
    systemctl status apt-daily.timer apt-daily-upgrade.timer --no-pager
    ```
-
-5. **Endurecimiento extra de OpenSSH y restricción de usuario:**
-   Reemplaza `TU_USUARIO` por tu usuario Ubuntu real antes de ejecutar:
+5. **Endurecimiento extra de OpenSSH:**
    ```bash
-   sudo tee /etc/ssh/sshd_config.d/99-hardening.conf >/dev/null <<'EOF'
+   sudo tee /etc/ssh/sshd_config.d/99-hardening.conf >/dev/null <<EOF
    PasswordAuthentication no
    KbdInteractiveAuthentication no
    ChallengeResponseAuthentication no
@@ -532,51 +696,34 @@ Aplica estos pasos en Ubuntu Server:
    AllowTcpForwarding no
    ClientAliveInterval 300
    ClientAliveCountMax 2
-   AllowUsers TU_USUARIO
+   AllowUsers $USER
    EOF
-
-   # Cambia TU_USUARIO por tu usuario real y valida antes de recargar
-   sudo sed -i "s/TU_USUARIO/$USER/g" /etc/ssh/sshd_config.d/99-hardening.conf
    sudo sshd -t && sudo systemctl reload ssh
    ```
+6. **AppArmor + Auditoría de archivos sensibles (`auditd` / `rkhunter`):**
+   ```bash
+   sudo apt install -y auditd rkhunter
+   sudo tee /etc/audit/rules.d/99-dailyhub-watch.rules >/dev/null <<EOF
+   -w /home/$USER/.ssh/authorized_keys -p wa -k ssh_keys_watch
+   -w /etc/sudoers.d -p wa -k sudoers_watch
+   -w /home/$USER/.config/rclone/rclone.conf -p wa -k secrets_watch
+   -w /home/$USER/projects/mood-tracker/data/journal/Diario.docx -p wa -k journal_watch
+   EOF
+   sudo augenrules --load && sudo systemctl enable --now auditd
+   sudo aa-status | head -n 15
+   sudo ausearch -k ssh_keys_watch --start recent || true
+   ```
 
-6. **Aislamiento de contenedores (`docker-compose.yml`) + AppArmor + Auditoría (`auditd` / `rkhunter`):**
-   * Los contenedores ya corren con `no-new-privileges:true`, `cap_drop: ALL`, `user: "${APP_UID:-1000}:${APP_GID:-1000}"`, límites de PIDs (`pids_limit`) para evitar *fork bombs*, y `/tmp` + `/dev/shm` montados con **`noexec,nosuid,nodev`** para bloquear binarios maliciosos temporales.
-   * Activa auditoría de archivos críticos en Linux:
-     ```bash
-     sudo apt install -y auditd rkhunter
+### 10.4 Defensa contra ataques de Denegación de Servicio (DoS / DDoS) y aislamiento
 
-     sudo tee /etc/audit/rules.d/99-dailyhub-watch.rules >/dev/null <<EOF
-     -w /home/$USER/.ssh/authorized_keys -p wa -k ssh_keys_watch
-     -w /etc/sudoers.d -p wa -k sudoers_watch
-     -w /home/$USER/.config/rclone/rclone.conf -p wa -k secrets_watch
-     -w /home/$USER/projects/mood-tracker/data/journal/Diario.docx -p wa -k journal_watch
-     EOF
-
-     sudo augenrules --load
-     sudo systemctl enable --now auditd
-
-     # Verificar AppArmor activo en el kernel y consultar alertas auditd cuando quieras:
-     sudo aa-status | head -n 15
-     sudo ausearch -k ssh_keys_watch --start recent || true
-     ```
-
----
-
-### 10.4 Defensa contra ataques de Denegación de Servicio (DoS / DDoS)
-
-Tu protección anti-DoS actúa en **4 niveles**:
-
-1. **Nivel de Red (Eliminación de superficie pública):** al operar detrás de Tailscale sin IP pública expuesta ni puertos abiertos en el router, un atacante en Internet **no tiene dirección IP ni puerto que inundar** con tráfico volumétrico UDP/TCP directo.
-2. **Nivel Kernel Linux (`sysctl` contra SYN flood, ICMP flood y spoofing IP):**
+1. **Nivel Red:** detrás de Tailscale y UFW no existe puerto público que inundar.
+2. **Nivel Kernel Linux (`sysctl` contra SYN flood, ICMP flood e IP spoofing):**
    ```bash
    sudo tee /etc/sysctl.d/99-security-dos.conf >/dev/null <<'EOF'
-   # Protección contra SYN Flood (cola saturada de conexiones TCP a medio abrir)
    net.ipv4.tcp_syncookies = 1
    net.ipv4.tcp_max_syn_backlog = 2048
    net.ipv4.tcp_synack_retries = 2
 
-   # Anti-spoofing y bloqueo de redirecciones ICMP maliciosas
    net.ipv4.conf.all.rp_filter = 1
    net.ipv4.conf.default.rp_filter = 1
    net.ipv4.conf.all.accept_redirects = 0
@@ -584,31 +731,93 @@ Tu protección anti-DoS actúa en **4 niveles**:
    net.ipv4.conf.all.send_redirects = 0
    net.ipv4.conf.all.accept_source_route = 0
 
-   # Mitigar amplificación / ping flood por broadcast
    net.ipv4.icmp_echo_ignore_broadcasts = 1
    net.ipv4.icmp_ignore_bogus_error_responses = 1
    net.ipv4.conf.all.log_martians = 1
    EOF
-
    sudo sysctl --system
    ```
-3. **Nivel Proxy Caddy y Aplicación Node.js (Anti-Slowloris y Anti-Flood HTTP):**
-   * **`Caddyfile`:** limita cuerpos de petición (`max_size 16MB`) y oculta la cabecera `Server`.
-   * **`server.js`:**
-     * `httpServer.keepAliveTimeout = 15000`, `headersTimeout = 20000`, `requestTimeout = 90000`, `maxHeadersCount = 64` (cierra rápido conexiones lentas tipo **Slowloris** que intentan dejar sockets colgados).
-     * Límite estricto de tamaño JSON (`512kb` general / `15mb` solo en sync Word autorizado con HMAC).
-     * **Rate limiters con tope acotado en RAM** (máx. 1,000 llaves en mapa para que un flood no llene la memoria): `/api/*` global (`500/min`), estáticos (`600/min`), login IP (`30/15min`), login cuenta (`10/15min`), handshake (`120/min`) y lecturas/escrituras.
-     * Semáforo FIFO `runWithHeavyTaskLock` (`maxConcurrency = 1`) para evitar que múltiples llamadas concurrentes a `yt-dlp`, Python o `rclone` saturen la CPU o los 8 GB de RAM.
-4. **Nivel Contenedores Docker y Disco (~500 GB HDD):**
-   * **`mem_limit` + `cpus` + `pids_limit`:** `mood_db` (`1024m` / `2.0` CPUs / `256` PIDs), `mood_app` (`1024m` / `2.0` CPUs / `128` PIDs), `mood_proxy` (`64m` / `0.5` CPUs / `64` PIDs). Ningún fallo o ataque en la app puede colgar el sistema operativo anfitrión ni provocar *fork bombs*.
-   * **Anti-llenado de disco (Disk-DoS):** rotación automática en los 3 contenedores (`max-size: 10m`, `max-file: 3`), logs rotativos internos (`5 MB x 5`), tmpfs limitado en RAM (`/tmp` `128m`, `/dev/shm` `64m`) y depuración de temporales > 7 días en backups.
-   * **Recuperación rápida ante ransomware o corrupción:** tu respaldo verificado en Google Drive permite reconstruir la base de datos limpia en minutos ejecutando:
+3. **Nivel Caddy + Node.js:** `max_size 16MB`, `keepAliveTimeout=15000`, `headersTimeout=20000`, `requestTimeout=90000`, `maxHeadersCount=64` (anti-Slowloris), rate limiters con mapa acotado en RAM, `runWithHeavyTaskLock` FIFO en cada réplica y locks distribuidos MySQL `GET_LOCK` (`pdh_docx_journal` / `pdh_docx_english`) entre `mood_app` y `mood_app2`.
+4. **Nivel Docker y Disco (~500 GB HDD):** los 4 contenedores tienen cuotas estrictas en `docker-compose.yml` para proteger los **8 GB de RAM**:
+   * `mood_db`: `1024m` RAM / `2.0` CPUs / `256` PIDs
+   * `mood_app`: `1024m` RAM / `2.0` CPUs / `128` PIDs
+   * `mood_app2`: `1024m` RAM / `2.0` CPUs / `128` PIDs
+   * `mood_proxy`: `64m` RAM / `0.5` CPUs / `64` PIDs
+   * Todos corren sin privilegios (`no-new-privileges:true`, `cap_drop: ALL`), con rotación de logs Docker (`10m x 3`) y `/tmp` + `/dev/shm` montados con `noexec,nosuid,nodev`.
+   * Restauración rápida ante corrupción desde Drive:
      ```bash
+     # Si existe .env plano en disco:
      ./scripts/restore.sh --force
+     # Si .env está cifrado en bóveda .env.enc:
+     ./scripts/env-vault.sh restore --force
      ```
 
-**Verificación final de seguridad integral:**
+---
+
+## 11. Operación diaria, cambio seguro de `DB_PASS` y solución de problemas
+
+### 11.1 Monitoreo rápido de los 4 contenedores
 ```bash
-./scripts/verify-ubuntu-local.sh
+cd ~/projects/mood-tracker
+docker compose ps
+docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' mood_db mood_app mood_app2 mood_proxy
+docker compose logs --tail=60 -f proxy app app2
 ```
-Confirmará automáticamente la sección `[10/10]` (hardening del contenedor, cero `.env` plano, `tcp_syncookies`, SSH `PasswordAuthentication no`, `fail2ban`, `unattended-upgrades` y `/proc` `hidepid=2`), además de las pruebas de HTTPS/HSTS y CORS en `[7/10]`.
+
+### 11.2 Reinicio o actualización manual sin tiempo de caída (Rolling Restart)
+```bash
+# Reiniciar una réplica a la vez sin cortar peticiones en el balanceador Caddy
+cd ~/projects/mood-tracker
+docker compose restart app2 && sleep 5 && docker compose restart app
+```
+
+Para actualizar código manualmente sin GitHub Actions *(cambia `up -d --build` por `./scripts/env-vault.sh up` si sellaste `.env` en `.env.enc`)*:
+```bash
+cd ~/projects/mood-tracker
+git pull origin main
+docker compose up -d --build --no-deps app2 && sleep 8 && docker compose up -d --build --no-deps app && docker compose up -d proxy
+```
+
+### 11.3 Cambiar `DB_PASS` en caliente sin perder datos
+
+Si ya tienes la base de datos con registros en MySQL y deseas rotar `DB_PASS`:
+
+```bash
+cd ~/projects/mood-tracker
+
+# 1) Respaldo de seguridad obligatorio ANTES de tocar contraseñas
+./scripts/backup.sh --require-drive
+
+# 2) Entrar al contenedor MySQL y actualizar la contraseña para localhost y contenedores internos (%)
+#    (Si sellaste .env en .env.enc, reemplaza ${DB_PASS} escribiendo tu contraseña actual manualmente)
+source .env 2>/dev/null || true
+docker exec -e MYSQL_PWD="$DB_PASS" mood_db mysql -u root -e \
+  "ALTER USER 'root'@'%' IDENTIFIED BY 'TU_NUEVA_CONTRASENA_SEGURA';
+   ALTER USER 'root'@'localhost' IDENTIFIED BY 'TU_NUEVA_CONTRASENA_SEGURA';
+   FLUSH PRIVILEGES;"
+
+# 3) Actualiza el Secret DB_PASS en GitHub (si usas deploy.yml) o edita .env / .env.enc y recrea contenedores:
+sed -i "s/^DB_PASS=.*/DB_PASS=TU_NUEVA_CONTRASENA_SEGURA/" .env
+docker compose up -d --force-recreate db app app2 proxy
+docker compose ps
+```
+
+### 11.4 Mantenimiento frecuente (Drive, permisos, `yt-dlp`)
+
+* **Si caduca o falla el token de Google Drive (`rclone`):**
+  ```bash
+  rclone config reconnect gdrive:
+  rclone lsl gdrive:RespaldosApp
+  # Si usas GitHub Actions, actualiza el Secret RCLONE_CONF_B64 con la nueva salida de:
+  base64 -w 0 ~/.config/rclone/rclone.conf && echo ""
+  ```
+* **Si algún archivo en `data/`, `english-notes/` o `logs/` queda con permisos erróneos:**
+  ```bash
+  sudo chown -R "$(id -u):$(id -g)" ~/projects/mood-tracker/data ~/projects/mood-tracker/english-notes ~/projects/mood-tracker/logs
+  ```
+* **Actualizar `yt-dlp` manualmente en el host y ambas réplicas:**
+  ```bash
+  sudo /usr/local/bin/yt-dlp -U || true
+  docker exec -u 0 mood_app yt-dlp -U
+  docker exec -u 0 mood_app2 yt-dlp -U
+  ```

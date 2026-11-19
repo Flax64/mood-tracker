@@ -1378,7 +1378,349 @@
         ['Album release year must be between 1900 and 2100.', 'El año del álbum debe estar entre 1900 y 2100.'],
         ['Track number must be between 1 and 999.', 'El número de pista debe estar entre 1 y 999.'],
         ['Upstream media stream rejected playback or returned no body.', 'El stream multimedia externo rechazó la reproducción o no devolvió contenido.'],
-        ['Failed to stream track through server.', 'No se pudo transmitir la canción desde el servidor.']
+        ['Failed to stream track through server.', 'No se pudo transmitir la canción desde el servidor.'],
+
+        // --- HTML Tooltips, Select Labels & Placeholders ---
+        ['Extract lyrics from your Word notebook or automatically from the server', 'Extraer la letra desde tu cuaderno Word o automáticamente desde el servidor'],
+        ['Analyze the verses of the selected language directly by stanza', 'Analizar directamente por estrofas los versos del idioma seleccionado'],
+        ['🇪🇸 Spanish (Español)', '🇪🇸 Español'],
+        ['e.g. wanna = want to, gotta = got to, linking sounds...', 'ej. wanna = want to, gotta = got to, sonidos enlazados...'],
+        ['e.g. 9th Semester · Systems Eng.', 'ej. 9no Semestre · Ing. Sistemas'],
+        ['e.g. 2026-2 (Aug-Dec)', 'ej. 2026-2 (Ago-Dic)'],
+        ['e.g. TecNM Winter Break, Spring Break...', 'ej. Vacaciones de Invierno TecNM, Semana Santa...'],
+        ['e.g. Software Company / Tech Lab', 'ej. Empresa de Software / Laboratorio Tech'],
+        ['e.g. Software Engineer / Intern', 'ej. Ingeniero de Software / Practicante'],
+        ['e.g. SCG1009 Project Management, Finish Lab Report...', 'ej. SCG1009 Gestión de Proyectos, Terminar Reporte de Lab...'],
+        ['e.g. Room R11 (Campus Blvd / Glorieta) · Bring sprint backlog and architecture diagram...', 'ej. Aula R11 (Campus Blvd / Glorieta) · Llevar sprint backlog y diagrama de arquitectura...'],
+        ['Comma-separated, e.g. Bruno Mars, feat. Cardi B', 'Separados por coma, ej. Bruno Mars, feat. Cardi B'],
+        ['e.g. Connected speech & slang idioms in chorus', 'ej. Habla conectada y modismos en el coro'],
+        ['e.g. K-Pop + English lyrics practice', 'ej. Práctica de letras K-Pop + Inglés'],
+        ['e.g. K-Pop group · pronunciation practice focus', 'ej. Grupo K-Pop · enfoque en pronunciación'],
+        ['e.g. Blvd. Venustiano Carranza 2400, Saltillo OR https://maps.app.goo.gl/... OR 25.4414, -100.9922', 'ej. Blvd. Venustiano Carranza 2400, Saltillo O https://maps.app.goo.gl/... O 25.4414, -100.9922'],
+
+        // --- Frontend Toasts, Banners, Loading States & Fallbacks ---
+        ['Song study notes encrypted & queued for Word!', '¡Notas de estudio de la canción cifradas y enviadas a Word!'],
+        ['Enter or generate a topic first.', 'Ingresa o genera primero un tema.'],
+        ['Private ntfy topic copied to clipboard.', 'Tema privado ntfy copiado al portapapeles.'],
+        ['Encrypted transport tunnel is unavailable.', 'El túnel de transporte cifrado no está disponible.'],
+        ['Encrypted session is inactive.', 'La sesión cifrada está inactiva.'],
+        ['Rejected invalid (0, 0) coordinates.', 'Coordenadas inválidas (0, 0) rechazadas.'],
+        ['Live GPS captured & commute routes recalculated!', '¡GPS en vivo capturado y rutas de traslado recalculadas!'],
+        ['Geolocation API not supported in this browser.', 'La API de geolocalización no es compatible con este navegador.'],
+        ['Browser GPS worked & routes recalculated!', '¡GPS del navegador capturado y rutas recalculadas!'],
+        ['Enter subject name, ITS classroom, and at least one class day.', 'Ingresa nombre de la materia, salón del ITS y al menos un día de clase.'],
+        ['Enter vacation name, start date, and end date.', 'Ingresa nombre del periodo vacacional, fecha de inicio y fecha de fin.'],
+        ['Phone HTTP webhook URL ready.', 'URL webhook HTTP del celular lista.'],
+        ['Updated to current date & time.', 'Actualizado a fecha y hora actual.'],
+        ['Crisis episode saved.', 'Episodio de crisis guardado.'],
+        ['Name/title is required.', 'El nombre o título es obligatorio.'],
+        ['Main artist and Album / Mini Album title are required.', 'El artista principal y el título del Álbum / Mini Álbum son obligatorios.'],
+        ['Paste a YouTube or YouTube Music song link first.', 'Pega primero un enlace de YouTube o YouTube Music.'],
+        ['Song title and main artist are required.', 'El título de la canción y el artista principal son obligatorios.'],
+        ['Extract lyrics or write vocabulary, pronunciation, or notes first.', 'Extrae la letra o escribe vocabulario, pronunciación o notas primero.'],
+        ['Select a song from the catalog (click "Study → Word") or fill Song Title + Main Artist above.', 'Selecciona una canción del catálogo (clic en "Estudiar → Word") o llena Título y Artista arriba.'],
+        ['Encrypted E2EE & queued! Your PC sync will add this song study breakdown under Section 4 in English_Learning_Notebook.docx.', '¡Cifrado E2EE y guardado! El cuaderno agregará este desglose bajo la Sección 4 de English_Learning_Notebook.docx.'],
+        ['Failed to send encrypted notes:', 'No se pudieron enviar las notas cifradas:'],
+        ['Analyzing Lyrics...', 'Analizando letra...'],
+        ['Verifying code...', 'Verificando código...'],
+        ['Validating & creating...', 'Validando y creando...'],
+        ['Sending link...', 'Enviando enlace...'],
+        ['Testing Gemini...', 'Probando Gemini...'],
+        ['Saving...', 'Guardando...'],
+        ['Sending...', 'Enviando...'],
+        ['Analyzing...', 'Analizando...'],
+        ['Searching...', 'Buscando...'],
+        ['Encrypting...', 'Cifrando...'],
+        ['Verifying...', 'Validando...'],
+        ['Updating...', 'Actualizando...'],
+        ['Benchmarking...', 'Midiendo rendimiento...'],
+        ['Switching...', 'Cambiando...'],
+        ['Applying...', 'Aplicando...'],
+        ['Rotating...', 'Rotando...'],
+        ['Secret key must be exactly 32 characters long.', 'La llave secreta debe medir exactamente 32 caracteres.'],
+        ['Please select a mood tile before saving.', 'Selecciona una emoción antes de guardar.'],
+        ['Please select both date and time of day.', 'Selecciona tanto la fecha como el bloque del día.'],
+        ['This exact mood is already saved for this date and time block.', 'Este mismo estado de ánimo ya fue guardado para esta fecha y bloque.'],
+        ['Please select the date for this sleep or desvelo entry.', 'Selecciona la fecha de este registro de sueño o desvelo.'],
+        ['Please fill in bedtime, wake-up time (or check "Going to sleep just now"), and rest quality.', 'Completa la hora de dormir, despertar (o marca "Me voy durmiendo ahorita") y la calidad de descanso.'],
+        ['Please select how you feel (quality) for this all-nighter log.', 'Selecciona cómo te sientes (calidad) para este registro de desvelo.'],
+        ['Bedtime and wake-up time cannot result in 0 hours of sleep.', 'La hora de dormir y despertar no pueden sumar 0 horas de sueño.'],
+        ['This exact sleep session was already logged.', 'Esta misma sesión de sueño ya había sido registrada.'],
+        ['Failed to send note:', 'No se pudo enviar la nota:'],
+        ['Your weekly session closed automatically (Sunday 00:00). Please sign in again.', 'Tu sesión semanal cerró automáticamente (domingo 00:00). Inicia sesión de nuevo.'],
+        ['Please enter a valid email and password.', 'Ingresa un correo y contraseña válidos.'],
+        ['Verification code sent! Check your inbox.', '¡Código de verificación enviado! Revisa tu correo.'],
+        ['Your sign-in verification session expired. Please sign in again.', 'Tu sesión de verificación expiró. Inicia sesión nuevamente.'],
+        ['Enter the 6-digit verification code from your email.', 'Ingresa el código de 6 dígitos enviado a tu correo.'],
+        ['Name must be between 2 and 80 characters.', 'El nombre debe medir entre 2 y 80 caracteres.'],
+        ['Please enter a valid email address.', 'Por favor ingresa un correo electrónico válido.'],
+        ['Please enter the verification code or your personal secret key.', 'Ingresa el código de verificación o tu clave secreta personal.'],
+        ['Passwords do not match.', 'Las contraseñas no coinciden.'],
+        ['Sign in with your new password', 'Inicia sesión con tu nueva contraseña'],
+        ['Doctor name must be between 2 and 80 characters.', 'El nombre del médico debe medir entre 2 y 80 caracteres.'],
+        ['Please enter a valid doctor email address.', 'Ingresa un correo válido para el médico.'],
+        ['These exact psychiatrist credentials were already saved.', 'Estas mismas credenciales de psiquiatra ya habían sido guardadas.'],
+        ['Complete the date and time of the crisis episode.', 'Completa la fecha y la hora del episodio.'],
+        ['When selecting "Other", briefly describe what emotion you felt or what happened.', 'Al elegir "Otro", especifica brevemente qué emoción sentiste o qué ocurrió.'],
+        ['Description cannot exceed 250 characters.', 'La descripción no puede superar los 250 caracteres.'],
+        ['Episode saved successfully (visible to your psychiatrist in Weekly Summary).', 'Episodio guardado correctamente (visible para tu psiquiatra/psicóloga en Resumen Semanal).'],
+        ['Please enter both the English word and its Spanish meaning.', 'Ingresa tanto la palabra en inglés como su significado en español.'],
+        ['Please enter a topic title and your grammar/usage notes.', 'Ingresa un título de tema y tus notas de gramática o uso.'],
+        ['Please enter a note title and your personal learning notes.', 'Ingresa un título de nota y tus apuntes personales de aprendizaje.'],
+        ['Please enter the phrasal verb and its Spanish meaning.', 'Ingresa el phrasal verb y su significado en español.'],
+        ['This exact entry was already queued for your English Word notebook in this session.', 'Esta misma entrada ya fue enviada a tu cuaderno de inglés en esta sesión.'],
+        ['Failed to send entry:', 'No se pudo enviar la entrada:'],
+        ['0 hrs 0 min (Total All-Nighter)', '0 hrs 0 min (Desvelo Total)'],
+        ['📖 Practice (15 min -> Word)', '📖 Practicar (15 min -> Word)'],
+        ['Could not load music catalog:', 'No se pudo cargar el catálogo musical:'],
+        ['▲ Close Folder', '▲ Cerrar Carpeta'],
+        ['Copied!', '¡Copiado!'],
+        ['Paste a street address, coordinates (e.g. 25.4414, -100.9922), or a Google Maps link first.', 'Pega primero una dirección, coordenadas (ej. 25.4414, -100.9922) o un enlace de Google Maps.'],
+        ['network error', 'error de red'],
+        ['permission denied', 'permiso denegado'],
+        ['Mood saved!', '¡Ánimo guardado!'],
+        ['Sleep session completed!', '¡Sesión de sueño completada!'],
+        ['Untitled Song', 'Canción sin título'],
+        ['Unknown Artist', 'Artista desconocido'],
+        ['Independent Releases', 'Lanzamientos independientes'],
+        ['Failed to load music catalog.', 'No se pudo cargar el catálogo musical.'],
+        ['this album', 'este álbum'],
+        ['Could not update metadata.', 'No se pudieron actualizar los metadatos.'],
+        ['Could not create album.', 'No se pudo crear el álbum.'],
+        ['Could not resolve link.', 'No se pudo resolver el enlace.'],
+        ['Song metadata saved.', 'Metadatos de canción guardados.'],
+        ['Failed to save song.', 'No se pudo guardar la canción.'],
+        ['Test push notification sent to your phone!', '¡Notificación push de prueba enviada a tu celular!'],
+        ['Could not reach Gemini test endpoint.', 'No se pudo conectar con la prueba de Gemini.'],
+        ['Gemini test failed.', 'Falló la prueba de conexión Gemini.'],
+        ['Benchmark failed', 'Falló la prueba de rendimiento'],
+        ['Benchmark error.', 'Error en la prueba de rendimiento.'],
+        ['Commutes now use your Saved Home as origin.', 'Los traslados ahora parten de tu Casa guardada.'],
+        ['Could not switch origin to Home.', 'No se pudo cambiar el origen a Casa.'],
+        ['GPS request sent to your phone via ntfy! Tap the notification on your phone.', '¡Solicitud GPS enviada a tu celular vía ntfy! Toca la notificación en tu teléfono.'],
+        ['Could not ping phone via ntfy.', 'No se pudo enviar ping GPS al celular vía ntfy.'],
+        ['Current Location', 'Ubicación Actual'],
+        ['Saved Home', 'Casa Guardada'],
+        ['Could not apply location.', 'No se pudo aplicar la ubicación.'],
+        ['Could not update location.', 'No se pudo actualizar la ubicación.'],
+        ['Could not read GPS.', 'No se pudo leer el GPS.'],
+        ['Could not extract coordinates from that link.', 'No se pudieron extraer coordenadas de ese enlace.'],
+        ['Could not load phone GPS webhook.', 'No se pudo cargar el webhook GPS del celular.'],
+        ['Phone webhook token rotated.', 'Token del webhook del celular rotado.'],
+        ['Could not rotate token.', 'No se pudo rotar el token.'],
+        ['Error saving crisis log.', 'Error al guardar la bitácora de crisis.'],
+        ['Could not generate practice.', 'No se pudo generar la práctica.'],
+        ['Breaking down lyrics, vocabulary, and romanization...', 'Desglosando letra, vocabulario y romanización...'],
+        ['Explain the lyrics meanings, romanization, grammar particles, idioms, and song code-switching.', 'Explica significados de la letra, romanización, partículas gramaticales, modismos y cambio de idioma.'],
+
+        // --- Complete Server Responses & Error Translations ---
+        ['HTTPS is required for all API requests.', 'Se requiere HTTPS para todas las peticiones a la API.'],
+        ['HTTPS is required.', 'Se requiere conexión HTTPS.'],
+        ['Invalid JSON payload.', 'Carga JSON inválida.'],
+        ['Request payload exceeds maximum allowed size.', 'La carga de la petición excede el tamaño máximo permitido.'],
+        ['Request body must be a valid JSON object.', 'El cuerpo de la petición debe ser un objeto JSON válido.'],
+        ['Request body cannot be empty.', 'El cuerpo de la petición no puede estar vacío.'],
+        ['Error verifying session.', 'Error al verificar la sesión.'],
+        ['Your account is inactive or suspended. Contact the administrator.', 'Tu cuenta está inactiva o suspendida. Contacta al administrador.'],
+        ['Read-only access: this account can only view the weekly summary.', 'Acceso de solo lectura: esta cuenta únicamente puede ver el resumen semanal.'],
+        ['Invalid X-Idempotency-Key header.', 'Encabezado X-Idempotency-Key inválido.'],
+        ['Idempotency key cannot be reused with different data.', 'No se puede reutilizar una llave de idempotencia con datos distintos.'],
+        ['Request is already being processed. Please wait.', 'La petición ya se está procesando. Espera un momento.'],
+        ['Duplicate submission detected. Avoid sending identical data repeatedly.', 'Envío duplicado detectado. Evita reenviar datos idénticos de forma repetida.'],
+        ['Error generating verification code.', 'Error al generar el código de verificación.'],
+        ['Could not send the verification email. You can register using your personal secret key in the validation field.', 'No se pudo enviar el correo de verificación. Puedes registrarte usando tu clave secreta personal en el campo de validación.'],
+        ['Invalid email address.', 'Dirección de correo electrónico inválida.'],
+        ['Enter the verification code or your personal secret key.', 'Ingresa el código de verificación o tu clave secreta personal.'],
+        ['Error querying users.', 'Error al consultar usuarios en la base de datos.'],
+        ['This email is already registered. Sign in or reset your password.', 'Este correo ya está registrado. Inicia sesión o restablece tu contraseña.'],
+        ['Error registering user.', 'Error al registrar el usuario.'],
+        ['Error processing password.', 'Error al procesar la contraseña.'],
+        ['Error validating security code.', 'Error al validar el código de seguridad.'],
+        ['Incorrect or expired verification code / secret key.', 'Código de verificación o clave secreta incorrectos o vencidos.'],
+        ['Enter a valid email and password.', 'Ingresa un correo y contraseña válidos.'],
+        ['Database query error.', 'Error al consultar la base de datos.'],
+        ['Error generating verification challenge.', 'Error al generar el reto de verificación.'],
+        ['Verification email service is temporarily unavailable.', 'El servicio de correo de verificación no está disponible temporalmente.'],
+        ['Invalid or expired verification code.', 'Código de verificación inválido o vencido.'],
+        ['Error validating verification code.', 'Error al validar el código de verificación.'],
+        ['Account could not be verified.', 'No se pudo verificar la cuenta.'],
+        ['Error processing request.', 'Error al procesar la solicitud.'],
+        ['Error generating recovery link.', 'Error al generar el enlace de recuperación.'],
+        ['Recovery email service is temporarily unavailable.', 'El servicio de correo de recuperación no está disponible temporalmente.'],
+        ['Invalid recovery link.', 'Enlace de recuperación inválido.'],
+        ['Error verifying recovery link.', 'Error al verificar el enlace de recuperación.'],
+        ['The recovery link is invalid or has expired.', 'El enlace de recuperación es inválido o ha expirado.'],
+        ['Could not update password.', 'No se pudo actualizar la contraseña.'],
+        ['Error hashing the new password.', 'Error al cifrar la nueva contraseña.'],
+        ['Error loading psychiatrist accounts.', 'Error al cargar las cuentas de psiquiatra.'],
+        ['Enter a valid psychiatrist email (different from owner email).', 'Ingresa un correo de psiquiatra válido (distinto al del propietario).'],
+        ['Error saving psychiatrist account.', 'Error al guardar la cuenta de psiquiatra.'],
+        ['Error hashing password.', 'Error al cifrar la contraseña.'],
+        ['Invalid ID.', 'ID inválido.'],
+        ['Invalid account status. Allowed: activo, inactivo, suspendido.', 'Estado de cuenta inválido. Permitidos: activo, inactivo, suspendido.'],
+        ['Error updating account status.', 'Error al actualizar el estado de la cuenta.'],
+        ['Account not found.', 'Cuenta no encontrada.'],
+        ['Error deleting account.', 'Error al eliminar la cuenta.'],
+        ['Invalid date (expected YYYY-MM-DD).', 'Fecha inválida (se esperaba YYYY-MM-DD).'],
+        ['Invalid time of day.', 'Bloque del día inválido.'],
+        ['Invalid mood value.', 'Valor de estado de ánimo inválido.'],
+        ['Invalid hex color.', 'Código de color hexadecimal inválido.'],
+        ['Error updating record.', 'Error al actualizar el registro.'],
+        ['Record updated successfully You were still within the edit window.', 'Registro actualizado correctamente. Aún estabas dentro de la ventana de edición.'],
+        ['The time window to edit this time of day has already expired.', 'La ventana de tiempo para editar este bloque ya expiró.'],
+        ['Error saving to database.', 'Error al guardar en la base de datos.'],
+        ['Mood saved successfully.', 'Estado de ánimo guardado correctamente.'],
+        ['Invalid sleep entry type.', 'Tipo de registro de sueño inválido.'],
+        ['Invalid bedtime format (expected HH:MM).', 'Formato de hora de dormir inválido (se esperaba HH:MM).'],
+        ['Invalid wake-up time format (expected HH:MM).', 'Formato de hora de despertar inválido (se esperaba HH:MM).'],
+        ['Desvelo reason note cannot exceed 500 characters.', 'La nota del motivo de desvelo no puede exceder 500 caracteres.'],
+        ['Invalid sleep quality.', 'Calidad de sueño inválida.'],
+        ['Sleep hours must be between 0 and 24 for an all-nighter.', 'Las horas de sueño deben estar entre 0 y 24 para un desvelo total.'],
+        ['Sleep hours must be a number between 0.1 and 24.', 'Las horas de sueño deben ser un número entre 0.1 y 24.'],
+        ['Error saving sleep record.', 'Error al guardar el registro de sueño.'],
+        ['All-nighter / desvelo log saved successfully (0 hrs · visible to psychiatrist).', 'Desvelo total guardado correctamente (0 hrs · visible para tu psiquiatra).'],
+        ['Sleep & desvelo record saved successfully (visible to psychiatrist).', 'Registro de sueño y desvelo guardado (visible para tu psiquiatra).'],
+        ['Sleep record saved successfully.', 'Registro de sueño guardado correctamente.'],
+        ['Invalid sleep record ID.', 'ID de registro de sueño inválido.'],
+        ['Sleep record not found.', 'Registro de sueño no encontrado.'],
+        ['Invalid sleep quality or entry type.', 'Calidad o tipo de registro de sueño inválido.'],
+        ['Error updating sleep record.', 'Error al actualizar el registro de sueño.'],
+        ['Error deleting sleep record.', 'Error al eliminar el registro de sueño.'],
+        ['Parameters begin and end are required (YYYY-MM-DD).', 'Los parámetros begin y end son obligatorios (YYYY-MM-DD).'],
+        ['Invalid date format (expected YYYY-MM-DD).', 'Fecha inválida (formato esperado YYYY-MM-DD).'],
+        ['Invalid time format (expected 24h HH:MM).', 'Hora inválida (formato HH:MM 24h).'],
+        ['Invalid crisis type.', 'Tipo de crisis inválido.'],
+        ['Intensity must be an integer between 1 and 5.', 'La intensidad debe ser un entero entre 1 y 5.'],
+        ['Error saving crisis record.', 'Error al guardar el registro de crisis.'],
+        ['Parameters begin and end must both be YYYY-MM-DD.', 'Los parámetros begin y end deben tener formato YYYY-MM-DD.'],
+        ['Invalid date range.', 'Rango de fechas inválido.'],
+        ['Error loading historical range from Google Drive.', 'Error al cargar el historial desde Google Drive.'],
+        ['Invalid crisis record ID.', 'ID de registro de crisis inválido.'],
+        ['Error deleting crisis record.', 'Error al eliminar el registro de crisis.'],
+        ['Crisis record not found.', 'Registro de crisis no encontrado.'],
+        ['Encrypted payload exceeds maximum allowed length.', 'La carga cifrada excede la longitud máxima permitida.'],
+        ['This encrypted entry is already queued for your PC.', 'Esta entrada cifrada ya está en cola para tu PC.'],
+        ['Text cannot be empty.', 'El texto no puede estar vacío.'],
+        ['E2EE key mismatch: server JOURNAL_SECRET_KEY could not decrypt entry.', 'La llave E2EE no coincide: JOURNAL_SECRET_KEY del servidor no pudo descifrar la entrada.'],
+        ['WORD_PASSWORD rejected by existing local Diario.docx; note was not written.', 'WORD_PASSWORD fue rechazada por el Diario.docx local; la nota no se escribió.'],
+        ['Concurrent journal file write busy; please retry shortly.', 'Escritura concurrente de Diario.docx ocupada; reintenta en un momento.'],
+        ['Error saving encrypted local Journal.', 'Error al guardar el Journal local cifrado.'],
+        ['Local encrypted Diario.docx has not been created yet.', 'El archivo local cifrado Diario.docx aún no ha sido creado.'],
+        ['Refusing to download unencrypted Journal file.', 'Descarga bloqueada: el archivo de Journal no está cifrado.'],
+        ['Entry payload cannot be empty.', 'El contenido de la entrada no puede estar vacío.'],
+        ['Saved to local mirror; Google Drive upload scheduled for retry.', 'Guardado en copia local; subida a Google Drive programada para reintento.'],
+        ['Concurrent English Notebook file write busy; please retry shortly.', 'Escritura concurrente del cuaderno de idiomas ocupada; reintenta en un momento.'],
+        ['Error saving English Notebook entry on server.', 'Error al guardar la entrada del Cuaderno de Idiomas en el servidor.'],
+        ['Error querying agenda from database.', 'Error al consultar la agenda en la base de datos.'],
+        ['Error saving agenda activity.', 'Error al guardar la actividad en la agenda.'],
+        ['Invalid activity ID.', 'ID de actividad inválido.'],
+        ['Activity not found.', 'Actividad no encontrada.'],
+        ['Error updating activity.', 'Error al actualizar la actividad.'],
+        ['Invalid status (allowed: todo, in_progress, done, skipped).', 'Estado inválido (permitidos: todo, in_progress, done, skipped).'],
+        ['Error updating activity status.', 'Error al actualizar el estado de la actividad.'],
+        ['targetDate must use YYYY-MM-DD format.', 'targetDate debe usar formato YYYY-MM-DD.'],
+        ['Invalid calendar targetDate.', 'Fecha targetDate del calendario inválida.'],
+        ['Specify postponement days (non-zero integer -365..365) or targetDate (YYYY-MM-DD).', 'Especifica días a posponer (entero distinto de cero -365..365) o targetDate (YYYY-MM-DD).'],
+        ['Error postponing activity.', 'Error al posponer la actividad.'],
+        ['Error deleting activity.', 'Error al eliminar la actividad.'],
+        ['Error loading settings.', 'Error al cargar la configuración.'],
+        ['Error saving settings.', 'Error al guardar la configuración.'],
+        ['Error loading academic & work planner.', 'Error al cargar el planificador académico y laboral.'],
+        ['Error saving academic & work planner.', 'Error al guardar el planificador académico y laboral.'],
+        ['Valid non-zero latitude/longitude, a Google Maps link with coordinates, or a street address (e.g. Margarita Maza de Juárez 924, Saltillo) is required.', 'Se requiere latitud/longitud válida no nula, un enlace de Google Maps con coordenadas o una dirección (ej. Margarita Maza de Juárez 924, Saltillo).'],
+        ['Error updating location.', 'Error al actualizar la ubicación.'],
+        ['Error generating phone GPS webhook token.', 'Error al generar el token webhook GPS del celular.'],
+        ['Error rotating phone GPS webhook token.', 'Error al rotar el token webhook GPS del celular.'],
+        ['Signed phone GPS token is required.', 'Se requiere un token GPS firmado del celular.'],
+        ['Invalid or expired phone GPS token.', 'Token GPS del celular inválido o vencido.'],
+        ['Phone GPS webhook token has been revoked or rotated.', 'El token webhook GPS del celular fue revocado o rotado.'],
+        ['Valid non-zero lat and lng parameters are required (0, 0 is rejected).', 'Se requieren parámetros lat y lng válidos distintos de cero (0, 0 se rechaza).'],
+        ['Error processing phone GPS webhook.', 'Error al procesar el webhook GPS del celular.'],
+        ['Configure Phone Notifications (ntfy topic) in Settings first so Daily Hub can ping your phone.', 'Configura primero Notificaciones Móviles (tema ntfy) en Ajustes para enviar ping GPS al celular.'],
+        ['Public Server URL could not be determined. Set it in Settings first.', 'No se pudo determinar la URL pública del servidor. Configúrala primero en Ajustes.'],
+        ['Error syncing schedule to agenda.', 'Error al sincronizar el horario con la agenda.'],
+        ['Error checking active reminders.', 'Error al comprobar los recordatorios activos.'],
+        ['Invalid reminder key.', 'Clave de recordatorio inválida.'],
+        ['Snooze minutes must be an integer between 1 and 240.', 'Los minutos de posposición deben ser un entero entre 1 y 240.'],
+        ['Error updating reminder state.', 'Error al actualizar el estado del recordatorio.'],
+        ['Invalid or expired reminder action token.', 'Token de acción de recordatorio inválido o vencido.'],
+        ['Account not authorized for this action.', 'Cuenta no autorizada para esta acción.'],
+        ['Error applying reminder action.', 'Error al aplicar la acción del recordatorio.'],
+        ['Error loading English music catalog.', 'Error al cargar el catálogo musical.'],
+        ['Error saving song to music catalog.', 'Error al guardar la canción en el catálogo musical.'],
+        ['Invalid song ID.', 'ID de canción inválido.'],
+        ['Song not found.', 'Canción no encontrada.'],
+        ['Error updating song metadata.', 'Error al actualizar los metadatos de la canción.'],
+        ['Unsupported study status.', 'Estado de estudio no compatible.'],
+        ['Nothing to update.', 'No hay campos para actualizar.'],
+        ['Error updating song study state.', 'Error al actualizar el estado de estudio de la canción.'],
+        ['Error syncing song metadata.', 'Error al sincronizar los metadatos de la canción.'],
+        ['Error deleting song.', 'Error al eliminar la canción.'],
+        ['PC bridge authentication secret is not configured.', 'El secreto de autenticación del puente PC no está configurado.'],
+        ['Invalid or expired PC bridge signature.', 'Firma del puente PC inválida o vencida.'],
+        ['PC bridge HMAC verification failed.', 'Falló la verificación HMAC del puente PC.'],
+        ['Invalid E2EE encryptedRequest payload.', 'Carga cifrada encryptedRequest inválida.'],
+        ['Invalid job ID.', 'ID de tarea inválido.'],
+        ['PC job expired or not found.', 'Tarea PC expirada o no encontrada.'],
+        ['Invalid encryptedResult payload.', 'Carga cifrada encryptedResult inválida.'],
+        ['PC job expired.', 'La tarea PC ha expirado.'],
+        ['Error resolving song lyrics autonomously.', 'Error al resolver la letra de forma autónoma.'],
+        ['This song does not have a valid YouTube or YouTube Music link yet.', 'Esta canción aún no tiene un enlace válido de YouTube o YouTube Music.'],
+        ['Error extracting song lyrics.', 'Error al extraer la letra de la canción.'],
+        ['Invalid artist ID.', 'ID de artista inválido.'],
+        ['Artist name is required.', 'El nombre del artista es obligatorio.'],
+        ['Artist not found.', 'Artista no encontrado.'],
+        ['Another artist with that name already exists in your catalog.', 'Ya existe otro artista con ese nombre en tu catálogo.'],
+        ['Error updating artist.', 'Error al actualizar el artista.'],
+        ['Invalid album ID.', 'ID de álbum inválido.'],
+        ['Album title is required.', 'El título del álbum es obligatorio.'],
+        ['Album not found.', 'Álbum no encontrado.'],
+        ['Error updating album.', 'Error al actualizar el álbum.'],
+        ['Album / Mini Album title is required (max 180 characters).', 'El título del Álbum / Mini Álbum es obligatorio (máx. 180 caracteres).'],
+        ['Error saving album to catalog.', 'Error al guardar el álbum en el catálogo.'],
+        ['Error deleting album.', 'Error al eliminar el álbum.'],
+        ['Error loading language registry.', 'Error al cargar el catálogo de idiomas.'],
+        ['Error loading AI language learning memory.', 'Error al cargar la memoria de aprendizaje IA.'],
+        ['Error updating AI language learning memory.', 'Error al actualizar la memoria de aprendizaje IA.'],
+        ['Provide Korean or Japanese text or mixed lyrics to romanize.', 'Proporciona texto en coreano, japonés o letra mixta para romanizar.'],
+        ['Paste lyrics, a phrase, or a language question to analyze.', 'Pega una letra, frase o pregunta de idioma para analizar.'],
+        ['Lyrics text cannot exceed 10,000 characters.', 'El texto no puede exceder 10,000 caracteres.'],
+        ['Error running language & lyrics analysis.', 'Error al ejecutar el análisis de idioma y letra.'],
+        ['Error testing Gemini connection.', 'Error al probar la conexión con Gemini.'],
+        ['Enter a word, phrase, or lyric line to translate.', 'Ingresa una palabra, frase o verso para traducir.'],
+        ['Translation text cannot exceed 4,000 characters.', 'El texto a traducir no puede exceder 4,000 caracteres.'],
+        ['Error running translator.', 'Error al ejecutar el traductor.'],
+        ['Provide song lyrics to translate to Spanish.', 'Proporciona la letra de la canción para traducir al español.'],
+        ['Lyrics cannot exceed 12,000 characters.', 'La letra no puede exceder 12,000 caracteres.'],
+        ['Error translating song lyrics.', 'Error al traducir la letra de la canción.'],
+        ['Error loading study lessons.', 'Error al cargar las lecciones de estudio.'],
+        ['Error toggling language learning state.', 'Error al cambiar el estado del curso de idiomas.'],
+        ['Error recording Word study activity.', 'Error al registrar la actividad de estudio Word.'],
+        ['Invalid lesson ID.', 'ID de lección inválido.'],
+        ['Lesson not found.', 'Lección no encontrada.'],
+        ['Error generating practical lesson.', 'Error al generar la lección práctica.'],
+        ['You have not opened or practiced this lesson content in your Word document yet (minimum 10-15 min).', 'Aún no has abierto ni practicado el contenido de esta lección en tu documento Word (mínimo 10-15 min).'],
+        ['Error updating lesson completion.', 'Error al actualizar el progreso de la lección.'],
+        ['Provide both target phrase and microphone spoken transcript.', 'Proporciona tanto la frase objetivo como la transcripción del micrófono.'],
+        ['Error evaluating pronunciation.', 'Error al evaluar la pronunciación.'],
+        ['Failed to load version history.', 'No se pudo cargar el historial de versiones.'],
+        ['API endpoint not found.', 'Endpoint de API no encontrado.'],
+        ['An internal server error occurred.', 'Ocurrió un error interno en el servidor.'],
+        ['Too many requests. Please slow down and try again later.', 'Demasiadas peticiones. Reduce el ritmo e intenta de nuevo más tarde.'],
+        ['Too many requests to the server. Please slow down briefly.', 'Demasiadas peticiones al servidor. Reduce el ritmo brevemente.'],
+        ['Activity postponed successfully.', 'Actividad pospuesta correctamente.'],
+        ['Error reading study notebook.', 'Error al leer el cuaderno de estudio.'],
+        ['Personal journal files cannot be synced to the isolated Study Word Drive (Drive 2).', 'Los archivos del diario personal no pueden sincronizarse al Drive aislado de Estudio (Drive 2).'],
+        ['Invalid or oversized Word payload.', 'Carga de Word inválida o demasiado grande.'],
+        ['Payload is not a valid .docx ZIP container.', 'La carga no es un contenedor ZIP .docx válido.'],
+        ['rclone.conf not found on local host; on server it uploads automatically via RCLONE_CONF_B64.', 'rclone.conf no encontrado en entorno local; en servidor se sube automáticamente con RCLONE_CONF_B64.'],
+        ['Google Drive upload could not be verified with matching byte size.', 'La subida a Google Drive no pudo verificarse con el mismo tamaño en bytes.'],
+        ['rclone.conf not available on this server.', 'rclone.conf no disponible en este servidor.'],
+        ['Remote notebook exceeds the 12 MB sync limit.', 'El cuaderno remoto excede el límite de sincronización de 12 MB.'],
+        ['Downloaded file is not a valid .docx container.', 'El archivo descargado no es un contenedor .docx válido.'],
+        ['Could not read the language notebook from Google Drive.', 'No se pudo leer el cuaderno de idiomas desde Google Drive.'],
+        ['Cloud lyrics lookup timed out.', 'Se agotó el tiempo al buscar la letra en la nube.'],
+        ['This song does not have a valid YouTube / YouTube Music link and was not found in the Drive Word notebook.', 'Esta canción no tiene un enlace válido de YouTube / YouTube Music y tampoco se encontró en el cuaderno Word de Drive.']
     ];
 
     var EN_FROM_KEY = new Map();
@@ -1773,6 +2115,100 @@
                 return mappedHead + ' (' + m[2] + ' ' + secUnit + ')';
             }
             return mappedHead;
+        }
+        // Modal titles with dynamic song/artist/album names
+        if ((m = trim.match(/^(?:Edit Song|Editar canción):\s*(.+)$/i))) {
+            return pick('Edit Song: ', 'Editar canción: ') + m[1];
+        }
+        if ((m = trim.match(/^(?:Edit Artist|Editar artista):\s*(.+)$/i))) {
+            return pick('Edit Artist: ', 'Editar artista: ') + m[1];
+        }
+        if ((m = trim.match(/^(?:Edit Album|Editar álbum):\s*(.+)$/i))) {
+            return pick('Edit Album: ', 'Editar álbum: ') + m[1];
+        }
+        if ((m = trim.match(/^(?:Studying|Estudiando):\s*(.+)$/i))) {
+            return pick('Studying: ', 'Estudiando: ') + m[1];
+        }
+        // Prefixed error messages with appended server/system error
+        if ((m = trim.match(/^(?:Failed to send encrypted notes|No se pudieron enviar las notas cifradas):\s*(.+)$/i))) {
+            return pick('Failed to send encrypted notes: ', 'No se pudieron enviar las notas cifradas: ') + translateText(m[1]);
+        }
+        if ((m = trim.match(/^(?:Failed to send entry|No se pudo enviar la entrada):\s*(.+)$/i))) {
+            return pick('Failed to send entry: ', 'No se pudo enviar la entrada: ') + translateText(m[1]);
+        }
+        if ((m = trim.match(/^(?:Failed to send note|No se pudo enviar la nota):\s*(.+)$/i))) {
+            return pick('Failed to send note: ', 'No se pudo enviar la nota: ') + translateText(m[1]);
+        }
+        if ((m = trim.match(/^(?:Could not load music catalog|No se pudo cargar el catálogo musical):\s*(.+)$/i))) {
+            return pick('Could not load music catalog: ', 'No se pudo cargar el catálogo musical: ') + translateText(m[1]);
+        }
+        if ((m = trim.match(/^(?:Could not read file|No se pudo leer el archivo):\s*(.+)$/i))) {
+            return pick('Could not read file: ', 'No se pudo leer el archivo: ') + translateText(m[1]);
+        }
+        if ((m = trim.match(/^(?:Playback link mode set to|Modo de enlace configurado a):\s*(.+)$/i))) {
+            return pick('Playback link mode set to: ', 'Modo de enlace configurado a: ') + m[1];
+        }
+        // Welcome & Session
+        if ((m = trim.match(/^(?:Welcome,|¡Bienvenido\(a\),)\s*(.+)!\s*(?:Your session stays active until Sunday at 00:00\.?|Tu sesión permanece activa hasta el domingo a las 00:00\.?)$/i))) {
+            return pick(
+                'Welcome, ' + m[1] + '! Your session stays active until Sunday at 00:00.',
+                '¡Bienvenido(a), ' + m[1] + '! Tu sesión permanece activa hasta el domingo a las 00:00.'
+            );
+        }
+        // Dynamic server responses with IDs, counts, timestamps, or headings
+        if ((m = trim.match(/^Late bedtime \(([^)]+)\) saved! Complete your wake-up time when you get up\.$/i))
+            || (m = trim.match(/^¡Hora de dormir tardía \(([^)]+)\) guardada! Completa tu hora de despertar cuando te levantes\.$/i))) {
+            return pick(
+                'Late bedtime (' + m[1] + ') saved! Complete your wake-up time when you get up.',
+                '¡Hora de dormir tardía (' + m[1] + ') guardada! Completa tu hora de despertar cuando te levantes.'
+            );
+        }
+        if ((m = trim.match(/^(?:Note encrypted with password and saved locally|Nota cifrada con contraseña y guardada localmente)\s*\(([^)]+)\)\.?$/i))) {
+            return pick(
+                'Note encrypted with password and saved locally (' + m[1] + ').',
+                'Nota cifrada con contraseña y guardada localmente (' + m[1] + ').'
+            );
+        }
+        if ((m = trim.match(/^(?:Field|El campo)\s+([a-zA-Z0-9_]+)\s+(?:must be a boolean|debe ser booleano \(sí\/no\))\.?$/i))) {
+            return pick('Field ' + m[1] + ' must be a boolean.', 'El campo ' + m[1] + ' debe ser booleano (sí/no).');
+        }
+        if ((m = trim.match(/^(?:Field|El campo)\s+([a-zA-Z0-9_]+)\s+(?:must use HH:MM format|debe usar formato HH:MM)\s*\(00:00 - 23:59\)\.?$/i))) {
+            return pick(
+                'Field ' + m[1] + ' must use HH:MM format (00:00 - 23:59).',
+                'El campo ' + m[1] + ' debe usar formato HH:MM (00:00 - 23:59).'
+            );
+        }
+        if ((m = trim.match(/^(?:Write the crisis reason or trigger \(max|Escribe el motivo o detonante de la crisis \(máx\.)\s*(\d+)\s*(?:characters|caracteres)\)\.?$/i))) {
+            return pick(
+                'Write the crisis reason or trigger (max ' + m[1] + ' characters).',
+                'Escribe el motivo o detonante de la crisis (máx. ' + m[1] + ' caracteres).'
+            );
+        }
+        if ((m = trim.match(/^(?:You must complete the previous lesson first:|Debes completar primero la lección previa:)\s*"([^"]+)"\.?$/i))) {
+            return pick(
+                'You must complete the previous lesson first: "' + m[1] + '".',
+                'Debes completar primero la lección previa: "' + m[1] + '".'
+            );
+        }
+        if ((m = trim.match(/^(?:You cannot advance before finishing:|No puedes avanzar sin terminar antes:)\s*"([^"]+)"\.?$/i))) {
+            return pick(
+                'You cannot advance before finishing: "' + m[1] + '".',
+                'No puedes avanzar sin terminar antes: "' + m[1] + '".'
+            );
+        }
+        if ((m = trim.match(/^Synced (\d+) schedule item\(s\) to Weekly Agenda(.*)$/i))) {
+            var tailEs = m[2] ? m[2].replace(/\((\d+) vacation day\(s\) skipped\)/i, '($1 día(s) de vacaciones omitidos)') : '';
+            return pick(
+                'Synced ' + m[1] + ' schedule item(s) to Weekly Agenda' + (m[2] || ''),
+                'Se sincronizaron ' + m[1] + ' actividades a tu Agenda Semanal' + tailEs
+            );
+        }
+        if ((m = trim.match(/^Se sincronizaron (\d+) actividades a tu Agenda Semanal(.*)$/i))) {
+            var tailEn = m[2] ? m[2].replace(/\((\d+) día\(s\) de vacaciones omitidos\)/i, '($1 vacation day(s) skipped)') : '';
+            return pick(
+                'Synced ' + m[1] + ' schedule item(s) to Weekly Agenda' + tailEn,
+                'Se sincronizaron ' + m[1] + ' actividades a tu Agenda Semanal' + (m[2] || '')
+            );
         }
         return null;
     }

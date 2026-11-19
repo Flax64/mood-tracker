@@ -379,7 +379,7 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
         spinner.className = 'spinner-circle spinner-sm';
         spinner.setAttribute('aria-hidden', 'true');
         const label = document.createElement('span');
-        label.textContent = loadingText;
+        label.textContent = tServer(String(loadingText));
         loadingWrap.append(spinner, label);
         btn.replaceChildren(loadingWrap);
     }
@@ -1504,14 +1504,22 @@ function openReminderTarget(reminder = {}) {
             momentoSelect.value = desiredMoment;
         }
         showView('mood', true, { preserveTarget: true });
-        const momentLabel = targetMoment === 'Madrugada' ? 'Late Night' : (targetMoment || 'current block');
+        const momentLabel = targetMoment
+            ? (window.DailyHubI18n?.momentLabel ? window.DailyHubI18n.momentLabel(targetMoment) : (targetMoment === 'Madrugada' ? 'Late Night' : targetMoment))
+            : tUi('current block', 'bloque actual');
         const pendingExtra = Array.isArray(reminder.pendingMoments) && reminder.pendingMoments.length > 1
-            ? ` (Pending blocks: ${reminder.pendingMoments.map(m => m === 'Madrugada' ? 'Late Night' : m).join(' → ')})`
+            ? tUi(
+                ` (Pending blocks: ${reminder.pendingMoments.map(m => m === 'Madrugada' ? 'Late Night' : m).join(' → ')})`,
+                ` (Bloques pendientes: ${reminder.pendingMoments.map(m => (window.DailyHubI18n?.momentLabel ? window.DailyHubI18n.momentLabel(m) : m)).join(' → ')})`
+            )
             : '';
         setInlineBanner(
             'moodStatusBanner',
             'info',
-            `Selected ${targetDate} · ${momentLabel}${pendingExtra}. Pick your mood below and click Save!`
+            tUi(
+                `Selected ${targetDate} · ${momentLabel}${pendingExtra}. Pick your mood below and click Save!`,
+                `Seleccionado ${targetDate} · ${momentLabel}${pendingExtra}. ¡Elige tu ánimo abajo y presiona Guardar!`
+            )
         );
         const firstMoodBtn = document.querySelector('#moodForm .mood-btn');
         if (firstMoodBtn) firstMoodBtn.focus({ preventScroll: true });
@@ -1525,7 +1533,10 @@ function openReminderTarget(reminder = {}) {
         setInlineBanner(
             'sleepStatusBanner',
             'info',
-            `Selected ${targetDate} sleep check-in — enter bedtime (auto-detects late desvelo like 3:00 AM), wake-up time, and rest quality.`
+            tUi(
+                `Selected ${targetDate} sleep check-in — enter bedtime (auto-detects late desvelo like 3:00 AM), wake-up time, and rest quality.`,
+                `Seleccionado registro de sueño ${targetDate} — ingresa tu hora de dormir (detecta desvelos como 3:00 AM), hora de despertar y calidad de descanso.`
+            )
         );
         const sleepInput = document.getElementById('sleepTime');
         const wakeInput = document.getElementById('wakeupTime');
@@ -3002,7 +3013,10 @@ if (formSleep) {
         setInlineBanner(
             'sleepStatusBanner',
             'info',
-            `Completing wake-up for bedtime ${formatClockTime12h(row.hora_dormir)} — adjust wake-up time or quality if needed and click "Complete Sleep Wake-Up".`
+            tUi(
+                `Completing wake-up for bedtime ${formatClockTime12h(row.hora_dormir)} — adjust wake-up time or quality if needed and click "Complete Sleep Wake-Up".`,
+                `Completando despertar para hora de dormir ${formatClockTime12h(row.hora_dormir)} — ajusta tu hora de despertar o calidad si hace falta y presiona "Completar Despertar".`
+            )
         );
         formSleep.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -3356,7 +3370,7 @@ if (journalForm) {
                 setInlineBanner('journalStatusBanner', 'ok', msg);
                 showToast('ok', msg);
             } catch (error) {
-                setInlineBanner('journalStatusBanner', 'err', 'Failed to send note: ' + error.message);
+                setInlineBanner('journalStatusBanner', 'err', tUi('Failed to send note: ', 'No se pudo enviar la nota: ') + tServer(error.message));
                 showToast('err', error.message);
             }
         }, { loadingText: 'Sending...' });
@@ -3747,7 +3761,7 @@ if (englishForm) {
                         : tUi('English note saved to Cloud Drive & AI Memory!', '¡Nota guardada en Google Drive y Memoria IA!')
                 );
             } catch (err) {
-                mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
+                mostrarEstadoEnglish('err', tUi('Failed to send entry: ', 'No se pudo enviar la entrada: ') + tServer(err.message));
                 showToast('err', err.message);
             }
         }, { loadingText: 'Sending...' });
@@ -5443,7 +5457,7 @@ async function cargarCatalogoMusical() {
         musicCatalogLoadRequested = false;
         const p = document.createElement('p');
         p.className = 'muted-text';
-        p.textContent = 'Could not load music catalog: ' + err.message;
+        p.textContent = tUi('Could not load music catalog: ', 'No se pudo cargar el catálogo musical: ') + tServer(err.message);
         container.replaceChildren(p);
     }
 }
@@ -5529,7 +5543,7 @@ function mostrarBannerMusica(id, tipo, msg) {
         return;
     }
     el.className = `english-status-banner ${tipo}`;
-    el.textContent = msg;
+    el.textContent = tServer(String(msg));
     el.hidden = false;
 }
 
@@ -7138,7 +7152,7 @@ function cargarCancionEnFormularioEdicion(song) {
     const titleEl = document.getElementById('musicSongFormTitle');
     const cancelBtn = document.getElementById('btnMusicCancelEdit');
     const saveBtn = document.getElementById('btnMusicSaveSong');
-    if (titleEl) titleEl.textContent = `Edit Song: ${song.titulo}`;
+    if (titleEl) titleEl.textContent = tUi(`Edit Song: ${song.titulo}`, `Editar canción: ${song.titulo}`);
     if (cancelBtn) {
         cancelBtn.hidden = false;
         cancelBtn.textContent = tUi('Cancel Edit', 'Cancelar Edición');
@@ -7249,7 +7263,11 @@ function openMusicEntityEditModal(kind, entity) {
     const notesGroup = document.getElementById('musicEntityNotesGroup');
     const notesInput = document.getElementById('musicEntityNotes');
 
-    if (titleEl) titleEl.textContent = isArtist ? `Edit Artist: ${entity.nombre || ''}` : `Edit Album: ${entity.titulo || ''}`;
+    if (titleEl) {
+        titleEl.textContent = isArtist
+            ? tUi(`Edit Artist: ${entity.nombre || ''}`, `Editar artista: ${entity.nombre || ''}`)
+            : tUi(`Edit Album: ${entity.titulo || ''}`, `Editar álbum: ${entity.titulo || ''}`);
+    }
     if (kindEl) kindEl.value = isArtist ? 'artist' : 'album';
     if (idEl) idEl.value = String(entity.id || '');
     if (nameLabel) nameLabel.textContent = isArtist ? 'Artist / Group Name *' : 'Album / Release Title *';
@@ -7497,7 +7515,7 @@ function initMusicAlbumCreateModal() {
                 if (resData?.album?.id) {
                     musicState.navAlbumKey = `alb_${resData.album.id}`;
                 }
-                showToast('ok', resData?.message || `Saved "${payload.albumTitle}".`);
+                showToast('ok', resData?.message || tUi(`Saved "${payload.albumTitle}".`, `Guardado "${payload.albumTitle}".`));
                 await cargarCatalogoMusical();
                 if (andAddSong) {
                     prepararAgregarCancionAAlbum({
@@ -8424,17 +8442,20 @@ if (englishMusicStudioRoot) {
                     applyAutoFillField(albumYearEl, data.suggestedAlbumYear);
 
                     const summaryParts = [];
-                    if (data.suggestedTitle) summaryParts.push(`Track: "${data.suggestedTitle}"`);
-                    if (data.suggestedArtist) summaryParts.push(`Artist: ${data.suggestedArtist}`);
-                    if (data.suggestedAlbumYear) summaryParts.push(`Year: ${data.suggestedAlbumYear}`);
-                    if (data.suggestedLanguage) summaryParts.push(`Lang: ${data.suggestedLanguage}`);
-                    if (shouldFillAlbumTitle) summaryParts.push(`Album: ${data.suggestedAlbumTitle}`);
+                    if (data.suggestedTitle) summaryParts.push(`${tUi('Track', 'Pista')}: "${data.suggestedTitle}"`);
+                    if (data.suggestedArtist) summaryParts.push(`${tUi('Artist', 'Artista')}: ${data.suggestedArtist}`);
+                    if (data.suggestedAlbumYear) summaryParts.push(`${tUi('Year', 'Año')}: ${data.suggestedAlbumYear}`);
+                    if (data.suggestedLanguage) summaryParts.push(`${tUi('Lang', 'Idioma')}: ${data.suggestedLanguage}`);
+                    if (shouldFillAlbumTitle) summaryParts.push(`${tUi('Album', 'Álbum')}: ${data.suggestedAlbumTitle}`);
                     const embedWarning = data.embeddable === false
-                        ? ' · ⚠️ Owner blocks iframe embed (use Ventana flotante in Study Player).'
+                        ? tUi(
+                            ' · ⚠️ Owner blocks iframe embed (use Floating Window in Study Player).',
+                            ' · ⚠️ El propietario bloquea el reproductor incrustado (usa Ventana flotante en Estudio).'
+                        )
                         : '';
                     const msg = summaryParts.length
-                        ? `Auto-fill detected -> ${summaryParts.join(' · ')}${embedWarning}`
-                        : `Link verified and cleaned (single-track, playlist-safe).${embedWarning}`;
+                        ? `${tUi('Auto-fill detected', 'Autocompletado')} -> ${summaryParts.join(' · ')}${embedWarning}`
+                        : `${tUi('Link verified and cleaned (single-track, playlist-safe).', 'Enlace verificado y limpio (pista individual, seguro para playlists).')}${embedWarning}`;
                     mostrarBannerMusica('musicSongFormBanner', 'ok', msg);
                     actualizarBarraCancionEstudio();
                 } catch (err) {
@@ -8857,7 +8878,7 @@ if (englishMusicStudioRoot) {
                     );
                     showToast('ok', 'Song study notes encrypted & queued for Word!');
                 } catch (err) {
-                    mostrarBannerMusica('musicWordStatusBanner', 'err', 'Failed to send encrypted notes: ' + err.message);
+                    mostrarBannerMusica('musicWordStatusBanner', 'err', tUi('Failed to send encrypted notes: ', 'No se pudieron enviar las notas cifradas: ') + tServer(err.message));
                     showToast('err', err.message);
                 }
             }, { loadingText: 'Encrypting...' });
@@ -11263,7 +11284,8 @@ function initAuthHandlers() {
                     });
                     onSuccess(data, form, spec.payload);
                 } catch (err) {
-                    setInlineBanner(bannerId, 'err', `${errorPrefix}${err.message}`);
+                    const errText = tServer(err.message || '');
+                    setInlineBanner(bannerId, 'err', errorPrefix ? `${tServer(errorPrefix.trim())} ${errText}` : errText);
                 }
             }, { loadingText });
         });
@@ -13676,11 +13698,14 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
                 try {
                     await applyCapturedLocationToTarget(target, { lat: p.lat, lng: p.lng }, p.label, 'preset');
                     modal.hidden = true;
-                    showToast('ok', `Location updated: ${p.label} — commute recalculated!`);
+                    showToast('ok', tUi(
+                        `Location updated: ${p.label} — commute recalculated!`,
+                        `Ubicación actualizada: ${p.label} — ¡traslado recalculado!`
+                    ));
                 } catch (err) {
                     if (bannerEl) {
                         bannerEl.className = 'inline-status-banner is-error';
-                        bannerEl.textContent = err.message || 'Could not apply location.';
+                        bannerEl.textContent = tServer(err.message || 'Could not apply location.');
                         bannerEl.hidden = false;
                     }
                 }
@@ -14043,10 +14068,16 @@ function initAcademicPlannerHandlers() {
             const existingIdx = editId ? activeSem.courses.findIndex(c => c.id === editId) : -1;
             if (existingIdx >= 0) {
                 activeSem.courses[existingIdx] = nextCourse;
-                showToast('ok', `Updated "${name}" (${room}). Remember to click "Save All" below.`);
+                showToast('ok', tUi(
+                    `Updated "${name}" (${room}). Remember to click "Save All" below.`,
+                    `Actualizado "${name}" (${room}). Recuerda presionar "Guardar Todo" abajo.`
+                ));
             } else {
                 activeSem.courses.push(nextCourse);
-                showToast('ok', `Added "${name}" (${room}) to semester.`);
+                showToast('ok', tUi(
+                    `Added "${name}" (${room}) to semester.`,
+                    `Agregado "${name}" (${room}) al semestre.`
+                ));
             }
             resetPlannerCourseForm();
             renderPlannerSemesterUI();
@@ -14074,7 +14105,7 @@ function initAcademicPlannerHandlers() {
             });
             vacForm.reset();
             renderPlannerVacationsUI();
-            showToast('ok', `Added vacation break: ${name}`);
+            showToast('ok', tUi(`Added vacation break: ${name}`, `Periodo vacacional agregado: ${name}`));
         });
     }
 
