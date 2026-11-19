@@ -200,28 +200,47 @@ docker --version
 docker compose version
 ```
 
-### 6.4 Configurar `rclone` (Google Drive opcional) en Ubuntu
+### 6.4 Configurar `rclone` (Google Drive opcional y cambio de cuenta) en Ubuntu
 
-Puedes configurar `rclone` de cualquiera de estas dos maneras:
+Puedes configurar `rclone` en Windows (antes de migrar) o directamente en Ubuntu Server:
 
-* **Opción A (si ya tienes tu `rclone.conf` de Windows o AWS en Base64):**
+* **Opción A — Configurar en Windows (recomendado si usas navegador local) y generar `RCLONE_CONF_B64`:**
+  ```powershell
+  # 1) Configurar o reemplazar el remoto llamado 'gdrive' con tu cuenta de Google Drive
+  rclone config
+  # En el asistente: n -> name: gdrive -> Storage: drive -> scope: 1 -> auto config: y (inicia sesión en tu cuenta) -> Shared Drive: n -> Keep remote: y -> q
+
+  # 2) Verificar acceso (entre comillas si la ruta en Drive lleva espacios)
+  rclone lsd "gdrive:Personal Daily Hub"
+  rclone lsl "gdrive:Personal Daily Hub/RespaldosApp"
+
+  # 3) Generar el Secret RCLONE_CONF_B64 (1 sola línea) y copiarlo al portapapeles
+  $rcloneFile = (rclone config file | Select-Object -Last 1).Trim()
+  [Convert]::ToBase64String([IO.File]::ReadAllBytes($rcloneFile)) | Set-Clipboard
+  ```
+* **Opción B — Si ya tienes `RCLONE_CONF_B64` y quieres probarlo manualmente en Ubuntu:**
   ```bash
   mkdir -p ~/.config/rclone && chmod 700 ~/.config/rclone
   echo "PEGA_AQUI_TU_CADENA_RCLONE_CONF_B64" | tr -d ' \n\r' | base64 -d > ~/.config/rclone/rclone.conf
   chmod 600 ~/.config/rclone/rclone.conf
   rclone listremotes
   ```
-* **Opción B (configurar cuenta Google Drive desde cero vía SSH):**
+* **Opción C — Configurar cuenta Google Drive desde cero en Ubuntu vía SSH:**
   ```bash
   rclone config
   ```
-  *(Elige `n` -> nombre `gdrive` -> `drive` -> deja client_id/secret vacíos -> scope `1` (Full access) -> `n` auto config -> pega el token obtenido desde tu PC con `rclone authorize "drive"` -> confirma). Luego valida:*
+  *(Elige `n` -> nombre `gdrive` -> `drive` -> scope `1` (Full access) -> `n` auto config -> pega el token obtenido desde tu PC con `rclone authorize "drive"` -> confirma con `y` -> `q`). Luego valida y genera el Base64:*
   ```bash
   rclone listremotes
-  rclone ls gdrive:RespaldosApp
+  rclone ls "gdrive:Personal Daily Hub/RespaldosApp"   # o gdrive:RespaldosApp según tu RCLONE_BACKUP_DIR
   # Generar la cadena Base64 de una sola línea para GitHub Secret RCLONE_CONF_B64:
   base64 -w 0 ~/.config/rclone/rclone.conf && echo ""
   ```
+
+> [!TIP]
+> **Cambio de cuenta Google Drive y `client_id` propio:**
+> * Cambiar solamente la variable `RCLONE_BACKUP_DIR` **no cambia de cuenta**; el cambio real ocurre al actualizar el Secret **`RCLONE_CONF_B64`** (que contiene el token OAuth), además de copiar tus respaldos previos (`respaldo_mood_tracker.sql.gz`, `historico_completo.json.gz`, `historico_sql/`, `NotasIdiomas/`) hacia la carpeta de la cuenta nueva antes de restaurar.
+> * Si `rclone` muestra el aviso `NOTICE: shared Google Drive client_id will be retired`, puedes crear gratis tus propios `client_id` / `client_secret` en Google Cloud Console (**Google Drive API** + OAuth tipo **Desktop app**). Si el consentimiento es **External**, pulsa **`Publish app`** en *Audience* para evitar que el token caduque a los 7 días, edita tu remoto con `rclone config` (`e` -> `gdrive`) y regenera `RCLONE_CONF_B64`.
 
 ### 6.5 Configurar OpenSSH, llaves Ed25519 (Admin + GitHub Actions) y `sudo` sin contraseña
 
@@ -349,35 +368,69 @@ tailscale serve status
 
 ## 8. Migrar archivos, desplegar vía GitHub Actions o manual y restaurar BD
 
-### 8.1 Crear carpetas de datos y migrar archivos Word locales
+### 8.1 Crear carpetas de datos y migrar archivos Word locales (incl. Diario de Journal Notes)
 
-En Ubuntu Server, crea las carpetas con permisos estrictos (`700`):
-```bash
-mkdir -p ~/projects/mood-tracker/data/journal \
-         ~/projects/mood-tracker/data/ytdlp \
-         ~/projects/mood-tracker/english-notes \
-         ~/projects/mood-tracker/logs \
-         ~/projects/respaldos
-chmod 700 ~/projects/mood-tracker/data \
-          ~/projects/mood-tracker/data/journal \
-          ~/projects/mood-tracker/data/ytdlp \
-          ~/projects/mood-tracker/english-notes \
-          ~/projects/mood-tracker/logs \
-          ~/projects/respaldos
-```
+> [!IMPORTANT]
+> **Nombre obligatorio del archivo de Journal Notes en Ubuntu (`Proyecto D.docx` -> `Diario.docx`):**
+> Aunque en Windows tu diario personal se llame **`Proyecto D.docx`** (u otro nombre), en Ubuntu Server **debe quedar guardado exactamente en `~/projects/mood-tracker/data/journal/Diario.docx`** (`D` mayúscula) para que coincida con `/app/journal-data/Diario.docx` dentro de los contenedores y con las copias rotativas locales de `scripts/backup.sh`.
+> * **Antes de copiarlo:** cierra Microsoft Word para no copiar un archivo bloqueado o incompleto y **conserva su contraseña de cifrado de Word** (debe ser exactamente igual al Secret **`WORD_PASSWORD`**). **Nunca** lo subas a Google Drive ni a Git.
 
-Copia desde Windows PowerShell hacia Ubuntu Server (usando tu USB o `scp` con la ruta donde guardaste tu respaldo):
-```powershell
-scp "C:\respaldo\Diario.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/data/journal/Diario.docx
-scp "C:\respaldo\English_Learning_Notebook.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx
-```
+1. **Crear las carpetas con permisos estrictos (`700`) en Ubuntu Server:**
+   ```bash
+   mkdir -p ~/projects/mood-tracker/data/journal \
+            ~/projects/mood-tracker/data/ytdlp \
+            ~/projects/mood-tracker/english-notes \
+            ~/projects/mood-tracker/logs \
+            ~/projects/respaldos
+   chmod 700 ~/projects/mood-tracker/data \
+             ~/projects/mood-tracker/data/journal \
+             ~/projects/mood-tracker/data/ytdlp \
+             ~/projects/mood-tracker/english-notes \
+             ~/projects/mood-tracker/logs \
+             ~/projects/respaldos
+   ```
 
-Asegura propiedad y permisos `600` dentro de Ubuntu Server:
-```bash
-sudo chown -R "$(id -u):$(id -g)" ~/projects/mood-tracker/data ~/projects/mood-tracker/english-notes ~/projects/mood-tracker/logs
-chmod 600 ~/projects/mood-tracker/data/journal/Diario.docx 2>/dev/null || true
-chmod 600 ~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx 2>/dev/null || true
-```
+2. **Copiar `Proyecto D.docx` (`Diario.docx`) y tu Cuaderno de Idiomas hacia Ubuntu Server:**
+   * **Opción 1 — Por red/SSH (`scp` desde Windows PowerShell, renombrando al vuelo):**
+     ```powershell
+     scp "C:\respaldo\Proyecto D.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/data/journal/Diario.docx
+     scp "C:\respaldo\English_Learning_Notebook.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx
+     ```
+   * **Opción 2 — Desde una memoria USB conectada directamente en Ubuntu Server** *(útil si formateaste la misma PC)*:
+     ```bash
+     # 1) Identificar la partición de tu USB (ej. /dev/sdb1; revisa la columna SIZE)
+     lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+
+     # 2) Montar la USB y confirmar los nombres exactos de archivo
+     sudo mkdir -p /mnt/usb
+     sudo mount /dev/sdX1 /mnt/usb
+     ls -la /mnt/usb
+
+     # 3) Copiar renombrando Proyecto D.docx -> Diario.docx y el cuaderno de idiomas (si está en la USB)
+     cp "/mnt/usb/Proyecto D.docx" ~/projects/mood-tracker/data/journal/Diario.docx
+     cp "/mnt/usb/English_Learning_Notebook.docx" ~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx 2>/dev/null || true
+
+     # 4) Desmontar de forma segura
+     sudo umount /mnt/usb
+     ```
+
+3. **Ajustar propietario y permisos `600` dentro de Ubuntu Server** *(indispensable para que `mood_app` y `mood_app2` puedan leer y escribir)*:
+   ```bash
+   sudo chown -R "$(id -u):$(id -g)" ~/projects/mood-tracker/data ~/projects/mood-tracker/english-notes ~/projects/mood-tracker/logs
+   chmod 600 ~/projects/mood-tracker/data/journal/Diario.docx 2>/dev/null || true
+   chmod 600 ~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx 2>/dev/null || true
+   ls -lh ~/projects/mood-tracker/data/journal/Diario.docx
+   ```
+
+4. **Verificar dentro de los contenedores (después del Paso 8.2 / 8.3) y descargar copia local cuando quieras leerlo en Word:**
+   ```bash
+   docker exec mood_app ls -lh /app/journal-data/Diario.docx
+   docker exec mood_app2 ls -lh /app/journal-data/Diario.docx
+   ```
+   ```powershell
+   # Opcional en Windows PowerShell: descargar una copia de respaldo/lectura sin tocar el archivo activo
+   scp TU_USUARIO@TU_SERVIDOR.TU_TAILNET.ts.net:~/projects/mood-tracker/data/journal/Diario.docx "C:\respaldo\Diario_copia.docx"
+   ```
 
 *(Opcional si YouTube llega a pedir cookies de sesión para subtítulos difíciles)*: coloca tu archivo Netscape `cookies.txt` en `~/projects/mood-tracker/data/ytdlp/cookies.txt` (`chmod 600`) y declara `YTDLP_COOKIES_PATH=/app/ytdlp-config/cookies.txt`.
 
@@ -417,12 +470,18 @@ chmod 600 ~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx 2
 | `PROXY_HTTP_PORT` | `8080` | **Nuevo/Mantener** | Puerto loopback del balanceador Caddy (`127.0.0.1:8080`). |
 | `TZ` | `America/Monterrey` | Mantener | Zona horaria unificada para contenedores y crons. |
 | `RCLONE_REMOTE` | `gdrive` | Mantener | Nombre exacto del remoto en `RCLONE_CONF_B64`. |
-| `RCLONE_BACKUP_DIR` | `RespaldosApp` | Mantener | Carpeta destino de respaldos en Google Drive. |
+| `RCLONE_BACKUP_DIR` | `Personal Daily Hub/RespaldosApp` *(o `RespaldosApp`)* | **Verificar** | Carpeta destino en Drive; soporta subcarpetas con espacios (sin `/` al inicio ni al final). |
 | `DB_RETENTION_DAYS` | `0` | **Añadir (`0`)** | Conserva todo el histórico local sin podar registros en MySQL. |
+| `LOCAL_SQL_DAILY_BACKUP_DAYS` | `180` | **Añadir (`180`)** | Días de instantáneas SQL diarias en `~/projects/respaldos/diario_sql/`. |
+| `LOCAL_WORD_BACKUP_DAYS` | `365` | **Añadir (`365`)** | Días de copias locales de `Diario.docx` y `English_Learning_Notebook.docx`. |
 | `REQUIRE_DRIVE_BACKUP` | `true` | **Recomendado** | Valida subida real a Drive en cada respaldo/deploy. |
 | `SEAL_ENV_AFTER_DEPLOY` | `true` | Mantener | Destruye el `.env` temporal tras levantar contenedores y guarda `.backup.meta`. |
-| `BACKUP_CRON_SCHEDULE` | `30 3 * * *` | Mantener | Horario diario de `scripts/backup.sh`. |
+| `BACKUP_CRON_SCHEDULE` | `30 3 * * *` | Mantener | Horario diario de `scripts/backup.sh` (ej. `0 3 * * *` para 3:00 AM). |
 | `AWS_HOST` / `WORD_FILE_PATH` / `YT_DLP_PATH` | *(Eliminar)* | **Obsoletas** | Ya no se usan en el servidor Ubuntu local. |
+
+> [!TIP]
+> **Si trabajas en una rama borrador mientras AWS sigue activo:**
+> `.github/workflows/deploy.yml` **solo se dispara al hacer `push` a `main`** (o con `workflow_dispatch`). Puedes actualizar desde antes `RCLONE_CONF_B64`, `RCLONE_BACKUP_DIR` y los días de retención sin tocar AWS; **cambia `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` y `TS_OAUTH_*` hacia Ubuntu ANTES de hacer merge a `main`** para evitar desplegar por error sobre AWS. Si necesitas fusionar a `main` antes de encender Ubuntu, incluye `[skip ci]` en el mensaje del commit de merge y lanza luego **`Run workflow`** cuando Ubuntu esté listo.
 
 Para lanzar el despliegue ve a GitHub -> **Actions -> Deploy to Ubuntu Server (Tailscale / SSH) -> Run workflow** (o haz `git push origin main`). Después conecta Tailscale Serve al balanceador:
 ```bash
