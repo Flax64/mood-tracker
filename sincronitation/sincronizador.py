@@ -1472,7 +1472,9 @@ _RE_ENCABEZADO_IDIOMA_LETRA = re.compile(
     re.IGNORECASE,
 )
 _RE_HANGUL_CHAR = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]")
-_RE_JAPANESE_CHAR = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]")
+_RE_JAPANESE_CHAR = re.compile(
+    r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]"
+)
 _RE_STRUCTURAL_TAG_LINE = re.compile(
     r"^\[(?:intro|verse(?:\s*\d+)?|pre-?chorus|post-?chorus|chorus|refrain|bridge|rap(?:\s*part)?|interlude|outro|hook|solo|breakdown|coro|verso(?:\s*\d+)?|puente|estribillo)[^\]]*\]$",
     re.IGNORECASE,
@@ -1691,8 +1693,15 @@ def _combinar_letra_por_idiomas(prev_val, new_val, append=False):
         slot = clave if enc else "__base__"
         if slot in block_map:
             old_clave, old_enc, old_cuerpo = block_map[slot]
-            if slot == "__base__" and append and old_cuerpo and norm(cuerpo) != norm(old_cuerpo):
-                updated_body = _combinar_campo_multilinea(old_cuerpo, cuerpo, append=True)
+            if (
+                slot == "__base__"
+                and append
+                and old_cuerpo
+                and norm(cuerpo) != norm(old_cuerpo)
+            ):
+                updated_body = _combinar_campo_multilinea(
+                    old_cuerpo, cuerpo, append=True
+                )
             else:
                 updated_body = cuerpo or old_cuerpo
             block_map[slot] = (clave or old_clave, enc or old_enc, updated_body)
@@ -2246,7 +2255,8 @@ def _aplicar_estilo_parrafo(
 
 def _word_com_normalizar_saltos_pagina(doc):
     """Aplica pageBreakBefore únicamente en Títulos Principales (H1 secciones y H2/H3 Álbum/Canción 2+),
-    manteniendo continuidad sin páginas en blanco en todos los subtítulos e ítems internos."""
+    manteniendo continuidad sin páginas en blanco en todos los subtítulos e ítems internos.
+    """
     try:
         current_section = ""
         music_albums_seen = 0
@@ -2730,7 +2740,9 @@ def _coincide_cancion_en_bloque(
 
 def _word_com_bloque_duplicado(doc, spec):
     """True si la sección ya contiene la misma entrada en modo Word COM."""
-    sec_start, sec_end = _buscar_rango_seccion(doc, spec["category"], include_eof_nonempty=True)
+    sec_start, sec_end = _buscar_rango_seccion(
+        doc, spec["category"], include_eof_nonempty=True
+    )
     if sec_start is None:
         return False
     target_heading = _normalizar_clave_texto(spec["heading"])
@@ -2752,7 +2764,10 @@ def _word_com_bloque_duplicado(doc, spec):
                         break
                     j += 1
                 existing = _ooxml_cuerpo_normalizado(
-                    [_texto_parrafo_limpio(doc.Paragraphs(k)) for k in range(idx + 1, j)]
+                    [
+                        _texto_parrafo_limpio(doc.Paragraphs(k))
+                        for k in range(idx + 1, j)
+                    ]
                 )
                 if existing == new_body:
                     return True
@@ -2792,7 +2807,9 @@ def _guardar_cancion_ordenada_en_word(doc, entry):
                     if combined_existing is None
                     else _combinar_metadata_cancion_word(
                         combined_existing,
-                        dict(existing_fields, category="music", append_study_fields=True),
+                        dict(
+                            existing_fields, category="music", append_study_fields=True
+                        ),
                     )
                 )
                 matched_ranges.append((tr["h3_idx"], tr["end_idx"]))
@@ -2805,7 +2822,9 @@ def _guardar_cancion_ordenada_en_word(doc, entry):
         else dict(entry)
     )
 
-    for del_s_idx, del_e_idx in sorted(matched_ranges, key=lambda x: x[0], reverse=True):
+    for del_s_idx, del_e_idx in sorted(
+        matched_ranges, key=lambda x: x[0], reverse=True
+    ):
         try:
             del_start = doc.Paragraphs(del_s_idx).Range.Start
             del_end = doc.Paragraphs(del_e_idx).Range.Start
@@ -3049,7 +3068,10 @@ def _ooxml_normalizar_saltos_pagina(body, style_levels):
     for idx in range(sect_idx):
         if t_start <= idx < t_end:
             continue
-        if body[idx].tag == p_tag and _nivel_parrafo_ooxml(body[idx], style_levels) == 1:
+        if (
+            body[idx].tag == p_tag
+            and _nivel_parrafo_ooxml(body[idx], style_levels) == 1
+        ):
             first_h1_idx = idx
             break
 
@@ -3629,7 +3651,9 @@ def _ooxml_bloque_duplicado(body, items, sec_start, sec_end, spec):
             j = idx + 1
             while j < sec_end and items[j][0] not in (1, 2):
                 j += 1
-            existing = _ooxml_cuerpo_normalizado([items[k][1] for k in range(idx + 1, j)])
+            existing = _ooxml_cuerpo_normalizado(
+                [items[k][1] for k in range(idx + 1, j)]
+            )
             if existing == new_body:
                 return True
             idx = j
@@ -3688,7 +3712,11 @@ def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
                         if combined_existing is None
                         else _combinar_metadata_cancion_word(
                             combined_existing,
-                            dict(existing_fields, category="music", append_study_fields=True),
+                            dict(
+                                existing_fields,
+                                category="music",
+                                append_study_fields=True,
+                            ),
                         )
                     )
                     elems_to_remove.extend(body_children[tr["h3_idx"] : tr["end_idx"]])
@@ -3836,7 +3864,9 @@ def _ooxml_lineas_desde_textos(textos):
                 {
                     "label": m_lbl.group(1) + " ",
                     "text": m_lbl.group(2),
-                    "size": 9 if is_added else (10 if line.startswith("Language:") else 11),
+                    "size": (
+                        9 if is_added else (10 if line.startswith("Language:") else 11)
+                    ),
                     "italic": is_added or line.startswith("Language:"),
                     "muted": is_added or line.startswith("Language:"),
                 }
@@ -3885,7 +3915,9 @@ def _fusionar_pista_en_lista_musica(music_list, track_fields):
     music_list.append(clean_entry)
 
 
-def _agregar_entrada_texto_dedup(bucket_list, heading, body_lines, strict_heading=False):
+def _agregar_entrada_texto_dedup(
+    bucket_list, heading, body_lines, strict_heading=False
+):
     h_clean = _limpiar_linea(heading)
     if not h_clean:
         return
@@ -4027,7 +4059,9 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                         if "coreano" in h1_title.lower() or "ko" in h1_title.lower()
                         else "Base Fonética y Reglas de Pronunciación (EN -> ES)"
                     )
-                    _agregar_entrada_texto_dedup(buckets["grammar"], base_title, loose_lines)
+                    _agregar_entrada_texto_dedup(
+                        buckets["grammar"], base_title, loose_lines
+                    )
 
             elif kind == "legacy_apartado_2":
                 idx = s_idx + 1
@@ -4039,7 +4073,9 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                             j += 1
                         lines = [items[k][1] for k in range(idx + 1, j) if items[k][1]]
                         target_cat = (
-                            "phrasal_verb" if "phrasal verb" in txt.lower() else "grammar"
+                            "phrasal_verb"
+                            if "phrasal verb" in txt.lower()
+                            else "grammar"
                         )
                         _agregar_entrada_texto_dedup(
                             buckets[target_cat],
@@ -4068,10 +4104,16 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                                 items[k][1] for k in range(idx + 1, j) if items[k][1]
                             ]
                             if lines:
-                                _agregar_entrada_texto_dedup(buckets["grammar"], txt, lines)
+                                _agregar_entrada_texto_dedup(
+                                    buckets["grammar"], txt, lines
+                                )
                         else:
-                            grp_album, grp_type, grp_year = _parsear_album_release_linea(txt)
-                            is_standalone_grp = txt.lower().startswith("singles & standalone")
+                            grp_album, grp_type, grp_year = (
+                                _parsear_album_release_linea(txt)
+                            )
+                            is_standalone_grp = txt.lower().startswith(
+                                "singles & standalone"
+                            )
                             k = idx + 1
                             while k < j:
                                 klvl, ktxt = items[k]
@@ -4085,11 +4127,20 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                                         if items[p_i][1]
                                     ]
                                     fields = _extraer_campos_bloque_word(tr_lines, ktxt)
-                                    if not fields.get("album_title") and not is_standalone_grp:
+                                    if (
+                                        not fields.get("album_title")
+                                        and not is_standalone_grp
+                                    ):
                                         fields["album_title"] = grp_album
-                                        fields["album_type"] = fields.get("album_type") or grp_type
-                                        fields["release_year"] = fields.get("release_year") or grp_year
-                                    _fusionar_pista_en_lista_musica(music_entries, fields)
+                                        fields["album_type"] = (
+                                            fields.get("album_type") or grp_type
+                                        )
+                                        fields["release_year"] = (
+                                            fields.get("release_year") or grp_year
+                                        )
+                                    _fusionar_pista_en_lista_musica(
+                                        music_entries, fields
+                                    )
                                     k = m
                                 else:
                                     k += 1
@@ -4277,7 +4328,12 @@ _ENGLISH_WORD_DRIVE_STATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".english_word_drive_state.json"
 )
 _word_drive_sync_lock = threading.Lock()
-_word_watch_cache = {"mtime_ns": None, "size": None, "sha256": None, "last_attempt": 0.0}
+_word_watch_cache = {
+    "mtime_ns": None,
+    "size": None,
+    "sha256": None,
+    "last_attempt": 0.0,
+}
 
 
 def _leer_ultimo_hash_word_drive():
@@ -4314,7 +4370,9 @@ def _guardar_ultimo_hash_word_drive(
         pass
 
 
-def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, expected_sha256=None):
+def sincronizar_word_estudio_a_drive(
+    ruta_docx_estudio=None, blocking=False, expected_sha256=None
+):
     """
     Envía ÚNICAMENTE English_Learning_Notebook.docx al servidor EC2 por el puente HMAC
     para subirlo automáticamente al Google Drive configurado sin requerir rclone en la PC.
@@ -4323,7 +4381,9 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
     _, ruta_eng = resolver_rutas_word()
     target = os.path.abspath(ruta_docx_estudio or ruta_eng or DEFAULT_ENGLISH_WORD_PATH)
     if RUTA_WORD and os.path.abspath(RUTA_WORD) == target:
-        logging.error("SEGURIDAD: Se bloqueó intento de subir Journal.docx a Google Drive.")
+        logging.error(
+            "SEGURIDAD: Se bloqueó intento de subir Journal.docx a Google Drive."
+        )
         return False
     if not os.path.exists(target):
         return False
@@ -4387,12 +4447,16 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
                 )
                 return False
             except Exception as exc:
-                logging.warning(f"Error temporal sincronizando Word de Idiomas a Drive (reintentará): {exc}")
+                logging.warning(
+                    f"Error temporal sincronizando Word de Idiomas a Drive (reintentará): {exc}"
+                )
                 return False
 
     if blocking:
         return _subir_via_ec2_drive()
-    threading.Thread(target=_subir_via_ec2_drive, name="drive-study-sync", daemon=True).start()
+    threading.Thread(
+        target=_subir_via_ec2_drive, name="drive-study-sync", daemon=True
+    ).start()
     return True
 
 
@@ -4430,7 +4494,9 @@ def _sincronizar_word_si_cambio():
             _word_watch_cache["sha256"] = current_sha
             return False
         _word_watch_cache["last_attempt"] = now
-        if sincronizar_word_estudio_a_drive(target, blocking=True, expected_sha256=current_sha):
+        if sincronizar_word_estudio_a_drive(
+            target, blocking=True, expected_sha256=current_sha
+        ):
             _word_watch_cache["sha256"] = current_sha
             return True
     except (PermissionError, OSError):
@@ -4499,9 +4565,10 @@ def _sincronizar_word_desde_drive(force=False):
                 return "noop"
 
             state = _leer_estado_word_drive()
-            same_remote = (
-                int(meta.get("remoteSize") or 0) == int(state.get("remoteSize") or -1)
-                and str(meta.get("remoteModTime") or "") == str(state.get("remoteModTime") or "")
+            same_remote = int(meta.get("remoteSize") or 0) == int(
+                state.get("remoteSize") or -1
+            ) and str(meta.get("remoteModTime") or "") == str(
+                state.get("remoteModTime") or ""
             )
             if same_remote:
                 return "noop"
@@ -4523,7 +4590,10 @@ def _sincronizar_word_desde_drive(force=False):
             # Drive ya contiene exactamente lo último que subimos desde esta PC
             if remote_sha == last_sha:
                 _guardar_ultimo_hash_word_drive(
-                    last_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                    last_sha,
+                    str(meta.get("remoteTarget") or ""),
+                    len(remote_bytes),
+                    True,
                     str(meta.get("remoteModTime") or ""),
                 )
                 return "noop"
@@ -4535,7 +4605,10 @@ def _sincronizar_word_desde_drive(force=False):
                     local_sha = hashlib.sha256(fh.read()).hexdigest()
             if local_sha == remote_sha:
                 _guardar_ultimo_hash_word_drive(
-                    remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                    remote_sha,
+                    str(meta.get("remoteTarget") or ""),
+                    len(remote_bytes),
+                    True,
                     str(meta.get("remoteModTime") or ""),
                 )
                 return "noop"
@@ -4552,15 +4625,20 @@ def _sincronizar_word_desde_drive(force=False):
                     f"Conflicto Word local vs Drive: se conservó el local; copia de Drive en {conflict_path}"
                 )
                 _guardar_ultimo_hash_word_drive(
-                    last_sha or local_sha, str(meta.get("remoteTarget") or ""),
-                    int(meta.get("remoteSize") or 0), False, str(meta.get("remoteModTime") or ""),
+                    last_sha or local_sha,
+                    str(meta.get("remoteTarget") or ""),
+                    int(meta.get("remoteSize") or 0),
+                    False,
+                    str(meta.get("remoteModTime") or ""),
                 )
                 _word_watch_cache["sha256"] = ""
                 _word_watch_cache["last_attempt"] = 0.0
                 return "conflict"
 
             if local_exists and _word_abierto_en_word(target):
-                logging.info("Drive tiene una versión nueva del Word, pero está abierto localmente; se pospone.")
+                logging.info(
+                    "Drive tiene una versión nueva del Word, pero está abierto localmente; se pospone."
+                )
                 return "deferred"
 
             with _english_docx_lock:
@@ -4569,7 +4647,9 @@ def _sincronizar_word_desde_drive(force=False):
                     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
                     with open(tmp_path, "wb") as fh:
                         fh.write(remote_bytes)
-                    os.replace(tmp_path, target)  # PermissionError si Word lo bloquea -> se reintenta luego
+                    os.replace(
+                        tmp_path, target
+                    )  # PermissionError si Word lo bloquea -> se reintenta luego
                 finally:
                     if os.path.exists(tmp_path):
                         try:
@@ -4577,11 +4657,16 @@ def _sincronizar_word_desde_drive(force=False):
                         except OSError:
                             pass
             _guardar_ultimo_hash_word_drive(
-                remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                remote_sha,
+                str(meta.get("remoteTarget") or ""),
+                len(remote_bytes),
+                True,
                 str(meta.get("remoteModTime") or ""),
             )
             _word_watch_cache["sha256"] = remote_sha
-            logging.info("Word de Idiomas actualizado desde Google Drive (cambio remoto detectado).")
+            logging.info(
+                "Word de Idiomas actualizado desde Google Drive (cambio remoto detectado)."
+            )
             return "pulled"
         except PermissionError:
             return "deferred"
@@ -4701,7 +4786,9 @@ def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
                 sincronizar_word_estudio_a_drive(archivo)
 
 
-_ESTUDIO_MAX_BYTES_RESPUESTA = 34000  # AES-GCM + base64 debe caber en el límite de 64000 del puente
+_ESTUDIO_MAX_BYTES_RESPUESTA = (
+    34000  # AES-GCM + base64 debe caber en el límite de 64000 del puente
+)
 _ESTUDIO_MAX_CHARS_ENTRADA = 10000
 
 
@@ -4729,10 +4816,16 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         _, ruta_english = resolver_rutas_word()
         archivo = os.path.abspath(ruta_english or DEFAULT_ENGLISH_WORD_PATH)
     if not os.path.exists(archivo):
-        return {"ok": False, "reason": "NO_WORD", "error": "English_Learning_Notebook.docx no existe en esta PC."}
+        return {
+            "ok": False,
+            "reason": "NO_WORD",
+            "error": "English_Learning_Notebook.docx no existe en esta PC.",
+        }
 
     try:
-        with open(archivo, "rb") as fh:  # lectura compartida: funciona aunque Word lo tenga abierto
+        with open(
+            archivo, "rb"
+        ) as fh:  # lectura compartida: funciona aunque Word lo tenga abierto
             raw = fh.read()
         with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
             estilos = _ooxml_cargar_estilos_mapa(zf)
@@ -4742,7 +4835,11 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         if body is None:
             raise ET.ParseError("word/document.xml sin w:body")
     except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
-        return {"ok": False, "reason": "READ_ERROR", "error": f"No se pudo leer el Word: {exc}"}
+        return {
+            "ok": False,
+            "reason": "READ_ERROR",
+            "error": f"No se pudo leer el Word: {exc}",
+        }
 
     style_levels = estilos["levels"]
     toc_range = _ooxml_encontrar_rango_toc(list(body))
@@ -4751,7 +4848,9 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
     counts = {cat: 0 for cat in SECCIONES_INGLES}
 
     for cat in SECCIONES_INGLES:
-        sec_start, sec_end, items = _ooxml_buscar_rango_seccion(body, style_levels, cat, toc_range)
+        sec_start, sec_end, items = _ooxml_buscar_rango_seccion(
+            body, style_levels, cat, toc_range
+        )
         if sec_start is None:
             continue
         if cat == "music":
@@ -4761,7 +4860,9 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
                     fields = _extraer_campos_bloque_word(lines, tr["heading"])
                     artist = _limpiar_linea(fields.get("artists_display"))
                     album = grp["heading"]
-                    song_name = _limpiar_linea(fields.get("song_title")) or tr["heading"]
+                    song_name = (
+                        _limpiar_linea(fields.get("song_title")) or tr["heading"]
+                    )
                     for a in re.split(r"\s*(?:,|&|feat\.?|ft\.?|x)\s+", artist or ""):
                         if a.strip():
                             artists.add(a.strip())
@@ -4803,10 +4904,26 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
                     j = idx + 1
                     while j < sec_end and items[j][0] not in (1, 2):
                         j += 1
-                    body_lines = [t for _, t in items[idx + 1 : j] if t and not t.startswith("Added:")]
-                    added = next((t[6:].strip() for _, t in items[idx + 1 : j] if t.startswith("Added:")), "")
+                    body_lines = [
+                        t
+                        for _, t in items[idx + 1 : j]
+                        if t and not t.startswith("Added:")
+                    ]
+                    added = next(
+                        (
+                            t[6:].strip()
+                            for _, t in items[idx + 1 : j]
+                            if t.startswith("Added:")
+                        ),
+                        "",
+                    )
                     entries.append(
-                        {"section": cat, "heading": text, "lines": body_lines, "added": added}
+                        {
+                            "section": cat,
+                            "heading": text,
+                            "lines": body_lines,
+                            "added": added,
+                        }
                     )
                     counts[cat] += 1
                     idx = j
@@ -4826,7 +4943,9 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
             return False
         if f_album and f_album not in _normalizar_clave_texto(e.get("album")):
             return False
-        if f_song and f_song not in _normalizar_clave_texto(e.get("song") or e.get("heading")):
+        if f_song and f_song not in _normalizar_clave_texto(
+            e.get("song") or e.get("heading")
+        ):
             return False
         return not q or q in entry_text(e)
 
@@ -4836,10 +4955,17 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         e = dict(filtered[pos])
         if e.get("fields"):
             e["fields"] = {
-                k: (v if len(v) <= _ESTUDIO_MAX_CHARS_ENTRADA else v[:_ESTUDIO_MAX_CHARS_ENTRADA] + "…")
+                k: (
+                    v
+                    if len(v) <= _ESTUDIO_MAX_CHARS_ENTRADA
+                    else v[:_ESTUDIO_MAX_CHARS_ENTRADA] + "…"
+                )
                 for k, v in e["fields"].items()
             }
-            e["truncated"] = any(len(v) > _ESTUDIO_MAX_CHARS_ENTRADA for v in filtered[pos]["fields"].values())
+            e["truncated"] = any(
+                len(v) > _ESTUDIO_MAX_CHARS_ENTRADA
+                for v in filtered[pos]["fields"].values()
+            )
         size = len(json.dumps(e, ensure_ascii=False).encode("utf-8"))
         if page and used + size > _ESTUDIO_MAX_BYTES_RESPUESTA:
             next_offset = pos
@@ -5315,8 +5441,17 @@ def _formatear_pistas_ytdlp(tracks):
         ko = _aislar_lineas_coreano(_limpiar_ruido_letra(tracks.get("ko")))
         en = _limpiar_ruido_letra(tracks.get("en"))
         ja_raw = _limpiar_ruido_letra(tracks.get("ja"))
-        ja = _aislar_lineas_japones(ja_raw) if (ja_raw and re.search(r"[A-Za-z]{2,}", ja_raw)) else ja_raw
-        if not ja and orig and _RE_JAPANESE_CHAR.search(orig) and re.search(r"[A-Za-z]{2,}", orig):
+        ja = (
+            _aislar_lineas_japones(ja_raw)
+            if (ja_raw and re.search(r"[A-Za-z]{2,}", ja_raw))
+            else ja_raw
+        )
+        if (
+            not ja
+            and orig
+            and _RE_JAPANESE_CHAR.search(orig)
+            and re.search(r"[A-Za-z]{2,}", orig)
+        ):
             ja = _aislar_lineas_japones(orig)
         es = _limpiar_ruido_letra(tracks.get("es"))
 
@@ -5440,7 +5575,9 @@ def _extraer_cinco_apartados_desde_letra(lyrics_text):
         elif not clave and not out["original"]:
             out["original"] = c
     if not out["original"]:
-        out["original"] = out["ko"] or out["en"] or out["ja"] or _limpiar_ruido_letra(lyrics_text)
+        out["original"] = (
+            out["ko"] or out["en"] or out["ja"] or _limpiar_ruido_letra(lyrics_text)
+        )
     if out["ko"] or _RE_HANGUL_CHAR.search(out["original"]):
         iso_ko = _aislar_lineas_coreano(out["ko"] or out["original"])
         if iso_ko:
@@ -5647,13 +5784,19 @@ def _procesar_trabajo_pc(job_obj):
         search_meta = {
             "songTitle": resolved_title,
             "artistsDisplay": resolved_artist,
-            "albumTitle": word_entry.get("album_title") or req_data.get("albumTitle") or "",
+            "albumTitle": word_entry.get("album_title")
+            or req_data.get("albumTitle")
+            or "",
         }
         verified_word = None
         for read_attempt in range(2):
-            verified_word = buscar_letra_cancion_en_word(search_meta, use_ram_fallback=False)
+            verified_word = buscar_letra_cancion_en_word(
+                search_meta, use_ram_fallback=False
+            )
             if not (verified_word and verified_word.get("lyrics")):
-                verified_word = buscar_letra_cancion_en_word(req_data, use_ram_fallback=False)
+                verified_word = buscar_letra_cancion_en_word(
+                    req_data, use_ram_fallback=False
+                )
             if verified_word and verified_word.get("lyrics"):
                 break
             if read_attempt == 0:
@@ -5681,7 +5824,8 @@ def _procesar_trabajo_pc(job_obj):
             word_lyrics,
             language=verified_word.get("language") or chosen_lang or idioma,
             album_group=verified_word.get("album_group") or "",
-            track_heading=verified_word.get("track_heading") or f"{resolved_title} — {resolved_artist}",
+            track_heading=verified_word.get("track_heading")
+            or f"{resolved_title} — {resolved_artist}",
             pending_write=False,
         )
 
