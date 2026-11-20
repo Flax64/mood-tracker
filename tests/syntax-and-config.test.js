@@ -671,6 +671,41 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(deploy, /SEAL_ENV_AFTER_DEPLOY:-true/);
         assert.match(deploy, /SECRET_YT_DLP_PATH/);
 
+        // Automatización integral de Ubuntu Server y configuración vía GitHub Variables
+        assert.match(deploy, /concurrency:\r?\n\s+group:\s*deploy-main\r?\n\s+cancel-in-progress:\s*false/);
+        assert.match(deploy, /vars\.TS_OAUTH_CLIENT_ID\s*\|\|\s*secrets\.TS_OAUTH_CLIENT_ID/);
+        assert.match(deploy, /git init/);
+        assert.match(deploy, /git fetch origin main/);
+        assert.match(deploy, /git reset --hard origin\/main/);
+        assert.equal(/git clone\s+["']?https:\/\/github\.com/.test(deploy), false, 'deploy.yml debe usar git init + fetch para no fallar si data/ ya existe');
+        for (const token of [
+            'DEPLOY_VIA_TAILSCALE',
+            'SECRET_TRUST_PROXY',
+            'AUTO_CONFIGURE_SERVER',
+            'ENABLE_TAILSCALE_SERVE',
+            'UFW_CLOSE_LAN_SSH',
+            'tailscale serve --bg',
+            'ufw default deny incoming',
+            'systemctl mask sleep.target',
+            '99-dailyhub-ignore-lid.conf',
+            '99-security-dos.conf',
+            'tcp_syncookies',
+            'hidepid=2',
+            '99-hardening.conf',
+            'sshd -t',
+            'fail2ban',
+            'unattended-upgrades',
+            '99-dailyhub-watch.rules',
+            './scripts/verify-ubuntu-local.sh'
+        ]) {
+            assert.ok(deploy.includes(token), `deploy.yml debe incluir ${token} para automatización completa del servidor`);
+        }
+
+        const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
+        for (const guideToken of ['EC2_SSH_KEY', 'AUTO_CONFIGURE_SERVER', 'UFW_CLOSE_LAN_SSH', 'ENABLE_TAILSCALE_SERVE']) {
+            assert.ok(ubuntuGuide.includes(guideToken), `GUIA_INSTALACION_UBUNTU_SERVER_26.md debe documentar ${guideToken}`);
+        }
+
         const ci = readText('.github/workflows/ci.yml');
         assert.match(ci, /branches-ignore:\r?\n\s+-\s*main/);
         assert.match(ci, /pull_request:\r?\n\s+branches:\r?\n\s+-\s*main/);
