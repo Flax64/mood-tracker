@@ -417,7 +417,7 @@ if [ -r /proc/sys/net/ipv4/tcp_syncookies ]; then
     if [ "$SYNCOOKIES" = "1" ]; then
         pass "Protección kernel anti-SYN flood activa (net.ipv4.tcp_syncookies=1)."
     else
-        warn "net.ipv4.tcp_syncookies=${SYNCOOKIES}; activa protecciones DoS del kernel (ver sección 10.4 de la guía)."
+        warn "net.ipv4.tcp_syncookies=${SYNCOOKIES}; activa protecciones DoS del kernel (ver sección 10.2 de la guía)."
     fi
 fi
 

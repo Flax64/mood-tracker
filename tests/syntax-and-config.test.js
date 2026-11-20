@@ -681,6 +681,12 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         for (const token of [
             'DEPLOY_VIA_TAILSCALE',
             'SECRET_TRUST_PROXY',
+            'SECRET_SERVER_SUDO_PASS',
+            'SUDO_ASKPASS',
+            'sudo -A',
+            'sudo -k',
+            'cleanup_sudo_askpass_files',
+            '/etc/cron.d/dailyhub-sys-update',
             'AUTO_CONFIGURE_SERVER',
             'ENABLE_TAILSCALE_SERVE',
             'UFW_CLOSE_LAN_SSH',
@@ -702,7 +708,7 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
 
         const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
-        for (const guideToken of ['EC2_SSH_KEY', 'AUTO_CONFIGURE_SERVER', 'UFW_CLOSE_LAN_SSH', 'ENABLE_TAILSCALE_SERVE']) {
+        for (const guideToken of ['EC2_SSH_KEY', 'SERVER_SUDO_PASS', 'AUTO_CONFIGURE_SERVER', 'UFW_CLOSE_LAN_SSH', 'ENABLE_TAILSCALE_SERVE']) {
             assert.ok(ubuntuGuide.includes(guideToken), `GUIA_INSTALACION_UBUNTU_SERVER_26.md debe documentar ${guideToken}`);
         }
 

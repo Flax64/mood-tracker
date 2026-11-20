@@ -1,6 +1,6 @@
 # Guía Paso a Paso: Instalación Mínima de Ubuntu Server 26.04 LTS y Despliegue 100 % Automático con GitHub Actions — Personal Daily Hub
 
-> Guía optimizada para convertir una PC local (Intel Core i7, ~8 GB RAM, ~500 GB HDD) en un **servidor Ubuntu Server 26.04 LTS 100 % autónomo y local**. Tú solo instalas lo mínimo indispensable (**Ubuntu Server + Docker + llave SSH/`sudo` + Tailscale**), ajustas las **GitHub Variables** y, con solo hacer **merge a la rama `main`**, [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) instala dependencias, configura el sistema, endurece la seguridad, levanta los **4 contenedores Docker** (`mood_db`, `mood_app`, `mood_app2`, `mood_proxy`), restaura la base de datos desde Google Drive, activa **Tailscale HTTPS Serve** y ejecuta la verificación completa `[1/10]`–`[10/10]`.
+> Guía optimizada para convertir una PC local (Intel Core i7, ~8 GB RAM, ~500 GB HDD) en un **servidor Ubuntu Server 26.04 LTS 100 % autónomo y local**. Tú solo instalas lo mínimo indispensable (**Ubuntu Server + llave SSH/`sudo` + Docker + Tailscale**), ajustas las **GitHub Variables** y, con solo hacer **merge a la rama `main`**, [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) instala dependencias, configura el sistema, endurece la seguridad, levanta los **4 contenedores Docker** (`mood_db`, `mood_app`, `mood_app2`, `mood_proxy`), restaura la base de datos desde Google Drive, activa **Tailscale HTTPS Serve** y ejecuta la verificación completa `[1/10]`–`[10/10]`.
 
 ---
 
@@ -13,7 +13,7 @@
 | 3 | [3. Configurar BIOS / UEFI para servidor 24/7](#3-configurar-bios--uefi-para-servidor-247) |
 | 4 | [4. Arrancar el instalador, desinstalar Windows y particionar el disco de ~500 GB](#4-arrancar-el-instalador-desinstalar-windows-y-particionar-el-disco-de-500-gb) |
 | 5 | [5. Configuración del sistema dentro del instalador (Red, Usuario, OpenSSH)](#5-configuración-del-sistema-dentro-del-instalador-red-usuario-openssh) |
-| 6 | [6. Preparación MÍNIMA en Ubuntu Server (Docker, SSH + `sudo`, Tailscale y Word)](#6-preparación-mínima-en-ubuntu-server-docker-ssh--sudo-tailscale-y-word) |
+| 6 | [6. Preparación MÍNIMA en Ubuntu Server (SSH + `sudo`, Docker, Tailscale y Word)](#6-preparación-mínima-en-ubuntu-server-ssh--sudo-docker-tailscale-y-word) |
 | 7 | [7. Configurar Variables y Secrets en GitHub (sin perder tus Secrets actuales)](#7-configurar-variables-y-secrets-en-github-sin-perder-tus-secrets-actuales) |
 | 8 | [8. Merge a `main` = Despliegue y Configuración Total Automática](#8-merge-a-main--despliegue-y-configuración-total-automática) |
 | 9 | [9. Verificación automática (`[1/10]`–`[10/10]`), Balanceador `pdh_lb` y App Web](#9-verificación-automática-1101010-balanceador-pdh_lb-y-app-web) |
@@ -124,58 +124,61 @@ Elige **`Try or Install Ubuntu Server`** en el menú GRUB:
 1. **Perfil (`Profile setup`):**
    * **Your name:** tu nombre.
    * **Your server's name:** por ejemplo `dailyhub-srv`.
-   * **Pick a username:** por ejemplo `ubuntu` *(en minúsculas; si eliges `ubuntu`, ya coincide con tu Variable actual `EC2_USER=ubuntu`. En los comandos de abajo usamos `TU_USUARIO`)*.
+   * **Pick a username:** puedes poner **tu propio nombre en minúsculas** (ej. `flavio`, `ubuntu`, etc.; **no** es obligatorio que se llame `ubuntu`). Todo en [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), Docker (`APP_UID`/`APP_GID`), SSH (`AllowUsers`), `auditd` y los crons usa `$USER` y `$HOME` de forma dinámica; solo deberás colocar exactamente ese mismo usuario (`whoami`) en la GitHub Variable `EC2_USER` (o `SERVER_USER`). *(En los comandos de abajo usamos `TU_USUARIO`).*
    * **Choose a password:** contraseña fuerte para iniciar sesión y `sudo`.
 2. **Ubuntu Pro:** elige **`Skip for now`** -> **`Continue`**.
 3. **Configuración SSH (`SSH Setup`):**
    * **Marca `[X] Install OpenSSH server`** (obligatorio).
    * Deja `Import SSH identity` en `No` -> **`Done`**.
 4. **Featured Server Snaps:**
-   * **NO marques `docker` aquí** (el paquete Snap restringe volúmenes locales; instalaremos Docker Engine oficial en el Paso 6.1). Baja a **`Done`**.
+   * **NO marques `docker` aquí** (el paquete Snap restringe volúmenes locales; instalaremos Docker Engine oficial en el Paso 6.2). Baja a **`Done`**.
 5. **Finalizar:**
    * Al ver **`Install complete!`**, selecciona **`Reboot Now`**, retira la memoria USB cuando lo pida y pulsa **Enter**.
 
 ---
 
-## 6. Preparación MÍNIMA en Ubuntu Server (Docker, SSH + `sudo`, Tailscale y Word)
+## 6. Preparación MÍNIMA en Ubuntu Server (SSH + `sudo`, Docker, Tailscale y Word)
 
-Inicia sesión en la PC (o por SSH desde tu laptop Windows con `ssh TU_USUARIO@IP_LOCAL_DEL_SERVIDOR`) y realiza **únicamente estos 4 pasos manuales**:
+### 6.1 Conectarte por SSH desde Windows, autorizar tus 2 llaves y habilitar `sudo` sin contraseña (`NOPASSWD:ALL`)
 
-### 6.1 Instalar Docker Engine y Docker Compose v2 oficiales
-
-```bash
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"
-sudo systemctl enable --now docker
-```
-
-Cierra sesión (`exit`), vuelve a entrar por SSH para aplicar el grupo `docker` y verifica:
-
-```bash
-docker --version
-docker compose version
-```
-
-### 6.2 Configurar llaves SSH (`authorized_keys`) y `sudo` sin contraseña (`NOPASSWD:ALL`)
-
-1. **Habilitar servicio SSH y preparar `~/.ssh`:**
+1. **En la consola física de Ubuntu, confirma tu usuario exacto, tu IP LAN y que SSH esté activo:**
    ```bash
+   whoami
+   hostname -I
    sudo systemctl enable --now ssh
-   mkdir -p ~/.ssh && chmod 700 ~/.ssh
-   touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
    ```
+   *(Anota el resultado de `whoami` como `TU_USUARIO` y la primera IP `192.168.x.x` como `IP_LOCAL`. Si olvidaste marcar OpenSSH durante la instalación, ejecuta antes: `sudo apt update && sudo apt install -y openssh-server`.)*
 
-2. *(Opcional recomendado)* **Agregar tu llave pública de administrador desde Windows PowerShell:**
+2. **Conéctate por SSH desde Windows PowerShell (o Git Bash) para hacer el resto cómodamente desde tu PC:**
    ```powershell
-   # Solo si aún no tienes ~/.ssh/id_ed25519.pub en Windows:
-   ssh-keygen -t ed25519 -C "admin-dailyhub"
-   # Copiar tu llave pública al servidor Ubuntu:
-   type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh TU_USUARIO@IP_LOCAL "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+   ssh TU_USUARIO@IP_LOCAL
+   ```
+   *(La primera vez escribe `yes` y tu contraseña de Ubuntu).*
+
+3. **OBLIGATORIO antes del primer despliegue — Agregar tu llave SSH personal de Windows (`id_ed25519.pub`):**
+
+   > [!WARNING]
+   > Al hacer el primer merge a `main`, `deploy.yml` activa automáticamente `PasswordAuthentication no` y `AllowUsers TU_USUARIO` en OpenSSH. **Copia tu llave pública personal ahora**; de lo contrario perderás el acceso SSH por contraseña tras el primer despliegue.
+
+   Desde **PowerShell en tu PC Windows**:
+   ```powershell
+   # Solo crea una llave si todavía no existe en tu Windows:
+   if (-not (Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub")) { ssh-keygen -t ed25519 -C "admin-dailyhub" }
+
+   # Copiar tu llave pública personal a Ubuntu:
+   Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh TU_USUARIO@IP_LOCAL "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
    ```
 
-3. **Autorizar la llave SSH de GitHub Actions (`EC2_SSH_KEY` o `SERVER_SSH_KEY`):**
-   Elige la opción según si quieres actualizar tu Secret `EC2_SSH_KEY` en GitHub o reutilizar exactamente la llave privada que ya tienes guardada en tu PC:
-   * **Opción A — Generar llave nueva Ed25519 en RAM y actualizar el Secret `EC2_SSH_KEY` en GitHub:**
+4. **Autorizar la llave SSH de GitHub Actions (`EC2_SSH_KEY` o `SERVER_SSH_KEY`):**
+   Elige según quieras reutilizar la llave que ya usa tu repositorio o generar una nueva:
+   * **Opción A (Recomendada) — Reutilizar `.ssh/github_deploy_key.pub` del proyecto sin tocar `EC2_SSH_KEY` en GitHub:**
+     Si ya tienes la llave Ed25519 del proyecto (`.ssh/github_deploy_key` guardada en el Secret `EC2_SSH_KEY`), copia su `.pub` desde PowerShell dentro de la carpeta raíz del repositorio:
+     ```powershell
+     Get-Content ".\.ssh\github_deploy_key.pub" | ssh TU_USUARIO@IP_LOCAL "cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+     ```
+     *(Si solo conservas un archivo `.pem` de AWS y no `.ssh/github_deploy_key.pub`, extrae su llave pública con `ssh-keygen -y -f "C:\ruta\a\tu\clave.pem" | ssh TU_USUARIO@IP_LOCAL "cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"`, teniendo en cuenta que OpenSSH moderno puede rechazar claves RSA antiguas con firma `ssh-rsa`).*
+   * **Opción B — Generar llave nueva Ed25519 en RAM y actualizar el Secret `EC2_SSH_KEY` (o `SERVER_SSH_KEY`) en GitHub:**
+     En tu sesión SSH de Ubuntu:
      ```bash
      ssh-keygen -t ed25519 -N "" -C "github-actions-deploy" -f /dev/shm/github_actions_dailyhub
      cat /dev/shm/github_actions_dailyhub.pub >> ~/.ssh/authorized_keys
@@ -187,19 +190,40 @@ docker compose version
      ```bash
      shred -u -z -n 1 /dev/shm/github_actions_dailyhub /dev/shm/github_actions_dailyhub.pub
      ```
-   * **Opción B — Reutilizar tu llave privada actual `EC2_SSH_KEY` sin tocar GitHub Secrets:**
-     Si tienes el archivo `.pem` o llave privada en Windows, extrae su llave pública en PowerShell y agrégala a `~/.ssh/authorized_keys` en Ubuntu:
+   * **Verificar que ambas llaves entran sin pedir contraseña** (desde PowerShell en la raíz del proyecto):
      ```powershell
-     ssh-keygen -y -f "C:\ruta\a\tu\clave.pem" | ssh TU_USUARIO@IP_LOCAL "cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+     ssh TU_USUARIO@IP_LOCAL "whoami && echo ADMIN_SSH_OK"
+     ssh -i ".\.ssh\github_deploy_key" TU_USUARIO@IP_LOCAL "whoami && echo GITHUB_DEPLOY_SSH_OK"
      ```
-     *(Nota: OpenSSH moderno a veces bloquea claves RSA antiguas con firma `ssh-rsa`; si la Opción A te resulta más limpia, usa una Ed25519 nueva en `EC2_SSH_KEY`).*
+     *(Si elegiste la Opción B, verifica tu llave personal con el primer comando y continúa al paso siguiente).*
 
-4. **Habilitar `sudo` sin contraseña para que GitHub Actions ajuste el sistema automáticamente:**
-   ```bash
-   echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/90-${USER}-nopasswd"
-   sudo chmod 440 "/etc/sudoers.d/90-${USER}-nopasswd"
-   sudo visudo -cf "/etc/sudoers.d/90-${USER}-nopasswd"
-   ```
+5. **Autorización `sudo` para GitHub Actions (elige una opción):**
+   * **Opción A (Recomendada — Mantener contraseña en `sudo` usando el Secret `SERVER_SUDO_PASS` en GitHub):**
+     **No** necesitas modificar `/etc/sudoers.d` ni quitarle la contraseña a `sudo` en Ubuntu; tu consola local seguirá pidiendo contraseña. Basta con guardar tu contraseña de usuario de Ubuntu en el **GitHub Secret `SERVER_SUDO_PASS`** (Paso 7.2): `deploy.yml` la usa temporalmente solo en RAM (`/dev/shm` mediante `SUDO_ASKPASS`), la destruye con `shred`, revoca la sesión con `sudo -k` y deja el mantenimiento semanal del sistema en `/etc/cron.d/dailyhub-sys-update` como `root`.
+   * **Opción B (Alternativa estilo AWS EC2 — `NOPASSWD:ALL` sin guardar tu contraseña de Linux en GitHub):**
+     Si prefieres que tu contraseña de usuario de Ubuntu nunca se guarde en GitHub Secrets, habilita `sudo` sin contraseña dentro de tu sesión SSH en Ubuntu:
+     ```bash
+     echo "$USER ALL=(ALL) NOPASSWD:ALL" | sudo tee "/etc/sudoers.d/90-${USER}-nopasswd"
+     sudo chmod 440 "/etc/sudoers.d/90-${USER}-nopasswd"
+     sudo visudo -cf "/etc/sudoers.d/90-${USER}-nopasswd"
+     ```
+
+### 6.2 Instalar Docker Engine y Docker Compose v2 oficiales
+
+En tu sesión SSH de Ubuntu:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
+sudo systemctl enable --now docker
+```
+
+Cierra sesión (`exit`), vuelve a entrar por SSH (`ssh TU_USUARIO@IP_LOCAL`) para aplicar el grupo `docker` y verifica:
+
+```bash
+docker --version
+docker compose version
+```
 
 ### 6.3 Instalar Tailscale y habilitar OAuth CI (túnel privado sin abrir puertos en el router)
 
@@ -215,10 +239,16 @@ tailscale ip -4
 tailscale status
 ```
 
+Con Tailscale activo ya puedes conectarte por SSH desde cualquier red con:
+
+```powershell
+ssh TU_USUARIO@dailyhub-srv.tailXXXX.ts.net
+```
+
 En la consola web de Tailscale (`https://login.tailscale.com/admin`):
 1. En **Machines** -> tu servidor -> `...` -> **`Disable key expiry`** (para que no caduque).
 2. En **DNS** -> confirma activados **MagicDNS** y **HTTPS Certificates**.
-3. En **Access controls** (ACLs), declara `tag:ci` bajo `tagOwners`:
+3. En **Access controls** (ACLs), declara `tag:ci` bajo `tagOwners` *(no hace falta agregar todavía un bloque `"acls"`: la política por defecto ya permite acceso de tu cuenta y de `tag:ci`; si después aplicas las ACL estrictas de la sección 10.3, primero etiqueta el servidor con `tag:server`)*:
    ```json
    "tagOwners": {
      "tag:ci": ["autogroup:admin"]
@@ -236,16 +266,17 @@ En la consola web de Tailscale (`https://login.tailscale.com/admin`):
 > [!IMPORTANT]
 > **Nombre obligatorio en Ubuntu:** aunque en Windows tu diario se llame **`Proyecto D.docx`**, en el servidor **debe quedar en `~/projects/mood-tracker/data/journal/Diario.docx`** (`D` mayúscula) y nunca subirse a Drive ni a Git.
 
-Crea las carpetas mínimas y copia los archivos desde tu laptop o desde la memoria USB *(puedes hacerlo antes del primer merge a `main`, porque `deploy.yml` inicializa Git sin borrar `data/` ni `english-notes/` y ajusta permisos `600`/`700` automáticamente)*:
+Primero crea las carpetas mínimas **en Ubuntu** *(puedes hacerlo antes del primer merge a `main`, porque `deploy.yml` inicializa Git sin borrar `data/` ni `english-notes/` y ajusta permisos `600`/`700` automáticamente)*:
 
 ```bash
 mkdir -p ~/projects/mood-tracker/data/journal ~/projects/mood-tracker/english-notes
 ```
 
-* **Opción 1 — Desde Windows PowerShell por `scp`:**
+* **Opción 1 — Desde Windows PowerShell por `scp`** *(reemplaza `IP_O_DOMINIO_TS` por `IP_LOCAL` o `dailyhub-srv.tailXXXX.ts.net`)*:
   ```powershell
   scp "C:\respaldo\Proyecto D.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/data/journal/Diario.docx
-  scp "C:\respaldo\English_Learning_Notebook.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx
+  # Desde la raíz del repo (o desde C:\respaldo\English_Learning_Notebook.docx):
+  scp ".\english-notes\English_Learning_Notebook.docx" TU_USUARIO@IP_O_DOMINIO_TS:~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx
   ```
 * **Opción 2 — Desde tu memoria USB conectada en Ubuntu Server:**
   ```bash
@@ -255,6 +286,8 @@ mkdir -p ~/projects/mood-tracker/data/journal ~/projects/mood-tracker/english-no
   cp "/mnt/usb/English_Learning_Notebook.docx" ~/projects/mood-tracker/english-notes/English_Learning_Notebook.docx 2>/dev/null || true
   sudo umount /mnt/usb
   ```
+
+*(Si prefieres subir tus `.docx` después del primer despliegue, también puedes hacerlo por `scp` y ejecutar en Ubuntu `chmod 600 ~/projects/mood-tracker/data/journal/Diario.docx`.)*
 
 > [!TIP]
 > **¡Listo! Ya terminaste todo lo manual en Ubuntu.**
@@ -268,7 +301,7 @@ Ve en tu repositorio de GitHub a **Settings -> Secrets and variables -> Actions*
 
 ### 7.1 Repository Variables (pestaña **Variables**)
 
-El flujo de despliegue lee primero `SERVER_*` y, si no existe, usa `EC2_*`. Puedes **actualizar tus variables actuales (`EC2_HOST`, `EC2_USER`)** o renombrarlas a `SERVER_HOST` / `SERVER_USER`:
+El flujo de despliegue lee primero `SERVER_*` y, si no existe, usa `EC2_*`. Puedes **actualizar tus variables actuales (`EC2_HOST`, `EC2_USER`)** o crear `SERVER_HOST` / `SERVER_USER` *(si existen ambas, `SERVER_*` tiene prioridad)*.
 
 #### A) Variables existentes que mantienes igual
 | Variable | Tu valor actual | Acción |
@@ -286,8 +319,8 @@ El flujo de despliegue lee primero `SERVER_*` y, si no existe, usa `EC2_*`. Pued
 #### B) Variables existentes que debes actualizar (justo antes de hacer merge a `main`)
 | Variable actual (o nuevo nombre) | Nuevo valor para Ubuntu | Notas |
 | :--- | :--- | :--- |
-| `EC2_HOST` *(o `SERVER_HOST`)* | `dailyhub-srv.tailXXXX.ts.net` | Reemplaza la antigua IP de AWS por tu dominio MagicDNS (o IP Tailscale `100.x.y.z`). |
-| `EC2_USER` *(o `SERVER_USER`)* | `ubuntu` *(o tu `TU_USUARIO`)* | Usuario creado en Ubuntu con `NOPASSWD:ALL`. |
+| `EC2_HOST` *(o `SERVER_HOST`)* | `dailyhub-srv.tailXXXX.ts.net` | Reemplaza la antigua IP de AWS por tu dominio MagicDNS (o IP Tailscale `100.x.y.z`). Actualizar `EC2_HOST` mantiene compatibilidad si usas `sincronizador.py` desde Windows. |
+| `EC2_USER` *(o `SERVER_USER`)* | `TU_USUARIO` *(resultado exacto de `whoami`)* | Pon tu usuario real de Ubuntu, aunque sea tu nombre en lugar de `ubuntu`; se autentica con el Secret `SERVER_SUDO_PASS` (o `NOPASSWD:ALL`). |
 
 #### C) Variables nuevas a crear para automatización completa del servidor
 | Variable | Valor recomendado | Qué automatiza en `deploy.yml` |
@@ -302,9 +335,12 @@ El flujo de despliegue lee primero `SERVER_*` y, si no existe, usa `EC2_*`. Pued
 | `LOCAL_WORD_BACKUP_DAYS` | `365` | Retención de copias rotativas locales de `Diario.docx` y cuaderno de idiomas. |
 | `REQUIRE_DRIVE_BACKUP` | `true` | Valida conectividad y subida real a Google Drive en cada despliegue/respaldo. |
 | `ENABLE_TAILSCALE_SERVE` | `true` | Configura automáticamente `tailscale serve --bg http://127.0.0.1:8080`. |
-| `UFW_CLOSE_LAN_SSH` | `true` | Cierra el puerto `22/tcp` en la LAN una vez confirmado que el despliegue entró por el túnel Tailscale. *(Pon `false` si también administras SSH por red local LAN).* |
+| `UFW_CLOSE_LAN_SSH` | `false` *(recomendado al inicio; luego `true` opcional)* | Valor por defecto seguro de `deploy.yml` para mantener SSH también en la LAN hasta confirmar que entras bien por Tailscale (`ssh TU_USUARIO@dailyhub-srv.tailXXXX.ts.net`); pásalo a `true` después si quieres SSH exclusivo por `tailscale0`. |
 | `TS_OAUTH_CLIENT_ID` | *(tu Client ID de Tailscale)* | Conecta el runner de GitHub Actions al túnel privado Tailscale para hacer SSH sin abrir puertos en el router. |
 | `TS_TAGS` | `tag:ci` | Etiqueta ACL asignada al runner temporal de GitHub Actions. |
+
+> [!NOTE]
+> **Mínimo indispensable vs valores por defecto:** Para conectar por Tailscale OAuth basta con actualizar `EC2_HOST`/`SERVER_HOST`, `EC2_USER`/`SERVER_USER` y agregar `TS_OAUTH_CLIENT_ID` + Secret `TS_OAUTH_SECRET`. En `deploy.yml`, `AUTO_CONFIGURE_SERVER` ya vale `true`, `TS_TAGS` ya usa `tag:ci` y, si Tailscale está activo y omites `APP_BASE_URL`, el propio script calcula `https://${TS_DNS}`, `TRUST_PROXY=2` y `REQUIRE_HTTPS=true`; aun así, declarar toda la tabla explícitamente evita ambigüedades.
 
 #### D) Variables opcionales de control fino (solo si quieres desactivar/ajustar algo puntual)
 | Variable | Default | Descripción |
@@ -319,12 +355,15 @@ El flujo de despliegue lee primero `SERVER_*` y, si no existe, usa `EC2_*`. Pued
 
 ### 7.2 Repository Secrets (pestaña **Secrets**)
 
-* **Tus 9 Secrets ya existentes NO se tocan (déjalos exactamente como están):**
+* **Tus 9 Secrets de aplicación ya existentes NO se tocan (déjalos exactamente como están):**
   `ADMIN_EMAIL`, `ADMIN_SECRET`, `DB_PASS`, `GEMINI_API_KEY`, `JOURNAL_SECRET_KEY`, `RCLONE_CONF_B64`, `SMTP_PASS`, `SMTP_USER`, `WORD_PASSWORD`.
-* **Secret a actualizar (o reutilizar su `.pub` del Paso 6.2):**
-  * **`EC2_SSH_KEY`** *(o crea `SERVER_SSH_KEY`, ambos funcionan en `deploy.yml`)* -> pega la llave privada Ed25519 generada en el Paso 6.2 (Opción A), o déjala intacta si inyectaste su llave pública en Ubuntu (Opción B).
-* **Secret nuevo (generado en el Paso 6.3 con Tailscale OAuth):**
-  * **`TS_OAUTH_SECRET`** -> Client Secret del cliente OAuth de Tailscale (necesario solo si usas túnel Tailscale para el SSH de GitHub Actions).
+* **Secret SSH de despliegue (`EC2_SSH_KEY` o `SERVER_SSH_KEY`, ambos funcionan en `deploy.yml`):**
+  * Si usaste la **Opción A** del Paso 6.1 (`.ssh/github_deploy_key.pub`), **déjalo intacto**.
+  * Si generaste una llave Ed25519 nueva (**Opción B**), pega ahí la llave privada completa.
+* **2 Secrets nuevos necesarios:**
+  * **`TS_OAUTH_SECRET`** -> Client Secret del cliente OAuth de Tailscale (para que GitHub Actions entre por el túnel Tailscale).
+  * **`SERVER_SUDO_PASS`** -> Contraseña de tu usuario en Ubuntu para que `deploy.yml` ejecute `sudo` de forma efímera solo en RAM (`/dev/shm` vía `SUDO_ASKPASS`, borrado con `shred` y revocado con `sudo -k` al finalizar) sin quitar la contraseña de `sudo` en tu servidor. *(Opcional únicamente si elegiste configurar `NOPASSWD:ALL` en la Opción B del Paso 6.1).*
+* *(Opcionales, solo si los habilitas: `STUDY_RCLONE_CONF_B64`, `YOUTUBE_API_KEY`.)*
 
 ---
 
@@ -333,8 +372,8 @@ El flujo de despliegue lee primero `SERVER_*` y, si no existe, usa `EC2_*`. Pued
 > [!IMPORTANT]
 > **Regla de transición segura (AWS -> Ubuntu):**
 > Mientras sigas preparando Ubuntu en otra rama, **no hagas merge a `main`** hasta que:
-> 1. Hayas completado el **Paso 6** en Ubuntu (Docker, `authorized_keys`, `NOPASSWD:ALL`, Tailscale).
-> 2. Hayas actualizado `EC2_HOST` (o `SERVER_HOST`) y `EC2_USER` (o `SERVER_USER`) en GitHub Variables apuntando al nuevo servidor Ubuntu y agregado las Variables del **Paso 7.1**.
+> 1. Hayas completado el **Paso 6** en Ubuntu (SSH + tus 2 llaves en `authorized_keys`, Docker y Tailscale).
+> 2. Hayas actualizado `EC2_HOST` (o `SERVER_HOST`) y `EC2_USER` (o `SERVER_USER`) en GitHub Variables apuntando al nuevo servidor Ubuntu y agregado las Variables y Secrets (`TS_OAUTH_SECRET` y `SERVER_SUDO_PASS`) del **Paso 7**.
 >
 > En ese momento, al hacer **Merge a `main`** (ya sea aprobando el Pull Request en GitHub o ejecutando `git checkout main && git merge <tu-rama> && git push origin main`), todo se fusiona, despliega y configura solo.
 
@@ -348,7 +387,7 @@ Al detectar el merge/push en `main`, [`.github/workflows/deploy.yml`](../.github
 6. **Entorno 100 % en RAM (`/dev/shm`) + Google Drive:** genera el entorno temporal desde tus GitHub Variables/Secrets, escribe `~/.config/rclone/rclone.conf` desde `RCLONE_CONF_B64` (`chmod 600`) y valida la carpeta en Drive.
 7. **Build y arranque de los 4 contenedores:** levanta `mood_db` (MySQL 8.0 tuned para HDD), `mood_app`, `mood_app2` y el balanceador Caddy `mood_proxy`, y espera a que los 4 reporten `healthy`.
 8. **Auto-restauración de BD desde Google Drive:** si MySQL está vacío, `./scripts/restore.sh --if-empty` descarga `respaldo_mood_tracker.sql.gz` desde Drive y restaura todos tus datos.
-9. **Crons automáticos y zona horaria:** ajusta `TZ`, guarda `~/projects/respaldos/.backup.meta`, registra el respaldo diario (`BACKUP_CRON_SCHEDULE`) y la actualización semanal de `yt-dlp` en ambas réplicas (`mood_app` y `mood_app2`).
+9. **Crons automáticos y zona horaria:** ajusta `TZ`, guarda `~/projects/respaldos/.backup.meta`, registra el respaldo diario (`BACKUP_CRON_SCHEDULE`), configura `/etc/cron.d/dailyhub-sys-update` como `root` (domingos `04:00` para `apt-get upgrade -y` y `/usr/local/bin/yt-dlp -U` sin requerir `NOPASSWD:ALL`) y registra en tu `crontab` el `yt-dlp -U` semanal de los domingos (`04:15`) para `mood_app` y `mood_app2`.
 10. **Tailscale Serve + Endurecimiento del SO:** activa `tailscale serve --bg http://127.0.0.1:8080`, aplica firewall UFW (cerrando `22/tcp` en LAN si `UFW_CLOSE_LAN_SSH=true`), bloquea logins SSH por contraseña (`PasswordAuthentication no`), configura `fail2ban`, `unattended-upgrades`, kernel anti-DoS (`tcp_syncookies = 1`), aislamiento `/proc` (`hidepid=2`) y reglas `auditd`.
 11. **Sellado y verificación `[1/10]`–`[10/10]`:** destruye el entorno temporal con `shred` (cero `.env` en disco) y corre `./scripts/verify-ubuntu-local.sh` imprimiendo el resumen completo en los logs de GitHub Actions.
 
@@ -427,7 +466,10 @@ Cuando `AUTO_CONFIGURE_SERVER=true`, cada despliegue asegura de forma idempotent
 
 ### 10.3 Reglas ACL estrictas en Tailscale Admin Console (Opcional recomendado)
 
-En **Tailscale Admin Console -> Access controls** puedes restringir qué dispositivos alcanzan los puertos `443` y `22` de tu servidor (etiquetándolo con `tag:server`):
+> [!WARNING]
+> **Etiqueta primero el servidor antes de guardar estas ACLs:** en **Machines -> tu servidor -> `...` -> Edit ACL tags** asigna `tag:server` (o ejecuta `sudo tailscale set --advertise-tags=tag:server` en Ubuntu). Si aplicas el bloque `"acls"` siguiente sin haber etiquetado el servidor con `tag:server`, bloquearás tu propio acceso SSH y HTTPS.
+
+En **Tailscale Admin Console -> Access controls** puedes restringir qué dispositivos alcanzan los puertos `443` y `22` de tu servidor:
 
 ```json
 {
@@ -477,23 +519,29 @@ docker exec -e OLD_PW="TU_CONTRASENA_ACTUAL" mood_db sh -c \
   'MYSQL_PWD="$OLD_PW" mysql -u root -e "ALTER USER '\''root'\''@'\''%'\'' IDENTIFIED BY '\''TU_NUEVA_CONTRASENA_SEGURA'\''; ALTER USER '\''root'\''@'\''localhost'\'' IDENTIFIED BY '\''TU_NUEVA_CONTRASENA_SEGURA'\''; FLUSH PRIVILEGES;"'
 ```
 
-Luego actualiza el Secret **`DB_PASS`** en GitHub y lanza **`Run workflow`** (en **Actions -> Deploy to Ubuntu Server**) para recrear los contenedores con la nueva contraseña.
+Luego actualiza el Secret **`DB_PASS`** en GitHub y lanza obligatoriamente **`Run workflow`** (en **Actions -> Deploy to Ubuntu Server**): esto recrea `mood_db` con la nueva variable de entorno `MYSQL_ROOT_PASSWORD` (necesaria para que `scripts/backup.sh` en modo sellado siga funcionando) y recrea `mood_app` / `mood_app2` con la nueva contraseña.
 
 ### 11.4 Mantenimiento frecuente (Drive, permisos, `yt-dlp` y restauración)
 
 * **Si caduca o cambias tu cuenta de Google Drive (`rclone`):**
   ```bash
   rclone config reconnect gdrive:
+  # Ajusta la ruta si usas otro valor en RCLONE_BACKUP_DIR:
   rclone lsl "gdrive:Personal Daily Hub/RespaldosApp"
   # Genera la cadena Base64 de una sola línea y actualiza el Secret RCLONE_CONF_B64 en GitHub:
   base64 -w 0 ~/.config/rclone/rclone.conf && echo ""
   ```
-* **Restaurar una base de datos corrupta o vacía desde Google Drive:**
+* **Restaurar una base de datos vacía o corrupta desde Google Drive:**
+  > **Importante:** `Run workflow` ejecuta `./scripts/restore.sh --if-empty`, por lo que solo restaura automáticamente si la base de datos está **vacía** (NO sobrescribe una BD corrupta que aún tenga registros). Si necesitas forzar una restauración encima de datos dañados sin crear `.env` en disco:
   ```bash
   cd ~/projects/mood-tracker
+  # Si gestionas todo con GitHub Secrets (sin .env en disco; ajusta la ruta de Drive según RCLONE_BACKUP_DIR):
+  rclone copyto "gdrive:Personal Daily Hub/RespaldosApp/respaldo_mood_tracker.sql.gz" /dev/shm/restore_manual.sql.gz \
+    && gunzip -c /dev/shm/restore_manual.sql.gz | docker exec -i mood_db sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root "$MYSQL_DATABASE"' \
+    && rm -f /dev/shm/restore_manual.sql.gz
+
   # Si existe .env plano en disco: ./scripts/restore.sh --force
   # Si usas cifrado local .env.enc: ./scripts/env-vault.sh restore --force
-  # Si gestionas todo con GitHub Secrets (sin .env en disco), basta con lanzar Run workflow o restaurar pasando DB_PASS/DB_USER/DB_NAME en un env temporal en /dev/shm.
   ```
 * **Actualizar `yt-dlp` manualmente en host y ambas réplicas:**
   ```bash

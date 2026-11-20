@@ -192,24 +192,44 @@ jobs:
           DISABLE_SYSTEM_SLEEP: ${{ vars.DISABLE_SYSTEM_SLEEP || '' }}
           IGNORE_LID_SWITCH: ${{ vars.IGNORE_LID_SWITCH || 'auto' }}
           RUN_POST_DEPLOY_VERIFY: ${{ vars.RUN_POST_DEPLOY_VERIFY || 'true' }}
+          SECRET_SERVER_SUDO_PASS: ${{ secrets.SERVER_SUDO_PASS || secrets.SUDO_PASS }}
         with:
           host: ${{ vars.SERVER_HOST || secrets.SERVER_HOST || vars.EC2_HOST || secrets.EC2_HOST }}
           username: ${{ vars.SERVER_USER || secrets.SERVER_USER || vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
           port: ${{ vars.SERVER_SSH_PORT || secrets.SERVER_SSH_PORT || 22 }}
           key: ${{ secrets.SERVER_SSH_KEY || secrets.EC2_SSH_KEY }}
           command_timeout: 25m
-          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,DEPLOY_VIA_TAILSCALE,SERVER_SSH_PORT,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_TRUST_PROXY,SECRET_SITE_ADDRESS,SECRET_PROXY_HTTP_PORT,SECRET_PROXY_HTTPS_PORT,SECRET_REQUIRE_HTTPS,SECRET_REQUIRE_PC_BRIDGE_AUTH,SECRET_CORS_ALLOWED_ORIGINS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_DB_RETENTION_DAYS,SECRET_LOCAL_SQL_DAILY_BACKUP_DAYS,SECRET_LOCAL_WORD_BACKUP_DAYS,SECRET_ENABLE_LOGIN_MFA,SECRET_REQUIRE_DRIVE_BACKUP,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YOUTUBE_API_KEY,SECRET_YT_DLP_PATH,AUTO_CONFIGURE_SERVER,ENABLE_TAILSCALE_SERVE,ENABLE_UFW,UFW_CLOSE_LAN_SSH,ENABLE_SSH_HARDENING,ENABLE_FAIL2BAN,ENABLE_UNATTENDED_UPGRADES,ENABLE_KERNEL_DOS_HARDENING,ENABLE_PROC_HIDEPID,ENABLE_AUDITD,DISABLE_SYSTEM_SLEEP,IGNORE_LID_SWITCH,RUN_POST_DEPLOY_VERIFY
+          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,DEPLOY_VIA_TAILSCALE,SERVER_SSH_PORT,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_TRUST_PROXY,SECRET_SITE_ADDRESS,SECRET_PROXY_HTTP_PORT,SECRET_PROXY_HTTPS_PORT,SECRET_REQUIRE_HTTPS,SECRET_REQUIRE_PC_BRIDGE_AUTH,SECRET_CORS_ALLOWED_ORIGINS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_DB_RETENTION_DAYS,SECRET_LOCAL_SQL_DAILY_BACKUP_DAYS,SECRET_LOCAL_WORD_BACKUP_DAYS,SECRET_ENABLE_LOGIN_MFA,SECRET_REQUIRE_DRIVE_BACKUP,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YOUTUBE_API_KEY,SECRET_YT_DLP_PATH,AUTO_CONFIGURE_SERVER,ENABLE_TAILSCALE_SERVE,ENABLE_UFW,UFW_CLOSE_LAN_SSH,ENABLE_SSH_HARDENING,ENABLE_FAIL2BAN,ENABLE_UNATTENDED_UPGRADES,ENABLE_KERNEL_DOS_HARDENING,ENABLE_PROC_HIDEPID,ENABLE_AUDITD,DISABLE_SYSTEM_SLEEP,IGNORE_LID_SWITCH,RUN_POST_DEPLOY_VERIFY,SECRET_SERVER_SUDO_PASS
           script: |
             set -euo pipefail
 
             DEPLOY_ENV_FILE=""
+            SUDO_ASKPASS_SECRET=""
+            SUDO_ASKPASS_SCRIPT=""
             cleanup_deploy_env() {
               if [ -n "${DEPLOY_ENV_FILE:-}" ] && [ -f "$DEPLOY_ENV_FILE" ]; then
                 shred -u -z -n 1 "$DEPLOY_ENV_FILE" 2>/dev/null || rm -f "$DEPLOY_ENV_FILE"
                 DEPLOY_ENV_FILE=""
               fi
             }
-            trap cleanup_deploy_env EXIT INT TERM
+            cleanup_sudo_askpass_files() {
+              if [ -n "${SUDO_ASKPASS_SECRET:-}" ] && [ -f "$SUDO_ASKPASS_SECRET" ]; then
+                shred -u -z -n 1 "$SUDO_ASKPASS_SECRET" 2>/dev/null || rm -f "$SUDO_ASKPASS_SECRET"
+                SUDO_ASKPASS_SECRET=""
+              fi
+              if [ -n "${SUDO_ASKPASS_SCRIPT:-}" ] && [ -f "$SUDO_ASKPASS_SCRIPT" ]; then
+                shred -u -z -n 1 "$SUDO_ASKPASS_SCRIPT" 2>/dev/null || rm -f "$SUDO_ASKPASS_SCRIPT"
+                SUDO_ASKPASS_SCRIPT=""
+              fi
+              unset -f sudo 2>/dev/null || true
+              unset SUDO_ASKPASS SECRET_SERVER_SUDO_PASS CLEAN_SUDO_PASS 2>/dev/null || true
+            }
+            cleanup_all() {
+              cleanup_deploy_env
+              cleanup_sudo_askpass_files
+              command sudo -k 2>/dev/null || true
+            }
+            trap cleanup_all EXIT INT TERM
 
             FINAL_AUTO_CONFIGURE_SERVER="${AUTO_CONFIGURE_SERVER:-true}"
             FINAL_ENABLE_TAILSCALE_SERVE="${ENABLE_TAILSCALE_SERVE:-$FINAL_AUTO_CONFIGURE_SERVER}"
@@ -231,8 +251,45 @@ jobs:
             # 0. Activar memoria Swap 2 GB primero si el sistema aún no cuenta con >= 2 GB de swap (soporta /swap.img nativo de Ubuntu o /swapfile)
             SUDO=""
             if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
-              SUDO="sudo"
+              if command sudo -n true 2>/dev/null; then
+                SUDO="sudo"
+              elif [ -n "${SECRET_SERVER_SUDO_PASS:-}" ]; then
+                SUDO_RAM_DIR="/dev/shm"
+                if [ ! -d "$SUDO_RAM_DIR" ] || [ ! -w "$SUDO_RAM_DIR" ]; then
+                  SUDO_RAM_DIR="${TMPDIR:-/tmp}"
+                fi
+                CLEAN_SUDO_PASS="${SECRET_SERVER_SUDO_PASS%$'\n'}"
+                CLEAN_SUDO_PASS="${CLEAN_SUDO_PASS%$'\r'}"
+                SUDO_ASKPASS_SECRET="$(umask 077 && mktemp "$SUDO_RAM_DIR/.mood_sudo_sec.XXXXXX")"
+                chmod 600 "$SUDO_ASKPASS_SECRET"
+                printf '%s\n' "$CLEAN_SUDO_PASS" > "$SUDO_ASKPASS_SECRET"
+                unset CLEAN_SUDO_PASS SECRET_SERVER_SUDO_PASS
+
+                SUDO_ASKPASS_SCRIPT="$(umask 077 && mktemp "$SUDO_RAM_DIR/.mood_sudo_ask.XXXXXX")"
+                chmod 700 "$SUDO_ASKPASS_SCRIPT"
+                printf '#!/bin/sh\ncat "%s"\n' "$SUDO_ASKPASS_SECRET" > "$SUDO_ASKPASS_SCRIPT"
+                if ! "$SUDO_ASKPASS_SCRIPT" >/dev/null 2>&1; then
+                  shred -u -z -n 1 "$SUDO_ASKPASS_SCRIPT" 2>/dev/null || rm -f "$SUDO_ASKPASS_SCRIPT"
+                  SUDO_ASKPASS_SCRIPT="$(umask 077 && mktemp "${TMPDIR:-/tmp}/.mood_sudo_ask.XXXXXX")"
+                  chmod 700 "$SUDO_ASKPASS_SCRIPT"
+                  printf '#!/bin/sh\ncat "%s"\n' "$SUDO_ASKPASS_SECRET" > "$SUDO_ASKPASS_SCRIPT"
+                fi
+                export SUDO_ASKPASS="$SUDO_ASKPASS_SCRIPT"
+                if ! command sudo -A -v 2>/dev/null; then
+                  echo "ERROR: El Secret SERVER_SUDO_PASS fue rechazado por sudo en este servidor." >&2
+                  exit 1
+                fi
+                sudo() {
+                  command sudo -A "$@"
+                }
+                SUDO="sudo"
+                echo "🔐 Autenticación sudo verificada mediante Secret SERVER_SUDO_PASS (en RAM /dev/shm, sin NOPASSWD)."
+              else
+                echo "ERROR: sudo requiere contraseña. Agrega el Secret SERVER_SUDO_PASS en GitHub (o habilita NOPASSWD en sudoers)." >&2
+                exit 1
+              fi
             fi
+            unset SECRET_SERVER_SUDO_PASS CLEAN_SUDO_PASS 2>/dev/null || true
             TOTAL_SWAP_BYTES="$(free -b 2>/dev/null | awk '/^Swap:/{print $2}' || echo 0)"
             if [ "${TOTAL_SWAP_BYTES:-0}" -lt 2000000000 ]; then
               echo "💾 Configurando y activando memoria Swap persistente (2 GB en /swapfile)..."
@@ -311,40 +368,40 @@ jobs:
               fi
             elif command -v dnf >/dev/null 2>&1; then
               if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
-                sudo dnf upgrade -y || true
-                sudo dnf install -y git curl unzip cronie openssl python3 ffmpeg || sudo dnf install -y git curl unzip cronie openssl python3
+                $SUDO dnf upgrade -y || true
+                $SUDO dnf install -y git curl unzip cronie openssl python3 ffmpeg || $SUDO dnf install -y git curl unzip cronie openssl python3
                 if ! command -v rclone >/dev/null 2>&1; then
-                  curl -fsSL https://rclone.org/install.sh | sudo bash
+                  curl -fsSL https://rclone.org/install.sh | $SUDO bash
                 fi
               fi
             fi
 
             if [ ! -x /usr/local/bin/yt-dlp ]; then
-              sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-              sudo chmod a+rx /usr/local/bin/yt-dlp
+              $SUDO curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+              $SUDO chmod a+rx /usr/local/bin/yt-dlp
             fi
-            sudo /usr/local/bin/yt-dlp -U || true
+            $SUDO /usr/local/bin/yt-dlp -U || true
 
             if command -v systemctl >/dev/null 2>&1; then
-              sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
+              $SUDO systemctl enable --now cron 2>/dev/null || $SUDO systemctl enable --now crond 2>/dev/null || true
             fi
 
             if ! command -v docker >/dev/null 2>&1; then
               echo "Instalando Docker..."
-              curl -fsSL https://get.docker.com | sudo sh
-              sudo usermod -aG docker "$USER" || true
+              curl -fsSL https://get.docker.com | $SUDO sh
+              $SUDO usermod -aG docker "$USER" || true
             fi
             if command -v systemctl >/dev/null 2>&1; then
-              sudo systemctl enable docker && sudo systemctl start docker || true
+              $SUDO systemctl enable docker && $SUDO systemctl start docker || true
             fi
 
             DOCKER_CMD="docker"
             if ! docker info >/dev/null 2>&1; then
-              DOCKER_CMD="sudo docker"
+              DOCKER_CMD="${SUDO:+$SUDO }docker"
             fi
             if ! $DOCKER_CMD compose version >/dev/null 2>&1; then
               if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update -y && sudo apt-get install -y docker-compose-plugin || true
+                $SUDO apt-get update -y && $SUDO apt-get install -y docker-compose-plugin || true
               fi
             fi
 
@@ -588,9 +645,22 @@ jobs:
             } > "$HOME/projects/respaldos/.backup.meta"
             chmod 600 "$HOME/projects/respaldos/.backup.meta"
 
+            if [ -d /etc/cron.d ]; then
+              SYS_CRON_CONF="/etc/cron.d/dailyhub-sys-update"
+              SYS_CRON_CONTENT="$(printf '%s\n' \
+                'SHELL=/bin/bash' \
+                'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+                '0 4 * * 0 root (DEBIAN_FRONTEND=noninteractive apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" && DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) >> /var/log/dailyhub-sys-update.log 2>&1; /usr/local/bin/yt-dlp -U >> /var/log/dailyhub-sys-update.log 2>&1 || true')"
+              if [ ! -f "$SYS_CRON_CONF" ] || [ "$($SUDO cat "$SYS_CRON_CONF" 2>/dev/null || true)" != "$SYS_CRON_CONTENT" ]; then
+                printf '%s\n' "$SYS_CRON_CONTENT" | $SUDO tee "$SYS_CRON_CONF" >/dev/null
+                $SUDO chown root:root "$SYS_CRON_CONF"
+                $SUDO chmod 644 "$SYS_CRON_CONF"
+              fi
+            fi
+
             FINAL_CRON_SCHEDULE="${BACKUP_CRON_SCHEDULE:-30 3 * * *}"
             CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
-            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec -u 0 mood_app yt-dlp -U || true) && (docker exec -u 0 mood_app2 yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
+            YTDLP_CRON_JOB="15 4 * * 0 (docker exec -u 0 mood_app yt-dlp -U || true) && (docker exec -u 0 mood_app2 yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" | grep -v "yt-dlp -U" || true; printf '%s\n%s\n' "$CRON_JOB" "$YTDLP_CRON_JOB") | crontab -
 
             # 9. Configuración y endurecimiento automático de Ubuntu Server (idempotente)
@@ -765,6 +835,7 @@ jobs:
               echo "Despliegue completado sin archivo .env en disco (gestionado 100% por GitHub Secrets/Variables)."
             fi
             cleanup_deploy_env
+            cleanup_sudo_askpass_files
 
             # 11. Verificación automatizada post-despliegue ([1/10]-[10/10])
             if [ "$FINAL_RUN_POST_DEPLOY_VERIFY" = "true" ] && [ -x ./scripts/verify-ubuntu-local.sh ]; then
