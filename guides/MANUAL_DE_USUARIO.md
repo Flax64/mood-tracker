@@ -1,7 +1,5 @@
 # 📖 Manual de Usuario — Personal Daily Hub
-
 > **Guía rápida visual (sin bloques largos de texto).** Todo viaja cifrado (`X25519 + AES-256-CTR`) y tus notas privadas de Word usan cifrado de extremo a extremo (`E2EE AES-256-CBC`).
-
 ## Índice
 1. [1. Inicio Rápido y Acceso](#1-inicio-rápido-y-acceso)
 2. [2. Registros Diarios (Ánimo, Sueño y Crisis)](#2-registros-diarios-ánimo-sueño-y-crisis)
