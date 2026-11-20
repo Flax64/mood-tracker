@@ -1,4 +1,4 @@
-name: Deploy to AWS EC2
+name: Deploy to Ubuntu Server (Tailscale / SSH)
 
 on:
   push:
@@ -19,6 +19,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -101,13 +105,44 @@ jobs:
       - name: Checkout del repositorio
         uses: actions/checkout@v4
 
-      - name: Desplegar y migrar en AWS EC2 vía SSH
+      - name: Detectar modo Tailscale para conexión SSH privada
+        id: ts_mode
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ vars.TS_OAUTH_CLIENT_ID || secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          if [ -n "${TS_OAUTH_CLIENT_ID:-}" ] && [ -n "${TS_OAUTH_SECRET:-}" ]; then
+            echo "mode=oauth" >> "$GITHUB_OUTPUT"
+          elif [ -n "${TS_AUTHKEY:-}" ]; then
+            echo "mode=authkey" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Conectar runner a Tailscale (OAuth recomendado)
+        if: steps.ts_mode.outputs.mode == 'oauth'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ vars.TS_OAUTH_CLIENT_ID || secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: ${{ vars.TS_TAGS || 'tag:ci' }}
+
+      - name: Conectar runner a Tailscale (Auth Key)
+        if: steps.ts_mode.outputs.mode == 'authkey'
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      - name: Desplegar en Ubuntu Server vía SSH
         uses: appleboy/ssh-action@v1.0.0
         env:
           GITHUB_REPO: ${{ github.repository }}
           APP_VERSION: ${{ needs.release.outputs.version }}
           RELEASE_HISTORY_B64: ${{ needs.release.outputs.history_b64 }}
-          DEPLOY_EC2_HOST: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
+          DEPLOY_EC2_HOST: ${{ vars.SERVER_HOST || secrets.SERVER_HOST || vars.EC2_HOST || secrets.EC2_HOST }}
+          DEPLOY_VIA_TAILSCALE: ${{ steps.ts_mode.outputs.mode != 'none' }}
+          SERVER_SSH_PORT: ${{ vars.SERVER_SSH_PORT || secrets.SERVER_SSH_PORT || '22' }}
           SECRET_DB_HOST: ${{ secrets.DB_HOST || vars.DB_HOST }}
           SECRET_DB_USER: ${{ secrets.DB_USER || vars.DB_USER }}
           SECRET_DB_PASS: ${{ secrets.DB_PASS }}
@@ -121,8 +156,14 @@ jobs:
           SECRET_SMTP_USER: ${{ secrets.SMTP_USER || vars.SMTP_USER }}
           SECRET_SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SECRET_APP_BASE_URL: ${{ secrets.APP_BASE_URL || vars.APP_BASE_URL }}
+          SECRET_TRUST_PROXY: ${{ vars.TRUST_PROXY || secrets.TRUST_PROXY }}
           SEAL_ENV_AFTER_DEPLOY: ${{ vars.SEAL_ENV_AFTER_DEPLOY || secrets.SEAL_ENV_AFTER_DEPLOY }}
           BACKUP_CRON_SCHEDULE: ${{ vars.BACKUP_CRON_SCHEDULE || secrets.BACKUP_CRON_SCHEDULE }}
+          SECRET_DB_RETENTION_DAYS: ${{ vars.DB_RETENTION_DAYS || secrets.DB_RETENTION_DAYS }}
+          SECRET_LOCAL_SQL_DAILY_BACKUP_DAYS: ${{ vars.LOCAL_SQL_DAILY_BACKUP_DAYS || secrets.LOCAL_SQL_DAILY_BACKUP_DAYS }}
+          SECRET_LOCAL_WORD_BACKUP_DAYS: ${{ vars.LOCAL_WORD_BACKUP_DAYS || secrets.LOCAL_WORD_BACKUP_DAYS }}
+          SECRET_ENABLE_LOGIN_MFA: ${{ vars.ENABLE_LOGIN_MFA || secrets.ENABLE_LOGIN_MFA }}
+          SECRET_REQUIRE_DRIVE_BACKUP: ${{ vars.REQUIRE_DRIVE_BACKUP || secrets.REQUIRE_DRIVE_BACKUP }}
           SECRET_RCLONE_REMOTE: ${{ vars.RCLONE_REMOTE || secrets.RCLONE_REMOTE }}
           SECRET_RCLONE_BACKUP_DIR: ${{ vars.RCLONE_BACKUP_DIR || secrets.RCLONE_BACKUP_DIR }}
           RCLONE_CONF_B64: ${{ secrets.RCLONE_CONF_B64 }}
@@ -130,48 +171,144 @@ jobs:
           SECRET_STUDY_RCLONE_DIR: ${{ vars.STUDY_RCLONE_DIR || secrets.STUDY_RCLONE_DIR }}
           STUDY_RCLONE_CONF_B64: ${{ secrets.STUDY_RCLONE_CONF_B64 }}
           SECRET_SITE_ADDRESS: ${{ vars.SITE_ADDRESS || secrets.SITE_ADDRESS }}
+          SECRET_PROXY_HTTP_PORT: ${{ vars.PROXY_HTTP_PORT || secrets.PROXY_HTTP_PORT }}
+          SECRET_PROXY_HTTPS_PORT: ${{ vars.PROXY_HTTPS_PORT || secrets.PROXY_HTTPS_PORT }}
+          SECRET_REQUIRE_HTTPS: ${{ vars.REQUIRE_HTTPS || secrets.REQUIRE_HTTPS }}
+          SECRET_REQUIRE_PC_BRIDGE_AUTH: ${{ vars.REQUIRE_PC_BRIDGE_AUTH || secrets.REQUIRE_PC_BRIDGE_AUTH }}
+          SECRET_CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS || secrets.CORS_ALLOWED_ORIGINS }}
           SECRET_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SECRET_YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           SECRET_YT_DLP_PATH: ${{ vars.YT_DLP_PATH || secrets.YT_DLP_PATH }}
+          AUTO_CONFIGURE_SERVER: ${{ vars.AUTO_CONFIGURE_SERVER || 'true' }}
+          ENABLE_TAILSCALE_SERVE: ${{ vars.ENABLE_TAILSCALE_SERVE || '' }}
+          ENABLE_UFW: ${{ vars.ENABLE_UFW || '' }}
+          UFW_CLOSE_LAN_SSH: ${{ vars.UFW_CLOSE_LAN_SSH || 'false' }}
+          ENABLE_SSH_HARDENING: ${{ vars.ENABLE_SSH_HARDENING || '' }}
+          ENABLE_FAIL2BAN: ${{ vars.ENABLE_FAIL2BAN || '' }}
+          ENABLE_UNATTENDED_UPGRADES: ${{ vars.ENABLE_UNATTENDED_UPGRADES || '' }}
+          ENABLE_KERNEL_DOS_HARDENING: ${{ vars.ENABLE_KERNEL_DOS_HARDENING || '' }}
+          ENABLE_PROC_HIDEPID: ${{ vars.ENABLE_PROC_HIDEPID || '' }}
+          ENABLE_AUDITD: ${{ vars.ENABLE_AUDITD || '' }}
+          DISABLE_SYSTEM_SLEEP: ${{ vars.DISABLE_SYSTEM_SLEEP || '' }}
+          IGNORE_LID_SWITCH: ${{ vars.IGNORE_LID_SWITCH || 'auto' }}
+          RUN_POST_DEPLOY_VERIFY: ${{ vars.RUN_POST_DEPLOY_VERIFY || 'true' }}
+          SECRET_SERVER_SUDO_PASS: ${{ secrets.SERVER_SUDO_PASS || secrets.SUDO_PASS }}
         with:
-          host: ${{ vars.EC2_HOST || secrets.EC2_HOST }}
-          username: ${{ vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
-          key: ${{ secrets.EC2_SSH_KEY }}
+          host: ${{ vars.SERVER_HOST || secrets.SERVER_HOST || vars.EC2_HOST || secrets.EC2_HOST }}
+          username: ${{ vars.SERVER_USER || secrets.SERVER_USER || vars.EC2_USER || secrets.EC2_USER || 'ubuntu' }}
+          port: ${{ vars.SERVER_SSH_PORT || secrets.SERVER_SSH_PORT || 22 }}
+          key: ${{ secrets.SERVER_SSH_KEY || secrets.EC2_SSH_KEY }}
           command_timeout: 25m
-          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_SITE_ADDRESS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YT_DLP_PATH
+          envs: GITHUB_REPO,APP_VERSION,RELEASE_HISTORY_B64,DEPLOY_EC2_HOST,DEPLOY_VIA_TAILSCALE,SERVER_SSH_PORT,SECRET_DB_HOST,SECRET_DB_USER,SECRET_DB_PASS,SECRET_DB_NAME,SECRET_PORT,SECRET_TZ,SECRET_ADMIN_EMAIL,SECRET_ADMIN_SECRET,SECRET_WORD_PASSWORD,SECRET_JOURNAL_SECRET_KEY,SECRET_SMTP_USER,SECRET_SMTP_PASS,SECRET_APP_BASE_URL,SECRET_TRUST_PROXY,SECRET_SITE_ADDRESS,SECRET_PROXY_HTTP_PORT,SECRET_PROXY_HTTPS_PORT,SECRET_REQUIRE_HTTPS,SECRET_REQUIRE_PC_BRIDGE_AUTH,SECRET_CORS_ALLOWED_ORIGINS,SEAL_ENV_AFTER_DEPLOY,BACKUP_CRON_SCHEDULE,SECRET_DB_RETENTION_DAYS,SECRET_LOCAL_SQL_DAILY_BACKUP_DAYS,SECRET_LOCAL_WORD_BACKUP_DAYS,SECRET_ENABLE_LOGIN_MFA,SECRET_REQUIRE_DRIVE_BACKUP,SECRET_RCLONE_REMOTE,SECRET_RCLONE_BACKUP_DIR,RCLONE_CONF_B64,SECRET_STUDY_RCLONE_REMOTE,SECRET_STUDY_RCLONE_DIR,STUDY_RCLONE_CONF_B64,SECRET_GEMINI_API_KEY,SECRET_YOUTUBE_API_KEY,SECRET_YT_DLP_PATH,AUTO_CONFIGURE_SERVER,ENABLE_TAILSCALE_SERVE,ENABLE_UFW,UFW_CLOSE_LAN_SSH,ENABLE_SSH_HARDENING,ENABLE_FAIL2BAN,ENABLE_UNATTENDED_UPGRADES,ENABLE_KERNEL_DOS_HARDENING,ENABLE_PROC_HIDEPID,ENABLE_AUDITD,DISABLE_SYSTEM_SLEEP,IGNORE_LID_SWITCH,RUN_POST_DEPLOY_VERIFY,SECRET_SERVER_SUDO_PASS
           script: |
             set -euo pipefail
 
             DEPLOY_ENV_FILE=""
+            SUDO_ASKPASS_SECRET=""
+            SUDO_ASKPASS_SCRIPT=""
             cleanup_deploy_env() {
               if [ -n "${DEPLOY_ENV_FILE:-}" ] && [ -f "$DEPLOY_ENV_FILE" ]; then
                 shred -u -z -n 1 "$DEPLOY_ENV_FILE" 2>/dev/null || rm -f "$DEPLOY_ENV_FILE"
                 DEPLOY_ENV_FILE=""
               fi
             }
-            trap cleanup_deploy_env EXIT INT TERM
+            cleanup_sudo_askpass_files() {
+              if [ -n "${SUDO_ASKPASS_SECRET:-}" ] && [ -f "$SUDO_ASKPASS_SECRET" ]; then
+                shred -u -z -n 1 "$SUDO_ASKPASS_SECRET" 2>/dev/null || rm -f "$SUDO_ASKPASS_SECRET"
+                SUDO_ASKPASS_SECRET=""
+              fi
+              if [ -n "${SUDO_ASKPASS_SCRIPT:-}" ] && [ -f "$SUDO_ASKPASS_SCRIPT" ]; then
+                shred -u -z -n 1 "$SUDO_ASKPASS_SCRIPT" 2>/dev/null || rm -f "$SUDO_ASKPASS_SCRIPT"
+                SUDO_ASKPASS_SCRIPT=""
+              fi
+              unset -f sudo 2>/dev/null || true
+              unset SUDO_ASKPASS SECRET_SERVER_SUDO_PASS CLEAN_SUDO_PASS 2>/dev/null || true
+            }
+            cleanup_all() {
+              cleanup_deploy_env
+              cleanup_sudo_askpass_files
+              command sudo -k 2>/dev/null || true
+            }
+            trap cleanup_all EXIT INT TERM
 
-            # 0. Activar memoria Swap 2 GB primero (critico al migrar o desplegar en instancias con poca RAM como EC2 t3.micro 1 GB)
+            FINAL_AUTO_CONFIGURE_SERVER="${AUTO_CONFIGURE_SERVER:-true}"
+            FINAL_ENABLE_TAILSCALE_SERVE="${ENABLE_TAILSCALE_SERVE:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_UFW="${ENABLE_UFW:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_UFW_EXPLICIT="${ENABLE_UFW:-}"
+            FINAL_UFW_CLOSE_LAN_SSH="${UFW_CLOSE_LAN_SSH:-false}"
+            FINAL_ENABLE_SSH_HARDENING="${ENABLE_SSH_HARDENING:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_FAIL2BAN="${ENABLE_FAIL2BAN:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_UNATTENDED_UPGRADES="${ENABLE_UNATTENDED_UPGRADES:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_KERNEL_DOS_HARDENING="${ENABLE_KERNEL_DOS_HARDENING:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_PROC_HIDEPID="${ENABLE_PROC_HIDEPID:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_ENABLE_AUDITD="${ENABLE_AUDITD:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_DISABLE_SYSTEM_SLEEP="${DISABLE_SYSTEM_SLEEP:-$FINAL_AUTO_CONFIGURE_SERVER}"
+            FINAL_IGNORE_LID_SWITCH="${IGNORE_LID_SWITCH:-auto}"
+            FINAL_RUN_POST_DEPLOY_VERIFY="${RUN_POST_DEPLOY_VERIFY:-true}"
+            FINAL_SSH_PORT="${SERVER_SSH_PORT:-22}"
+            [[ "$FINAL_SSH_PORT" =~ ^[0-9]+$ ]] || FINAL_SSH_PORT="22"
+
+            # 0. Activar memoria Swap 2 GB primero si el sistema aún no cuenta con >= 2 GB de swap (soporta /swap.img nativo de Ubuntu o /swapfile)
             SUDO=""
             if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
-              SUDO="sudo"
+              if command sudo -n true 2>/dev/null; then
+                SUDO="sudo"
+              elif [ -n "${SECRET_SERVER_SUDO_PASS:-}" ]; then
+                SUDO_RAM_DIR="/dev/shm"
+                if [ ! -d "$SUDO_RAM_DIR" ] || [ ! -w "$SUDO_RAM_DIR" ]; then
+                  SUDO_RAM_DIR="${TMPDIR:-/tmp}"
+                fi
+                CLEAN_SUDO_PASS="${SECRET_SERVER_SUDO_PASS%$'\n'}"
+                CLEAN_SUDO_PASS="${CLEAN_SUDO_PASS%$'\r'}"
+                SUDO_ASKPASS_SECRET="$(umask 077 && mktemp "$SUDO_RAM_DIR/.mood_sudo_sec.XXXXXX")"
+                chmod 600 "$SUDO_ASKPASS_SECRET"
+                printf '%s\n' "$CLEAN_SUDO_PASS" > "$SUDO_ASKPASS_SECRET"
+                unset CLEAN_SUDO_PASS SECRET_SERVER_SUDO_PASS
+
+                SUDO_ASKPASS_SCRIPT="$(umask 077 && mktemp "$SUDO_RAM_DIR/.mood_sudo_ask.XXXXXX")"
+                chmod 700 "$SUDO_ASKPASS_SCRIPT"
+                printf '#!/bin/sh\ncat "%s"\n' "$SUDO_ASKPASS_SECRET" > "$SUDO_ASKPASS_SCRIPT"
+                if ! "$SUDO_ASKPASS_SCRIPT" >/dev/null 2>&1; then
+                  shred -u -z -n 1 "$SUDO_ASKPASS_SCRIPT" 2>/dev/null || rm -f "$SUDO_ASKPASS_SCRIPT"
+                  SUDO_ASKPASS_SCRIPT="$(umask 077 && mktemp "${TMPDIR:-/tmp}/.mood_sudo_ask.XXXXXX")"
+                  chmod 700 "$SUDO_ASKPASS_SCRIPT"
+                  printf '#!/bin/sh\ncat "%s"\n' "$SUDO_ASKPASS_SECRET" > "$SUDO_ASKPASS_SCRIPT"
+                fi
+                export SUDO_ASKPASS="$SUDO_ASKPASS_SCRIPT"
+                if ! command sudo -A -v 2>/dev/null; then
+                  echo "ERROR: El Secret SERVER_SUDO_PASS fue rechazado por sudo en este servidor." >&2
+                  exit 1
+                fi
+                sudo() {
+                  command sudo -A "$@"
+                }
+                SUDO="sudo"
+                echo "🔐 Autenticación sudo verificada mediante Secret SERVER_SUDO_PASS (en RAM /dev/shm, sin NOPASSWD)."
+              else
+                echo "ERROR: sudo requiere contraseña. Agrega el Secret SERVER_SUDO_PASS en GitHub (o habilita NOPASSWD en sudoers)." >&2
+                exit 1
+              fi
             fi
-            CURRENT_SWAP_BYTES="$(stat -c%s /swapfile 2>/dev/null || echo 0)"
-            if ! swapon --show=NAME --noheadings 2>/dev/null | grep -q . || [ "${CURRENT_SWAP_BYTES:-0}" -lt 2000000000 ]; then
-              echo "💾 Configurando y activando memoria Swap persistente (2 GB)..."
+            unset SECRET_SERVER_SUDO_PASS CLEAN_SUDO_PASS 2>/dev/null || true
+            TOTAL_SWAP_BYTES="$(free -b 2>/dev/null | awk '/^Swap:/{print $2}' || echo 0)"
+            if [ "${TOTAL_SWAP_BYTES:-0}" -lt 2000000000 ]; then
+              echo "💾 Configurando y activando memoria Swap persistente (2 GB en /swapfile)..."
               $SUDO swapoff /swapfile 2>/dev/null || true
               $SUDO rm -f /swapfile
               $SUDO fallocate -l 2G /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
               $SUDO chmod 600 /swapfile
               $SUDO mkswap /swapfile >/dev/null 2>&1 || true
               $SUDO swapon /swapfile || true
+              if [ -f /etc/fstab ] && ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
+                echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+              fi
             else
-              echo "💾 Memoria Swap (2 GB) ya activa en la instancia."
-            fi
-            if [ -f /etc/fstab ] && ! grep -qE '^/swapfile[[:space:]]' /etc/fstab; then
-              echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+              echo "💾 Memoria Swap suficiente ya activa (${TOTAL_SWAP_BYTES} bytes)."
             fi
             $SUDO sysctl -w vm.swappiness=15 vm.vfs_cache_pressure=50 >/dev/null 2>&1 || true
-            if [ -f /etc/sysctl.conf ]; then
+            if [ -d /etc/sysctl.d ]; then
+              printf 'vm.swappiness=15\nvm.vfs_cache_pressure=50\n' | $SUDO tee /etc/sysctl.d/99-mood-tuning.conf >/dev/null 2>&1 || true
+            elif [ -f /etc/sysctl.conf ]; then
               if grep -qE '^vm\.swappiness=' /etc/sysctl.conf; then
                 $SUDO sed -i 's/^vm\.swappiness=.*/vm.swappiness=15/' /etc/sysctl.conf
               else
@@ -185,64 +322,99 @@ jobs:
             fi
             free -h | grep -iE 'mem|swap' || true
 
+            if [ "$FINAL_DISABLE_SYSTEM_SLEEP" = "true" ] && command -v systemctl >/dev/null 2>&1; then
+              $SUDO systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1 || true
+            fi
+            if [ "$FINAL_IGNORE_LID_SWITCH" = "true" ] || { [ "$FINAL_IGNORE_LID_SWITCH" = "auto" ] && [ "$FINAL_AUTO_CONFIGURE_SERVER" = "true" ] && [ -d /proc/acpi/button/lid ]; }; then
+              LID_CONF="/etc/systemd/logind.conf.d/99-dailyhub-ignore-lid.conf"
+              LID_CONTENT="$(printf '[Login]\nHandleLidSwitch=ignore\nHandleLidSwitchExternalPower=ignore\nHandleLidSwitchDocked=ignore')"
+              $SUDO mkdir -p /etc/systemd/logind.conf.d
+              if [ ! -f "$LID_CONF" ] || [ "$($SUDO cat "$LID_CONF" 2>/dev/null || true)" != "$LID_CONTENT" ]; then
+                printf '%s\n' "$LID_CONTENT" | $SUDO tee "$LID_CONF" >/dev/null
+                $SUDO chmod 644 "$LID_CONF"
+                $SUDO systemctl kill -s HUP systemd-logind 2>/dev/null || $SUDO systemctl restart systemd-logind 2>/dev/null || true
+              fi
+            fi
+
             # 1. Instalar dependencias base, actualizar sistema, ffmpeg y yt-dlp autonomo
             if command -v apt-get >/dev/null 2>&1; then
-              for _i in 1 2 3 4 5 6 7 8 9 10; do sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 3; done
-              sudo DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
-              if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
-                sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
-                sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git curl ca-certificates rclone unzip cron openssl python3 ffmpeg
-                sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
-                sudo DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo DEBIAN_FRONTEND=noninteractive apt-get autoclean -y
+              for _i in 1 2 3 4 5 6 7 8 9 10; do $SUDO fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 3; done
+              $SUDO DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
+              REQUIRED_PKGS=(git curl ca-certificates rclone unzip cron openssl python3 ffmpeg)
+              if [ "$FINAL_ENABLE_UFW" = "true" ]; then
+                REQUIRED_PKGS+=(ufw)
+              fi
+              if [ "$FINAL_ENABLE_FAIL2BAN" = "true" ]; then
+                REQUIRED_PKGS+=(fail2ban)
+              fi
+              if [ "$FINAL_ENABLE_UNATTENDED_UPGRADES" = "true" ]; then
+                REQUIRED_PKGS+=(unattended-upgrades apt-listchanges)
+              fi
+              if [ "$FINAL_ENABLE_AUDITD" = "true" ]; then
+                REQUIRED_PKGS+=(auditd)
+              fi
+              MISSING_PKGS=()
+              for pkg in "${REQUIRED_PKGS[@]}"; do
+                if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+                  MISSING_PKGS+=("$pkg")
+                fi
+              done
+              if [ "${#MISSING_PKGS[@]}" -gt 0 ]; then
+                echo "📦 Instalando paquetes faltantes: ${MISSING_PKGS[*]}..."
+                $SUDO DEBIAN_FRONTEND=noninteractive apt-get update -y
+                $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=120 "${MISSING_PKGS[@]}"
+                $SUDO DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o DPkg::Lock::Timeout=120 -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+                $SUDO DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && $SUDO DEBIAN_FRONTEND=noninteractive apt-get autoclean -y
               fi
             elif command -v dnf >/dev/null 2>&1; then
               if ! command -v git >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v rclone >/dev/null 2>&1 || ! command -v crontab >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
-                sudo dnf upgrade -y || true
-                sudo dnf install -y git curl unzip cronie openssl python3 ffmpeg || sudo dnf install -y git curl unzip cronie openssl python3
+                $SUDO dnf upgrade -y || true
+                $SUDO dnf install -y git curl unzip cronie openssl python3 ffmpeg || $SUDO dnf install -y git curl unzip cronie openssl python3
                 if ! command -v rclone >/dev/null 2>&1; then
-                  curl -fsSL https://rclone.org/install.sh | sudo bash
+                  curl -fsSL https://rclone.org/install.sh | $SUDO bash
                 fi
               fi
             fi
 
             if [ ! -x /usr/local/bin/yt-dlp ]; then
-              sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-              sudo chmod a+rx /usr/local/bin/yt-dlp
+              $SUDO curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+              $SUDO chmod a+rx /usr/local/bin/yt-dlp
             fi
-            sudo /usr/local/bin/yt-dlp -U || true
+            $SUDO /usr/local/bin/yt-dlp -U || true
 
             if command -v systemctl >/dev/null 2>&1; then
-              sudo systemctl enable --now cron 2>/dev/null || sudo systemctl enable --now crond 2>/dev/null || true
+              $SUDO systemctl enable --now cron 2>/dev/null || $SUDO systemctl enable --now crond 2>/dev/null || true
             fi
 
             if ! command -v docker >/dev/null 2>&1; then
               echo "Instalando Docker..."
-              curl -fsSL https://get.docker.com | sudo sh
-              sudo usermod -aG docker "$USER" || true
+              curl -fsSL https://get.docker.com | $SUDO sh
+              $SUDO usermod -aG docker "$USER" || true
             fi
             if command -v systemctl >/dev/null 2>&1; then
-              sudo systemctl enable docker && sudo systemctl start docker || true
+              $SUDO systemctl enable docker && $SUDO systemctl start docker || true
             fi
 
             DOCKER_CMD="docker"
             if ! docker info >/dev/null 2>&1; then
-              DOCKER_CMD="sudo docker"
+              DOCKER_CMD="${SUDO:+$SUDO }docker"
             fi
             if ! $DOCKER_CMD compose version >/dev/null 2>&1; then
               if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update -y && sudo apt-get install -y docker-compose-plugin || true
+                $SUDO apt-get update -y && $SUDO apt-get install -y docker-compose-plugin || true
               fi
             fi
 
-            # 2. Clonar o actualizar el repositorio de forma limpia
-            mkdir -p "$HOME/projects"
-            cd "$HOME/projects"
-            if [ ! -d "mood-tracker/.git" ]; then
-              git clone "https://github.com/${GITHUB_REPO}.git" mood-tracker
-            fi
+            # 2. Clonar o actualizar el repositorio de forma limpia (sin fallar si data/ o english-notes/ ya existen)
+            mkdir -p "$HOME/projects/mood-tracker"
             cd "$HOME/projects/mood-tracker"
+            if [ ! -d ".git" ]; then
+              git init -b main 2>/dev/null || git init
+              git remote add origin "https://github.com/${GITHUB_REPO}.git" 2>/dev/null || true
+            fi
             git remote set-url origin "https://github.com/${GITHUB_REPO}.git"
             git fetch origin main
+            git checkout -f -B main origin/main
             git reset --hard origin/main
             # Aislamiento (Issue #84): los scripts de PC local (sincronizador.py / yt_lyrics_helper.py)
             # se versionan en Git pero JAMÁS se ejecutan en EC2. Se eliminan de la copia de trabajo del
@@ -280,6 +452,15 @@ jobs:
               exit 1
             fi
 
+            APP_UID="$(id -u)"
+            APP_GID="$(id -g)"
+            mkdir -p data/journal data/ytdlp english-notes logs
+            chmod 700 data data/journal data/ytdlp english-notes logs
+            $SUDO chown -R "${APP_UID}:${APP_GID}" data/ english-notes/ logs/ 2>/dev/null || true
+            chmod 600 data/journal/Diario.docx english-notes/English_Learning_Notebook.docx 2>/dev/null || true
+            chmod 700 "$HOME" "$HOME/.ssh" "$HOME/.config" "$HOME/projects" "$HOME/projects/respaldos" 2>/dev/null || true
+            chmod 600 "$HOME/.ssh/authorized_keys" 2>/dev/null || true
+
             FINAL_DB_HOST="${SECRET_DB_HOST:-${OLD_DB_HOST:-db}}"
             FINAL_DB_USER="${SECRET_DB_USER:-${OLD_DB_USER:-root}}"
             FINAL_DB_NAME="${SECRET_DB_NAME:-${OLD_DB_NAME:-MoodTrackerLocal}}"
@@ -291,13 +472,46 @@ jobs:
             FINAL_JOURNAL_SECRET_KEY="${SECRET_JOURNAL_SECRET_KEY:-${OLD_JOURNAL_SECRET_KEY:-}}"
             FINAL_SMTP_USER="${SECRET_SMTP_USER:-${OLD_SMTP_USER:-$FINAL_ADMIN_EMAIL}}"
             FINAL_SMTP_PASS="${SECRET_SMTP_PASS:-${OLD_SMTP_PASS:-}}"
-            FINAL_APP_BASE_URL="${SECRET_APP_BASE_URL:-http://${DEPLOY_EC2_HOST}:${FINAL_PORT}}"
+            TS_DNS=""
+            if command -v tailscale >/dev/null 2>&1; then
+              TS_DNS="$((tailscale status --json 2>/dev/null || $SUDO tailscale status --json 2>/dev/null || true) | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('Self',{}).get('DNSName') or '').rstrip('.'))" 2>/dev/null || true)"
+            fi
+            FINAL_APP_BASE_URL="${SECRET_APP_BASE_URL:-${OLD_APP_BASE_URL:-}}"
+            if [ -z "$FINAL_APP_BASE_URL" ] && [ -n "$TS_DNS" ]; then
+              FINAL_APP_BASE_URL="https://${TS_DNS}"
+            fi
+            FINAL_APP_BASE_URL="${FINAL_APP_BASE_URL:-http://${DEPLOY_EC2_HOST}:${FINAL_PORT}}"
+            FINAL_TRUST_PROXY="${SECRET_TRUST_PROXY:-${OLD_TRUST_PROXY:-}}"
+            if [ -z "$FINAL_TRUST_PROXY" ]; then
+              if [ -n "$TS_DNS" ]; then
+                FINAL_TRUST_PROXY="2"
+              else
+                FINAL_TRUST_PROXY="1"
+              fi
+            fi
             FINAL_SITE_ADDRESS="${SECRET_SITE_ADDRESS:-${OLD_SITE_ADDRESS:-:80}}"
+            FINAL_PROXY_HTTP_PORT="${SECRET_PROXY_HTTP_PORT:-${OLD_PROXY_HTTP_PORT:-8080}}"
+            FINAL_PROXY_HTTPS_PORT="${SECRET_PROXY_HTTPS_PORT:-${OLD_PROXY_HTTPS_PORT:-8443}}"
+            FINAL_REQUIRE_HTTPS="${SECRET_REQUIRE_HTTPS:-${OLD_REQUIRE_HTTPS:-}}"
+            if [ -z "$FINAL_REQUIRE_HTTPS" ]; then
+              case "$FINAL_APP_BASE_URL" in
+                https://*) FINAL_REQUIRE_HTTPS="true" ;;
+                *) FINAL_REQUIRE_HTTPS="false" ;;
+              esac
+            fi
+            FINAL_REQUIRE_PC_BRIDGE_AUTH="${SECRET_REQUIRE_PC_BRIDGE_AUTH:-${OLD_REQUIRE_PC_BRIDGE_AUTH:-true}}"
+            FINAL_CORS_ALLOWED_ORIGINS="${SECRET_CORS_ALLOWED_ORIGINS:-${OLD_CORS_ALLOWED_ORIGINS:-}}"
+            FINAL_DB_RETENTION_DAYS="${SECRET_DB_RETENTION_DAYS:-${OLD_DB_RETENTION_DAYS:-0}}"
+            FINAL_LOCAL_SQL_DAILY_BACKUP_DAYS="${SECRET_LOCAL_SQL_DAILY_BACKUP_DAYS:-${OLD_LOCAL_SQL_DAILY_BACKUP_DAYS:-180}}"
+            FINAL_LOCAL_WORD_BACKUP_DAYS="${SECRET_LOCAL_WORD_BACKUP_DAYS:-${OLD_LOCAL_WORD_BACKUP_DAYS:-365}}"
+            FINAL_ENABLE_LOGIN_MFA="${SECRET_ENABLE_LOGIN_MFA:-${OLD_ENABLE_LOGIN_MFA:-false}}"
+            FINAL_REQUIRE_DRIVE_BACKUP="${SECRET_REQUIRE_DRIVE_BACKUP:-${OLD_REQUIRE_DRIVE_BACKUP:-false}}"
             FINAL_RCLONE_REMOTE="${SECRET_RCLONE_REMOTE:-${OLD_RCLONE_REMOTE:-gdrive}}"
             FINAL_RCLONE_BACKUP_DIR="${SECRET_RCLONE_BACKUP_DIR:-${OLD_RCLONE_BACKUP_DIR:-RespaldosApp}}"
             FINAL_STUDY_RCLONE_REMOTE="${SECRET_STUDY_RCLONE_REMOTE:-${OLD_STUDY_RCLONE_REMOTE:-}}"
             FINAL_STUDY_RCLONE_DIR="${SECRET_STUDY_RCLONE_DIR:-${OLD_STUDY_RCLONE_DIR:-NotasIdiomas}}"
             FINAL_GEMINI_API_KEY="${SECRET_GEMINI_API_KEY:-${OLD_GEMINI_API_KEY:-}}"
+            FINAL_YOUTUBE_API_KEY="${SECRET_YOUTUBE_API_KEY:-${OLD_YOUTUBE_API_KEY:-}}"
             FINAL_YT_DLP_PATH="${SECRET_YT_DLP_PATH:-${OLD_YT_DLP_PATH:-}}"
 
             ENV_TMP_DIR="/dev/shm"
@@ -314,6 +528,16 @@ jobs:
               printf 'DB_NAME=%s\n' "$FINAL_DB_NAME"
               printf 'PORT=%s\n' "$FINAL_PORT"
               printf 'TZ=%s\n' "$FINAL_TZ"
+              printf 'APP_UID=%s\n' "$APP_UID"
+              printf 'APP_GID=%s\n' "$APP_GID"
+              printf 'TRUST_PROXY=%s\n' "$FINAL_TRUST_PROXY"
+              printf 'REQUIRE_HTTPS=%s\n' "$FINAL_REQUIRE_HTTPS"
+              printf 'REQUIRE_PC_BRIDGE_AUTH=%s\n' "$FINAL_REQUIRE_PC_BRIDGE_AUTH"
+              printf 'CORS_ALLOWED_ORIGINS=%s\n' "$FINAL_CORS_ALLOWED_ORIGINS"
+              printf 'SERVER_AUTONOMOUS_NOTES=true\n'
+              printf 'DB_RETENTION_DAYS=%s\n' "$FINAL_DB_RETENTION_DAYS"
+              printf 'ENABLE_LOGIN_MFA=%s\n' "$FINAL_ENABLE_LOGIN_MFA"
+              printf 'REQUIRE_DRIVE_BACKUP=%s\n' "$FINAL_REQUIRE_DRIVE_BACKUP"
               printf 'ADMIN_EMAIL=%s\n' "$FINAL_ADMIN_EMAIL"
               printf 'ADMIN_SECRET=%s\n' "$FINAL_ADMIN_SECRET"
               printf 'WORD_PASSWORD=%s\n' "$FINAL_WORD_PASSWORD"
@@ -322,6 +546,8 @@ jobs:
               printf 'SMTP_PASS=%s\n' "$FINAL_SMTP_PASS"
               printf 'APP_BASE_URL=%s\n' "$FINAL_APP_BASE_URL"
               printf 'SITE_ADDRESS=%s\n' "$FINAL_SITE_ADDRESS"
+              printf 'PROXY_HTTP_PORT=%s\n' "$FINAL_PROXY_HTTP_PORT"
+              printf 'PROXY_HTTPS_PORT=%s\n' "$FINAL_PROXY_HTTPS_PORT"
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
               printf 'STUDY_RCLONE_REMOTE=%s\n' "$FINAL_STUDY_RCLONE_REMOTE"
@@ -329,10 +555,11 @@ jobs:
               printf 'RCLONE_CONF_B64=%s\n' "$(printf '%s' "${RCLONE_CONF_B64:-}" | tr -d ' \n\r')"
               printf 'STUDY_RCLONE_CONF_B64=%s\n' "$(printf '%s' "${STUDY_RCLONE_CONF_B64:-}" | tr -d ' \n\r')"
               printf 'GEMINI_API_KEY=%s\n' "$FINAL_GEMINI_API_KEY"
+              printf 'YOUTUBE_API_KEY=%s\n' "$FINAL_YOUTUBE_API_KEY"
               printf 'YT_DLP_PATH=%s\n' "$FINAL_YT_DLP_PATH"
             } > "$DEPLOY_ENV_FILE"
 
-            # 4. Configurar rclone automáticamente (Drive 1 Clínico + Drive 2 Estudio opcional) con permisos 700/600
+            # 4. Configurar rclone automáticamente (Drive 1 Clínico + Drive 2 Estudio opcional) con permisos 700/600 y verificar conectividad
             if [ -n "${RCLONE_CONF_B64:-}" ] || [ -n "${STUDY_RCLONE_CONF_B64:-}" ]; then
               mkdir -p "$HOME/.config/rclone"
               chmod 700 "$HOME/.config/rclone"
@@ -348,13 +575,45 @@ jobs:
             fi
             unset RCLONE_CONF_B64 STUDY_RCLONE_CONF_B64
 
-            chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh
+            if command -v rclone >/dev/null 2>&1 && [ -s "$HOME/.config/rclone/rclone.conf" ]; then
+              if rclone --config "$HOME/.config/rclone/rclone.conf" listremotes 2>/dev/null | grep -qx "${FINAL_RCLONE_REMOTE}:" \
+                && rclone --config "$HOME/.config/rclone/rclone.conf" mkdir "${FINAL_RCLONE_REMOTE}:${FINAL_RCLONE_BACKUP_DIR}" >/dev/null 2>&1; then
+                echo "✅ Google Drive remoto '${FINAL_RCLONE_REMOTE}:${FINAL_RCLONE_BACKUP_DIR}' verificado."
+              else
+                echo "⚠️ No se pudo verificar Google Drive (${FINAL_RCLONE_REMOTE}:${FINAL_RCLONE_BACKUP_DIR}). Revisa RCLONE_CONF_B64." >&2
+                if [ "$FINAL_REQUIRE_DRIVE_BACKUP" = "true" ]; then
+                  exit 1
+                fi
+              fi
+            elif [ "$FINAL_REQUIRE_DRIVE_BACKUP" = "true" ]; then
+              echo "ERROR: REQUIRE_DRIVE_BACKUP=true pero falta rclone o RCLONE_CONF_B64." >&2
+              exit 1
+            fi
+
+            chmod +x scripts/backup.sh scripts/restore.sh scripts/env-vault.sh scripts/verify-ubuntu-local.sh
 
             # 5. Levantar o actualizar los contenedores Docker leyendo el entorno desde RAM
             $DOCKER_CMD compose --env-file "$DEPLOY_ENV_FILE" up -d --build
 
             # 6. Si es una instancia nueva / BD vacía, restaurar automáticamente el último backup de Google Drive
             ENV_FILE_OVERRIDE="$DEPLOY_ENV_FILE" ./scripts/restore.sh --if-empty
+
+            echo "⏳ Esperando estado healthy en los 4 contenedores (mood_db, mood_app, mood_app2, mood_proxy)..."
+            for _wait_i in $(seq 1 20); do
+              ALL_HEALTHY=1
+              for cname in mood_db mood_app mood_app2 mood_proxy; do
+                CSTATE="$($DOCKER_CMD inspect -f '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cname" 2>/dev/null || echo 'missing|none')"
+                if [ "$CSTATE" != "running|healthy" ]; then
+                  ALL_HEALTHY=0
+                  break
+                fi
+              done
+              if [ "$ALL_HEALTHY" -eq 1 ]; then
+                echo "✅ Todos los contenedores reportan running (healthy)."
+                break
+              fi
+              sleep 3
+            done
 
             # 7. Limpiar imágenes huérfanas y caché viejo de Docker para no llenar el disco de la t3.micro
             $DOCKER_CMD image prune -f >/dev/null 2>&1 || true
@@ -364,9 +623,9 @@ jobs:
             if command -v timedatectl >/dev/null 2>&1 && [ -n "${FINAL_TZ:-}" ]; then
               CURRENT_SYS_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
               if [ "$CURRENT_SYS_TZ" != "$FINAL_TZ" ]; then
-                if sudo timedatectl set-timezone "$FINAL_TZ" 2>/dev/null; then
+                if $SUDO timedatectl set-timezone "$FINAL_TZ" 2>/dev/null; then
                   if command -v systemctl >/dev/null 2>&1; then
-                    sudo systemctl restart cron 2>/dev/null || sudo systemctl restart crond 2>/dev/null || true
+                    $SUDO systemctl restart cron 2>/dev/null || $SUDO systemctl restart crond 2>/dev/null || true
                   fi
                 fi
               fi
@@ -379,15 +638,192 @@ jobs:
               printf 'RCLONE_REMOTE=%s\n' "$FINAL_RCLONE_REMOTE"
               printf 'RCLONE_BACKUP_DIR=%s\n' "$FINAL_RCLONE_BACKUP_DIR"
               printf 'BACKUP_LOCAL_DIR=%s\n' "$HOME/projects/respaldos"
+              printf 'DB_RETENTION_DAYS=%s\n' "$FINAL_DB_RETENTION_DAYS"
+              printf 'LOCAL_SQL_DAILY_BACKUP_DAYS=%s\n' "$FINAL_LOCAL_SQL_DAILY_BACKUP_DAYS"
+              printf 'LOCAL_WORD_BACKUP_DAYS=%s\n' "$FINAL_LOCAL_WORD_BACKUP_DAYS"
+              printf 'REQUIRE_DRIVE_BACKUP=%s\n' "$FINAL_REQUIRE_DRIVE_BACKUP"
             } > "$HOME/projects/respaldos/.backup.meta"
             chmod 600 "$HOME/projects/respaldos/.backup.meta"
 
+            if [ -d /etc/cron.d ]; then
+              SYS_CRON_CONF="/etc/cron.d/dailyhub-sys-update"
+              SYS_CRON_CONTENT="$(printf '%s\n' \
+                'SHELL=/bin/bash' \
+                'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' \
+                '0 4 * * 0 root (DEBIAN_FRONTEND=noninteractive apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" && DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) >> /var/log/dailyhub-sys-update.log 2>&1; /usr/local/bin/yt-dlp -U >> /var/log/dailyhub-sys-update.log 2>&1 || true')"
+              if [ ! -f "$SYS_CRON_CONF" ] || [ "$($SUDO cat "$SYS_CRON_CONF" 2>/dev/null || true)" != "$SYS_CRON_CONTENT" ]; then
+                printf '%s\n' "$SYS_CRON_CONTENT" | $SUDO tee "$SYS_CRON_CONF" >/dev/null
+                $SUDO chown root:root "$SYS_CRON_CONF"
+                $SUDO chmod 644 "$SYS_CRON_CONF"
+              fi
+            fi
+
             FINAL_CRON_SCHEDULE="${BACKUP_CRON_SCHEDULE:-30 3 * * *}"
             CRON_JOB="${FINAL_CRON_SCHEDULE} $HOME/projects/mood-tracker/scripts/backup.sh >> $HOME/projects/respaldos/backup.log 2>&1"
-            YTDLP_CRON_JOB="0 4 * * 0 ((sudo -n DEBIAN_FRONTEND=noninteractive apt-get update -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoremove -y && sudo -n DEBIAN_FRONTEND=noninteractive apt-get autoclean -y) || true); (/usr/local/bin/yt-dlp -U || true) && (docker exec mood_app yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
+            YTDLP_CRON_JOB="15 4 * * 0 (docker exec -u 0 mood_app yt-dlp -U || true) && (docker exec -u 0 mood_app2 yt-dlp -U || true) >> $HOME/projects/respaldos/ytdlp-update.log 2>&1"
             (crontab -l 2>/dev/null | grep -v "scripts/backup.sh" | grep -v "yt-dlp -U" || true; printf '%s\n%s\n' "$CRON_JOB" "$YTDLP_CRON_JOB") | crontab -
 
-            # 9. Garantizar cero .env en disco por defecto (salvo que SEAL_ENV_AFTER_DEPLOY=false)
+            # 9. Configuración y endurecimiento automático de Ubuntu Server (idempotente)
+            if [ "$FINAL_ENABLE_TAILSCALE_SERVE" = "true" ] && command -v tailscale >/dev/null 2>&1 && [ -n "$TS_DNS" ]; then
+              CURRENT_TS_SERVE="$(tailscale serve status 2>/dev/null || $SUDO tailscale serve status 2>/dev/null || true)"
+              if ! printf '%s\n' "$CURRENT_TS_SERVE" | grep -qE "(127\.0\.0\.1|localhost):${FINAL_PROXY_HTTP_PORT}\b"; then
+                echo "🌐 Configurando Tailscale Serve HTTPS -> http://127.0.0.1:${FINAL_PROXY_HTTP_PORT}..."
+                $SUDO tailscale serve reset >/dev/null 2>&1 || true
+                if $SUDO tailscale serve --bg "http://127.0.0.1:${FINAL_PROXY_HTTP_PORT}"; then
+                  echo "✅ Tailscale Serve activo en https://${TS_DNS}"
+                else
+                  echo "⚠️ No se pudo activar Tailscale Serve automáticamente (verifica HTTPS Certificates en Tailscale Admin Console -> DNS)." >&2
+                fi
+              else
+                echo "✅ Tailscale Serve ya apunta a http://127.0.0.1:${FINAL_PROXY_HTTP_PORT} (https://${TS_DNS})."
+              fi
+            fi
+
+            HAS_TS_IFACE=0
+            if command -v ip >/dev/null 2>&1 && ip link show tailscale0 >/dev/null 2>&1; then
+              HAS_TS_IFACE=1
+            fi
+            if [ "$FINAL_ENABLE_UFW" = "true" ] && command -v ufw >/dev/null 2>&1 && { [ "$HAS_TS_IFACE" -eq 1 ] || [ "$FINAL_ENABLE_UFW_EXPLICIT" = "true" ]; }; then
+              echo "🛡️ Aplicando reglas de firewall UFW..."
+              $SUDO ufw default deny incoming >/dev/null 2>&1 || true
+              $SUDO ufw default allow outgoing >/dev/null 2>&1 || true
+              if [ "$HAS_TS_IFACE" -eq 1 ]; then
+                $SUDO ufw allow in on tailscale0 >/dev/null 2>&1 || true
+              fi
+              if [ "$FINAL_UFW_CLOSE_LAN_SSH" = "true" ] && [ "${DEPLOY_VIA_TAILSCALE:-false}" = "true" ] && [ "$HAS_TS_IFACE" -eq 1 ]; then
+                $SUDO ufw delete allow "${FINAL_SSH_PORT}/tcp" >/dev/null 2>&1 || true
+                echo "🔒 Puerto LAN ${FINAL_SSH_PORT}/tcp cerrado en UFW (SSH exclusivo vía tailscale0)."
+              else
+                $SUDO ufw allow "${FINAL_SSH_PORT}/tcp" >/dev/null 2>&1 || true
+              fi
+              $SUDO ufw --force enable >/dev/null 2>&1 || true
+            fi
+
+            if [ "$FINAL_ENABLE_KERNEL_DOS_HARDENING" = "true" ] && [ -d /etc/sysctl.d ]; then
+              DOS_CONF="/etc/sysctl.d/99-security-dos.conf"
+              DOS_CONTENT="$(printf '%s\n' \
+                'net.ipv4.tcp_syncookies = 1' \
+                'net.ipv4.tcp_max_syn_backlog = 2048' \
+                'net.ipv4.tcp_synack_retries = 2' \
+                'net.ipv4.conf.all.rp_filter = 1' \
+                'net.ipv4.conf.default.rp_filter = 1' \
+                'net.ipv4.conf.all.accept_redirects = 0' \
+                'net.ipv4.conf.default.accept_redirects = 0' \
+                'net.ipv4.conf.all.send_redirects = 0' \
+                'net.ipv4.conf.all.accept_source_route = 0' \
+                'net.ipv4.icmp_echo_ignore_broadcasts = 1' \
+                'net.ipv4.icmp_ignore_bogus_error_responses = 1' \
+                'net.ipv4.conf.all.log_martians = 1')"
+              if [ ! -f "$DOS_CONF" ] || [ "$($SUDO cat "$DOS_CONF" 2>/dev/null || true)" != "$DOS_CONTENT" ]; then
+                printf '%s\n' "$DOS_CONTENT" | $SUDO tee "$DOS_CONF" >/dev/null
+                $SUDO chmod 644 "$DOS_CONF"
+                $SUDO sysctl --system >/dev/null 2>&1 || true
+                echo "✅ Protección kernel anti-DoS aplicada en $DOS_CONF."
+              fi
+            fi
+
+            if [ "$FINAL_ENABLE_PROC_HIDEPID" = "true" ] && [ -f /etc/fstab ]; then
+              if ! grep -qE '^\s*proc\s+/proc\s+proc\s+[^#]*hidepid=' /etc/fstab; then
+                [ ! -f /etc/fstab.bak ] && $SUDO cp /etc/fstab /etc/fstab.bak
+                if ! grep -qE '^\s*proc\s+/proc\s' /etc/fstab; then
+                  echo 'proc /proc proc defaults,hidepid=2 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+                else
+                  $SUDO sed -i 's|^\(\s*proc\s\+/proc\s\+proc\s\+[^ ]*\)|\1,hidepid=2|' /etc/fstab
+                fi
+              fi
+              if ! grep -E '\s/proc\s+proc\s' /proc/mounts 2>/dev/null | grep -q 'hidepid='; then
+                $SUDO mount -o remount /proc 2>/dev/null || $SUDO mount -o remount,hidepid=2 /proc 2>/dev/null || true
+              fi
+            fi
+
+            DEPLOY_USER="${USER:-$(id -un)}"
+            if [ "$FINAL_ENABLE_SSH_HARDENING" = "true" ] && [ -s "$HOME/.ssh/authorized_keys" ] && [ -d /etc/ssh/sshd_config.d ]; then
+              SSH_HARDEN_CONF="/etc/ssh/sshd_config.d/99-hardening.conf"
+              SSH_HARDEN_CONTENT="$(printf '%s\n' \
+                'PasswordAuthentication no' \
+                'KbdInteractiveAuthentication no' \
+                'PermitRootLogin no' \
+                'PubkeyAuthentication yes' \
+                'MaxAuthTries 3' \
+                'LoginGraceTime 30' \
+                'X11Forwarding no' \
+                'AllowAgentForwarding no' \
+                'AllowTcpForwarding no' \
+                'ClientAliveInterval 300' \
+                'ClientAliveCountMax 2' \
+                "AllowUsers ${DEPLOY_USER}")"
+              if [ ! -f "$SSH_HARDEN_CONF" ] || [ "$($SUDO cat "$SSH_HARDEN_CONF" 2>/dev/null || true)" != "$SSH_HARDEN_CONTENT" ]; then
+                printf '%s\n' "$SSH_HARDEN_CONTENT" | $SUDO tee "$SSH_HARDEN_CONF" >/dev/null
+                $SUDO chmod 644 "$SSH_HARDEN_CONF"
+                if $SUDO sshd -t 2>/dev/null; then
+                  $SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd 2>/dev/null || true
+                  echo "✅ OpenSSH endurecido (solo llaves SSH, sin contraseñas)."
+                else
+                  $SUDO rm -f "$SSH_HARDEN_CONF"
+                  echo "⚠️ sshd -t rechazó 99-hardening.conf; se revirtió para proteger acceso SSH." >&2
+                fi
+              fi
+            fi
+
+            if [ "$FINAL_ENABLE_FAIL2BAN" = "true" ] && command -v fail2ban-client >/dev/null 2>&1; then
+              F2B_CONF="/etc/fail2ban/jail.local"
+              F2B_CONTENT="$(printf '%s\n' \
+                '[DEFAULT]' \
+                'bantime = 1h' \
+                'findtime = 10m' \
+                'maxretry = 3' \
+                'backend = systemd' \
+                '' \
+                '[sshd]' \
+                'enabled = true' \
+                "port = ${FINAL_SSH_PORT}" \
+                'mode = aggressive')"
+              if [ ! -f "$F2B_CONF" ] || [ "$($SUDO cat "$F2B_CONF" 2>/dev/null || true)" != "$F2B_CONTENT" ]; then
+                printf '%s\n' "$F2B_CONTENT" | $SUDO tee "$F2B_CONF" >/dev/null
+                $SUDO chmod 644 "$F2B_CONF"
+                if command -v systemctl >/dev/null 2>&1; then
+                  $SUDO systemctl enable --now fail2ban >/dev/null 2>&1 || true
+                  $SUDO systemctl restart fail2ban >/dev/null 2>&1 || true
+                fi
+                echo "✅ Fail2ban configurado para proteger SSH (puerto ${FINAL_SSH_PORT})."
+              elif command -v systemctl >/dev/null 2>&1; then
+                $SUDO systemctl enable --now fail2ban >/dev/null 2>&1 || true
+              fi
+            fi
+
+            if [ "$FINAL_ENABLE_UNATTENDED_UPGRADES" = "true" ] && command -v dpkg >/dev/null 2>&1 && dpkg -s unattended-upgrades >/dev/null 2>&1; then
+              if [ ! -f /etc/apt/apt.conf.d/20auto-upgrades ]; then
+                $SUDO DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive unattended-upgrades >/dev/null 2>&1 || true
+              fi
+              if command -v systemctl >/dev/null 2>&1; then
+                $SUDO systemctl enable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1 || true
+              fi
+            fi
+
+            if [ "$FINAL_ENABLE_AUDITD" = "true" ] && [ -d /etc/audit/rules.d ]; then
+              AUDIT_CONF="/etc/audit/rules.d/99-dailyhub-watch.rules"
+              AUDIT_CONTENT="$(printf -- '%s\n' \
+                "-w ${HOME}/.ssh/authorized_keys -p wa -k ssh_keys_watch" \
+                "-w /etc/sudoers.d -p wa -k sudoers_watch" \
+                "-w ${HOME}/.config/rclone/rclone.conf -p wa -k secrets_watch" \
+                "-w ${HOME}/projects/mood-tracker/data/journal/Diario.docx -p wa -k journal_watch")"
+              if [ ! -f "$AUDIT_CONF" ] || [ "$($SUDO cat "$AUDIT_CONF" 2>/dev/null || true)" != "$AUDIT_CONTENT" ]; then
+                printf -- '%s\n' "$AUDIT_CONTENT" | $SUDO tee "$AUDIT_CONF" >/dev/null
+                $SUDO chmod 640 "$AUDIT_CONF"
+                if command -v augenrules >/dev/null 2>&1; then
+                  $SUDO augenrules --load >/dev/null 2>&1 || true
+                fi
+                if command -v systemctl >/dev/null 2>&1; then
+                  $SUDO systemctl enable --now auditd >/dev/null 2>&1 || true
+                  $SUDO systemctl restart auditd >/dev/null 2>&1 || true
+                fi
+                echo "✅ Reglas auditd cargadas en $AUDIT_CONF."
+              elif command -v systemctl >/dev/null 2>&1; then
+                $SUDO systemctl enable --now auditd >/dev/null 2>&1 || true
+              fi
+            fi
+
+            # 10. Garantizar cero .env en disco por defecto (salvo que SEAL_ENV_AFTER_DEPLOY=false)
             if [ "${SEAL_ENV_AFTER_DEPLOY:-true}" = "false" ]; then
               cp "$DEPLOY_ENV_FILE" .env
               chmod 600 .env
@@ -399,3 +835,9 @@ jobs:
               echo "Despliegue completado sin archivo .env en disco (gestionado 100% por GitHub Secrets/Variables)."
             fi
             cleanup_deploy_env
+            cleanup_sudo_askpass_files
+
+            # 11. Verificación automatizada post-despliegue ([1/10]-[10/10])
+            if [ "$FINAL_RUN_POST_DEPLOY_VERIFY" = "true" ] && [ -x ./scripts/verify-ubuntu-local.sh ]; then
+              PORT="$FINAL_PORT" PROXY_HTTP_PORT="$FINAL_PROXY_HTTP_PORT" TZ="$FINAL_TZ" ./scripts/verify-ubuntu-local.sh || echo "⚠️ verify-ubuntu-local.sh reportó observaciones (revisa el resumen arriba)."
+            fi

@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="style.css">
     <meta property="og:title" content="Personal Daily Hub">
     <meta property="og:type" content="website">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js" defer></script>
+    <script src="vendor/crypto-js.min.js" defer></script>
     <script src="transport-crypto.js" defer></script>
     <script src="i18n.js" defer></script>
     <script src="guia-visual.js" defer></script>
@@ -885,6 +885,19 @@
                         </div>
                     </div>
 
+                    <div class="card journal-coverage-card" id="journalDailyCoverageCard">
+                        <div class="journal-coverage-header">
+                            <div class="journal-coverage-title-wrap">
+                                <h3>📅 Daily Journal Verification</h3>
+                                <span id="journalCoverageBadge" class="journal-coverage-badge is-info">Checking...</span>
+                            </div>
+                            <button type="button" class="btn-secondary-pill" id="btnJournalVerifyDays"
+                                title="Check all past days and fill any empty or missing day with Nothing to report.">🔍 Verify &amp; Fill Missing Days</button>
+                        </div>
+                        <p id="journalCoverageSummary" class="journal-coverage-summary muted-text">Verifying that every day has an entry or "Nothing to report."...</p>
+                        <div id="journalRecentDaysStrip" class="journal-recent-days" aria-live="polite"></div>
+                    </div>
+
                     <div class="card view-main-card">
                         <form id="journalForm">
                             <div class="journal-editor-bar">
@@ -918,7 +931,10 @@
                                 <div class="word-proofing-issues" id="journalProofingIssues" hidden></div>
                             </div>
                             <div id="journalStatusBanner" class="inline-status-banner" hidden aria-live="polite"></div>
-                            <button type="submit" class="btn-submit" id="btn-send-word" title="Cifrar y guardar esta nota en tu diario personal de Word">💾 Guardar en Diario (Word)</button>
+                            <div class="journal-submit-row">
+                                <button type="submit" class="btn-submit" id="btn-send-word" title="Cifrar y guardar esta nota en tu diario personal de Word">💾 Guardar en Diario (Word)</button>
+                                <button type="button" class="btn-journal-ntr" id="btnJournalNothingToReport" title="Mark today in your journal as Nothing to report.">📝 Nothing to report.</button>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -1241,125 +1257,11 @@
                         </div>
 
                         <div class="music-studio-grid">
-                            <form id="musicSongForm" class="music-panel-card" autocomplete="off">
-                                <div class="music-panel-head">
-                                    <h3 id="musicSongFormTitle">Register or Link Song</h3>
-                                    <button type="button" class="btn-secondary btn-small" id="btnMusicCancelEdit" hidden>Cancel Edit</button>
-                                </div>
-                                <input type="hidden" id="musicSongEditId" value="">
-
-                                <div class="form-group">
-                                    <label for="musicSongYtUrl">YouTube Music / YouTube URL or 11-char ID (optional)</label>
-                                    <div class="music-inline-input">
-                                        <input type="text" id="musicSongYtUrl" maxlength="500"
-                                            placeholder="https://music.youtube.com/watch?v=...">
-                                        <button type="button" class="btn-secondary btn-small" id="btnMusicResolveYt">Auto-fill</button>
-                                    </div>
-                                </div>
-
-                                <div class="english-row-2">
-                                    <div class="form-group">
-                                        <label for="musicSongTitle">Song Title *</label>
-                                        <input type="text" id="musicSongTitle" maxlength="180" required placeholder="e.g. DRIP">
-                                    </div>
-                                    <div class="english-row-2">
-                                        <div class="form-group">
-                                            <label for="musicSongTrackNumber">Track #</label>
-                                            <input type="number" id="musicSongTrackNumber" min="1" max="999" placeholder="e.g. 2">
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="musicSongLanguage">Language</label>
-                                            <select id="musicSongLanguage" class="select-input">
-                                                <option value="English">🇺🇸 English</option>
-                                                <option value="Korean">🇰🇷 Korean (한국어)</option>
-                                                <option value="English + Korean (K-Pop)" selected>🎵 English + Korean (K-Pop)</option>
-                                                <option value="Japanese">🇯🇵 Japanese (日本語)</option>
-                                                <option value="English + Japanese (J-Pop)">🎌 English + Japanese (JP-EN)</option>
-                                                <option value="Other">🌐 Other</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="english-row-2">
-                                    <div class="form-group">
-                                        <label for="musicMainArtist">Main Artist / Group *</label>
-                                        <input type="text" id="musicMainArtist" list="musicArtistsDatalist" maxlength="140" required
-                                            placeholder="e.g. BABYMONSTER, BLACKPINK, ROSÉ">
-                                        <datalist id="musicArtistsDatalist"></datalist>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="musicMainArtistType">Artist Format</label>
-                                        <select id="musicMainArtistType" class="select-input">
-                                            <option value="group">Group</option>
-                                            <option value="solo">Solo Artist</option>
-                                            <option value="duo">Duo</option>
-                                            <option value="collab_project">Collab Unit</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div class="form-group">
-                                    <label for="musicCollaborators">Collaborators / Featured Artists (optional)</label>
-                                    <input type="text" id="musicCollaborators" maxlength="300"
-                                        placeholder="Comma-separated, e.g. Bruno Mars, feat. Cardi B">
-                                    <small class="muted-text">Songs appear under every collaborating artist too.</small>
-                                </div>
-
-                                <div class="english-row-2">
-                                    <div class="form-group">
-                                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
-                                            <label for="musicAlbumTitle">Album / Mini Album Title (optional)</label>
-                                            <button type="button" class="btn-mini-add" id="btnMusicQuickNewAlbum">+ New Album</button>
-                                        </div>
-                                        <input type="text" id="musicAlbumTitle" list="musicAlbumsDatalist" maxlength="180"
-                                            placeholder="e.g. BABYMONS7ER, BORN PINK">
-                                        <datalist id="musicAlbumsDatalist"></datalist>
-                                    </div>
-                                    <div class="english-row-2">
-                                        <div class="form-group">
-                                            <label for="musicAlbumType">Release Type</label>
-                                            <select id="musicAlbumType" class="select-input">
-                                                <option value="album">Album</option>
-                                                <option value="mini_album">Mini Album</option>
-                                                <option value="ep">EP</option>
-                                                <option value="single">Single</option>
-                                                <option value="collab_single">Collab Single</option>
-                                                <option value="ost">OST / Soundtrack</option>
-                                            </select>
-                                        </div>
-                                        <div class="form-group">
-                                            <label for="musicAlbumYear">Year</label>
-                                            <input type="number" id="musicAlbumYear" min="1950" max="2100" placeholder="2024">
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="english-row-2">
-                                    <div class="form-group">
-                                        <label for="musicStudyStatus">Study Progress</label>
-                                        <select id="musicStudyStatus" class="select-input">
-                                            <option value="to_study">To Study</option>
-                                            <option value="in_progress">In Progress</option>
-                                            <option value="mastered">Mastered</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="musicFocusSummary">Short Study Focus (max 255 chars, no lyrics)</label>
-                                        <input type="text" id="musicFocusSummary" maxlength="255"
-                                            placeholder="e.g. Connected speech &amp; slang idioms in chorus">
-                                    </div>
-                                </div>
-
-                                <div id="musicSongFormBanner" class="english-status-banner" hidden></div>
-
-                                <button type="submit" class="btn-submit" id="btnMusicSaveSong">Save Song Metadata</button>
-                            </form>
-
                             <div class="music-panel-card music-catalog-panel">
                                 <div class="music-panel-head">
                                     <h3>Artists, Collaborations &amp; Albums</h3>
                                     <div class="music-head-actions">
+                                        <button type="button" class="btn-primary btn-small" id="btnMusicNewSong">➕ Register New Song</button>
                                         <button type="button" class="btn-mini-add" id="btnMusicNewAlbum">💿 + New Album / Mini Album</button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicRefreshCatalog">Refresh</button>
                                     </div>
@@ -1429,7 +1331,6 @@
                                     <div class="music-lyrics-viewer-title-wrap">
                                         <h4>📄 Letra de la Canción (Modo Estudio)</h4>
                                         <span id="musicLyricsMetaBadge" class="badge-pill">Cuaderno Word</span>
-                                        <span id="musicPcBridgeBadge" class="badge-pill badge-pill-subtle" title="Indicates whether your computer is online for local fallback or saving to Word">⚪ Checking PC...</span>
                                     </div>
                                     <div class="music-lyrics-viewer-actions">
                                         <select id="musicLyricsTrackLangFilter" class="select-input select-compact"
@@ -1443,11 +1344,11 @@
                                             <option value="es">🇪🇸 Español</option>
                                         </select>
                                         <button type="button" class="btn-primary btn-small" id="btnMusicExtractLyrics"
-                                            title="Extraer la letra desde tu cuaderno Word o automáticamente desde tu computadora">
+                                            title="Extraer la letra desde tu cuaderno Word o automáticamente desde el servidor">
                                             📄 Extraer letra
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicCopyLyricsToStudy"
-                                            title="Enviar únicamente los versos del idioma seleccionado al analizador por estrofas">
+                                            title="Analizar directamente por estrofas los versos del idioma seleccionado">
                                             ✨ Analizar Estrofas
                                         </button>
                                         <button type="button" class="btn-secondary btn-small" id="btnMusicTranslateFullLyricsEs"
@@ -1476,15 +1377,6 @@
                             <form id="musicWordNotesForm">
                                 <input type="hidden" id="musicWordSongId" value="">
                                 <div class="form-group">
-                                    <div class="music-lyrics-label-row">
-                                        <label for="musicStudyLyrics">Desglose por Estrofas, Significados y Notas (Guardado privado en Word)</label>
-                                        <div class="music-lyrics-label-actions">
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicCleanTimestamps" title="Limpiar marcas de tiempo si pegaste una letra manualmente">🧹 Limpiar Texto</button>
-                                            <button type="button" class="btn-secondary btn-small" id="btnMusicAiExplainLyrics" title="Dividir la canción en estrofas (Intro, Pre-Coro, Coro, Rap) y explicar vocabulario y pronunciación">✨ Desglosar por Estrofas</button>
-                                        </div>
-                                    </div>
-                                    <textarea id="musicStudyLyrics" class="english-textarea" rows="5" maxlength="12000" required
-                                        placeholder="La letra aparecerá aquí al presionar 'Extraer letra' o 'Desglosar por Estrofas' para generar tu guía frase por frase..."></textarea>
                                     <div class="ai-autosync-bar">
                                         <label class="ai-autosync-toggle" title="Guarda el análisis directamente en tu cuaderno de Word organizado por álbum y pista">
                                             <input type="checkbox" id="chkAutoSyncAiToWord" checked>
@@ -1663,13 +1555,13 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="plannerSemName">Semester Name:</label>
-                                        <input type="text" id="plannerSemName" maxlength="120" placeholder="e.g. 9no Semestre · Ing. Sistemas">
+                                        <input type="text" id="plannerSemName" maxlength="120" placeholder="e.g. 9th Semester · Systems Eng.">
                                     </div>
                                 </div>
                                 <div class="form-row-2">
                                     <div class="form-group">
                                         <label for="plannerSemCode">Term Code:</label>
-                                        <input type="text" id="plannerSemCode" maxlength="30" placeholder="e.g. 2026-2 (Ago-Dic)">
+                                        <input type="text" id="plannerSemCode" maxlength="30" placeholder="e.g. 2026-2 (Aug-Dec)">
                                     </div>
                                     <div class="form-row-2">
                                         <div class="form-group">
@@ -1777,7 +1669,7 @@
                                     <p class="muted-text">During these dates, automatic class notifications are paused and Agenda sync skips class generation.</p>
                                     <div class="form-group">
                                         <label for="vacName">Period Name *</label>
-                                        <input type="text" id="vacName" maxlength="120" required placeholder="e.g. Vacaciones de Invierno TecNM, Semana Santa...">
+                                        <input type="text" id="vacName" maxlength="120" required placeholder="e.g. TecNM Winter Break, Spring Break...">
                                     </div>
                                     <div class="form-row-2">
                                         <div class="form-group">
@@ -2722,7 +2614,7 @@
                 <div class="form-group">
                     <label for="agendaActividad">Title / Label *</label>
                     <input type="text" id="agendaActividad" lang="en" spellcheck="true" maxlength="120"
-                        placeholder="e.g. SCG1009 Gestión de Proyectos, Finish Lab Report..." required>
+                        placeholder="e.g. SCG1009 Project Management, Finish Lab Report..." required>
                     <div class="agenda-suggestions" id="agendaSuggestions">
                         <button type="button" class="suggestion-chip" data-text="University Class">University Class</button>
                         <button type="button" class="suggestion-chip" data-text="Complete Assignment">Complete Assignment</button>
@@ -2735,7 +2627,7 @@
                 <div class="form-group">
                     <label for="agendaDescripcion">Description / Classroom / Details (optional):</label>
                     <textarea id="agendaDescripcion" class="english-textarea" lang="en" spellcheck="true" rows="3" maxlength="180"
-                        placeholder="e.g. Aula R11 (Campus Blvd / Glorieta) · Bring sprint backlog and architecture diagram..."></textarea>
+                        placeholder="e.g. Room R11 (Campus Blvd / Glorieta) · Bring sprint backlog and architecture diagram..."></textarea>
                 </div>
 
                 <div class="word-proofing-panel" id="agendaProofingPanel">
@@ -2979,6 +2871,130 @@
                 <button type="button" class="btn-cancel" id="btnConfirmCancel">Cancel</button>
                 <button type="button" class="btn-submit btn-modal-save" id="btnConfirmAccept">Confirm</button>
             </div>
+        </div>
+    </div>
+
+    <!-- In-app Modal: Register or Edit Song -->
+    <div class="modal-overlay" id="musicSongModal" hidden aria-modal="true" role="dialog" aria-labelledby="musicSongFormTitle">
+        <div class="modal-card modal-card-wide music-song-modal-card">
+            <div class="modal-header">
+                <h2 id="musicSongFormTitle">Register or Link Song</h2>
+                <button type="button" class="modal-close-btn" id="btnCloseMusicSongModal" aria-label="Close modal">✕</button>
+            </div>
+            <form id="musicSongForm" class="music-song-modal-form" autocomplete="off">
+                <input type="hidden" id="musicSongEditId" value="">
+
+                <div class="form-group">
+                    <label for="musicSongYtUrl">YouTube Music / YouTube URL or 11-char ID (optional)</label>
+                    <div class="music-inline-input">
+                        <input type="text" id="musicSongYtUrl" maxlength="500"
+                            placeholder="https://music.youtube.com/watch?v=...">
+                        <button type="button" class="btn-secondary btn-small" id="btnMusicResolveYt">Auto-fill</button>
+                    </div>
+                </div>
+
+                <div class="english-row-2">
+                    <div class="form-group">
+                        <label for="musicSongTitle">Song Title *</label>
+                        <input type="text" id="musicSongTitle" maxlength="180" required placeholder="e.g. DRIP">
+                    </div>
+                    <div class="english-row-2">
+                        <div class="form-group">
+                            <label for="musicSongTrackNumber">Track #</label>
+                            <input type="number" id="musicSongTrackNumber" min="1" max="999" placeholder="e.g. 2">
+                        </div>
+                        <div class="form-group">
+                            <label for="musicSongLanguage">Language</label>
+                            <select id="musicSongLanguage" class="select-input">
+                                <option value="English">🇺🇸 English</option>
+                                <option value="Korean">🇰🇷 Korean (한국어)</option>
+                                <option value="English + Korean (K-Pop)" selected>🎵 English + Korean (K-Pop)</option>
+                                <option value="Japanese">🇯🇵 Japanese (日本語)</option>
+                                <option value="English + Japanese (J-Pop)">🎌 English + Japanese (JP-EN)</option>
+                                <option value="Spanish">🇪🇸 Spanish (Español)</option>
+                                <option value="Other">🌐 Other</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="english-row-2">
+                    <div class="form-group">
+                        <label for="musicMainArtist">Main Artist / Group *</label>
+                        <input type="text" id="musicMainArtist" list="musicArtistsDatalist" maxlength="140" required
+                            placeholder="e.g. BABYMONSTER, BLACKPINK, ROSÉ">
+                        <datalist id="musicArtistsDatalist"></datalist>
+                    </div>
+                    <div class="form-group">
+                        <label for="musicMainArtistType">Artist Format</label>
+                        <select id="musicMainArtistType" class="select-input">
+                            <option value="group">Group</option>
+                            <option value="solo">Solo Artist</option>
+                            <option value="duo">Duo</option>
+                            <option value="collab_project">Collab Unit</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="musicCollaborators">Collaborators / Featured Artists (optional)</label>
+                    <input type="text" id="musicCollaborators" maxlength="300"
+                        placeholder="Comma-separated, e.g. Bruno Mars, feat. Cardi B">
+                    <small class="muted-text">Songs appear under every collaborating artist too.</small>
+                </div>
+
+                <div class="english-row-2">
+                    <div class="form-group">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+                            <label for="musicAlbumTitle">Album / Mini Album Title (optional)</label>
+                            <button type="button" class="btn-mini-add" id="btnMusicQuickNewAlbum">+ New Album</button>
+                        </div>
+                        <input type="text" id="musicAlbumTitle" list="musicAlbumsDatalist" maxlength="180"
+                            placeholder="e.g. BABYMONS7ER, BORN PINK">
+                        <datalist id="musicAlbumsDatalist"></datalist>
+                    </div>
+                    <div class="english-row-2">
+                        <div class="form-group">
+                            <label for="musicAlbumType">Release Type</label>
+                            <select id="musicAlbumType" class="select-input">
+                                <option value="album">Album</option>
+                                <option value="mini_album">Mini Album</option>
+                                <option value="ep">EP</option>
+                                <option value="single">Single</option>
+                                <option value="collab_single">Collab Single</option>
+                                <option value="ost">OST / Soundtrack</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="musicAlbumYear">Release Year</label>
+                            <input type="number" id="musicAlbumYear" min="1900" max="2100" placeholder="2024">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="english-row-2">
+                    <div class="form-group">
+                        <label for="musicStudyStatus">Study Progress</label>
+                        <select id="musicStudyStatus" class="select-input">
+                            <option value="to_study">To Study</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="mastered">Mastered</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="musicFocusSummary">Short Study Focus (max 255 chars, no lyrics)</label>
+                        <input type="text" id="musicFocusSummary" maxlength="255"
+                            placeholder="e.g. Connected speech &amp; slang idioms in chorus">
+                    </div>
+                </div>
+
+                <div id="musicSongFormBanner" class="english-status-banner" hidden></div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" id="btnMusicCancelEdit">Cancel</button>
+                    <button type="submit" class="btn-submit btn-modal-save" id="btnMusicSaveSong">Save Song Metadata</button>
+                </div>
+            </form>
         </div>
     </div>
 

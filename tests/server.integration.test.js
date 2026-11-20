@@ -47,6 +47,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
     let medicoCookie;
 
     const queryLog = [];
+    const activeAdvisoryLocks = new Set();
+    const advisoryLockHistory = [];
     const sessions = new Map();
     const moodInserts = [];
     const sleepInserts = [];
@@ -139,6 +141,10 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         { Field: 'estado' },
                         { Field: 'recordatorio_min' }
                     ]);
+                }
+
+                if (normalized.startsWith("SHOW COLUMNS FROM MusicaCanciones LIKE 'anio'")) {
+                    return finish(null, [{ Field: 'anio' }]);
                 }
 
                 if (normalized.startsWith('SELECT id, rol, estado FROM Usuarios WHERE id = ?')) {
@@ -551,7 +557,20 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('INSERT INTO MusicaCanciones')) {
-                    const [uid, albumId, titulo, numPista, idioma, ytUrl, ytId, thumb, estado, enfoque] = params;
+                    const hasAnioCol = normalized.includes(', anio,');
+                    const uid = params[0];
+                    const albumId = params[1];
+                    const titulo = params[2];
+                    const numPista = params[3];
+                    const idioma = params[4];
+                    const anio = hasAnioCol ? params[5] : null;
+                    const offset = hasAnioCol ? 1 : 0;
+                    const ytUrl = params[5 + offset];
+                    const ytId = params[6 + offset];
+                    const thumb = params[7 + offset];
+                    const estado = params[8 + offset];
+                    const enfoque = params[9 + offset];
+                    const wordSync = params[10 + offset] ? 1 : 0;
                     const id = musicSongs.length + 1;
                     musicSongs.push({
                         id,
@@ -560,12 +579,13 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                         titulo,
                         numero_pista: numPista,
                         idioma,
+                        anio: anio || null,
                         yt_music_url: ytUrl,
                         yt_video_id: ytId,
                         thumbnail_url: thumb,
                         estado_estudio: estado,
                         enfoque_corto: enfoque,
-                        word_sincronizado: 0,
+                        word_sincronizado: wordSync,
                         ultimo_estudio_en: null,
                         creado_en: '2026-11-14 16:00:00',
                         actualizado_en: '2026-11-14 16:00:00'
@@ -627,7 +647,8 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                                     ...c,
                                     album_titulo: al ? al.titulo : null,
                                     album_tipo: al ? al.tipo_lanzamiento : null,
-                                    album_anio: al ? al.anio : null
+                                    album_anio: (al && al.anio != null) ? al.anio : (c.anio ?? null),
+                                    cancion_anio: c.anio ?? null
                                 };
                             })
                     );
@@ -672,7 +693,20 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 }
 
                 if (normalized.startsWith('UPDATE MusicaCanciones SET album_id = ?')) {
-                    const [albumId, titulo, numPista, idioma, ytUrl, ytId, thumb, estado, enfoque, songId, uid] = params;
+                    const hasAnioCol = normalized.includes('anio = ?');
+                    const albumId = params[0];
+                    const titulo = params[1];
+                    const numPista = params[2];
+                    const idioma = params[3];
+                    const anio = hasAnioCol ? params[4] : null;
+                    const off = hasAnioCol ? 1 : 0;
+                    const ytUrl = params[4 + off];
+                    const ytId = params[5 + off];
+                    const thumb = params[6 + off];
+                    const estado = params[7 + off];
+                    const enfoque = params[8 + off];
+                    const songId = params[9 + off];
+                    const uid = params[10 + off];
                     const song = musicSongs.find((c) => c.id === Number(songId) && c.usuario_id === Number(uid));
                     if (song) {
                         Object.assign(song, {
@@ -680,6 +714,7 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                             titulo,
                             numero_pista: numPista,
                             idioma,
+                            ...(hasAnioCol ? { anio: anio || null } : {}),
                             yt_music_url: ytUrl,
                             yt_video_id: ytId,
                             thumbnail_url: thumb,
@@ -805,7 +840,28 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
                 return finish(null, []);
             },
             getConnection(cb) {
-                cb(null, { release() {} });
+                cb(null, {
+                    query(sql, paramsOrCb, maybeCb) {
+                        const params = Array.isArray(paramsOrCb) ? paramsOrCb : [];
+                        const queryCb = typeof paramsOrCb === 'function' ? paramsOrCb : maybeCb;
+                        const normalized = String(sql).replace(/\s+/g, ' ').trim();
+                        if (normalized.startsWith('SELECT GET_LOCK(')) {
+                            const lockName = String(params[0] || '');
+                            const acquired = activeAdvisoryLocks.has(lockName) ? 0 : 1;
+                            if (acquired === 1) activeAdvisoryLocks.add(lockName);
+                            advisoryLockHistory.push({ op: 'acquire', lockName, result: acquired });
+                            return process.nextTick(() => queryCb(null, [{ acquired }]));
+                        }
+                        if (normalized.startsWith('SELECT RELEASE_LOCK(')) {
+                            const lockName = String(params[0] || '');
+                            const released = activeAdvisoryLocks.delete(lockName) ? 1 : 0;
+                            advisoryLockHistory.push({ op: 'release', lockName, result: released });
+                            return process.nextTick(() => queryCb(null, [{ released }]));
+                        }
+                        return mockDb.query(sql, params, queryCb);
+                    },
+                    release() {}
+                });
             },
             end(cb) {
                 if (cb) cb();
@@ -3544,6 +3600,189 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         }
     });
 
+    it('persiste año sin álbum, pasa artista vinculado al resolver letras sin álbum e integra InnerTube+iTunes en resolve', async () => {
+        const ytdlpService = require(path.join(ROOT, 'lib', 'ytdlp-service'));
+        const origExtract = ytdlpService.extractSongLyrics;
+        const origFetch = global.fetch;
+
+        try {
+            // 1. Crear canción CON año (2019) y SIN álbum (albumTitle vacío)
+            const createNoAlbum = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/songs',
+                headers: { Cookie: adminCookie },
+                body: {
+                    titulo: 'Blueming',
+                    mainArtist: 'IU',
+                    artistType: 'solo',
+                    albumTitle: '',
+                    albumType: 'single',
+                    albumYear: 2019,
+                    idioma: 'English + Korean (K-Pop)',
+                    ytMusicUrl: 'https://www.youtube.com/watch?v=D1PvIWdJ8xo'
+                }
+            });
+            assert.strictEqual(createNoAlbum.status, 201);
+            const { songId: noAlbumSongId } = JSON.parse(createNoAlbum.body);
+            assert.ok(noAlbumSongId);
+
+            // Verificar que el catálogo devuelve album_anio=2019 aunque album_titulo sea null
+            const catRes = await request({
+                port,
+                reqPath: '/api/english/music/catalog',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(catRes.status, 200);
+            const catJson = JSON.parse(catRes.body);
+            const savedNoAlbum = catJson.songs.find((s) => Number(s.id) === Number(noAlbumSongId));
+            assert.ok(savedNoAlbum);
+            assert.strictEqual(savedNoAlbum.album_titulo, null);
+            assert.strictEqual(savedNoAlbum.album_anio, 2019);
+
+            // 2. Resolver letras sobre canción SIN álbum -> extractSongLyrics recibe trackArtist='IU' y useExternalFallbacks=true
+            let capturedExtractOpts = null;
+            ytdlpService.extractSongLyrics = async (opts) => {
+                capturedExtractOpts = opts;
+                return {
+                    ok: true,
+                    videoId: opts.videoId,
+                    lyrics: '[KO]\n뭐해라는 두 글자에\n[EN]\nI feel blue',
+                    source: 'lrclib',
+                    language: 'ko,en',
+                    tracks: { original: '', ko: '뭐해라는 두 글자에', en: 'I feel blue', ja: '', es: '' },
+                    trackList: [],
+                    ytdlpAvailable: true,
+                    availableLangs: []
+                };
+            };
+
+            const resLyrics = await request({
+                port,
+                method: 'POST',
+                reqPath: `/api/english/music/songs/${noAlbumSongId}/resolve-lyrics`,
+                headers: { Cookie: adminCookie },
+                body: { forceExtract: true }
+            });
+            assert.strictEqual(resLyrics.status, 200);
+            const resLyricsJson = JSON.parse(resLyrics.body);
+            assert.strictEqual(resLyricsJson.ok, true);
+            assert.strictEqual(resLyricsJson.source, 'lrclib');
+            assert.ok(capturedExtractOpts);
+            assert.strictEqual(capturedExtractOpts.trackArtist, 'IU');
+            assert.strictEqual(capturedExtractOpts.useExternalFallbacks, true);
+
+            // 3. Auto-fill POST /api/english/music/resolve integrando YT Music InnerTube + iTunes (lyric video 2025 de canción de 2019)
+            global.fetch = async (url) => {
+                const target = String(url);
+                if (target.includes('youtube.com/oembed')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            title: '[MV] IU(아이유) _ Blueming(블루밍)',
+                            author_name: '1theK (원더케이)'
+                        })
+                    };
+                }
+                if (target.includes('youtube.com/watch?v=lyr2025vid1')) {
+                    const playerResp = {
+                        videoDetails: {
+                            title: 'Blueming (Color Coded Lyrics Eng/Rom/Han)',
+                            author: 'Jaeguchi',
+                            shortDescription: 'Lyric video uploaded in 2025'
+                        },
+                        microformat: {
+                            playerMicroformatRenderer: { publishDate: '2025-02-10' }
+                        },
+                        playabilityStatus: { status: 'OK', playableInEmbed: true }
+                    };
+                    return {
+                        ok: true,
+                        text: async () => `<script>var ytInitialPlayerResponse = ${JSON.stringify(playerResp)};</script>`
+                    };
+                }
+                if (target.includes('music.youtube.com/youtubei/v1/next')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            contents: {
+                                singleColumnMusicWatchNextResultsRenderer: {
+                                    tabbedRenderer: {
+                                        watchNextTabbedResultsRenderer: {
+                                            tabs: [{
+                                                tabRenderer: {
+                                                    content: {
+                                                        musicQueueRenderer: {
+                                                            content: {
+                                                                playlistPanelRenderer: {
+                                                                    contents: [{
+                                                                        playlistPanelVideoRenderer: {
+                                                                            videoId: 'lyr2025vid1',
+                                                                            title: { runs: [{ text: 'Blueming' }] },
+                                                                            longBylineText: {
+                                                                                runs: [
+                                                                                    { text: 'IU' },
+                                                                                    { text: ' • ' },
+                                                                                    { text: 'Blueming - Single' },
+                                                                                    { text: ' • ' },
+                                                                                    { text: '2019' }
+                                                                                ]
+                                                                            }
+                                                                        }
+                                                                    }]
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }]
+                                        }
+                                    }
+                                }
+                            }
+                        })
+                    };
+                }
+                if (target.includes('itunes.apple.com/search')) {
+                    return {
+                        ok: true,
+                        json: async () => ({
+                            results: [{
+                                trackName: 'Blueming',
+                                artistName: 'IU',
+                                collectionName: 'Blueming - Single',
+                                releaseDate: '2019-11-18T08:00:00Z',
+                                trackNumber: 1,
+                                primaryGenreName: 'K-Pop',
+                                trackTimeMillis: 217000
+                            }]
+                        })
+                    };
+                }
+                return { ok: false };
+            };
+
+            const extResolveRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/english/music/resolve',
+                headers: { Cookie: adminCookie },
+                body: { url: 'https://www.youtube.com/watch?v=lyr2025vid1' }
+            });
+            assert.strictEqual(extResolveRes.status, 200);
+            const extJson = JSON.parse(extResolveRes.body);
+            assert.strictEqual(extJson.suggestedTitle, 'Blueming');
+            assert.strictEqual(extJson.suggestedArtist, 'IU');
+            assert.strictEqual(extJson.suggestedAlbumYear, 2019);
+            assert.strictEqual(extJson.suggestedLanguage, 'English + Korean (K-Pop)');
+            assert.strictEqual(extJson.suggestedArtistType, 'solo');
+            assert.strictEqual(extJson.suggestedAlbumIsSingleDuplicate, true);
+        } finally {
+            ytdlpService.extractSongLyrics = origExtract;
+            global.fetch = origFetch;
+        }
+    });
+
     it('soporta puente E2EE en RAM PC <-> EC2 (HMAC), extracción sin BD y streaming media 206 seguro', async () => {
         const nodeCrypto = require('node:crypto');
         const ytdlpService = require(path.join(ROOT, 'lib', 'ytdlp-service'));
@@ -4233,6 +4472,93 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.match(String(ytCapsEsData.spanishLyrics || ''), /Cierra los ojos ahora/);
     });
 
+    it('aplica REQUIRE_HTTPS, /healthz, CORS estricto y REQUIRE_PC_BRIDGE_AUTH en /api/pull-*', async () => {
+        // 1. /healthz responde 200 OK aun bajo REQUIRE_HTTPS=true y sin TLS
+        const prevReqHttps = process.env.REQUIRE_HTTPS;
+        const prevPcAuth = process.env.REQUIRE_PC_BRIDGE_AUTH;
+        const prevSecretKey = process.env.JOURNAL_SECRET_KEY;
+        try {
+            process.env.REQUIRE_HTTPS = 'true';
+            process.env.REQUIRE_PC_BRIDGE_AUTH = 'true';
+            process.env.JOURNAL_SECRET_KEY = '12345678901234567890123456789012';
+
+            const healthRes = await request({ port, reqPath: '/healthz' });
+            assert.strictEqual(healthRes.status, 200);
+            assert.deepStrictEqual(JSON.parse(healthRes.body), { ok: true });
+
+            // 2. API por HTTP plano sin TLS devuelve 426 Upgrade Required
+            const plainApi = await request({ port, reqPath: '/api/auth/me' });
+            assert.strictEqual(plainApi.status, 426);
+
+            // 3. Navegador por HTTP plano redirige 308 -> https://
+            const plainHtml = await request({ port, reqPath: '/index.html' });
+            assert.strictEqual(plainHtml.status, 308);
+            assert.match(String(plainHtml.headers.location || ''), /^https:\/\//);
+
+            // 4. Con X-Forwarded-Proto: https sirve 200 + HSTS + upgrade-insecure-requests en CSP
+            const httpsHtml = await request({
+                port,
+                reqPath: '/index.html',
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            assert.strictEqual(httpsHtml.status, 200);
+            assert.match(String(httpsHtml.headers['strict-transport-security'] || ''), /max-age=31536000/);
+            assert.match(String(httpsHtml.headers['content-security-policy'] || ''), /upgrade-insecure-requests/);
+
+            // 5. CORS estricto: rechaza orígenes externos hostiles y permite *.ts.net (Tailscale)
+            const evilCors = await request({
+                port,
+                reqPath: '/api/auth/me',
+                headers: { 'X-Forwarded-Proto': 'https', Origin: 'https://evil.example' }
+            });
+            assert.strictEqual(evilCors.headers['access-control-allow-origin'], undefined);
+            assert.strictEqual(evilCors.headers['access-control-allow-credentials'], undefined);
+
+            const tailscaleCors = await request({
+                port,
+                reqPath: '/api/auth/me',
+                headers: { 'X-Forwarded-Proto': 'https', Origin: 'https://dailyhub-srv.tail1234.ts.net' }
+            });
+            assert.strictEqual(tailscaleCors.headers['access-control-allow-origin'], 'https://dailyhub-srv.tail1234.ts.net');
+            assert.strictEqual(tailscaleCors.headers['access-control-allow-credentials'], 'true');
+
+            // 6. Con REQUIRE_PC_BRIDGE_AUTH=true, /api/pull-text y /api/pull-english rechazan peticiones sin HMAC (401)
+            const pullTextUnauth = await request({
+                port,
+                reqPath: '/api/pull-text',
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            assert.strictEqual(pullTextUnauth.status, 401);
+
+            const pullEngUnauth = await request({
+                port,
+                reqPath: '/api/pull-english',
+                headers: { 'X-Forwarded-Proto': 'https' }
+            });
+            assert.strictEqual(pullEngUnauth.status, 401);
+
+            // Y permiten petición firmada con HMAC-SHA256 válido
+            const tsSec = String(Math.floor(Date.now() / 1000));
+            const emptyBodyHash = crypto.createHash('sha256').update('', 'utf8').digest('hex');
+            const canonical = `GET:/api/pull-text:${tsSec}:${emptyBodyHash}`;
+            const sig = crypto.createHmac('sha256', process.env.JOURNAL_SECRET_KEY).update(canonical, 'utf8').digest('hex');
+            const pullTextSigned = await request({
+                port,
+                reqPath: '/api/pull-text',
+                headers: {
+                    'X-Forwarded-Proto': 'https',
+                    'x-pc-timestamp': tsSec,
+                    'x-pc-signature': sig
+                }
+            });
+            assert.strictEqual(pullTextSigned.status, 200);
+        } finally {
+            if (prevReqHttps === undefined) delete process.env.REQUIRE_HTTPS; else process.env.REQUIRE_HTTPS = prevReqHttps;
+            if (prevPcAuth === undefined) delete process.env.REQUIRE_PC_BRIDGE_AUTH; else process.env.REQUIRE_PC_BRIDGE_AUTH = prevPcAuth;
+            if (prevSecretKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevSecretKey;
+        }
+    });
+
     it('aplica rate limit contra fuerza bruta en login y saturación DoS en endpoints API', async () => {
         // 1. Fuerza bruta en login (10 intentos fallidos -> el 11° devuelve 429 con Retry-After)
         let blockedLoginRes = null;
@@ -4285,5 +4611,380 @@ describe('API y seguridad de server.js (pruebas de integración)', () => {
         assert.match(String(body.standard), /SemVer 2\.0\.0/i);
         assert.ok(Array.isArray(body.history) && body.history.length >= 1);
         assert.strictEqual(body.history[0].version, body.currentVersion);
+    });
+
+    it('procesa notas autónomas en servidor (/api/send-english -> docx + caché) y expone estado/descarga RBAC del Journal local', async () => {
+        const fs = require('node:fs');
+        const os = require('node:os');
+        const serverNotes = require('../lib/server-notes-service');
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-auto-notes-'));
+        const prevKey = process.env.JOURNAL_SECRET_KEY;
+        const prevEngPath = process.env.ENGLISH_WORD_FILE_PATH;
+        const prevJrnPath = process.env.JOURNAL_LOCAL_PATH;
+        const testKey = '0123456789abcdef0123456789abcdef';
+
+        try {
+            process.env.JOURNAL_SECRET_KEY = testKey;
+            process.env.ENGLISH_WORD_FILE_PATH = path.join(tmpDir, 'English_Learning_Notebook.docx');
+            process.env.JOURNAL_LOCAL_PATH = path.join(tmpDir, 'Diario.docx');
+
+            const unauthStatus = await request({ port, reqPath: '/api/journal/local-status' });
+            assert.strictEqual(unauthStatus.status, 401);
+
+            const medicoStatus = await request({
+                port,
+                reqPath: '/api/journal/local-status',
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoStatus.status, 403);
+
+            const adminStatus = await request({
+                port,
+                reqPath: '/api/journal/local-status',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(adminStatus.status, 200);
+            const jStatus = JSON.parse(adminStatus.body);
+            assert.strictEqual(jStatus.ok, true);
+            assert.strictEqual(jStatus.autonomousEnabled, true);
+            assert.strictEqual(jStatus.exists, false);
+
+            const medicoDl = await request({
+                port,
+                reqPath: '/api/journal/download',
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoDl.status, 403);
+
+            const missingDl = await request({
+                port,
+                reqPath: '/api/journal/download',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(missingDl.status, 404);
+
+            const ytdlpStatusRes = await request({
+                port,
+                reqPath: '/api/english/music/ytdlp-status',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(ytdlpStatusRes.status, 200);
+            assert.strictEqual(JSON.parse(ytdlpStatusRes.body).serverAutonomous, true);
+
+            // Rechaza payload E2EE cifrado con llave errónea en /api/send-to-pc
+            const badJournalCipher = serverNotes.encryptClientE2ee('Secret journal text', 'ffffffffffffffffffffffffffffffff');
+            const badJournalRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-to-pc',
+                headers: { Cookie: adminCookie },
+                body: { texto: badJournalCipher }
+            });
+            assert.strictEqual(badJournalRes.status, 400);
+
+            // Envía entrada cifrada E2EE real a /api/send-english -> se guarda directo sin esperar pull de PC
+            const engCipher = serverNotes.encryptClientE2ee(JSON.stringify({
+                category: 'vocabulary',
+                language: 'English',
+                word: 'Autonomous',
+                spanish: 'Autónomo',
+                example: 'Ubuntu server updates the notebook autonomously.'
+            }), testKey);
+            const sendEngRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-english',
+                headers: { Cookie: adminCookie },
+                body: { texto: engCipher }
+            });
+            assert.strictEqual(sendEngRes.status, 200);
+            assert.strictEqual(fs.existsSync(process.env.ENGLISH_WORD_FILE_PATH), true);
+
+            // La cola /api/pull-english permanece vacía porque el servidor ya procesó la nota
+            const pullAfter = await request({ port, reqPath: '/api/pull-english' });
+            assert.strictEqual(pullAfter.status, 200);
+            assert.deepStrictEqual(JSON.parse(pullAfter.body), []);
+
+            // Y GET /api/english/study-notebook refleja la entrada nueva inmediatamente
+            const nbRes = await request({
+                port,
+                reqPath: '/api/english/study-notebook?refresh=1',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(nbRes.status, 200);
+            const nbData = JSON.parse(nbRes.body);
+            assert.strictEqual(nbData.ok, true);
+            assert.strictEqual(nbData.available, true);
+            assert.ok(nbData.entries.some((e) => /Autonomous/i.test(e.title || e.text || '')));
+
+            // Consulta de logs del sistema protegida estrictamente por RBAC (admin only)
+            const unauthLogs = await request({ port, reqPath: '/api/system/logs' });
+            assert.strictEqual(unauthLogs.status, 401);
+            const medicoLogs = await request({
+                port,
+                reqPath: '/api/system/logs',
+                headers: { Cookie: medicoCookie }
+            });
+            assert.strictEqual(medicoLogs.status, 403);
+            const adminLogs = await request({
+                port,
+                reqPath: '/api/system/logs?kind=server&lines=20',
+                headers: { Cookie: adminCookie }
+            });
+            assert.strictEqual(adminLogs.status, 200);
+            assert.strictEqual(JSON.parse(adminLogs.body).ok, true);
+        } finally {
+            if (prevKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevKey;
+            if (prevEngPath === undefined) delete process.env.ENGLISH_WORD_FILE_PATH; else process.env.ENGLISH_WORD_FILE_PATH = prevEngPath;
+            if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    it('expone estado de cobertura diaria, verificación y marcado Nothing to report. con RBAC', async () => {
+        const fs = require('node:fs');
+        const os = require('node:os');
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-jrn-cov-'));
+        const prevJrnPath = process.env.JOURNAL_LOCAL_PATH;
+        const prevWordPass = process.env.WORD_PASSWORD;
+
+        try {
+            process.env.JOURNAL_LOCAL_PATH = path.join(tmpDir, 'Diario.docx');
+            delete process.env.WORD_PASSWORD;
+
+            // 1. RBAC en GET /api/journal/daily-status, POST /api/journal/verify-days y POST /api/journal/nothing-to-report
+            assert.strictEqual((await request({ port, reqPath: '/api/journal/daily-status' })).status, 401);
+            assert.strictEqual((await request({ port, reqPath: '/api/journal/daily-status', headers: { Cookie: medicoCookie } })).status, 403);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', body: {} })).status, 401);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', headers: { Cookie: medicoCookie }, body: {} })).status, 403);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/nothing-to-report', body: {} })).status, 401);
+            assert.strictEqual((await request({ port, method: 'POST', reqPath: '/api/journal/nothing-to-report', headers: { Cookie: medicoCookie }, body: {} })).status, 403);
+
+            // 2. Sin WORD_PASSWORD -> daily-status reporta coverageAvailable=false; verify-days y nothing-to-report devuelven 409
+            const noPwdStatus = await request({ port, reqPath: '/api/journal/daily-status', headers: { Cookie: adminCookie } });
+            assert.strictEqual(noPwdStatus.status, 200);
+            const noPwdData = JSON.parse(noPwdStatus.body);
+            assert.strictEqual(noPwdData.ok, true);
+            assert.strictEqual(noPwdData.coverageAvailable, false);
+            assert.strictEqual(noPwdData.reason, 'PASSWORD_MISSING');
+            assert.match(noPwdData.todayIso, /^\d{4}-\d{2}-\d{2}$/);
+            assert.ok(noPwdData.todayHeading);
+
+            const noPwdVerify = await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', headers: { Cookie: adminCookie }, body: {} });
+            assert.strictEqual(noPwdVerify.status, 409);
+
+            const noPwdNtr = await request({ port, method: 'POST', reqPath: '/api/journal/nothing-to-report', headers: { Cookie: adminCookie }, body: {} });
+            assert.strictEqual(noPwdNtr.status, 409);
+            assert.strictEqual(JSON.parse(noPwdNtr.body).fallbackToPcQueue, true);
+
+            // 3. Validaciones de targetDateIso en /api/journal/nothing-to-report
+            const badDateNtr = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/journal/nothing-to-report',
+                headers: { Cookie: adminCookie },
+                body: { targetDateIso: 'bad-date' }
+            });
+            assert.strictEqual(badDateNtr.status, 400);
+
+            const futureDateNtr = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/journal/nothing-to-report',
+                headers: { Cookie: adminCookie },
+                body: { targetDateIso: '2099-12-31' }
+            });
+            assert.strictEqual(futureDateNtr.status, 400);
+
+            // 4. Con WORD_PASSWORD y sin Diario.docx creado aún -> coverageAvailable=true, exists=false, allPastDaysFilled=true
+            process.env.WORD_PASSWORD = 'TestWordPassword2026!';
+            const readyStatus = await request({ port, reqPath: '/api/journal/daily-status', headers: { Cookie: adminCookie } });
+            assert.strictEqual(readyStatus.status, 200);
+            const readyData = JSON.parse(readyStatus.body);
+            assert.strictEqual(readyData.ok, true);
+            assert.strictEqual(readyData.coverageAvailable, true);
+            assert.strictEqual(readyData.exists, false);
+            assert.strictEqual(readyData.coverage.allPastDaysFilled, true);
+
+            const missingVerify = await request({ port, method: 'POST', reqPath: '/api/journal/verify-days', headers: { Cookie: adminCookie }, body: {} });
+            assert.strictEqual(missingVerify.status, 200);
+            const missingVerifyData = JSON.parse(missingVerify.body);
+            assert.strictEqual(missingVerifyData.ok, true);
+            assert.strictEqual(missingVerifyData.exists, false);
+            assert.strictEqual(missingVerifyData.modified, false);
+        } finally {
+            if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
+            if (prevWordPass === undefined) delete process.env.WORD_PASSWORD; else process.env.WORD_PASSWORD = prevWordPass;
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    it('sirve crypto-js local sin CDN, aplica cookie Secure solo bajo HTTPS (Tailscale) y respeta DB_RETENTION_DAYS=0', async () => {
+        // 1. Asset vendor/crypto-js.min.js accesible localmente y CSP sin cdnjs.cloudflare.com
+        const vendorRes = await request({ port, reqPath: '/vendor/crypto-js.min.js' });
+        assert.strictEqual(vendorRes.status, 200);
+        assert.ok(vendorRes.body.length > 30000 && vendorRes.body.includes('CryptoJS'));
+
+        const htmlRes = await request({ port, reqPath: '/index.html' });
+        assert.strictEqual(htmlRes.status, 200);
+        const csp = String(htmlRes.headers['content-security-policy'] || '');
+        assert.equal(csp.includes('cdnjs.cloudflare.com'), false);
+        assert.ok(csp.includes("script-src 'self'"));
+
+        // 2. Cookie de sesión con Tailscale HTTPS (X-Forwarded-Proto: https) incluye Secure; HTTP plano la omite
+        const httpLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            body: { email: 'admin@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(httpLogin.status, 200);
+        const httpCookies = [].concat(httpLogin.headers['set-cookie'] || []).join('; ');
+        assert.ok(httpCookies.includes('HttpOnly'));
+        assert.equal(/;\s*Secure\b/i.test(httpCookies), false, 'HTTP local no debe marcar Secure');
+
+        const httpsLogin = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/login',
+            headers: { 'X-Forwarded-Proto': 'https' },
+            body: { email: 'admin@example.com', password: 'ClavePrueba2026!' }
+        });
+        assert.strictEqual(httpsLogin.status, 200);
+        const httpsCookies = [].concat(httpsLogin.headers['set-cookie'] || []).join('; ');
+        assert.ok(/;\s*Secure\b/i.test(httpsCookies), 'Tailscale HTTPS debe marcar cookie Secure');
+
+        const httpsCookiePair = (httpsLogin.headers['set-cookie'] || []).find((c) => c.startsWith('mt_session=')).split(';')[0];
+
+        // 3. DB_RETENTION_DAYS=0 por defecto (ilimitado) y rango ampliado hasta 120 meses en /api/archive/drive-range
+        const prevRet = process.env.DB_RETENTION_DAYS;
+        const prevRclone = process.env.RCLONE_CONFIG;
+        try {
+            delete process.env.DB_RETENTION_DAYS;
+            process.env.RCLONE_CONFIG = path.join(require('node:os').tmpdir(), `nonexistent-rclone-${Date.now()}.conf`);
+            const rangeRes = await request({
+                port,
+                reqPath: '/api/archive/drive-range?months=120&begin=2020-01-01&end=2026-11-18',
+                headers: { Cookie: httpsCookiePair }
+            });
+            assert.strictEqual(rangeRes.status, 200);
+            const rangeData = JSON.parse(rangeRes.body);
+            assert.strictEqual(rangeData.ok, true);
+            assert.strictEqual(rangeData.localRetentionDays, 0);
+            assert.strictEqual(rangeData.monthsRequested, 120);
+            assert.strictEqual(rangeData.source, 'mysql_local_full');
+
+            process.env.DB_RETENTION_DAYS = '90';
+            const cappedRes = await request({
+                port,
+                reqPath: '/api/archive/drive-range?months=6&begin=2020-01-01&end=2026-11-18',
+                headers: { Cookie: httpsCookiePair }
+            });
+            assert.strictEqual(cappedRes.status, 200);
+            const cappedData = JSON.parse(cappedRes.body);
+            assert.strictEqual(cappedData.localRetentionDays, 90);
+            assert.strictEqual(cappedData.source, 'mysql_local_90d');
+
+            const oldMoods = await request({
+                port,
+                reqPath: '/api/get-moods?begin=2020-01-01&end=2020-01-07',
+                headers: { Cookie: httpsCookiePair }
+            });
+            assert.strictEqual(oldMoods.status, 200);
+        } finally {
+            if (prevRet === undefined) delete process.env.DB_RETENTION_DAYS; else process.env.DB_RETENTION_DAYS = prevRet;
+            if (prevRclone === undefined) delete process.env.RCLONE_CONFIG; else process.env.RCLONE_CONFIG = prevRclone;
+        }
+
+        const httpsLogout = await request({
+            port,
+            method: 'POST',
+            reqPath: '/api/auth/logout',
+            headers: { Cookie: httpsCookiePair, 'X-Forwarded-Proto': 'https' }
+        });
+        assert.strictEqual(httpsLogout.status, 200);
+        const logoutCookies = [].concat(httpsLogout.headers['set-cookie'] || []).join('; ');
+        assert.ok(/;\s*Secure\b/i.test(logoutCookies), 'Logout HTTPS también debe limpiar cookie con atributo Secure');
+    });
+
+    it('expone X-Replica-Id en /healthz y coordina escrituras .docx con advisory locks distribuidos en MySQL', async () => {
+        const fs = require('node:fs');
+        const os = require('node:os');
+
+        const healthRes = await request({ port, reqPath: '/healthz' });
+        assert.strictEqual(healthRes.status, 200);
+        assert.deepStrictEqual(JSON.parse(healthRes.body), { ok: true });
+        assert.ok(String(healthRes.headers['x-replica-id'] || '').trim().length > 0, '/healthz debe incluir header X-Replica-Id');
+
+        const logsRes = await request({
+            port,
+            reqPath: '/api/system/logs?kind=server&lines=5',
+            headers: { Cookie: adminCookie }
+        });
+        assert.strictEqual(logsRes.status, 200);
+        assert.ok(String(JSON.parse(logsRes.body).replicaId || '').trim().length > 0);
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-lock-int-'));
+        const prevKey = process.env.JOURNAL_SECRET_KEY;
+        const prevEngPath = process.env.ENGLISH_WORD_FILE_PATH;
+        const prevJrnPath = process.env.JOURNAL_LOCAL_PATH;
+        const prevWordPass = process.env.WORD_PASSWORD;
+        const prevRclone = process.env.RCLONE_CONFIG;
+        const startHistoryLen = advisoryLockHistory.length;
+
+        try {
+            const secretKey = '0123456789abcdef0123456789abcdef';
+            process.env.JOURNAL_SECRET_KEY = secretKey;
+            process.env.ENGLISH_WORD_FILE_PATH = path.join(tmpDir, 'English_Learning_Notebook.docx');
+            process.env.JOURNAL_LOCAL_PATH = path.join(tmpDir, 'Diario.docx');
+            process.env.WORD_PASSWORD = 'LockWordPass2026!';
+            process.env.RCLONE_CONFIG = path.join(tmpDir, 'nonexistent-rclone.conf');
+
+            const encryptEnvelope = (plainText) => {
+                const keyBuf = Buffer.from(secretKey, 'utf8');
+                const iv = crypto.randomBytes(16);
+                const cipher = crypto.createCipheriv('aes-256-cbc', keyBuf, iv);
+                const enc = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+                return `${iv.toString('hex')}:${enc.toString('base64')}`;
+            };
+
+            const engEntryJson = JSON.stringify({
+                section: 'vocabulary',
+                dateStr: '2026-11-19',
+                title: 'resilient',
+                fields: { meaning: 'able to recover quickly', example: 'Load-balanced replicas stay resilient.' }
+            });
+            const engRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-english',
+                headers: { Cookie: adminCookie },
+                body: { texto: encryptEnvelope(engEntryJson) }
+            });
+            assert.strictEqual(engRes.status, 200);
+
+            const jrnRes = await request({
+                port,
+                method: 'POST',
+                reqPath: '/api/send-to-pc',
+                headers: { Cookie: adminCookie },
+                body: { texto: encryptEnvelope('Locked journal entry across replicas.') }
+            });
+            assert.strictEqual(jrnRes.status, 200);
+
+            const recentLocks = advisoryLockHistory.slice(startHistoryLen);
+            assert.ok(recentLocks.some((e) => e.op === 'acquire' && e.lockName === 'pdh_docx_english' && e.result === 1));
+            assert.ok(recentLocks.some((e) => e.op === 'release' && e.lockName === 'pdh_docx_english' && e.result === 1));
+            assert.ok(recentLocks.some((e) => e.op === 'acquire' && e.lockName === 'pdh_docx_journal' && e.result === 1));
+            assert.ok(recentLocks.some((e) => e.op === 'release' && e.lockName === 'pdh_docx_journal' && e.result === 1));
+            assert.strictEqual(activeAdvisoryLocks.size, 0);
+        } finally {
+            if (prevKey === undefined) delete process.env.JOURNAL_SECRET_KEY; else process.env.JOURNAL_SECRET_KEY = prevKey;
+            if (prevEngPath === undefined) delete process.env.ENGLISH_WORD_FILE_PATH; else process.env.ENGLISH_WORD_FILE_PATH = prevEngPath;
+            if (prevJrnPath === undefined) delete process.env.JOURNAL_LOCAL_PATH; else process.env.JOURNAL_LOCAL_PATH = prevJrnPath;
+            if (prevWordPass === undefined) delete process.env.WORD_PASSWORD; else process.env.WORD_PASSWORD = prevWordPass;
+            if (prevRclone === undefined) delete process.env.RCLONE_CONFIG; else process.env.RCLONE_CONFIG = prevRclone;
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
     });
 });

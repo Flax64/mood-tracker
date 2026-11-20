@@ -1,0 +1,442 @@
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const serverNotes = require('../lib/server-notes-service');
+const serverLoggerMod = require('../lib/server-logger');
+const langStudio = require('../lib/language-studio');
+
+const ROOT = path.resolve(__dirname, '..');
+
+function resolvePythonCmd() {
+    const candidates = process.platform === 'win32' ? ['python', 'python3', 'py'] : ['python3', 'python'];
+    for (const cmd of candidates) {
+        const res = spawnSync(cmd, ['--version'], { encoding: 'utf8' });
+        if (!res.error && res.status === 0) return cmd;
+    }
+    return null;
+}
+
+describe('lib/server-notes-service & lib/docx_writer.py (Notas autónomas en Ubuntu Server)', () => {
+    it('cifra y descifra sobres E2EE compatibles con frontend.js (AES-256-CBC 32 bytes) y rechaza llaves erróneas', () => {
+        const key32 = '1234567890abcdef1234567890abcdef';
+        const wrongKey32 = 'abcdef1234567890abcdef1234567890';
+        const sample = JSON.stringify({ category: 'vocabulary', word: 'Resilience', spanish: 'Resiliencia' });
+
+        const cipher = serverNotes.encryptClientE2ee(sample, key32);
+        assert.strictEqual(serverNotes.isValidE2eeEnvelope(cipher), true);
+
+        const okDec = serverNotes.decryptClientE2ee(cipher, key32);
+        assert.strictEqual(okDec.ok, true);
+        assert.strictEqual(okDec.plainText, sample);
+
+        const badDec = serverNotes.decryptClientE2ee(cipher, wrongKey32);
+        assert.strictEqual(badDec.ok, false);
+        assert.strictEqual(badDec.reason, 'E2EE_KEY_MISMATCH');
+
+        assert.strictEqual(serverNotes.isValidE2eeEnvelope('cipher-1'), false);
+        assert.strictEqual(serverNotes.decryptClientE2ee('cipher-1', key32).reason, 'NOT_E2EE_ENVELOPE');
+    });
+
+    it('resuelve rutas de Journal local y Cuaderno de Idiomas ignorando rutas Windows en Linux y aislando Diario', () => {
+        const linuxJournal = serverNotes.resolveLocalJournalPath({
+            env: { WORD_FILE_PATH: 'C:\\Users\\flavi\\Desktop\\Diario.docx' },
+            platform: 'linux',
+            rootDir: '/srv/hub'
+        });
+        assert.strictEqual(linuxJournal, '/srv/hub/data/journal/Diario.docx');
+
+        const customLinuxJournal = serverNotes.resolveLocalJournalPath({
+            env: { JOURNAL_LOCAL_PATH: '/var/lib/hub/Diario.docx' },
+            platform: 'linux',
+            rootDir: '/srv/hub'
+        });
+        assert.strictEqual(customLinuxJournal, '/var/lib/hub/Diario.docx');
+
+        const isolatedEnglish = serverNotes.resolveLocalEnglishPath({
+            env: {
+                JOURNAL_LOCAL_PATH: '/srv/hub/data/journal/Diario.docx',
+                ENGLISH_WORD_FILE_PATH: '/srv/hub/data/journal/Diario.docx'
+            },
+            platform: 'linux',
+            rootDir: '/srv/hub'
+        });
+        assert.strictEqual(isolatedEnglish, '/srv/hub/english-notes/English_Learning_Notebook.docx');
+    });
+
+    it('crea, actualiza, fusiona canciones/traducciones y deduplica English_Learning_Notebook.docx vía OOXML sin MS Word', () => {
+        const pyCmd = resolvePythonCmd();
+        assert.ok(pyCmd, 'Python 3 debe estar disponible para probar lib/docx_writer.py');
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-eng-docx-'));
+        const docxPath = path.join(tmpDir, 'English_Learning_Notebook.docx');
+        try {
+            const utf8Env = { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' };
+            const runWriter = (entry) => spawnSync(
+                pyCmd,
+                [path.join(ROOT, 'lib', 'docx_writer.py'), '--mode', 'english'],
+                { input: JSON.stringify({ docxPath, entry }), encoding: 'utf8', env: utf8Env }
+            );
+
+            // 1. Vocabulario
+            const r1 = runWriter({
+                category: 'vocabulary',
+                language: 'English',
+                word: 'Ubiquitous',
+                part_of_speech: 'adjective',
+                spanish: 'Ubicuo / en todas partes',
+                example: 'Tailscale makes private access ubiquitous.'
+            });
+            assert.strictEqual(r1.status, 0, r1.stderr);
+            const j1 = JSON.parse(r1.stdout.trim());
+            assert.strictEqual(j1.ok, true);
+            assert.strictEqual(j1.deduplicated, false);
+
+            // 2. Duplicado de vocabulario omitido
+            const rDup = runWriter({
+                category: 'vocabulary',
+                language: 'English',
+                word: 'Ubiquitous',
+                part_of_speech: 'adjective',
+                spanish: 'Ubicuo / en todas partes'
+            });
+            assert.strictEqual(rDup.status, 0, rDup.stderr);
+            assert.strictEqual(JSON.parse(rDup.stdout.trim()).deduplicated, true);
+
+            // 3. Canción inicial + actualización posterior conservando letra previa y agregando traducción ES
+            const rSong1 = runWriter({
+                category: 'music',
+                language: 'English + Korean',
+                song_title: 'FOREVER',
+                artists_display: 'BABYMONSTER',
+                album_title: 'DRIP',
+                album_type: 'Album',
+                release_year: '2024',
+                track_number: 7,
+                lyrics_study: '[EN]\nForever ever never fade'
+            });
+            assert.strictEqual(rSong1.status, 0, rSong1.stderr);
+
+            const rSong2 = runWriter({
+                category: 'music',
+                language: 'English + Korean',
+                song_title: 'FOREVER',
+                artists_display: 'BABYMONSTER',
+                album_title: 'DRIP',
+                album_type: 'Album',
+                release_year: '2024',
+                track_number: 7,
+                lyrics_study: '=== [ES — Traducción IA] ===\nPor siempre jamás se desvanecerá',
+                vocabulary_list: 'fade: desvanecerse'
+            });
+            assert.strictEqual(rSong2.status, 0, rSong2.stderr);
+
+            const parsed = langStudio.parseStudyNotebookDocxBuffer(fs.readFileSync(docxPath), { includeAllEntries: true });
+            assert.strictEqual(parsed.ok, true);
+            assert.strictEqual(parsed.counts.vocabulary, 1);
+            assert.strictEqual(parsed.counts.music, 1);
+            assert.deepStrictEqual(parsed.facets.artists, ['BABYMONSTER']);
+            assert.deepStrictEqual(parsed.facets.albums, ['DRIP']);
+
+            const songEntry = langStudio.findNotebookSongEntry(parsed, {
+                songTitle: 'FOREVER',
+                artistName: 'BABYMONSTER',
+                albumTitle: 'DRIP'
+            });
+            assert.ok(songEntry);
+            assert.match(songEntry.lyrics, /Forever ever never fade/);
+            assert.match(songEntry.lyrics, /Por siempre jamás se desvanecerá/);
+            assert.strictEqual(songEntry.trackNumber, 7);
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    it('calcula encabezados Month DDth D-XXX, agrega entradas al Journal OOXML y evita escribir sin contraseña', () => {
+        const pyCmd = resolvePythonCmd();
+        assert.ok(pyCmd, 'Python 3 debe estar disponible');
+
+        assert.strictEqual(serverNotes.computeJournalHeadingForDateIso('2026-08-30'), 'August 30th D-500');
+        assert.strictEqual(serverNotes.computeJournalHeadingForDateIso('2026-09-01'), 'September 01st D-498');
+        assert.strictEqual(serverNotes.computeJournalHeadingForDateIso('2026-11-18'), 'November 18th D-420');
+
+        const pyCheck = spawnSync(
+            pyCmd,
+            [
+                '-c',
+                [
+                    'import sys, json, zipfile, io, xml.etree.ElementTree as ET',
+                    `sys.path.insert(0, ${JSON.stringify(path.join(ROOT, 'lib'))})`,
+                    'import docx_writer as dw',
+                    'assert dw.calcular_encabezado("2026-08-30") == "August 30th D-500"',
+                    'assert dw.calcular_encabezado("2026-09-01") == "September 01st D-498"',
+                    'assert dw.calcular_encabezado("2026-11-18") == "November 18th D-420"',
+                    'assert str(dw.parsear_fecha_encabezado_journal("November 18th D-420")) == "2026-11-18"',
+                    'assert str(dw.parsear_fecha_encabezado_journal("September 1st D-498")) == "2026-09-01"',
+                    'assert dw.parsear_fecha_encabezado_journal("Un párrafo cualquiera de diario") is None',
+                    'plain = dw._build_minimal_docx_bytes(mode="journal")',
+                    'p1, m1 = dw._append_journal_entry_to_docx_bytes(plain, "Primer pensamiento del día", "2026-11-18")',
+                    'assert m1["heading"] == "November 18th D-420" and m1["skipped"] is False',
+                    'p2, m2 = dw._append_journal_entry_to_docx_bytes(p1, "Nothing to report.", "2026-11-18")',
+                    'assert m2["skipped"] is True',
+                    'p3, m3 = dw._append_journal_entry_to_docx_bytes(p1, "Segunda nota del mismo día", "2026-11-18")',
+                    'assert m3["skipped"] is False',
+                    'with zipfile.ZipFile(io.BytesIO(p3), "r") as zf: xml_txt = zf.read("word/document.xml").decode("utf-8")',
+                    'assert xml_txt.count("November 18th D-420") == 1',
+                    'assert "Primer pensamiento del día" in xml_txt and "Segunda nota del mismo día" in xml_txt',
+                    'no_pwd = dw.write_encrypted_journal_docx("/tmp/ignored.docx", "", "Hola")',
+                    'assert no_pwd["ok"] is False and no_pwd["reason"] == "PASSWORD_MISSING"',
+                    'print("JOURNAL_OOXML_OK")'
+                ].join('\n')
+            ],
+            { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } }
+        );
+        assert.strictEqual(pyCheck.status, 0, pyCheck.stderr || pyCheck.stdout);
+        assert.match(pyCheck.stdout, /JOURNAL_OOXML_OK/);
+    });
+
+    it('verifica continuidad diaria en Journal OOXML, rellena huecos cronológicos, respeta TOC y reemplaza placeholder', () => {
+        const pyCmd = resolvePythonCmd();
+        assert.ok(pyCmd, 'Python 3 debe estar disponible');
+
+        const pyCheck = spawnSync(
+            pyCmd,
+            [
+                '-c',
+                [
+                    'import sys, json, zipfile, io, xml.etree.ElementTree as ET',
+                    `sys.path.insert(0, ${JSON.stringify(path.join(ROOT, 'lib'))})`,
+                    'import docx_writer as dw',
+                    'W_NS = dw.W_NS_URI',
+                    '# 1. Crear entrada en 2026-11-15 y luego 2026-11-18 -> debe rellenar 2026-11-16 y 2026-11-17 en orden cronológico',
+                    'doc = dw._build_minimal_docx_bytes(mode="journal")',
+                    'doc, _ = dw._append_journal_entry_to_docx_bytes(doc, "Secreto privado dia 15", "2026-11-15")',
+                    '# Inyectar párrafo TOC1 falso + bookmark _Toc en Heading 1 + encabezado vacío para 2026-11-16',
+                    'with zipfile.ZipFile(io.BytesIO(doc), "r") as zin:',
+                    '    doc_xml = zin.read("word/document.xml")',
+                    '    styles_xml = zin.read("word/styles.xml")',
+                    '    other_files = {i.filename: zin.read(i.filename) for i in zin.infolist() if i.filename != "word/document.xml"}',
+                    'root = ET.fromstring(doc_xml)',
+                    'body = root.find(dw._w_tag("body"))',
+                    'toc_p = dw._crear_parrafo_texto(style_id="TOC1", text="November 14th D-424\t3")',
+                    'body.insert(1, toc_p)',
+                    '# Agregar bookmark _Toc dentro de November 15th D-423 y un heading vacío para November 16th D-422',
+                    'for el in list(body):',
+                    '    if el.tag == dw._w_tag("p") and "November 15th D-423" in dw._texto_parrafo_ooxml(el):',
+                    '        bm = ET.Element(dw._w_tag("bookmarkStart"), {dw._w_tag("id"): "0", dw._w_tag("name"): "_Toc999999"})',
+                    '        el.insert(1, bm)',
+                    'empty_h16 = dw._crear_parrafo_texto(style_id="Heading1", text="November 16th D-422", font_size=16, bold_all=True)',
+                    'body.insert(dw._indice_sectpr(body), empty_h16)',
+                    'buf_mod = io.BytesIO()',
+                    'with zipfile.ZipFile(buf_mod, "w") as zout:',
+                    '    for fn, payload in other_files.items(): zout.writestr(fn, payload)',
+                    '    zout.writestr("word/document.xml", dw._serializar_documento(root, doc_xml))',
+                    'doc_with_gap = buf_mod.getvalue()',
+                    '# Inspect antes de rellenar: debe detectar 2026-11-16 (empty) y 2026-11-17 (missing), ignorando TOC1 (2026-11-14)',
+                    'cov_before = dw.inspect_journal_docx_bytes(doc_with_gap, today_date="2026-11-18")',
+                    'assert cov_before["missingPastDates"] == ["2026-11-16", "2026-11-17"], cov_before',
+                    'assert cov_before["firstDateIso"] == "2026-11-15", cov_before',
+                    'assert "Secreto privado" not in json.dumps(cov_before)',
+                    '# 2. Escribir 2026-11-18 -> auto-rellena 2026-11-16 y 2026-11-17 con "Nothing to report." en orden cronológico',
+                    'doc_filled, meta18 = dw._append_journal_entry_to_docx_bytes(doc_with_gap, "Nota del dia 18", "2026-11-18")',
+                    'assert meta18["backfilledDates"] == ["2026-11-16", "2026-11-17"], meta18',
+                    'cov_after18 = dw.inspect_journal_docx_bytes(doc_filled, today_date="2026-11-19")',
+                    'assert cov_after18["missingPastDates"] == [], cov_after18',
+                    'assert cov_after18["allPastDaysFilled"] is True',
+                    'assert cov_after18["todayStatus"] == "missing"',
+                    '# Verificar orden cronológico exacto en word/document.xml',
+                    'with zipfile.ZipFile(io.BytesIO(doc_filled), "r") as zf: xml18 = zf.read("word/document.xml").decode("utf-8")',
+                    'pos15 = xml18.index("November 15th D-423")',
+                    'pos16 = xml18.index("November 16th D-422")',
+                    'pos17 = xml18.index("November 17th D-421")',
+                    'pos18 = xml18.index("November 18th D-420")',
+                    'assert pos15 < pos16 < pos17 < pos18, (pos15, pos16, pos17, pos18)',
+                    'assert xml18.count("Nothing to report.") == 2',
+                    '# 3. verify_and_backfill hasta 2026-11-20 rellena 19 y 20 (cuando hoy es 21) y es idempotente',
+                    'doc_v, vmeta = dw.verify_and_backfill_journal_docx_bytes(doc_filled, today_date="2026-11-21")',
+                    'assert vmeta["modified"] is True and vmeta["filledDates"] == ["2026-11-19", "2026-11-20"], vmeta',
+                    'doc_v2, vmeta2 = dw.verify_and_backfill_journal_docx_bytes(doc_v, today_date="2026-11-21")',
+                    'assert vmeta2["modified"] is False and vmeta2["filledDates"] == [], vmeta2',
+                    '# 4. Si luego se escribe una nota real en un día marcado "Nothing to report." (2026-11-19), reemplaza el placeholder',
+                    'doc_rep, rmeta = dw._append_journal_entry_to_docx_bytes(doc_v2, "Recordé algo del día 19", "2026-11-19", backfill_missing_before=False)',
+                    'assert rmeta["replacedPlaceholder"] is True, rmeta',
+                    'cov_rep = dw.inspect_journal_docx_bytes(doc_rep, today_date="2026-11-21")',
+                    'st19 = next(d for d in cov_rep["recentDays"] if d["dateIso"] == "2026-11-19")',
+                    'assert st19["status"] == "filled", st19',
+                    'print("JOURNAL_CONTINUITY_OK")'
+                ].join('\n')
+            ],
+            { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } }
+        );
+        assert.strictEqual(pyCheck.status, 0, pyCheck.stderr || pyCheck.stdout);
+        assert.match(pyCheck.stdout, /JOURNAL_CONTINUITY_OK/);
+    });
+
+    it('sincroniza English_Learning_Notebook.docx directo con Google Drive vía rclone mockeado y detecta reintentos', async () => {
+        const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-cloud-sync-'));
+        const fakeConf = path.join(tmpRoot, 'rclone.conf');
+        fs.writeFileSync(fakeConf, '[gdrive_study]\ntype = drive\n');
+
+        let uploadedBuf = null;
+        let failUpload = false;
+        const fakeExecFile = (bin, args, _opts, cb) => {
+            if (bin !== 'rclone') {
+                return require('node:child_process').execFile(bin, args, _opts, cb);
+            }
+            // args: ['--config', conf, cmd, ...]
+            const subCmd = args[2];
+            if (subCmd === 'lsjson') {
+                if (uploadedBuf) {
+                    return cb(null, JSON.stringify([{ Size: uploadedBuf.length, ModTime: '2026-11-18T12:00:00Z' }]), '');
+                }
+                return cb(null, '[]', '');
+            }
+            if (subCmd === 'copyto') {
+                const src = args[args.length - 2];
+                const dst = args[args.length - 1];
+                if (String(src).startsWith('gdrive_study:')) {
+                    if (!uploadedBuf) return cb(new Error('not found'), '', 'not found');
+                    fs.writeFileSync(dst, uploadedBuf);
+                    return cb(null, '', '');
+                }
+                if (failUpload) {
+                    return cb(new Error('network timeout'), '', 'network timeout');
+                }
+                uploadedBuf = fs.readFileSync(src);
+                return cb(null, '', '');
+            }
+            return cb(new Error(`Unexpected rclone cmd: ${subCmd}`), '', '');
+        };
+
+        let cachedParsed = null;
+        try {
+            const resOk = await serverNotes.saveEnglishEntryToCloudAndLocal({
+                entry: {
+                    category: 'grammar',
+                    language: 'English',
+                    title: 'Present Perfect vs Past Simple',
+                    notes: 'Use Present Perfect when the timeframe is unfinished.'
+                },
+                resolveRcloneFn: () => ({ confPath: fakeConf, cleanup: false, usingStudyConfig: true }),
+                resolveStudyTargetFn: () => ({ remoteTarget: 'gdrive_study:NotasIdiomas/English_Learning_Notebook.docx' }),
+                updateCacheFn: (buf, source) => {
+                    cachedParsed = langStudio.parseStudyNotebookDocxBuffer(buf, { includeAllEntries: true });
+                    cachedParsed.source = source;
+                },
+                rootDir: tmpRoot,
+                execFileFn: fakeExecFile
+            });
+
+            assert.strictEqual(resOk.ok, true);
+            assert.strictEqual(resOk.mode, 'cloud_drive');
+            assert.strictEqual(resOk.uploaded, true);
+            assert.strictEqual(resOk.verified, true);
+            assert.ok(Buffer.isBuffer(uploadedBuf) && uploadedBuf.length > 500);
+            assert.strictEqual(cachedParsed?.ok, true);
+            assert.strictEqual(cachedParsed?.source, 'drive-word');
+            assert.strictEqual(cachedParsed?.counts?.grammar, 1);
+
+            // Simular fallo temporal de Drive -> conserva caché local y marca needsRetry
+            failUpload = true;
+            const resRetry = await serverNotes.saveEnglishEntryToCloudAndLocal({
+                entry: {
+                    category: 'phrasal_verb',
+                    language: 'English',
+                    verb: 'Look forward to',
+                    meaning_es: 'Esperar con ilusión'
+                },
+                resolveRcloneFn: () => ({ confPath: fakeConf, cleanup: false, usingStudyConfig: true }),
+                resolveStudyTargetFn: () => ({ remoteTarget: 'gdrive_study:NotasIdiomas/English_Learning_Notebook.docx' }),
+                updateCacheFn: (buf) => {
+                    cachedParsed = langStudio.parseStudyNotebookDocxBuffer(buf, { includeAllEntries: true });
+                },
+                rootDir: tmpRoot,
+                execFileFn: fakeExecFile
+            });
+
+            assert.strictEqual(resRetry.ok, true);
+            assert.strictEqual(resRetry.mode, 'local_cache_pending_drive');
+            assert.strictEqual(resRetry.needsRetry, true);
+            assert.strictEqual(cachedParsed?.counts?.grammar, 1);
+            assert.strictEqual(cachedParsed?.counts?.phrasal_verb, 1);
+        } finally {
+            fs.rmSync(tmpRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('genera logs rotativos del sistema en server.log y error.log, redacta secretos y respeta exclusión de Git', () => {
+        const tmpLogs = fs.mkdtempSync(path.join(os.tmpdir(), 'pdh-sys-logs-'));
+        try {
+            assert.strictEqual(serverLoggerMod.isAutomatedTestEnv(), true);
+            assert.strictEqual(
+                serverLoggerMod.sanitizeUrlForLog('/api/planner/phone-location?token=secret123&mode=gps'),
+                '/api/planner/phone-location?token=%5BREDACTED%5D&mode=gps'
+            );
+
+            const capturedOut = [];
+            const capturedErr = [];
+            const logger = serverLoggerMod.createServerLogger({
+                logDir: tmpLogs,
+                level: 'info',
+                maxBytes: 64 * 1024,
+                maxFiles: 3,
+                enableFileLogging: true,
+                stdoutWrite: (ln) => capturedOut.push(ln),
+                stderrWrite: (ln) => capturedErr.push(ln)
+            });
+
+            logger.info('SYSTEM', 'Servidor iniciado', { port: 3000 });
+            logger.warn('YTDLP', 'Sin subtítulos disponibles', { songId: 7 });
+            logger.error('HTTP', 'GET /api/test?token=mySecretToken -> 500', { ms: '12.4' });
+
+            assert.strictEqual(capturedOut.length, 1);
+            assert.strictEqual(capturedErr.length, 2);
+            assert.strictEqual(fs.existsSync(logger.serverLogPath), true);
+            assert.strictEqual(fs.existsSync(logger.errorLogPath), true);
+
+            const srvText = fs.readFileSync(logger.serverLogPath, 'utf8');
+            const errText = fs.readFileSync(logger.errorLogPath, 'utf8');
+            assert.match(srvText, /\[SYSTEM\] Servidor iniciado \| port=3000/);
+            assert.match(srvText, /\[YTDLP\]/);
+            assert.equal(srvText.includes('mySecretToken'), false, 'No debe filtrar tokens en logs');
+            assert.match(errText, /\[WARN\] \[YTDLP\]/);
+            assert.match(errText, /\[ERROR\] \[HTTP\]/);
+            assert.equal(errText.includes('[SYSTEM]'), false, 'error.log solo debe incluir WARN/ERROR/CRASH');
+
+            // Verificar redacción estricta de llaves Google/Tailscale/GitHub, PEM y variables .env en logs
+            const leakedSample = [
+                'GEMINI=AIzaSyDummyGoogleKey1234567890abcdef',
+                'TS=tskey-auth-kSecretTailscaleKey999',
+                'GH=ghp_1234567890abcdefghijklmnopqr',
+                'WORD_PASSWORD=miClaveSuperSecreta',
+                'DB_PASS=mysqlRootPass99',
+                'RCLONE_CONF_B64=dG9rZW49c2VjcmV0bw==',
+                '-----BEGIN OPENSSH PRIVATE KEY-----\nabc123\n-----END OPENSSH PRIVATE KEY-----'
+            ].join(' ');
+            const sanitized = serverLoggerMod.sanitizeMessageText(leakedSample);
+            assert.equal(/DummyGoogleKey|kSecretTailscaleKey|abcdefghijklmnopqr|miClaveSuperSecreta|mysqlRootPass99|dG9rZW49c2VjcmV0bw|abc123/.test(sanitized), false);
+            assert.match(sanitized, /\[REDACTED_GOOGLE_KEY\]/);
+            assert.match(sanitized, /\[REDACTED_TS_KEY\]/);
+            assert.match(sanitized, /\[REDACTED_GH_TOKEN\]/);
+            assert.match(sanitized, /\[REDACTED_PRIVATE_KEY\]/);
+
+            const tail = logger.getRecentLogTail({ kind: 'server', lines: 2 });
+            assert.strictEqual(tail.ok, true);
+            assert.strictEqual(tail.lines.length, 2);
+
+            // Verificar que git ignore logs/, *.log y *.log.1
+            const gitChk = spawnSync('git', ['check-ignore', '-q', '--no-index', 'logs/server.log', 'logs/server.log.1', 'server.log.2'], {
+                cwd: ROOT,
+                encoding: 'utf8'
+            });
+            if (!gitChk.error && gitChk.status !== 128) {
+                assert.strictEqual(gitChk.status, 0, 'logs/, server.log y archivos rotados *.log.* deben ser ignorados por Git');
+            }
+        } finally {
+            fs.rmSync(tmpLogs, { recursive: true, force: true });
+        }
+    });
+});

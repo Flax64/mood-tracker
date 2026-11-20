@@ -3,38 +3,47 @@ services:
     image: mysql:8.0
     container_name: mood_db
     restart: always
-    mem_limit: 512m
-    # Optimización para t3.micro (1 GB RAM + 2 GB Swap) y menor uso de disco (sin binlogs ni performance_schema)
+    mem_limit: 1024m
+    cpus: "2.0"
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    # Optimización para Ubuntu Server (8 GB RAM + Intel i7 + ~500 GB HDD, optimizado para reducir I/O de disco mecánico)
     command:
       - --performance-schema=OFF
       - --mysqlx=0
       - --skip-log-bin
-      - --innodb-buffer-pool-size=32M
-      - --innodb-log-buffer-size=4M
-      - --max-connections=25
-      - --table-open-cache=128
-      - --table-definition-cache=256
-      - --key-buffer-size=4M
-      - --tmp-table-size=8M
-      - --max-heap-table-size=8M
-      - --thread-cache-size=4
+      - --innodb-buffer-pool-size=384M
+      - --innodb-log-buffer-size=16M
+      - --innodb-flush-method=O_DIRECT
+      - --innodb-flush-log-at-trx-commit=2
+      - --innodb-io-capacity=150
+      - --innodb-io-capacity-max=300
+      - --innodb-redo-log-capacity=64M
+      - --max-connections=50
+      - --table-open-cache=256
+      - --table-definition-cache=400
+      - --key-buffer-size=8M
+      - --tmp-table-size=32M
+      - --max-heap-table-size=32M
+      - --thread-cache-size=8
     logging:
       driver: "json-file"
       options:
-        max-size: "5m"
-        max-file: "2"
+        max-size: "25m"
+        max-file: "5"
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_PASS}
       MYSQL_DATABASE: ${DB_NAME}
       TZ: ${TZ:-America/Monterrey}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - db_data:/var/lib/mysql
       # Ejecuta el script SQL al crear el contenedor por primera vez
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
       interval: 10s
       timeout: 10s
       retries: 12
@@ -42,23 +51,60 @@ services:
 
   app:
     build: .
+    image: personal-daily-hub-app:latest
     container_name: mood_app
     restart: always
-    mem_limit: 420m
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    mem_limit: 1024m
+    cpus: "2.0"
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+      - /dev/shm:rw,noexec,nosuid,nodev,size=64m
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      # Enlazado solo a loopback; exponer remotamente únicamente mediante Tailscale Serve o Caddy
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      # Journal personal cifrado con contraseña (100% local, nunca en Drive ni Git)
+      - ./data/journal:/app/journal-data
+      # Caché/espejo local del Cuaderno de Idiomas (sincronizado con Google Drive en la nube)
+      - ./english-notes:/app/english-notes
+      # Carpeta opcional para cookies de yt-dlp si YouTube llegara a pedir sesión
+      - ./data/ytdlp:/app/ytdlp-config:ro
+      # Logs persistentes rotativos del servidor (excluidos de Git en .gitignore)
+      - ./logs:/app/logs
     logging:
       driver: "json-file"
       options:
-        max-size: "5m"
-        max-file: "2"
+        max-size: "25m"
+        max-file: "5"
     environment:
+      - REPLICA_ID=app
+      - DISABLE_REMINDER_SCHEDULER=${DISABLE_REMINDER_SCHEDULER:-false}
+      - DISABLE_CLEANUP_SCHEDULER=${DISABLE_CLEANUP_SCHEDULER:-false}
       - DB_HOST=${DB_HOST:-db}
       - DB_USER=${DB_USER}
       - DB_PASS=${DB_PASS}
       - DB_NAME=${DB_NAME}
       - PORT=${PORT:-3000}
       - TZ=${TZ:-America/Monterrey}
+      - LOG_DIR=${LOG_DIR:-/app/logs}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-20971520}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-10}
+      - TRUST_PROXY=${TRUST_PROXY:-1}
+      - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
+      - REQUIRE_PC_BRIDGE_AUTH=${REQUIRE_PC_BRIDGE_AUTH:-true}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - SERVER_AUTONOMOUS_NOTES=${SERVER_AUTONOMOUS_NOTES:-true}
+      - DB_RETENTION_DAYS=${DB_RETENTION_DAYS:-0}
+      - ENABLE_LOGIN_MFA=${ENABLE_LOGIN_MFA:-false}
+      - JOURNAL_LOCAL_PATH=${JOURNAL_LOCAL_PATH:-/app/journal-data/Diario.docx}
+      - ENGLISH_WORD_FILE_PATH=${ENGLISH_WORD_FILE_PATH:-/app/english-notes/English_Learning_Notebook.docx}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-}
       - ADMIN_SECRET=${ADMIN_SECRET:-}
       - WORD_PASSWORD=${WORD_PASSWORD:-}
@@ -73,10 +119,89 @@ services:
       - RCLONE_CONF_B64=${RCLONE_CONF_B64:-}
       - STUDY_RCLONE_CONF_B64=${STUDY_RCLONE_CONF_B64:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
       - YT_DLP_PATH=${YT_DLP_PATH:-}
+      - YTDLP_COOKIES_PATH=${YTDLP_COOKIES_PATH:-}
       - YTM_INNERTUBE=${YTM_INNERTUBE:-1}
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app2:
+    build: .
+    image: personal-daily-hub-app:latest
+    container_name: mood_app2
+    restart: always
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    mem_limit: 1024m
+    cpus: "2.0"
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+      - /dev/shm:rw,noexec,nosuid,nodev,size=64m
+    volumes:
+      - ./data/journal:/app/journal-data
+      - ./english-notes:/app/english-notes
+      - ./data/ytdlp:/app/ytdlp-config:ro
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "5"
+    environment:
+      - REPLICA_ID=app2
+      - DISABLE_REMINDER_SCHEDULER=true
+      - DISABLE_CLEANUP_SCHEDULER=true
+      - DB_HOST=${DB_HOST:-db}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME}
+      - PORT=${PORT:-3000}
+      - TZ=${TZ:-America/Monterrey}
+      - LOG_DIR=${LOG_DIR:-/app/logs}/app2
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_MAX_BYTES=${LOG_MAX_BYTES:-20971520}
+      - LOG_MAX_FILES=${LOG_MAX_FILES:-10}
+      - TRUST_PROXY=${TRUST_PROXY:-1}
+      - REQUIRE_HTTPS=${REQUIRE_HTTPS:-false}
+      - REQUIRE_PC_BRIDGE_AUTH=${REQUIRE_PC_BRIDGE_AUTH:-true}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - SERVER_AUTONOMOUS_NOTES=${SERVER_AUTONOMOUS_NOTES:-true}
+      - DB_RETENTION_DAYS=${DB_RETENTION_DAYS:-0}
+      - ENABLE_LOGIN_MFA=${ENABLE_LOGIN_MFA:-false}
+      - JOURNAL_LOCAL_PATH=${JOURNAL_LOCAL_PATH:-/app/journal-data/Diario.docx}
+      - ENGLISH_WORD_FILE_PATH=${ENGLISH_WORD_FILE_PATH:-/app/english-notes/English_Learning_Notebook.docx}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_SECRET=${ADMIN_SECRET:-}
+      - WORD_PASSWORD=${WORD_PASSWORD:-}
+      - JOURNAL_SECRET_KEY=${JOURNAL_SECRET_KEY:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - APP_BASE_URL=${APP_BASE_URL:-}
+      - RCLONE_REMOTE=${RCLONE_REMOTE:-gdrive}
+      - RCLONE_BACKUP_DIR=${RCLONE_BACKUP_DIR:-RespaldosApp}
+      - STUDY_RCLONE_REMOTE=${STUDY_RCLONE_REMOTE:-}
+      - STUDY_RCLONE_DIR=${STUDY_RCLONE_DIR:-NotasIdiomas}
+      - RCLONE_CONF_B64=${RCLONE_CONF_B64:-}
+      - STUDY_RCLONE_CONF_B64=${STUDY_RCLONE_CONF_B64:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY:-}
+      - YT_DLP_PATH=${YT_DLP_PATH:-}
+      - YTDLP_COOKIES_PATH=${YTDLP_COOKIES_PATH:-}
+      - YTM_INNERTUBE=${YTM_INNERTUBE:-1}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -89,10 +214,19 @@ services:
     image: caddy:2-alpine
     container_name: mood_proxy
     restart: always
-    mem_limit: 48m
+    mem_limit: 64m
+    cpus: "0.5"
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
-      - "80:80"
-      - "443:443"
+      # Puertos alternos por defecto para no chocar con `tailscale serve` en :443
+      - "127.0.0.1:${PROXY_HTTP_PORT:-8080}:80"
+      - "127.0.0.1:${PROXY_HTTPS_PORT:-8443}:443"
     environment:
       - SITE_ADDRESS=${SITE_ADDRESS:-:80}
       - PORT=${PORT:-3000}
@@ -100,14 +234,21 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "25m"
+        max-file: "5"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
     depends_on:
       app:
+        condition: service_healthy
+      app2:
         condition: service_healthy
 
 volumes:

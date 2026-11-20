@@ -990,4 +990,60 @@ describe('Bóveda local (.env / .env.enc)', () => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
         }
     });
+
+    test('sincronizador.py analiza secciones diarias, detecta huecos/encabezados vacíos y verifica al arranque sin depender de hora 00', () => {
+        if (!fs.existsSync(PY_SYNC)) {
+            return;
+        }
+        const syncSrc = fs.readFileSync(PY_SYNC, 'utf8');
+        assert.equal(syncSrc.includes('ahora.hour == 0 and ultimo_dia_verificado'), false, 'La verificación diaria no debe limitarse solo a las 00:xx');
+        assert.ok(syncSrc.includes('verificar_y_llenar_dias_faltantes_word(fecha_hasta=ayer)'));
+
+        const pyCmd = resolvePythonExecutable({ requireSyncDeps: true });
+        if (!pyCmd) return;
+
+        const pyCode = [
+            'import json, sys',
+            'from datetime import date',
+            'sys.dont_write_bytecode = True',
+            'sys.path.insert(0, sys.argv[1])',
+            'import sincronizador as sc',
+            '',
+            'assert sc.calcular_encabezado(date(2026, 8, 30)) == "August 30th D-500"',
+            'assert sc.parsear_fecha_encabezado("November 18th D-420") == date(2026, 11, 18)',
+            'assert sc.parsear_fecha_encabezado("September 1st D-498") == date(2026, 9, 1)',
+            'assert sc.parsear_fecha_encabezado("Texto cualquiera") is None',
+            '',
+            'parrafos = [',
+            '    (1, "Personal Daily Journal", "Title"),',
+            '    (2, "November 14th D-424\\t2", "TOC 1"),',
+            '    (3, "November 15th D-423", "Heading 1"),',
+            '    (4, "Buen avance en proyecto", "Normal"),',
+            '    (5, "November 16th D-422", "Heading 1"),',
+            '    (6, "", "Normal"),',
+            '    (7, "November 18th D-420", "Heading 1"),',
+            '    (8, "Nothing to report.", "Normal"),',
+            ']',
+            'secs = sc.analizar_parrafos_journal(parrafos)',
+            'assert [(s["date_iso"], s["status"]) for s in secs] == [',
+            '    ("2026-11-15", "filled"),',
+            '    ("2026-11-16", "empty"),',
+            '    ("2026-11-18", "nothing_to_report"),',
+            '], secs',
+            'existentes = [s["date"] for s in secs if s["status"] in ("filled", "nothing_to_report")]',
+            'vacias = [s["date"] for s in secs if s["status"] == "empty"]',
+            'faltantes = sc.calcular_dias_faltantes_journal(existentes, date(2026, 11, 19), fechas_vacias=vacias)',
+            'assert [d.isoformat() for d in faltantes] == ["2026-11-16", "2026-11-17", "2026-11-19"], faltantes',
+            'assert [d.isoformat() for d in sc.calcular_dias_faltantes_journal([], date(2026, 11, 19), fill_if_empty_doc=True)] == ["2026-11-19"]',
+            'assert sc.calcular_dias_faltantes_journal([], date(2026, 11, 19), fill_if_empty_doc=False) == []',
+            'print(json.dumps({"ok": True}))'
+        ].join('\n');
+
+        const res = spawnSync(pyCmd, ['-B', '-c', pyCode, path.dirname(PY_SYNC)], {
+            cwd: ROOT_DIR,
+            encoding: 'utf8'
+        });
+        assert.equal(res.status, 0, res.stderr || res.stdout);
+        assert.equal(JSON.parse(res.stdout.trim()).ok, true);
+    });
 });

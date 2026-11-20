@@ -57,8 +57,8 @@
                     icon: '📈',
                     titleEn: 'Clinician Visual Calendar & History',
                     titleEs: 'Calendario Médico Visual e Historial',
-                    flowEn: ['1. Pick exact day or Mon–Sun / Sun–Sat week', '2. Recent 30 days load immediately', '3. Load 3, 6 or 12 months from cloud backup'],
-                    flowEs: ['1. Elige un día exacto o semana Lun–Dom / Dom–Sáb', '2. El último mes carga al instante', '3. Consulta 3, 6 o 12 meses desde tu respaldo'],
+                    flowEn: ['1. Pick exact day or Mon–Sun / Sun–Sat week', '2. All local history loads immediately from server DB', '3. Query months or years across local & cloud archive'],
+                    flowEs: ['1. Elige un día exacto o semana Lun–Dom / Dom–Sáb', '2. Todo tu historial local carga al instante desde tu BD', '3. Consulta meses o años combinando histórico local y Drive'],
                     targetView: 'resumen',
                     tagEn: 'Visual week range without combobox',
                     tagEs: 'Calendario interactivo visual'
@@ -424,7 +424,7 @@
             tr('Your Language Notebook stays synced automatically whenever updated on your computer.', 'Tu Cuaderno de Idiomas se sincroniza automáticamente cada vez que cambia en tu computadora.'),
             tr('Personal Journal stays strictly private on your computer.', 'Tu Diario Personal permanece estrictamente privado en tu computadora.'),
             tr('Single active tab prevents duplicates when opening notifications on mobile.', 'Una sola pestaña activa evita duplicados al abrir notificaciones en celular.'),
-            tr('Recent 30 days load immediately; older dates may take a moment longer to load.', 'Los últimos 30 días cargan al instante; fechas anteriores pueden tardar un poco más en cargar.'),
+            tr('All local history loads immediately from your server database with unlimited local retention.', 'Todo tu historial local carga al instante desde tu base de datos local con retención ilimitada.'),
             tr('Visual Interactive Guide — tap any card above to open its tool directly.', 'Guía Visual Interactiva — toca cualquier tarjeta arriba para ir directo a esa función.')
         ].forEach(function (txt) {
             pyUl.appendChild(el('li', '', txt));

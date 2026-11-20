@@ -5,9 +5,12 @@ const assert = require('node:assert/strict');
 const {
     parseCleanTrackAndArtist,
     parseProvidedToYouTubeDescription,
+    parseGeneralDescriptionAlbumHints,
     extractYouTubeWatchPageMetadata,
     mergeResolvedTrackMetadata,
-    cleanCaptionTextToLyrics
+    cleanCaptionTextToLyrics,
+    inferSuggestedSongLanguage,
+    isGenericUploaderChannel
 } = require('../lib/youtube-metadata');
 
 describe('YouTube & YT Music metadata parser + subtitle cleaner', () => {
@@ -161,5 +164,68 @@ describe('YouTube & YT Music metadata parser + subtitle cleaner', () => {
             cleanCaptionTextToLyrics(sampleLrc),
             'Ooh look at me now\n네 맘을 사로잡아'
         );
+    });
+
+    it('limpia formatos complejos (1theK _, 「」 japonés, ft. sin paréntesis), detecta canales genéricos e infiere idioma/año de estudio', () => {
+        const iu = parseCleanTrackAndArtist('[MV] IU(아이유) _ Blueming(블루밍)', '1theK (원더케이)');
+        assert.strictEqual(iu.mainArtist, 'IU(아이유)');
+        assert.strictEqual(iu.title, 'Blueming(블루밍)');
+        assert.strictEqual(iu.artistFromTitle, true);
+
+        const yoasobi = parseCleanTrackAndArtist('YOASOBI「アイドル」 Official Music Video', 'Ayase / YOASOBI');
+        assert.strictEqual(yoasobi.mainArtist, 'YOASOBI');
+        assert.strictEqual(yoasobi.title, 'アイドル');
+
+        const bruno = parseCleanTrackAndArtist('Bruno Mars - Die With A Smile ft. Lady Gaga (Official Video)', 'Bruno Mars');
+        assert.strictEqual(bruno.mainArtist, 'Bruno Mars');
+        assert.strictEqual(bruno.title, 'Die With A Smile');
+        assert.deepStrictEqual(bruno.collaborators, ['Lady Gaga']);
+
+        assert.strictEqual(isGenericUploaderChannel('1theK (원더케이)'), true);
+        assert.strictEqual(isGenericUploaderChannel('HYBE LABELS'), true);
+        assert.strictEqual(isGenericUploaderChannel('7clouds'), true);
+        assert.strictEqual(isGenericUploaderChannel('Jaeguchi'), true);
+        assert.strictEqual(isGenericUploaderChannel('BABYMONSTER'), false);
+
+        const hintsP = parseGeneralDescriptionAlbumHints('Music by EDAM\n℗ 2021 EDAM Entertainment');
+        assert.strictEqual(hintsP.albumYear, 2021);
+        const hintsC = parseGeneralDescriptionAlbumHints('© 2019 YG Entertainment Inc.');
+        assert.strictEqual(hintsC.albumYear, 2019);
+
+        assert.strictEqual(inferSuggestedSongLanguage({ title: 'Shape of You', artist: 'Ed Sheeran' }), 'English');
+        assert.strictEqual(inferSuggestedSongLanguage({ title: '밤편지', artist: '아이유' }), 'Korean');
+        assert.strictEqual(inferSuggestedSongLanguage({ title: 'Blueming(블루밍)', artist: 'IU' }), 'English + Korean (K-Pop)');
+        assert.strictEqual(inferSuggestedSongLanguage({ title: 'DRIP', artist: 'BABYMONSTER', genre: 'K-Pop' }), 'English + Korean (K-Pop)');
+        assert.strictEqual(inferSuggestedSongLanguage({ title: 'アイドル', artist: 'YOASOBI' }), 'Japanese');
+        assert.strictEqual(inferSuggestedSongLanguage({ title: '夜に駆ける (English Ver.)', artist: 'YOASOBI', genre: 'J-Pop' }), 'English + Japanese (J-Pop)');
+        assert.strictEqual(inferSuggestedSongLanguage({ title: 'La Canción', artist: 'J Balvin', genre: 'Urbano latino' }), 'Spanish');
+
+        // Año oficial externo (2019) vence a subida tardía de YouTube (2025), hereda artistType y marca single duplicado
+        const merged = mergeResolvedTrackMetadata({
+            videoId: 'abc99999999',
+            oembed: { title: 'Blueming (Color Coded Lyrics)', author_name: 'Color Coded Lyrics' },
+            watchMeta: { rawTitle: 'Blueming (Color Coded Lyrics)', rawAuthor: 'Color Coded Lyrics', publishYear: 2025 },
+            externalMeta: {
+                title: 'Blueming',
+                artist: 'IU',
+                collaborators: [],
+                albumTitle: 'Blueming - Single',
+                albumType: 'single',
+                releaseYear: 2019,
+                trackNumber: 1,
+                genre: 'K-Pop',
+                source: 'itunes'
+            },
+            catalogArtists: [{ id: 10, nombre: 'IU', tipo_artista: 'solo' }],
+            catalogAlbums: [],
+            catalogSongs: []
+        });
+        assert.strictEqual(merged.suggestedTitle, 'Blueming');
+        assert.strictEqual(merged.suggestedArtist, 'IU');
+        assert.strictEqual(merged.suggestedAlbumYear, 2019);
+        assert.strictEqual(merged.suggestedArtistType, 'solo');
+        assert.strictEqual(merged.suggestedLanguage, 'English + Korean (K-Pop)');
+        assert.strictEqual(merged.suggestedTrackNumber, 1);
+        assert.strictEqual(merged.suggestedAlbumIsSingleDuplicate, true);
     });
 });

@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS MusicaCanciones (
     titulo VARCHAR(180) NOT NULL,
     numero_pista SMALLINT NULL,
     idioma VARCHAR(40) NOT NULL DEFAULT 'English',
+    anio SMALLINT NULL,
     yt_music_url VARCHAR(500) NULL,
     yt_video_id VARCHAR(32) NULL,
     thumbnail_url VARCHAR(500) NULL,

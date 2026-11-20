@@ -64,25 +64,40 @@ RCLONE_CONF_PATH="${RCLONE_CONFIG:-$HOME/.config/rclone/rclone.conf}"
 unset RCLONE_BACKUP_DIR RCLONE_REMOTE RCLONE_CONF_B64
 
 trap 'rm -f "$ARCHIVO_TMP"' EXIT
-mkdir -p "$RUTA_LOCAL"
-chmod 700 "$RUTA_LOCAL" 2>/dev/null || true
-chmod 700 "$(dirname "$RCLONE_CONF_PATH")" 2>/dev/null || true
-chmod 600 "$RCLONE_CONF_PATH" 2>/dev/null || true
+mkdir -p "$RUTA_LOCAL" "$RUTA_LOCAL/historico_sql"
+chmod 700 "$RUTA_LOCAL" "$RUTA_LOCAL/historico_sql" 2>/dev/null || true
+if [ -f "$RCLONE_CONF_PATH" ]; then
+    chmod 700 "$(dirname "$RCLONE_CONF_PATH")" 2>/dev/null || true
+    chmod 600 "$RCLONE_CONF_PATH" 2>/dev/null || true
+fi
 
 DOCKER_CMD="docker"
 if ! docker info >/dev/null 2>&1; then
     DOCKER_CMD="sudo docker"
 fi
 
-RCLONE_BIN="$(command -v rclone || true)"
-if [ -z "$RCLONE_BIN" ] || [ ! -x "$RCLONE_BIN" ]; then
-    echo "Error: rclone no está instalado en el sistema." >&2
-    exit 1
-fi
+REQUIRE_DRIVE="${REQUIRE_DRIVE_BACKUP:-false}"
+for arg in "$@"; do
+    if [ "$arg" = "--require-drive" ]; then
+        REQUIRE_DRIVE="true"
+    fi
+done
 
-if [ ! -f "$RCLONE_CONF_PATH" ]; then
-    echo "Error: No se encontró configuración de rclone en $RCLONE_CONF_PATH." >&2
-    exit 1
+RCLONE_BIN="$(command -v rclone || true)"
+DRIVE_ENABLED=0
+if [ -n "$RCLONE_BIN" ] && [ -x "$RCLONE_BIN" ] && [ -f "$RCLONE_CONF_PATH" ] \
+    && "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" listremotes 2>/dev/null | grep -qx "${REMOTE_NAME}:"; then
+    DRIVE_ENABLED=1
+else
+    if [ -n "$RCLONE_BIN" ] && [ -s "$RCLONE_CONF_PATH" ]; then
+        FOUND_REMOTES="$("$RCLONE_BIN" --config "$RCLONE_CONF_PATH" listremotes 2>/dev/null | tr '\n' ' ' || true)"
+        echo "Aviso: $RCLONE_CONF_PATH existe pero no contiene '${REMOTE_NAME}:' (encontrados: ${FOUND_REMOTES:-ninguno})." >&2
+    fi
+    if [ "$REQUIRE_DRIVE" = "true" ]; then
+        echo "Error: Se exigió respaldo en Google Drive (--require-drive / REQUIRE_DRIVE_BACKUP=true), pero rclone o el remoto '${REMOTE_NAME}:' no están listos en $RCLONE_CONF_PATH." >&2
+        exit 1
+    fi
+    echo "Info: Modo respaldo 100% local activado (sin remoto Google Drive '${REMOTE_NAME}' configurado)."
 fi
 
 # 3. Extraer TODAS las tablas de la base de datos
@@ -155,8 +170,19 @@ SELECT 'music_song_artists', CONCAT(cancion_id, '_', artista_id), '', JSON_OBJEC
 "
 
 ARCHIVE_READY=0
+MONTH_TAG="$(date '+%Y-%m')"
+LOCAL_HIST_ARCHIVE="$RUTA_LOCAL/historico_completo.json.gz"
+LOCAL_MONTH_SQL="$RUTA_LOCAL/historico_sql/respaldo_${MONTH_TAG}.sql.gz"
+cp -f "$ARCHIVO" "$LOCAL_MONTH_SQL"
+chmod 600 "$LOCAL_MONTH_SQL" 2>/dev/null || true
+
 if run_mysql_query "$EXPORT_SQL" > "$CURRENT_TSV"; then
-    "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz" "$HIST_PREV_GZ" 2>/dev/null || true
+    if [ "$DRIVE_ENABLED" -eq 1 ]; then
+        "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz" "$HIST_PREV_GZ" 2>/dev/null || true
+    fi
+    if [ ! -s "$HIST_PREV_GZ" ] && [ -s "$LOCAL_HIST_ARCHIVE" ]; then
+        cp -f "$LOCAL_HIST_ARCHIVE" "$HIST_PREV_GZ" 2>/dev/null || true
+    fi
 
     if command -v python3 >/dev/null 2>&1; then
         python3 - "$HIST_PREV_GZ" "$CURRENT_TSV" "$HIST_NEW_GZ" <<'PYEOF'
@@ -197,20 +223,88 @@ PYEOF
     fi
 fi
 
-"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copy "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}"
-MONTH_TAG="$(date '+%Y-%m')"
-"$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}/historico_sql/respaldo_${MONTH_TAG}.sql.gz"
 if [ -s "$HIST_NEW_GZ" ] && gzip -t "$HIST_NEW_GZ" >/dev/null 2>&1; then
-    "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$HIST_NEW_GZ" "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz"
+    cp -f "$HIST_NEW_GZ" "${LOCAL_HIST_ARCHIVE}.tmp.$$"
+    mv -f "${LOCAL_HIST_ARCHIVE}.tmp.$$" "$LOCAL_HIST_ARCHIVE"
+    chmod 600 "$LOCAL_HIST_ARCHIVE" 2>/dev/null || true
+fi
+
+if [ "$DRIVE_ENABLED" -eq 1 ]; then
+    "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copy "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}"
+    "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$ARCHIVO" "${REMOTE_NAME}:${REMOTE_DIR}/historico_sql/respaldo_${MONTH_TAG}.sql.gz"
+    if [ -s "$HIST_NEW_GZ" ] && gzip -t "$HIST_NEW_GZ" >/dev/null 2>&1; then
+        "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" copyto "$HIST_NEW_GZ" "${REMOTE_NAME}:${REMOTE_DIR}/historico_completo.json.gz"
+        ARCHIVE_READY=1
+    fi
+    if ! "$RCLONE_BIN" --config "$RCLONE_CONF_PATH" lsf "${REMOTE_NAME}:${REMOTE_DIR}" --include "respaldo_mood_tracker.sql.gz" 2>/dev/null | grep -qx "respaldo_mood_tracker.sql.gz"; then
+        echo "Error: No se pudo verificar respaldo_mood_tracker.sql.gz en ${REMOTE_NAME}:${REMOTE_DIR} tras la subida." >&2
+        exit 1
+    fi
+elif [ -s "$LOCAL_HIST_ARCHIVE" ] && gzip -t "$LOCAL_HIST_ARCHIVE" >/dev/null 2>&1; then
     ARCHIVE_READY=1
 fi
 
 # Purgar archivos temporales antiguos en disco local (> 7 días) para mantener cero saturación en servidor
 find "$RUTA_LOCAL" -maxdepth 1 -type f -name '*.sql.gz.*' -mtime +7 -delete 2>/dev/null || true
 
-# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (por defecto 30 días = 1 mes) SOLO si la subida histórica a Drive fue exitosa
-RETENTION_DAYS="${DB_RETENTION_DAYS:-30}"
-if [ "$ARCHIVE_READY" -eq 1 ] && [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
+# Instantáneas diarias locales (SQL 180 días por defecto; Word 365 días por defecto para discos >= 300 GB)
+TODAY_TAG="$(date '+%Y-%m-%d')"
+LOCAL_SQL_DAILY_BACKUP_DAYS="${LOCAL_SQL_DAILY_BACKUP_DAYS:-180}"
+LOCAL_WORD_BACKUP_DAYS="${LOCAL_WORD_BACKUP_DAYS:-365}"
+
+LOCAL_SQL_DAILY_DIR="$RUTA_LOCAL/diario_sql"
+mkdir -p "$LOCAL_SQL_DAILY_DIR"
+chmod 700 "$LOCAL_SQL_DAILY_DIR" 2>/dev/null || true
+cp -f "$ARCHIVO" "$LOCAL_SQL_DAILY_DIR/respaldo_${TODAY_TAG}.sql.gz"
+chmod 600 "$LOCAL_SQL_DAILY_DIR/respaldo_${TODAY_TAG}.sql.gz" 2>/dev/null || true
+if [[ "$LOCAL_SQL_DAILY_BACKUP_DAYS" =~ ^[0-9]+$ ]] && [ "$LOCAL_SQL_DAILY_BACKUP_DAYS" -ge 7 ]; then
+    find "$LOCAL_SQL_DAILY_DIR" -maxdepth 1 -type f -name 'respaldo_*.sql.gz' -mtime +"$LOCAL_SQL_DAILY_BACKUP_DAYS" -delete 2>/dev/null || true
+fi
+
+# Instantánea rotativa SOLO LOCAL del Diario cifrado con contraseña (nunca se sube a Google Drive)
+LOCAL_JOURNAL_FILE="$PROJECT_DIR/data/journal/Diario.docx"
+if [ -f "$LOCAL_JOURNAL_FILE" ]; then
+    if [ -r "$LOCAL_JOURNAL_FILE" ]; then
+        LOCAL_JOURNAL_BAK_DIR="$RUTA_LOCAL/journal_local_backups"
+        mkdir -p "$LOCAL_JOURNAL_BAK_DIR"
+        chmod 700 "$LOCAL_JOURNAL_BAK_DIR" 2>/dev/null || true
+        cp -f "$LOCAL_JOURNAL_FILE" "$LOCAL_JOURNAL_BAK_DIR/Diario_${TODAY_TAG}.docx"
+        chmod 600 "$LOCAL_JOURNAL_BAK_DIR/Diario_${TODAY_TAG}.docx" 2>/dev/null || true
+        if [[ "$LOCAL_WORD_BACKUP_DAYS" =~ ^[0-9]+$ ]] && [ "$LOCAL_WORD_BACKUP_DAYS" -ge 7 ]; then
+            find "$LOCAL_JOURNAL_BAK_DIR" -maxdepth 1 -type f -name 'Diario_*.docx' -mtime +"$LOCAL_WORD_BACKUP_DAYS" -delete 2>/dev/null || true
+        fi
+    else
+        echo "Aviso: $LOCAL_JOURNAL_FILE no es legible por $(id -un); corrige permisos con: sudo chown -R \$(id -u):\$(id -g) \"$PROJECT_DIR/data/journal\"" >&2
+    fi
+fi
+
+# Instantánea rotativa local del Cuaderno de Idiomas
+LOCAL_ENGLISH_FILE="$PROJECT_DIR/english-notes/English_Learning_Notebook.docx"
+if [ -f "$LOCAL_ENGLISH_FILE" ]; then
+    if [ -r "$LOCAL_ENGLISH_FILE" ]; then
+        LOCAL_ENGLISH_BAK_DIR="$RUTA_LOCAL/english_local_backups"
+        mkdir -p "$LOCAL_ENGLISH_BAK_DIR"
+        chmod 700 "$LOCAL_ENGLISH_BAK_DIR" 2>/dev/null || true
+        cp -f "$LOCAL_ENGLISH_FILE" "$LOCAL_ENGLISH_BAK_DIR/English_Learning_Notebook_${TODAY_TAG}.docx"
+        chmod 600 "$LOCAL_ENGLISH_BAK_DIR/English_Learning_Notebook_${TODAY_TAG}.docx" 2>/dev/null || true
+        if [[ "$LOCAL_WORD_BACKUP_DAYS" =~ ^[0-9]+$ ]] && [ "$LOCAL_WORD_BACKUP_DAYS" -ge 7 ]; then
+            find "$LOCAL_ENGLISH_BAK_DIR" -maxdepth 1 -type f -name 'English_Learning_Notebook_*.docx' -mtime +"$LOCAL_WORD_BACKUP_DAYS" -delete 2>/dev/null || true
+        fi
+    else
+        echo "Aviso: $LOCAL_ENGLISH_FILE no es legible por $(id -un); corrige permisos con: sudo chown -R \$(id -u):\$(id -g) \"$PROJECT_DIR/english-notes\"" >&2
+    fi
+fi
+
+# 5. Purgar de MySQL local registros mayores a DB_RETENTION_DAYS (0 por defecto para conservar todo en disco >= 300 GB)
+RETENTION_DAYS="${DB_RETENTION_DAYS:-0}"
+if [ "$RETENTION_DAYS" = "0" ]; then
+    PURGE_SESSIONS_SQL="
+        DELETE FROM SesionesAuth WHERE expira_en < NOW();
+        DELETE FROM CodigosSeguridad WHERE expira_en < NOW() OR usado = 1;
+    "
+    run_mysql_query "$PURGE_SESSIONS_SQL" >/dev/null 2>&1 || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Retención local ilimitada (DB_RETENTION_DAYS=0): se conservan todos los registros en MySQL."
+elif [ "$ARCHIVE_READY" -eq 1 ] && [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [ "$RETENTION_DAYS" -ge 7 ]; then
     PURGE_SQL="
         DELETE FROM RegistrosMood WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
         DELETE FROM RegistrosSleep WHERE fecha < DATE_SUB(CURDATE(), INTERVAL ${RETENTION_DAYS} DAY);
@@ -224,5 +318,8 @@ else
     echo "Aviso: Se omitió la poda automática en MySQL porque el respaldo histórico acumulativo no se verificó aún (ARCHIVE_READY=$ARCHIVE_READY)." >&2
 fi
 
+DISK_FREE_TXT="$(df -BG "$RUTA_LOCAL" 2>/dev/null | awk 'NR==2{print $4 " libres de " $2}' || df -h "$RUTA_LOCAL" 2>/dev/null | awk 'NR==2{print $4 " libres de " $2}' || echo 'desconocido')"
+RET_LABEL=$([ "$RETENTION_DAYS" = "0" ] && echo "ilimitada (DB_RETENTION_DAYS=0)" || echo "${RETENTION_DAYS} días")
 MODO_TXT=$([ "$SEALED_MODE" -eq 1 ] && echo "sellado" || echo "env")
-echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completo + archivo histórico subidos a ${REMOTE_NAME}:${REMOTE_DIR} y ventana local de ${RETENTION_DAYS} días aplicada (modo=$MODO_TXT)"
+DESTINO_TXT=$([ "$DRIVE_ENABLED" -eq 1 ] && echo "local + ${REMOTE_NAME}:${REMOTE_DIR}" || echo "100% local ($RUTA_LOCAL)")
+echo "[$(date '+%Y-%m-%d %H:%M:%S %Z')] Respaldo completo + archivo histórico completados (${DESTINO_TXT}; disco=${DISK_FREE_TXT}; diario_sql=${LOCAL_SQL_DAILY_BACKUP_DAYS}d; word_bak=${LOCAL_WORD_BACKUP_DAYS}d) y retención local ${RET_LABEL} aplicada (modo=$MODO_TXT)"

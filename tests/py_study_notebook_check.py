@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Prueba E2E (sin Word ni red): dedup OOXML, sección Notas manuales y visor de solo lectura."""
+
 import io
 import json
 import os
@@ -22,13 +23,16 @@ STYLES = (
 )
 DOC = (
     f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="{W}"><w:body>'
-    f'<w:sectPr/></w:body></w:document>'
+    f"<w:sectPr/></w:body></w:document>"
 )
 
 
 def make_docx(path):
     with zipfile.ZipFile(path, "w") as z:
-        z.writestr("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+        )
         z.writestr("word/document.xml", DOC)
         z.writestr("word/styles.xml", STYLES)
 
@@ -39,13 +43,41 @@ def main():
     make_docx(docx)
     s.sincronizar_word_estudio_a_drive = lambda *a, **k: True  # sin red
 
-    vocab = {"category": "vocabulary", "language": "English", "word": "drip", "part_of_speech": "noun", "spanish": "goteo"}
-    note = s.parsear_entrada_ingles(json.dumps({"category": "notes", "title": "Regla", "notes": "Present perfect = have + participio"}))
-    note2 = s.parsear_entrada_ingles(json.dumps({"category": "notes", "title": "Regla", "notes": "Otra regla distinta"}))
-    song = {"category": "music", "language": "English + Korean", "song_title": "Drip", "artists_display": "BABYMONSTER",
-            "album_title": "Drip", "album_type": "Album", "release_year": "2024", "track_number": 1,
-            "lyrics_study": "[EN]\nBaby got that drip\n\n[KO]\n안녕하세요"}
-    song_es = dict(song, lyrics_study="=== [ES — Traducción IA] ===\nBebé tiene ese estilo")
+    vocab = {
+        "category": "vocabulary",
+        "language": "English",
+        "word": "drip",
+        "part_of_speech": "noun",
+        "spanish": "goteo",
+    }
+    note = s.parsear_entrada_ingles(
+        json.dumps(
+            {
+                "category": "notes",
+                "title": "Regla",
+                "notes": "Present perfect = have + participio",
+            }
+        )
+    )
+    note2 = s.parsear_entrada_ingles(
+        json.dumps(
+            {"category": "notes", "title": "Regla", "notes": "Otra regla distinta"}
+        )
+    )
+    song = {
+        "category": "music",
+        "language": "English + Korean",
+        "song_title": "Drip",
+        "artists_display": "BABYMONSTER",
+        "album_title": "Drip",
+        "album_type": "Album",
+        "release_year": "2024",
+        "track_number": 1,
+        "lyrics_study": "[EN]\nBaby got that drip\n\n[KO]\n안녕하세요",
+    }
+    song_es = dict(
+        song, lyrics_study="=== [ES — Traducción IA] ===\nBebé tiene ese estilo"
+    )
     song_en_only = dict(song, lyrics_study="[EN]\nBaby got that drip")
 
     for e in (vocab, vocab, note, note, note2, song, song_es, song_en_only, song_es):
@@ -53,16 +85,26 @@ def main():
 
     res = s.leer_cuaderno_estudio_word({}, ruta_docx=docx)
     assert res["ok"], res
-    assert res["counts"]["vocabulary"] == 1, res["counts"]   # sin duplicar vocab
-    assert res["counts"]["notes"] == 2, res["counts"]        # misma nota omitida; distinta contenido sí
-    assert res["counts"]["music"] == 1, res["counts"]        # una sola pista
+    assert res["counts"]["vocabulary"] == 1, res["counts"]  # sin duplicar vocab
+    assert res["counts"]["notes"] == 2, res[
+        "counts"
+    ]  # misma nota omitida; distinta contenido sí
+    assert res["counts"]["music"] == 1, res["counts"]  # una sola pista
     track = next(e for e in res["entries"] if e["section"] == "music")
     lyr = track["fields"]["lyrics_study"]
-    assert lyr.count("[EN]") == 1 and "안녕하세요" in lyr and "Bebé tiene ese estilo" in lyr, lyr
+    assert (
+        lyr.count("[EN]") == 1
+        and "안녕하세요" in lyr
+        and "Bebé tiene ese estilo" in lyr
+    ), lyr
     assert lyr.count("Traducción IA") == 1, lyr
 
-    filt = s.leer_cuaderno_estudio_word({"section": "music", "artist": "babymonster"}, ruta_docx=docx)
-    assert filt["total"] == 1 and "BABYMONSTER" in " ".join(filt["facets"]["artists"]), filt
+    filt = s.leer_cuaderno_estudio_word(
+        {"section": "music", "artist": "babymonster"}, ruta_docx=docx
+    )
+    assert filt["total"] == 1 and "BABYMONSTER" in " ".join(
+        filt["facets"]["artists"]
+    ), filt
     none = s.leer_cuaderno_estudio_word({"q": "inexistente"}, ruta_docx=docx)
     assert none["total"] == 0
     check_drive_pull(tmp, docx)
@@ -89,8 +131,13 @@ def check_drive_pull(tmp, docx):
 
     class Sess:
         def get(self, url, **kw):
-            meta = {"ok": True, "exists": True, "remoteTarget": "r:x", "remoteSize": len(remote["bytes"]),
-                    "remoteModTime": remote["mod"]}
+            meta = {
+                "ok": True,
+                "exists": True,
+                "remoteTarget": "r:x",
+                "remoteSize": len(remote["bytes"]),
+                "remoteModTime": remote["mod"],
+            }
             if "download=1" in url:
                 meta["docxB64"] = base64.b64encode(remote["bytes"]).decode()
             return Resp(meta)
@@ -124,15 +171,23 @@ def check_drive_pull(tmp, docx):
     print("DRIVE OK")
 
     # 5) Limpieza de ruido, etiquetas no-idioma ([Intro]/[Rap]), deduplicación ES y consolidación
-    limpia = s._limpiar_ruido_letra("[음악]\n[Intro]\n[Rap]\nHello world\n[\n[歌]\n[音楽]")
-    assert "[음악]" not in limpia and "[音楽]" not in limpia and "[歌]" not in limpia, limpia
+    limpia = s._limpiar_ruido_letra(
+        "[음악]\n[Intro]\n[Rap]\nHello world\n[\n[歌]\n[音楽]"
+    )
+    assert (
+        "[음악]" not in limpia and "[音楽]" not in limpia and "[歌]" not in limpia
+    ), limpia
     assert "[Intro]" in limpia and "[Rap]" in limpia and "Hello world" in limpia, limpia
 
     comb = s._combinar_letra_por_idiomas(
         "[Intro]\nLine A\n[Rap]\nLine B",
         "=== [ES — Traducción IA] ===\nLínea A\nLínea B",
     )
-    assert "[Intro]" in comb and "Line A" in comb and "=== [ES — Traducción IA] ===" in comb, comb
+    assert (
+        "[Intro]" in comb
+        and "Line A" in comb
+        and "=== [ES — Traducción IA] ===" in comb
+    ), comb
 
     clean_notes = s._limpiar_notas_redundantes_cancion(
         "Vocab note line\n\n[Traducción ES — Gemini IA]\nLínea A\nLínea B",
@@ -143,43 +198,73 @@ def check_drive_pull(tmp, docx):
     open(docx, "wb").write(local)
     res_consolidar = s.consolidar_y_deduplicar_cuaderno_word(docx)
     assert res_consolidar.get("ok") is True, res_consolidar
-    res_read = s.leer_cuaderno_estudio_word({"section": "music", "limit": 50}, ruta_docx=docx)
-    assert res_read.get("ok") is True and "songs" in res_read.get("facets", {}), res_read
+    res_read = s.leer_cuaderno_estudio_word(
+        {"section": "music", "limit": 50}, ruta_docx=docx
+    )
+    assert res_read.get("ok") is True and "songs" in res_read.get(
+        "facets", {}
+    ), res_read
 
     five = s._extraer_cinco_apartados_desde_letra(
         "[ORIGINAL]\nBaby got no chill\n눈을 감고 느껴봐\n\n[KO]\nBaby got no chill\n눈을 감고 느껴봐\n\n[EN]\nClose your eyes\n\n[JA]\n目を閉じて感じて\n\n[ES]\nCierra los ojos"
     )
-    assert "Baby got no chill" in five["original"] and "눈을 감고 느껴봐" in five["original"], five
+    assert (
+        "Baby got no chill" in five["original"]
+        and "눈을 감고 느껴봐" in five["original"]
+    ), five
     assert five["ko"] == "눈을 감고 느껴봐", five
-    assert five["en"] == "Close your eyes" and five["ja"] == "目を閉じて感じて" and five["es"] == "Cierra los ojos", five
+    assert (
+        five["en"] == "Close your eyes"
+        and five["ja"] == "目を閉じて感じて"
+        and five["es"] == "Cierra los ojos"
+    ), five
 
     # 6) Saltos de página solo en títulos principales (H1, H2/H3 2+ en Música) y continuidad en subtítulos
     import xml.etree.ElementTree as ET
     import yt_lyrics_helper as ylh
 
     song_album1_t2 = {
-        "category": "music", "language": "English + Japanese (J-Pop)",
-        "song_title": "Midnight Star", "artists_display": "YOASOBI",
-        "album_title": "Drip", "album_type": "Album", "release_year": "2024", "track_number": 2,
-        "lyrics_study": "[ORIGINAL]\nShining bright\n夜空を見上げて\n\n[JA]\nShining bright\n夜空を見上げて"
+        "category": "music",
+        "language": "English + Japanese (J-Pop)",
+        "song_title": "Midnight Star",
+        "artists_display": "YOASOBI",
+        "album_title": "Drip",
+        "album_type": "Album",
+        "release_year": "2024",
+        "track_number": 2,
+        "lyrics_study": "[ORIGINAL]\nShining bright\n夜空を見上げて\n\n[JA]\nShining bright\n夜空を見上げて",
     }
     song_album2_t1 = {
-        "category": "music", "language": "Japanese",
-        "song_title": "Idol", "artists_display": "YOASOBI",
-        "album_title": "The Book 3", "album_type": "EP", "release_year": "2023", "track_number": 1,
-        "lyrics_study": "[JA]\n誰かの心臓になれたなら"
+        "category": "music",
+        "language": "Japanese",
+        "song_title": "Idol",
+        "artists_display": "YOASOBI",
+        "album_title": "The Book 3",
+        "album_type": "EP",
+        "release_year": "2023",
+        "track_number": 1,
+        "lyrics_study": "[JA]\n誰かの心臓になれたなら",
     }
     assert s._guardar_entrada_ingles_en_docx_xml(docx, song_album1_t2) is True
     assert s._guardar_entrada_ingles_en_docx_xml(docx, song_album2_t1) is True
 
     # Simular un salto manual <w:br w:type="page"/> en un párrafo normal para validar que --consolidar-word lo limpia
     with zipfile.ZipFile(docx, "r") as zf_in:
-        doc_bytes_mod = zf_in.read("word/document.xml").decode("utf-8").replace(
-            "<w:t>Present perfect = have + participio</w:t>",
-            '<w:br w:type="page"/><w:t>Present perfect = have + participio</w:t>',
-            1,
-        ).encode("utf-8")
-        other_entries = {inf.filename: zf_in.read(inf.filename) for inf in zf_in.infolist() if inf.filename != "word/document.xml"}
+        doc_bytes_mod = (
+            zf_in.read("word/document.xml")
+            .decode("utf-8")
+            .replace(
+                "<w:t>Present perfect = have + participio</w:t>",
+                '<w:br w:type="page"/><w:t>Present perfect = have + participio</w:t>',
+                1,
+            )
+            .encode("utf-8")
+        )
+        other_entries = {
+            inf.filename: zf_in.read(inf.filename)
+            for inf in zf_in.infolist()
+            if inf.filename != "word/document.xml"
+        }
     with zipfile.ZipFile(docx, "w") as zf_out:
         zf_out.writestr("word/document.xml", doc_bytes_mod)
         for fname, data in other_entries.items():
@@ -193,8 +278,10 @@ def check_drive_pull(tmp, docx):
         root_chk = ET.fromstring(zf_chk.read("word/document.xml"))
     body_chk = root_chk.find(s._ooxml_w_tag("body"))
     pb_tag, val_attr, br_tag, type_attr = (
-        s._ooxml_w_tag("pageBreakBefore"), s._ooxml_w_tag("val"),
-        s._ooxml_w_tag("br"), s._ooxml_w_tag("type"),
+        s._ooxml_w_tag("pageBreakBefore"),
+        s._ooxml_w_tag("val"),
+        s._ooxml_w_tag("br"),
+        s._ooxml_w_tag("type"),
     )
     assert not any(
         b.attrib.get(type_attr) == "page" for b in body_chk.iter(br_tag)
@@ -207,21 +294,38 @@ def check_drive_pull(tmp, docx):
         return False
 
     headings_info = [
-        (s._nivel_parrafo_ooxml(p, st_chk["levels"]), s._texto_parrafo_ooxml(p), has_active_pb(p))
+        (
+            s._nivel_parrafo_ooxml(p, st_chk["levels"]),
+            s._texto_parrafo_ooxml(p),
+            has_active_pb(p),
+        )
         for p in body_chk
-        if p.tag == s._ooxml_w_tag("p") and s._nivel_parrafo_ooxml(p, st_chk["levels"]) in (1, 2, 3)
+        if p.tag == s._ooxml_w_tag("p")
+        and s._nivel_parrafo_ooxml(p, st_chk["levels"]) in (1, 2, 3)
     ]
     # Todas las secciones Heading 1 llevan salto de página
     assert all(pb for lvl, _, pb in headings_info if lvl == 1), headings_info
     # Vocab/Notas (H2 antes de Music) fluyen continuos sin pageBreakBefore
-    h1_music_pos = next(i for i, (lvl, txt, _) in enumerate(headings_info) if lvl == 1 and "music" in txt.lower())
-    assert all(not pb for lvl, _, pb in headings_info[:h1_music_pos] if lvl == 2), headings_info[:h1_music_pos]
+    h1_music_pos = next(
+        i
+        for i, (lvl, txt, _) in enumerate(headings_info)
+        if lvl == 1 and "music" in txt.lower()
+    )
+    assert all(
+        not pb for lvl, _, pb in headings_info[:h1_music_pos] if lvl == 2
+    ), headings_info[:h1_music_pos]
     # En Música: 1er álbum False, 2do álbum True; 1ra canción de álbum False, 2da canción True
-    music_h = headings_info[h1_music_pos + 1:]
+    music_h = headings_info[h1_music_pos + 1 :]
     album_pbs = [(txt, pb) for lvl, txt, pb in music_h if lvl == 2]
-    assert len(album_pbs) >= 2 and album_pbs[0][1] is False and album_pbs[1][1] is True, album_pbs
-    assert music_h[1][0] == 3 and music_h[1][2] is False, music_h  # Pista 1 flujo bajo Álbum 1
-    assert music_h[2][0] == 3 and music_h[2][2] is True, music_h   # Pista 2 salto de página
+    assert (
+        len(album_pbs) >= 2 and album_pbs[0][1] is False and album_pbs[1][1] is True
+    ), album_pbs
+    assert (
+        music_h[1][0] == 3 and music_h[1][2] is False
+    ), music_h  # Pista 1 flujo bajo Álbum 1
+    assert (
+        music_h[2][0] == 3 and music_h[2][2] is True
+    ), music_h  # Pista 2 salto de página
 
     # 7) Segmentación por pausa (>= 2.5s) + bloques largos sin puntuación y soporte JP-EN
     vtt_paused = (
@@ -233,10 +337,12 @@ def check_drive_pull(tmp, docx):
     seg_paused = ylh.clean_caption_text(vtt_paused)
     assert "Shining light\n\n君と踊る" in seg_paused, repr(seg_paused)
 
-    jp_mixed = ylh.build_structured_tracks([
-        {"lang": "ja", "lyrics": "Shining light\n夢を見る\nForever now\n空を見上げて"}
-    ])
-    assert "Shining light" in jp_mixed["original"] and "夢を見る" in jp_mixed["original"], jp_mixed
+    jp_mixed = ylh.build_structured_tracks(
+        [{"lang": "ja", "lyrics": "Shining light\n夢を見る\nForever now\n空を見上げて"}]
+    )
+    assert (
+        "Shining light" in jp_mixed["original"] and "夢を見る" in jp_mixed["original"]
+    ), jp_mixed
     assert jp_mixed["ja"] == "夢を見る\n空を見上げて", jp_mixed
 
 

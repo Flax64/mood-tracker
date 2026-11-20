@@ -53,17 +53,77 @@ const {
     extractYouTubeWatchPageMetadata,
     mergeResolvedTrackMetadata
 } = require('./lib/youtube-metadata');
+const ytmusicLyrics = require('./lib/ytmusic-lyrics');
+const externalLyricsAndMeta = require('./lib/external-lyrics-and-meta');
 const ytdlpService = require('./lib/ytdlp-service');
+const serverNotesService = require('./lib/server-notes-service');
+const { withMySqlAdvisoryLock } = require('./lib/distributed-lock');
+const { buildSafeRcloneExecEnv } = serverNotesService;
+const { createServerLogger } = require('./lib/server-logger');
+
+const REPLICA_ID = String(process.env.REPLICA_ID || os.hostname() || 'app').trim().slice(0, 64) || 'app';
+
+const serverLogger = createServerLogger({ rootDir: __dirname });
+serverLogger.installConsoleTee();
 
 const transportManager = createTransportManager();
 
 const app = express();
 app.disable('x-powered-by');
-if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'loopback') {
-    app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : 'loopback');
+if (process.env.TRUST_PROXY === 'loopback') {
+    app.set('trust proxy', 'loopback');
+} else if (/^[1-9]\d*$/.test(String(process.env.TRUST_PROXY || '').trim())) {
+    app.set('trust proxy', Number.parseInt(process.env.TRUST_PROXY, 10));
+}
+app.use(serverLogger.createHttpLoggerMiddleware());
+
+function isRequestHttps(req) {
+    if (!req) return false;
+    if (req.secure) return true;
+    const xfProto = String(req.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    return xfProto === 'https';
 }
 
-// Cabeceras de seguridad HTTP
+function isAllowedCorsOrigin(rawOrigin, req) {
+    if (!rawOrigin) return false;
+    let parsed;
+    try {
+        parsed = new URL(String(rawOrigin));
+    } catch (_) {
+        return false;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return false;
+    }
+    const originNorm = parsed.origin.toLowerCase();
+    const baseUrl = String(process.env.APP_BASE_URL || '').trim();
+    if (baseUrl) {
+        try {
+            if (new URL(baseUrl).origin.toLowerCase() === originNorm) return true;
+        } catch (_) {}
+    }
+    const hostHeader = String(req?.headers?.host || '').split(',')[0].trim().toLowerCase();
+    if (hostHeader && parsed.host.toLowerCase() === hostHeader) {
+        return true;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1') {
+        return true;
+    }
+    if (hostname.endsWith('.ts.net')) {
+        return true;
+    }
+    const extraList = String(process.env.CORS_ALLOWED_ORIGINS || '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+    if (extraList.some((entry) => entry === originNorm || entry === hostname)) {
+        return true;
+    }
+    return false;
+}
+
+// Cabeceras de seguridad HTTP + refuerzo HTTPS
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -73,22 +133,55 @@ app.use((req, res, next) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     res.setHeader('X-DNS-Prefetch-Control', 'off');
+    const isHttps = isRequestHttps(req);
+    const baseCsp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'";
     res.setHeader(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; media-src 'self'; frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+        isHttps ? `${baseCsp}; upgrade-insecure-requests` : baseCsp
     );
-    const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-    if (req.secure || proto === 'https') {
+    if (isHttps) {
         res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    if (
+        String(process.env.REQUIRE_HTTPS || '').trim().toLowerCase() === 'true'
+        && !isHttps
+        && req.path !== '/healthz'
+    ) {
+        if (req.path.startsWith('/api')) {
+            return res.status(426).send('HTTPS is required for all API requests.');
+        }
+        const rawBaseUrl = String(process.env.APP_BASE_URL || '').trim();
+        if (rawBaseUrl) {
+            try {
+                const parsedBase = new URL(rawBaseUrl);
+                if (parsedBase.protocol === 'https:') {
+                    return res.redirect(308, `${parsedBase.origin}${req.originalUrl || '/'}`);
+                }
+            } catch (_) {}
+        }
+        const hostHdr = String(req.headers.host || '').split(',')[0].trim();
+        if (/^[a-zA-Z0-9.-]+(?::\d{1,5})?$/.test(hostHdr)) {
+            return res.redirect(308, `https://${hostHdr}${req.originalUrl || '/'}`);
+        }
+        return res.status(426).send('HTTPS is required.');
     }
     next();
 });
 
-app.use(cors({
-    origin: true,
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'X-Idempotency-Key', 'X-Transport-Session', 'X-Transport-Accept-Enc'],
-    exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
+app.get('/healthz', (_req, res) => {
+    res.setHeader('X-Replica-Id', REPLICA_ID);
+    res.status(200).json({ ok: true });
+});
+
+app.use(cors((req, callback) => {
+    const origin = String(req.headers.origin || '').trim();
+    const allowed = origin ? isAllowedCorsOrigin(origin, req) : false;
+    callback(null, {
+        origin: allowed ? origin : false,
+        credentials: Boolean(allowed),
+        allowedHeaders: ['Content-Type', 'X-Idempotency-Key', 'X-Transport-Session', 'X-Transport-Accept-Enc'],
+        exposedHeaders: ['X-Transport-Encrypted', 'X-Transport-Inner-Type', 'X-Transport-Rehandshake', 'X-Transport-Server-Ms']
+    });
 }));
 const wordDriveSyncJsonParser = express.json({ limit: '15mb' });
 const defaultApiJsonParser = express.json({ limit: '512kb' });
@@ -224,6 +317,10 @@ app.use('/api', (req, res, next) => {
         }
     }
     return next();
+});
+app.use((req, res, next) => {
+    if (req.path === '/healthz' || req.path.startsWith('/api')) return next();
+    return staticGlobalLimiter.middleware(req, res, next);
 });
 app.use(express.static(path.join(__dirname, 'public'), {
     etag: true,
@@ -398,6 +495,7 @@ function inicializarTablasSeguridad() {
             titulo VARCHAR(180) NOT NULL,
             numero_pista SMALLINT NULL,
             idioma VARCHAR(40) NOT NULL DEFAULT 'English',
+            anio SMALLINT NULL,
             yt_music_url VARCHAR(500) NULL,
             yt_video_id VARCHAR(32) NULL,
             thumbnail_url VARCHAR(500) NULL,
@@ -431,6 +529,18 @@ function inicializarTablasSeguridad() {
                         errAlt => {
                             if (errAlt && !/Duplicate column/i.test(errAlt.message || '')) {
                                 console.error('Error migrando fecha_lanzamiento en MusicaAlbumes:', errAlt.message);
+                            }
+                        }
+                    );
+                }
+            });
+            db.query("SHOW COLUMNS FROM MusicaCanciones LIKE 'anio'", (errCol, cols) => {
+                if (!errCol && Array.isArray(cols) && cols.length === 0) {
+                    db.query(
+                        'ALTER TABLE MusicaCanciones ADD COLUMN anio SMALLINT NULL AFTER idioma',
+                        errAlt => {
+                            if (errAlt && !/Duplicate column/i.test(errAlt.message || '')) {
+                                console.error('Error migrando anio en MusicaCanciones:', errAlt.message);
                             }
                         }
                     );
@@ -682,18 +792,20 @@ function parseCookies(req) {
     return out;
 }
 
-function setSessionCookie(res, rawToken, expiresAt) {
+function setSessionCookie(res, rawToken, expiresAt, req = null) {
     const maxAgeSec = Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+    const secureAttr = isRequestHttps(req) ? '; Secure' : '';
     res.setHeader(
         'Set-Cookie',
-        `mt_session=${encodeURIComponent(rawToken)}; HttpOnly; Path=/; Max-Age=${maxAgeSec}; Expires=${expiresAt.toUTCString()}; SameSite=Lax`
+        `mt_session=${encodeURIComponent(rawToken)}; HttpOnly; Path=/; Max-Age=${maxAgeSec}; Expires=${expiresAt.toUTCString()}; SameSite=Lax${secureAttr}`
     );
 }
 
-function clearSessionCookie(res) {
+function clearSessionCookie(res, req = null) {
+    const secureAttr = isRequestHttps(req) ? '; Secure' : '';
     res.setHeader(
         'Set-Cookie',
-        'mt_session=; HttpOnly; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
+        `mt_session=; HttpOnly; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax${secureAttr}`
     );
 }
 
@@ -881,19 +993,34 @@ const transportHandshakeLimiter = createRateLimiter({
     message: 'Too many transport handshake attempts. Please wait a moment.'
 });
 
+const staticGlobalLimiter = createRateLimiter({
+    maxAttempts: parsePositiveInt(process.env.RATE_LIMIT_STATIC_MAX, 600),
+    windowMs: 60 * 1000,
+    message: 'Too many requests to the server. Please slow down briefly.'
+});
+
+function requirePcBridgeAuthIfConfigured(req, res, next) {
+    if (String(process.env.REQUIRE_PC_BRIDGE_AUTH || '').trim().toLowerCase() === 'true') {
+        return verifyPcBridgeAuth(req, res, next);
+    }
+    return next();
+}
+
 // Middleware global anti-DoS sobre /api/*
 app.use('/api', apiGlobalLimiter.middleware);
 
 // Limpieza periódica de sesiones y códigos vencidos para ahorrar espacio en MySQL
 function limpiarRegistrosExpirados() {
     const nowSql = formatMySqlDateTime(new Date());
-    const cutoff14Days = formatMySqlDateTime(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000));
+    const cutoff90Days = formatMySqlDateTime(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
     db.query('DELETE FROM SesionesAuth WHERE expira_en <= ?', [nowSql], () => {});
     db.query('DELETE FROM CodigosSeguridad WHERE usado = 1 OR expira_en <= ?', [nowSql], () => {});
-    db.query('DELETE FROM RecordatoriosEstado WHERE actualizado_en < ?', [cutoff14Days], () => {});
+    db.query('DELETE FROM RecordatoriosEstado WHERE actualizado_en < ?', [cutoff90Days], () => {});
 }
 
-setInterval(limpiarRegistrosExpirados, 6 * 60 * 60 * 1000).unref();
+if (process.env.DISABLE_CLEANUP_SCHEDULER !== 'true') {
+    setInterval(limpiarRegistrosExpirados, 6 * 60 * 60 * 1000).unref();
+}
 
 // Transporte de correo (Gmail SMTP)
 function escapeHtml(str) {
@@ -983,13 +1110,13 @@ function requireAuth(req, res, next) {
             return res.status(500).send('Error verifying session.');
         }
         if (!rows || rows.length === 0) {
-            clearSessionCookie(res);
+            clearSessionCookie(res, req);
             return res.status(401).send('Your session has expired. Please sign in again.');
         }
 
         const estadoCuenta = rows[0].estado || 'activo';
         if (estadoCuenta !== 'activo') {
-            clearSessionCookie(res);
+            clearSessionCookie(res, req);
             db.query('DELETE FROM SesionesAuth WHERE token_hash = ?', [tokenHash], () => {});
             return res.status(403).send('Your account is inactive or suspended. Contact the administrator.');
         }
@@ -1187,7 +1314,7 @@ function pruneExcessUserSessions(userId) {
     );
 }
 
-function issueUserSession(res, user, { statusCode = 200, message, errorMessage = 'Error creating session.' }) {
+function issueUserSession(res, user, { statusCode = 200, message, errorMessage = 'Error creating session.', req = null }) {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = sha256Hex(rawToken);
     const expiresAt = getNextSundayMidnight();
@@ -1202,7 +1329,7 @@ function issueUserSession(res, user, { statusCode = 200, message, errorMessage =
                 return res.status(500).send(errorMessage);
             }
             pruneExcessUserSessions(user.id);
-            setSessionCookie(res, rawToken, expiresAt);
+            setSessionCookie(res, rawToken, expiresAt, req);
             return res.status(statusCode).json({
                 message,
                 user: {
@@ -1335,7 +1462,8 @@ app.post('/api/auth/register', registerLimiter.middleware, requireNonEmptyBody, 
                             {
                                 statusCode: 201,
                                 message: 'Account verified and created successfully.',
-                                errorMessage: 'Account created, but an error occurred while signing in.'
+                                errorMessage: 'Account created, but an error occurred while signing in.',
+                                req
                             }
                         );
                     }
@@ -1469,7 +1597,8 @@ app.post('/api/auth/login', loginIpLimiter.middleware, requireNonEmptyBody, prev
         issueUserSession(res, user, {
             statusCode: 200,
             message: 'Signed in successfully.',
-            errorMessage: 'Error creating session.'
+            errorMessage: 'Error creating session.',
+            req
         });
     });
 });
@@ -1514,7 +1643,8 @@ app.post('/api/auth/verify-login-mfa', mfaVerifyLimiter.middleware, requireNonEm
                 issueUserSession(res, user, {
                     statusCode: 200,
                     message: 'Signed in successfully.',
-                    errorMessage: 'Error creating session.'
+                    errorMessage: 'Error creating session.',
+                    req
                 });
             });
         });
@@ -1525,7 +1655,7 @@ app.post('/api/auth/verify-login-mfa', mfaVerifyLimiter.middleware, requireNonEm
 app.post('/api/auth/logout', preventDuplicateSubmit({ dedupeWindowMs: 0, cacheReplay: false }), (req, res) => {
     const cookies = parseCookies(req);
     const rawToken = cookies.mt_session;
-    clearSessionCookie(res);
+    clearSessionCookie(res, req);
 
     if (!rawToken) {
         return res.json({ message: 'Signed out.' });
@@ -2010,7 +2140,16 @@ let _driveArchiveRamCache = {
 };
 const DRIVE_RAM_CACHE_TTL_MS = 90 * 1000; // Vive solo 90 segundos en RAM durante la consulta
 
-function isDateOlderThanLocalWindow(dateStr, retentionDays = Number(process.env.DB_RETENTION_DAYS || 30)) {
+function getEffectiveDbRetentionDays() {
+    const raw = process.env.DB_RETENTION_DAYS;
+    if (raw === undefined || raw === null || String(raw).trim() === '') return 0;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) return 0;
+    return Math.floor(parsed);
+}
+
+function isDateOlderThanLocalWindow(dateStr, retentionDays = getEffectiveDbRetentionDays()) {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return false;
     if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
     const targetMs = Date.parse(`${dateStr}T00:00:00Z`);
     if (!Number.isFinite(targetMs)) return false;
@@ -2055,17 +2194,6 @@ function resolveRcloneConfigPath({ preferStudy = false } = {}) {
     return { confPath: defaultConf, cleanup: false, usingStudyConfig: false };
 }
 
-function buildSafeRcloneExecEnv() {
-    // Evita que rclone interprete RCLONE_BACKUP_DIR / RCLONE_REMOTE como flags CLI (--backup-dir)
-    const cleanEnv = { ...process.env };
-    for (const k of Object.keys(cleanEnv)) {
-        if (k.startsWith('RCLONE_') || k.startsWith('STUDY_RCLONE_')) {
-            delete cleanEnv[k];
-        }
-    }
-    return cleanEnv;
-}
-
 function loadDriveHistoricalArchiveInRam() {
     return new Promise((resolve) => {
         const now = Date.now();
@@ -2081,36 +2209,31 @@ function loadDriveHistoricalArchiveInRam() {
             return resolve(null);
         }
 
-        const { execFile } = require('node:child_process');
         const zlib = require('node:zlib');
-        execFile(
-            'rclone',
-            ['--config', rcloneConf, 'cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
-            { encoding: 'buffer', timeout: 22000, maxBuffer: 32 * 1024 * 1024, env: buildSafeRcloneExecEnv() },
-            (err, stdoutBuf) => {
-                if (cleanupConf) {
-                    try {
-                        if (fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
-                    } catch (_) {}
+        serverNotesService.runRcloneCommand({
+            rcloneConf,
+            args: ['cat', `${remoteName}:${remoteDir}/historico_completo.json.gz`],
+            timeout: 22000,
+            encoding: 'buffer',
+            maxBuffer: 32 * 1024 * 1024
+        }).then((stdoutBuf) => {
+            if (!stdoutBuf || stdoutBuf.length === 0) return resolve(null);
+            const unzipped = zlib.gunzipSync(stdoutBuf).toString('utf8');
+            const parsed = JSON.parse(unzipped);
+            _driveArchiveRamCache = { loadedAt: Date.now(), data: parsed };
+            setTimeout(() => {
+                if (Date.now() - _driveArchiveRamCache.loadedAt >= DRIVE_RAM_CACHE_TTL_MS) {
+                    _driveArchiveRamCache = { loadedAt: 0, data: null };
                 }
-                if (err || !stdoutBuf || stdoutBuf.length === 0) {
-                    return resolve(null);
-                }
+            }, DRIVE_RAM_CACHE_TTL_MS + 1000).unref?.();
+            return resolve(parsed);
+        }).catch(() => resolve(null)).finally(() => {
+            if (cleanupConf) {
                 try {
-                    const unzipped = zlib.gunzipSync(stdoutBuf).toString('utf8');
-                    const parsed = JSON.parse(unzipped);
-                    _driveArchiveRamCache = { loadedAt: Date.now(), data: parsed };
-                    setTimeout(() => {
-                        if (Date.now() - _driveArchiveRamCache.loadedAt >= DRIVE_RAM_CACHE_TTL_MS) {
-                            _driveArchiveRamCache = { loadedAt: 0, data: null };
-                        }
-                    }, DRIVE_RAM_CACHE_TTL_MS + 1000).unref?.();
-                    return resolve(parsed);
-                } catch (_) {
-                    return resolve(null);
-                }
+                    if (fs.existsSync(rcloneConf)) fs.unlinkSync(rcloneConf);
+                } catch (_) {}
             }
-        );
+        });
     });
 }
 
@@ -2274,7 +2397,7 @@ app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) =>
 
     const sql = begin && end
         ? 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis WHERE fecha BETWEEN ? AND ? ORDER BY fecha DESC, hora DESC, id DESC'
-        : 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis ORDER BY fecha DESC, hora DESC, id DESC LIMIT 50';
+        : 'SELECT id, fecha, hora, tipo_crisis, intensidad, motivo, fecha_registro FROM RegistrosCrisis ORDER BY fecha DESC, hora DESC, id DESC LIMIT 500';
     const params = begin && end ? [begin, end] : [];
 
     db.query(sql, params, async (err, result) => {
@@ -2289,10 +2412,10 @@ app.get('/api/get-crisis', apiReadLimiter.middleware, requireAuth, (req, res) =>
     });
 });
 
-// Endpoint para extraer temporalmente de Google Drive los últimos X meses (ej. 6 meses) en RAM sin llenar la instancia
+// Endpoint para extraer temporalmente de Google Drive hasta 120 meses (10 años) combinados con MySQL local
 app.get('/api/archive/drive-range', apiReadLimiter.middleware, requireAuth, async (req, res) => {
     try {
-        const months = Math.max(1, Math.min(24, Number.parseInt(String(req.query.months || '6'), 10) || 6));
+        const months = Math.max(1, Math.min(120, Number.parseInt(String(req.query.months || '6'), 10) || 6));
         const endDt = new Date();
         const beginDt = new Date(endDt.getFullYear(), endDt.getMonth() - months, endDt.getDate());
         const begin = String(req.query.begin || beginDt.toISOString().slice(0, 10)).slice(0, 10);
@@ -2314,10 +2437,13 @@ app.get('/api/archive/drive-range', apiReadLimiter.middleware, requireAuth, asyn
             mergeLocalRowsWithDriveRam('crisis', localCrises, begin, end, true)
         ]);
 
+        const localRetentionDays = getEffectiveDbRetentionDays();
+        const localSourceTag = localRetentionDays === 0 ? 'mysql_local_full' : `mysql_local_${localRetentionDays}d`;
+
         res.json({
             ok: true,
-            source: _driveArchiveRamCache.data ? 'google_drive_ram + mysql_local_1m' : 'mysql_local_1m',
-            localRetentionDays: Number(process.env.DB_RETENTION_DAYS || 30),
+            source: _driveArchiveRamCache.data ? `google_drive_ram + ${localSourceTag}` : localSourceTag,
+            localRetentionDays,
             monthsRequested: months,
             begin,
             end,
@@ -2493,17 +2619,535 @@ const englishQueue = createEncryptedPcQueue({
     fullMessage: 'English sync queue is full; please wait for your PC to pull pending entries.'
 });
 
-// Enviar nota de Journal cifrada a la cola (SOLO ADMIN)
-app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), journalQueue.enqueue);
+async function runWithDocxLock(lockName, taskFn) {
+    return ytdlpService.runWithHeavyTaskLock(() =>
+        withMySqlAdvisoryLock({
+            pool: db,
+            lockName,
+            timeoutSec: 25,
+            taskFn,
+            onWarn: (msg) => serverLogger.warn('DOCX_LOCK', msg, { replicaId: REPLICA_ID, lockName })
+        })
+    );
+}
 
-// Ruta para que tu PC consulte notas de Journal pendientes (el contenido viaja cifrado E2EE)
-app.get('/api/pull-text', pcPullLimiter.middleware, journalQueue.pull);
+let _englishDriveRetryTimer = null;
+let _englishDriveRetryCount = 0;
 
-// Enviar entrada cifrada de English Learning Notebook a la cola (SOLO ADMIN, sin guardar en MySQL)
-app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), englishQueue.enqueue);
+function scheduleStudyDriveRetry() {
+    if (_englishDriveRetryTimer || _englishDriveRetryCount >= 5) return;
+    _englishDriveRetryCount += 1;
+    const delayMs = Math.min(300000, 30000 * _englishDriveRetryCount);
+    _englishDriveRetryTimer = setTimeout(async () => {
+        _englishDriveRetryTimer = null;
+        try {
+            await runWithDocxLock('pdh_docx_english', async () => {
+                const localMirrorPath = serverNotesService.resolveLocalEnglishPath({ rootDir: __dirname });
+                if (!fs.existsSync(localMirrorPath)) return;
+                const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
+                try {
+                    if (!fs.existsSync(rcloneConf)) return;
+                    const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
+                    const buf = fs.readFileSync(localMirrorPath);
+                    const syncRes = await serverNotesService.uploadAndVerifyStudyDocx({
+                        docxBuffer: buf,
+                        filePath: localMirrorPath,
+                        rcloneConf,
+                        remoteTarget
+                    });
+                    if (syncRes.verified) {
+                        _englishDriveRetryCount = 0;
+                    } else {
+                        scheduleStudyDriveRetry();
+                    }
+                } finally {
+                    if (cleanupConf && rcloneConf && fs.existsSync(rcloneConf)) {
+                        try { fs.unlinkSync(rcloneConf); } catch (_) {}
+                    }
+                }
+            });
+        } catch (err) {
+            console.warn('[STUDY_DRIVE_RETRY_WARN]', err.message);
+            scheduleStudyDriveRetry();
+        }
+    }, delayMs);
+    _englishDriveRetryTimer.unref?.();
+}
 
-// Ruta para que tu PC consulte entradas de inglés pendientes (el contenido viaja cifrado E2EE)
-app.get('/api/pull-english', pcPullLimiter.middleware, englishQueue.pull);
+function shiftIsoDate(isoDateStr, deltaDays) {
+    const dt = new Date(`${isoDateStr}T12:00:00Z`);
+    dt.setUTCDate(dt.getUTCDate() + deltaDays);
+    return dt.toISOString().slice(0, 10);
+}
+
+async function resolveAdminJournalLocalNow(userId = null) {
+    let tz = process.env.TZ || 'America/Monterrey';
+    if (userId) {
+        try {
+            const settings = await loadUserSettings(userId);
+            if (settings && settings.timezone) {
+                tz = settings.timezone;
+            }
+        } catch (_) {}
+    }
+    return getLocalNowParts(tz);
+}
+
+function buildEmptyJournalCoverage(todayIso) {
+    const yesterdayIso = shiftIsoDate(todayIso, -1);
+    const todayHeading = serverNotesService.computeJournalHeadingForDateIso(todayIso);
+    const yesterdayHeading = serverNotesService.computeJournalHeadingForDateIso(yesterdayIso);
+    return {
+        todayIso,
+        todayHeading,
+        todayStatus: 'missing',
+        yesterdayIso,
+        yesterdayHeading,
+        yesterdayStatus: 'missing',
+        firstDateIso: null,
+        lastDateIso: null,
+        totalDaysRecorded: 0,
+        filledCount: 0,
+        nothingToReportCount: 0,
+        emptyHeadingCount: 0,
+        missingPastDates: [],
+        missingPastHeadings: [],
+        allPastDaysFilled: true,
+        recentDays: [{
+            dateIso: todayIso,
+            heading: todayHeading,
+            status: 'missing',
+            isToday: true
+        }]
+    };
+}
+
+// Enviar nota de Journal cifrada al servidor local (o cola PC si aplica) (SOLO ADMIN)
+app.post('/api/send-to-pc', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
+    const { texto } = req.body || {};
+    if (typeof texto !== 'string' || !texto.trim()) {
+        return res.status(400).send('Text cannot be empty.');
+    }
+    if (texto.length > 48000) {
+        return res.status(400).send('Encrypted payload exceeds maximum allowed length.');
+    }
+
+    const secretKey = String(process.env.JOURNAL_SECRET_KEY || '');
+    const wordPassword = String(process.env.WORD_PASSWORD || '');
+    if (
+        serverNotesService.isServerAutonomousNotesEnabled()
+        && serverNotesService.normalizeE2eeKeyBuffer(secretKey)
+        && serverNotesService.isValidE2eeEnvelope(texto)
+    ) {
+        const dec = serverNotesService.decryptClientE2ee(texto, secretKey);
+        if (!dec.ok) {
+            return res.status(400).send('E2EE key mismatch: server JOURNAL_SECRET_KEY could not decrypt entry.');
+        }
+        if (wordPassword) {
+            try {
+                const localNow = await resolveAdminJournalLocalNow(req.user.id);
+                const writeRes = await runWithDocxLock('pdh_docx_journal', () =>
+                    serverNotesService.saveJournalNoteLocalEncrypted({
+                        plainText: dec.plainText,
+                        wordPassword,
+                        targetDateIso: localNow.dateStr,
+                        backfillMissingBefore: true,
+                        rootDir: __dirname
+                    })
+                );
+                if (writeRes && writeRes.ok) {
+                    serverLogger.info('JOURNAL', 'Nota local cifrada guardada en Diario.docx', {
+                        heading: writeRes.heading,
+                        bytes: writeRes.bytes,
+                        skipped: writeRes.skipped,
+                        replacedPlaceholder: Boolean(writeRes.replacedPlaceholder),
+                        backfilledCount: Array.isArray(writeRes.backfilledDates) ? writeRes.backfilledDates.length : 0
+                    });
+                    if (writeRes.skipped) {
+                        return res.send(`Today already has a journal entry (${writeRes.heading}); "Nothing to report." was skipped.`);
+                    }
+                    return res.send(`Note encrypted with password and saved locally (${writeRes.heading}).`);
+                }
+                if (writeRes && writeRes.reason === 'WRONG_PASSWORD') {
+                    return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+                }
+                if (writeRes && writeRes.reason !== 'MSOFFCRYPTO_MISSING') {
+                    return res.status(500).send(writeRes.error || 'Could not write encrypted local Diario.docx.');
+                }
+            } catch (err) {
+                console.error('[JOURNAL_LOCAL_WRITE_ERROR]', err.message);
+                if (err && err.code === 'LOCK_TIMEOUT') {
+                    return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+                }
+                return res.status(500).send('Error saving encrypted local Journal.');
+            }
+        }
+    }
+
+    return journalQueue.enqueue(req, res);
+});
+
+// Ruta para que tu PC consulte notas de Journal pendientes (compatibilidad puente PC)
+app.get('/api/pull-text', pcPullLimiter.middleware, requirePcBridgeAuthIfConfigured, journalQueue.pull);
+
+// Estado e descarga segura (solo Admin) del Journal local cifrado con contraseña
+app.get('/api/journal/local-status', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    return res.json({
+        ok: true,
+        autonomousEnabled: serverNotesService.isServerAutonomousNotesEnabled(),
+        exists: status.exists,
+        encrypted: status.encrypted,
+        sizeBytes: status.sizeBytes,
+        updatedAt: status.updatedAt,
+        passwordConfigured: status.passwordConfigured,
+        lastAutoVerifiedDate: _lastMidnightJournalDate || null
+    });
+});
+
+app.get('/api/journal/download', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    if (!status.exists) {
+        return res.status(404).send('Local encrypted Diario.docx has not been created yet.');
+    }
+    if (!status.encrypted) {
+        return res.status(403).send('Refusing to download unencrypted Journal file.');
+    }
+    return res.download(status.path, 'Diario.docx');
+});
+
+// Estado de cobertura diaria del Diario (solo metadatos, nunca texto privado)
+app.get('/api/journal/daily-status', apiReadLimiter.middleware, requireAdmin, async (req, res) => {
+    const localNow = await resolveAdminJournalLocalNow(req.user.id);
+    const yesterdayIso = shiftIsoDate(localNow.dateStr, -1);
+    const todayHeading = serverNotesService.computeJournalHeadingForDateIso(localNow.dateStr);
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    const autonomousEnabled = serverNotesService.isServerAutonomousNotesEnabled();
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+
+    if (!autonomousEnabled || !wordPassword) {
+        return res.json({
+            ok: true,
+            autonomousEnabled,
+            passwordConfigured: Boolean(wordPassword),
+            exists: status.exists,
+            encrypted: status.encrypted,
+            todayIso: localNow.dateStr,
+            todayHeading,
+            yesterdayIso,
+            coverageAvailable: false,
+            reason: !autonomousEnabled ? 'AUTONOMOUS_DISABLED' : 'PASSWORD_MISSING',
+            lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+            coverage: null
+        });
+    }
+
+    if (!status.exists) {
+        return res.json({
+            ok: true,
+            autonomousEnabled: true,
+            passwordConfigured: true,
+            exists: false,
+            encrypted: false,
+            todayIso: localNow.dateStr,
+            todayHeading,
+            yesterdayIso,
+            coverageAvailable: true,
+            reason: null,
+            lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+            coverage: buildEmptyJournalCoverage(localNow.dateStr)
+        });
+    }
+
+    try {
+        const inspectRes = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.inspectJournalDailyCoverage({
+                wordPassword,
+                todayIso: localNow.dateStr,
+                rootDir: __dirname
+            })
+        );
+        if (inspectRes && inspectRes.ok) {
+            return res.json({
+                ok: true,
+                autonomousEnabled: true,
+                passwordConfigured: true,
+                exists: Boolean(inspectRes.exists),
+                encrypted: Boolean(inspectRes.encrypted),
+                todayIso: localNow.dateStr,
+                todayHeading: inspectRes.coverage?.todayHeading || todayHeading,
+                yesterdayIso,
+                coverageAvailable: true,
+                reason: null,
+                lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+                coverage: inspectRes.coverage || buildEmptyJournalCoverage(localNow.dateStr)
+            });
+        }
+        if (inspectRes && inspectRes.reason === 'MSOFFCRYPTO_MISSING') {
+            return res.json({
+                ok: true,
+                autonomousEnabled: true,
+                passwordConfigured: true,
+                exists: status.exists,
+                encrypted: status.encrypted,
+                todayIso: localNow.dateStr,
+                todayHeading,
+                yesterdayIso,
+                coverageAvailable: false,
+                reason: 'MSOFFCRYPTO_MISSING',
+                lastAutoVerifiedDate: _lastMidnightJournalDate || null,
+                coverage: null
+            });
+        }
+        if (inspectRes && inspectRes.reason === 'WRONG_PASSWORD') {
+            return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+        }
+        return res.status(500).send(inspectRes?.error || 'Could not inspect local Diario.docx.');
+    } catch (err) {
+        if (err && err.code === 'LOCK_TIMEOUT') {
+            return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+        }
+        console.error('[JOURNAL_DAILY_STATUS_ERROR]', err.message);
+        return res.status(500).send('Error inspecting local Journal daily status.');
+    }
+});
+
+// Verificar y rellenar días faltantes del Diario con "Nothing to report." (SOLO ADMIN)
+app.post('/api/journal/verify-days', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 3000 }), async (req, res) => {
+    const localNow = await resolveAdminJournalLocalNow(req.user.id);
+    const yesterdayIso = shiftIsoDate(localNow.dateStr, -1);
+    const autonomousEnabled = serverNotesService.isServerAutonomousNotesEnabled();
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+
+    if (!autonomousEnabled || !wordPassword) {
+        return res.status(409).json({
+            ok: false,
+            reason: !autonomousEnabled ? 'AUTONOMOUS_DISABLED' : 'PASSWORD_MISSING',
+            error: 'Autonomous local journal is not active on this server.'
+        });
+    }
+
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    if (!status.exists) {
+        return res.json({
+            ok: true,
+            exists: false,
+            modified: false,
+            filledDates: [],
+            filledHeadings: [],
+            coverage: buildEmptyJournalCoverage(localNow.dateStr),
+            message: 'No journal file exists yet. Save your first entry or mark today as "Nothing to report." to start tracking.'
+        });
+    }
+
+    try {
+        const verifyRes = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.verifyJournalDailyCoverage({
+                wordPassword,
+                todayIso: localNow.dateStr,
+                throughDateIso: yesterdayIso,
+                createIfMissing: false,
+                fillIfEmptyDoc: true,
+                rootDir: __dirname
+            })
+        );
+        if (verifyRes && verifyRes.ok) {
+            _lastMidnightJournalDate = localNow.dateStr;
+            const filledDates = Array.isArray(verifyRes.filledDates) ? verifyRes.filledDates : [];
+            const filledCount = filledDates.length;
+            if (filledCount > 0) {
+                serverLogger.info('JOURNAL', 'Días faltantes completados en Diario.docx', {
+                    filledCount,
+                    filledDates
+                });
+            }
+            const message = filledCount > 0
+                ? `Filled ${filledCount} missing day(s) with "Nothing to report.".`
+                : 'All past days are already filled.';
+            return res.json({
+                ok: true,
+                exists: true,
+                modified: Boolean(verifyRes.modified),
+                filledDates,
+                filledHeadings: Array.isArray(verifyRes.filledHeadings) ? verifyRes.filledHeadings : [],
+                coverage: verifyRes.coverage || null,
+                message
+            });
+        }
+        if (verifyRes && verifyRes.reason === 'MSOFFCRYPTO_MISSING') {
+            return res.status(409).json({
+                ok: false,
+                reason: 'MSOFFCRYPTO_MISSING',
+                error: verifyRes.error || 'msoffcrypto-tool is not installed on this server.'
+            });
+        }
+        if (verifyRes && verifyRes.reason === 'WRONG_PASSWORD') {
+            return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+        }
+        return res.status(500).send(verifyRes?.error || 'Could not write encrypted local Diario.docx.');
+    } catch (err) {
+        if (err && err.code === 'LOCK_TIMEOUT') {
+            return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+        }
+        console.error('[JOURNAL_VERIFY_DAYS_ERROR]', err.message);
+        return res.status(500).send('Error verifying local Journal days.');
+    }
+});
+
+// Marcar explícitamente el día actual (u otra fecha <= hoy) como "Nothing to report." (SOLO ADMIN)
+app.post('/api/journal/nothing-to-report', apiWriteLimiter.middleware, requireAdmin, preventDuplicateSubmit({ dedupeWindowMs: 5000 }), async (req, res) => {
+    const localNow = await resolveAdminJournalLocalNow(req.user.id);
+    const rawTarget = typeof req.body?.targetDateIso === 'string' ? req.body.targetDateIso.trim() : '';
+    let targetDateIso = localNow.dateStr;
+    if (rawTarget) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rawTarget)) {
+            return res.status(400).send('Invalid date format (expected YYYY-MM-DD).');
+        }
+        const parsedDt = new Date(`${rawTarget}T12:00:00Z`);
+        if (Number.isNaN(parsedDt.getTime()) || parsedDt.toISOString().slice(0, 10) !== rawTarget) {
+            return res.status(400).send('Invalid date format (expected YYYY-MM-DD).');
+        }
+        if (rawTarget > localNow.dateStr) {
+            return res.status(400).send('Cannot mark a future journal date.');
+        }
+        targetDateIso = rawTarget;
+    }
+
+    const autonomousEnabled = serverNotesService.isServerAutonomousNotesEnabled();
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+    if (!autonomousEnabled || !wordPassword) {
+        return res.status(409).json({
+            ok: false,
+            reason: !autonomousEnabled ? 'AUTONOMOUS_DISABLED' : 'PASSWORD_MISSING',
+            fallbackToPcQueue: true,
+            error: 'Autonomous local journal is not active; use encrypted PC sync queue.'
+        });
+    }
+
+    try {
+        const writeRes = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.saveJournalNoteLocalEncrypted({
+                plainText: 'Nothing to report.',
+                wordPassword,
+                targetDateIso,
+                backfillMissingBefore: true,
+                rootDir: __dirname
+            })
+        );
+        if (writeRes && writeRes.ok) {
+            _lastMidnightJournalDate = localNow.dateStr;
+            serverLogger.info('JOURNAL', 'Día marcado en Diario.docx', {
+                heading: writeRes.heading,
+                skipped: Boolean(writeRes.skipped),
+                backfilledCount: Array.isArray(writeRes.backfilledDates) ? writeRes.backfilledDates.length : 0
+            });
+            const message = writeRes.skipped
+                ? `Today already has a journal entry (${writeRes.heading}); "Nothing to report." was skipped.`
+                : `Marked "${writeRes.heading}" as "Nothing to report.".`;
+            return res.json({
+                ok: true,
+                skipped: Boolean(writeRes.skipped),
+                heading: writeRes.heading,
+                backfilledDates: Array.isArray(writeRes.backfilledDates) ? writeRes.backfilledDates : [],
+                backfilledHeadings: Array.isArray(writeRes.backfilledHeadings) ? writeRes.backfilledHeadings : [],
+                coverage: writeRes.coverage || null,
+                message
+            });
+        }
+        if (writeRes && writeRes.reason === 'MSOFFCRYPTO_MISSING') {
+            return res.status(409).json({
+                ok: false,
+                reason: 'MSOFFCRYPTO_MISSING',
+                fallbackToPcQueue: true,
+                error: writeRes.error || 'msoffcrypto-tool is not installed on this server.'
+            });
+        }
+        if (writeRes && writeRes.reason === 'WRONG_PASSWORD') {
+            return res.status(500).send('WORD_PASSWORD rejected by existing local Diario.docx; note was not written.');
+        }
+        return res.status(500).send(writeRes?.error || 'Could not write encrypted local Diario.docx.');
+    } catch (err) {
+        if (err && err.code === 'LOCK_TIMEOUT') {
+            return res.status(503).send('Concurrent journal file write busy; please retry shortly.');
+        }
+        console.error('[JOURNAL_NTR_ERROR]', err.message);
+        return res.status(500).send('Error saving encrypted local Journal.');
+    }
+});
+
+// Enviar entrada cifrada de English Learning Notebook directo a Google Drive (o cola PC si aplica) (SOLO ADMIN)
+app.post('/api/send-english', pcQueueWriteLimiter.middleware, requireAdmin, requireNonEmptyBody, preventDuplicateSubmit({ dedupeWindowMs: 10000 }), async (req, res) => {
+    const { texto } = req.body || {};
+    if (typeof texto !== 'string' || !texto.trim()) {
+        return res.status(400).send('Entry payload cannot be empty.');
+    }
+    if (texto.length > 48000) {
+        return res.status(400).send('Encrypted payload exceeds maximum allowed length.');
+    }
+
+    const secretKey = String(process.env.JOURNAL_SECRET_KEY || '');
+    if (
+        serverNotesService.isServerAutonomousNotesEnabled()
+        && serverNotesService.normalizeE2eeKeyBuffer(secretKey)
+        && serverNotesService.isValidE2eeEnvelope(texto)
+    ) {
+        const dec = serverNotesService.decryptClientE2ee(texto, secretKey);
+        if (!dec.ok) {
+            return res.status(400).send('E2EE key mismatch: server JOURNAL_SECRET_KEY could not decrypt entry.');
+        }
+        let parsedEntry = dec.plainText;
+        try {
+            parsedEntry = JSON.parse(dec.plainText);
+        } catch (_) {}
+
+        try {
+            const saveRes = await runWithDocxLock('pdh_docx_english', () =>
+                serverNotesService.saveEnglishEntryToCloudAndLocal({
+                    entry: parsedEntry,
+                    resolveRcloneFn: resolveRcloneConfigPath,
+                    resolveStudyTargetFn: resolveStudyDriveRemoteTarget,
+                    updateCacheFn: updateStudyNotebookCacheFromBuffer,
+                    rootDir: __dirname
+                })
+            );
+            if (saveRes && saveRes.ok) {
+                if (saveRes.needsRetry) {
+                    serverLogger.warn('DRIVE_NOTES', 'Nota guardada en caché local; reintento pendiente hacia Google Drive', {
+                        heading: saveRes.heading,
+                        error: saveRes.error
+                    });
+                    scheduleStudyDriveRetry();
+                    return res.send('Saved to local mirror; Google Drive upload scheduled for retry.');
+                }
+                _englishDriveRetryCount = 0;
+                serverLogger.info('DRIVE_NOTES', 'Cuaderno de idiomas actualizado', {
+                    mode: saveRes.mode,
+                    heading: saveRes.heading,
+                    deduplicated: saveRes.deduplicated,
+                    verified: saveRes.verified
+                });
+                return res.send(
+                    saveRes.mode === 'cloud_drive'
+                        ? 'Saved directly to English Notebook on Google Drive.'
+                        : 'Saved directly to local English Notebook volume.'
+                );
+            }
+            console.error('[ENGLISH_SERVER_SAVE_ERROR]', saveRes?.error || saveRes);
+            return res.status(500).send(saveRes?.error || 'Could not save English Notebook entry.');
+        } catch (err) {
+            console.error('[ENGLISH_SERVER_SAVE_EXC]', err.message);
+            if (err && err.code === 'LOCK_TIMEOUT') {
+                return res.status(503).send('Concurrent English Notebook file write busy; please retry shortly.');
+            }
+            return res.status(500).send('Error saving English Notebook entry on server.');
+        }
+    }
+
+    return englishQueue.enqueue(req, res);
+});
+
+// Ruta para que tu PC consulte entradas de inglés pendientes (compatibilidad puente PC)
+app.get('/api/pull-english', pcPullLimiter.middleware, requirePcBridgeAuthIfConfigured, englishQueue.pull);
 
 // ==========================================
 // RUTAS PARA LA AGENDA PERSONAL SEMANAL (SOLO ADMIN)
@@ -4939,6 +5583,54 @@ async function evaluateAndDispatchUserReminders(user, { dispatchPush = true, req
     };
 }
 
+let _lastMidnightJournalDate = '';
+let _lastMidnightJournalAttemptMs = 0;
+
+async function runAutonomousJournalMidnightTick(adminTimeZone = null) {
+    const wordPassword = String(process.env.WORD_PASSWORD || '').trim();
+    if (!wordPassword || !serverNotesService.isServerAutonomousNotesEnabled()) return;
+
+    const localNow = getLocalNowParts(adminTimeZone || process.env.TZ || 'America/Monterrey');
+    if (_lastMidnightJournalDate === localNow.dateStr) return;
+
+    const nowMs = Date.now();
+    if (_lastMidnightJournalAttemptMs > 0 && (nowMs - _lastMidnightJournalAttemptMs) < 5 * 60 * 1000) {
+        return;
+    }
+
+    const status = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
+    if (!status.exists && localNow.minutesOfDay >= 60) {
+        return;
+    }
+
+    _lastMidnightJournalAttemptMs = nowMs;
+    const yesterdayIso = shiftIsoDate(localNow.dateStr, -1);
+
+    try {
+        const res = await runWithDocxLock('pdh_docx_journal', () =>
+            serverNotesService.verifyJournalDailyCoverage({
+                wordPassword,
+                todayIso: localNow.dateStr,
+                throughDateIso: yesterdayIso,
+                createIfMissing: localNow.minutesOfDay < 60,
+                fillIfEmptyDoc: true,
+                rootDir: __dirname
+            })
+        );
+        if (res && res.ok) {
+            _lastMidnightJournalDate = localNow.dateStr;
+            if (Array.isArray(res.filledDates) && res.filledDates.length > 0) {
+                serverLogger.info('JOURNAL', 'Verificación diaria automática completada en Diario.docx', {
+                    filledDates: res.filledDates,
+                    todayIso: localNow.dateStr
+                });
+            }
+        }
+    } catch (err) {
+        console.warn('[MIDNIGHT_JOURNAL_WARN]', err.message);
+    }
+}
+
 let schedulerRunning = false;
 async function runReminderSchedulerTick() {
     if (schedulerRunning) return;
@@ -4947,6 +5639,14 @@ async function runReminderSchedulerTick() {
         const admins = await dbQueryAsync(
             "SELECT id, nombre, email FROM Usuarios WHERE rol = 'admin' AND COALESCE(estado, 'activo') = 'activo'"
         );
+        let adminTz = null;
+        if (Array.isArray(admins) && admins.length > 0) {
+            try {
+                const adminSettings = await loadUserSettings(admins[0].id);
+                adminTz = adminSettings?.timezone || null;
+            } catch (_) {}
+        }
+        await runAutonomousJournalMidnightTick(adminTz);
         if (!Array.isArray(admins) || admins.length === 0) return;
         for (const adminUser of admins) {
             await evaluateAndDispatchUserReminders(adminUser, { dispatchPush: true });
@@ -6270,6 +6970,17 @@ function validateAndExtractSongPayload(body) {
     };
 }
 
+async function ensureMusicaSchemaExtraColumns() {
+    await Promise.all([
+        dbQueryAsync('ALTER TABLE MusicaAlbumes ADD COLUMN fecha_lanzamiento DATE NULL DEFAULT NULL AFTER anio').catch(() => {}),
+        dbQueryAsync('ALTER TABLE MusicaCanciones ADD COLUMN anio SMALLINT NULL AFTER idioma').catch(() => {})
+    ]);
+}
+
+function isUnknownColumnDbError(err) {
+    return Boolean(err && (err.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(err.message || '')));
+}
+
 async function fetchUserMusicAlbumsAndSongs(uid) {
     const queryWithReleaseDate = () => Promise.all([
         dbQueryAsync(
@@ -6284,7 +6995,8 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
         ),
         dbQueryAsync(
             `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
-                    al.anio AS album_anio, DATE_FORMAT(al.fecha_lanzamiento, '%Y-%m-%d') AS album_fecha_lanzamiento,
+                    COALESCE(al.anio, c.anio) AS album_anio, c.anio AS cancion_anio,
+                    DATE_FORMAT(al.fecha_lanzamiento, '%Y-%m-%d') AS album_fecha_lanzamiento,
                     c.titulo, c.numero_pista, c.idioma,
                     c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
                     c.enfoque_corto, c.word_sincronizado,
@@ -6301,10 +7013,8 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
         const [albums, songs] = await queryWithReleaseDate();
         return { albums, songs };
     } catch (err) {
-        if (err && (err.code === 'ER_BAD_FIELD_ERROR' || /Unknown column/i.test(err.message || ''))) {
-            await dbQueryAsync(
-                'ALTER TABLE MusicaAlbumes ADD COLUMN fecha_lanzamiento DATE NULL DEFAULT NULL AFTER anio'
-            ).catch(() => {});
+        if (isUnknownColumnDbError(err)) {
+            await ensureMusicaSchemaExtraColumns();
             try {
                 const [albums, songs] = await queryWithReleaseDate();
                 return { albums, songs };
@@ -6322,7 +7032,7 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
                     ),
                     dbQueryAsync(
                         `SELECT c.id, c.album_id, al.titulo AS album_titulo, al.tipo_lanzamiento AS album_tipo,
-                                al.anio AS album_anio, NULL AS album_fecha_lanzamiento,
+                                al.anio AS album_anio, NULL AS cancion_anio, NULL AS album_fecha_lanzamiento,
                                 c.titulo, c.numero_pista, c.idioma,
                                 c.yt_music_url, c.yt_video_id, c.thumbnail_url, c.estado_estudio,
                                 c.enfoque_corto, c.word_sincronizado,
@@ -6338,6 +7048,53 @@ async function fetchUserMusicAlbumsAndSongs(uid) {
             }
         }
         throw err;
+    }
+}
+
+async function insertMusicaCancionRow(valuesWithAnio) {
+    const [uid, albumId, titulo, numPista, idioma, anio, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto, wordSync] = valuesWithAnio;
+    const includeWordSync = wordSync !== undefined;
+    const insertWithAnio = () => (
+        includeWordSync
+            ? dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, anio, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, anio, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto, wordSync]
+            )
+            : dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, anio, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, anio, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto]
+            )
+    );
+    const insertLegacy = () => (
+        includeWordSync
+            ? dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto, wordSync]
+            )
+            : dbQueryAsync(
+                `INSERT INTO MusicaCanciones
+                 (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [uid, albumId, titulo, numPista, idioma, ytMusicUrl, ytVideoId, thumbUrl, estadoEstudio, enfoqueCorto]
+            )
+    );
+    try {
+        return await insertWithAnio();
+    } catch (err) {
+        if (!isUnknownColumnDbError(err)) throw err;
+        await ensureMusicaSchemaExtraColumns();
+        try {
+            return await insertWithAnio();
+        } catch (retryErr) {
+            if (!isUnknownColumnDbError(retryErr)) throw retryErr;
+            return await insertLegacy();
+        }
     }
 }
 
@@ -6384,24 +7141,23 @@ async function tryRestoreMusicCatalogFromDriveIfEmpty(uid) {
     for (const s of archSongs) {
         if (!s || !s.titulo) continue;
         const mappedAlbumId = s.album_id != null ? (albumByOldId.get(Number(s.album_id)) || null) : null;
-        const ins = await dbQueryAsync(
-            `INSERT INTO MusicaCanciones
-             (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto, word_sincronizado)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                uid,
-                mappedAlbumId,
-                String(s.titulo).slice(0, 180),
-                s.numero_pista || null,
-                s.idioma || 'English',
-                s.yt_music_url || null,
-                s.yt_video_id || null,
-                s.thumbnail_url || null,
-                MUSIC_STUDY_STATES.has(s.estado_estudio) ? s.estado_estudio : 'to_study',
-                s.enfoque_corto || null,
-                s.word_sincronizado ? 1 : 0
-            ]
-        ).catch(() => null);
+        const songYear = Number.isInteger(Number(s.anio || s.cancion_anio || s.album_anio))
+            ? Number(s.anio || s.cancion_anio || s.album_anio)
+            : null;
+        const ins = await insertMusicaCancionRow([
+            uid,
+            mappedAlbumId,
+            String(s.titulo).slice(0, 180),
+            s.numero_pista || null,
+            s.idioma || 'English',
+            songYear,
+            s.yt_music_url || null,
+            s.yt_video_id || null,
+            s.thumbnail_url || null,
+            MUSIC_STUDY_STATES.has(s.estado_estudio) ? s.estado_estudio : 'to_study',
+            s.enfoque_corto || null,
+            s.word_sincronizado ? 1 : 0
+        ]).catch(() => null);
         const newSongId = ins && ins.insertId;
         if (!newSongId) continue;
         restoredCount += 1;
@@ -6618,10 +7374,19 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
     let oembed = null;
     let apiVideo = null;
     let watchMeta = null;
+    let ytmMeta = null;
+    let externalMeta = null;
+    let ytdlpMeta = null;
     let catalogAlbums = [];
     let catalogSongs = [];
+    let catalogArtists = [];
 
     const catalogPromise = fetchUserMusicAlbumsAndSongs(uid).catch(() => ({ albums: [], songs: [] }));
+    const artistsPromise = dbQueryAsync(
+        `SELECT id, nombre, tipo_artista, notas_cortas, creado_en
+         FROM MusicaArtistas WHERE usuario_id = ? ORDER BY nombre ASC`,
+        [uid]
+    ).catch(() => []);
 
     if (parsed.videoId) {
         const videoIdEnc = encodeURIComponent(parsed.videoId);
@@ -6632,7 +7397,7 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
             ? `https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${videoIdEnc}&key=${encodeURIComponent(apiKey)}`
             : null;
 
-        const [oembedRes, apiRes, watchHtml, catRes] = await Promise.all([
+        const [oembedRes, apiRes, watchHtml, ytmRes, catRes, artRes] = await Promise.all([
             fetchExternalWithTimeout(oembedUrl, { timeoutMs: 4000, asJson: true }),
             apiUrl ? fetchExternalWithTimeout(apiUrl, { timeoutMs: 4000, asJson: true }) : Promise.resolve(null),
             fetchExternalWithTimeout(watchUrl, {
@@ -6640,31 +7405,85 @@ app.post('/api/english/music/resolve', apiWriteLimiter.middleware, requireAdmin,
                 asJson: false,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                    'Accept-Language': 'en-US,en;q=0.9'
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    Cookie: 'CONSENT=YES+1'
                 }
             }),
-            catalogPromise
+            ytmusicLyrics.fetchYouTubeMusicTrackMetadata({
+                videoId: parsed.videoId,
+                isAllowedUrl: ytdlpService.isAllowedInnerTubeUrl,
+                timeoutMs: 4200
+            }).catch(() => null),
+            catalogPromise,
+            artistsPromise
         ]);
 
         oembed = oembedRes;
         apiVideo = apiRes && Array.isArray(apiRes.items) && apiRes.items[0] ? apiRes.items[0] : null;
         watchMeta = watchHtml ? extractYouTubeWatchPageMetadata(watchHtml) : null;
+        ytmMeta = ytmRes && ytmRes.ok ? ytmRes : null;
         catalogAlbums = catRes.albums || [];
         catalogSongs = catRes.songs || [];
+        catalogArtists = Array.isArray(artRes) ? artRes : [];
     } else {
-        const catRes = await catalogPromise;
+        const [catRes, artRes] = await Promise.all([catalogPromise, artistsPromise]);
         catalogAlbums = catRes.albums || [];
         catalogSongs = catRes.songs || [];
+        catalogArtists = Array.isArray(artRes) ? artRes : [];
     }
 
-    const merged = mergeResolvedTrackMetadata({
+    const preliminary = mergeResolvedTrackMetadata({
         videoId: parsed.videoId,
         oembed,
         apiVideo,
         watchMeta,
+        ytmMeta,
         catalogSongs,
-        catalogAlbums
+        catalogAlbums,
+        catalogArtists
     });
+
+    if (parsed.videoId && preliminary.suggestedTitle) {
+        externalMeta = await externalLyricsAndMeta.fetchExternalTrackMetadata({
+            title: preliminary.suggestedTitle,
+            artist: preliminary.suggestedArtist || '',
+            timeoutMs: 3200
+        }).catch(() => null);
+    }
+
+    let merged = mergeResolvedTrackMetadata({
+        videoId: parsed.videoId,
+        oembed,
+        apiVideo,
+        watchMeta,
+        ytmMeta,
+        externalMeta,
+        catalogSongs,
+        catalogAlbums,
+        catalogArtists
+    });
+
+    if (parsed.videoId && (!merged.suggestedTitle || !merged.suggestedAlbumYear)) {
+        const ytdlpRes = await ytdlpService.fetchVideoMetadataViaYtDlp({
+            videoId: parsed.videoId,
+            timeoutMs: 6000
+        }).catch(() => null);
+        if (ytdlpRes && ytdlpRes.ok) {
+            ytdlpMeta = ytdlpRes;
+            merged = mergeResolvedTrackMetadata({
+                videoId: parsed.videoId,
+                oembed,
+                apiVideo,
+                watchMeta,
+                ytmMeta,
+                externalMeta,
+                ytdlpMeta,
+                catalogSongs,
+                catalogAlbums,
+                catalogArtists
+            });
+        }
+    }
 
     res.json({
         videoId: parsed.videoId,
@@ -6713,23 +7532,19 @@ app.post('/api/english/music/songs', apiWriteLimiter.middleware, requireAdmin, r
             mainArtistId
         });
 
-        const insertedSong = await dbQueryAsync(
-            `INSERT INTO MusicaCanciones
-             (usuario_id, album_id, titulo, numero_pista, idioma, yt_music_url, yt_video_id, thumbnail_url, estado_estudio, enfoque_corto)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                uid,
-                albumId,
-                d.titulo,
-                d.numeroPista,
-                d.idioma,
-                d.ytMusicUrl,
-                d.ytVideoId,
-                d.thumbnailUrl,
-                d.estadoEstudio,
-                d.enfoqueCorto
-            ]
-        );
+        const insertedSong = await insertMusicaCancionRow([
+            uid,
+            albumId,
+            d.titulo,
+            d.numeroPista,
+            d.idioma,
+            d.albumYear,
+            d.ytMusicUrl,
+            d.ytVideoId,
+            d.thumbnailUrl,
+            d.estadoEstudio,
+            d.enfoqueCorto
+        ]);
         const songId = insertedSong.insertId;
         await syncMusicaCancionArtistas(uid, songId, mainArtistId, d.collaborators, false);
 
@@ -6771,7 +7586,28 @@ app.put('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin
             mainArtistId
         });
 
-        await dbQueryAsync(
+        const updateWithAnio = () => dbQueryAsync(
+            `UPDATE MusicaCanciones
+             SET album_id = ?, titulo = ?, numero_pista = ?, idioma = ?, anio = ?,
+                 yt_music_url = ?, yt_video_id = ?, thumbnail_url = ?,
+                 estado_estudio = ?, enfoque_corto = ?
+             WHERE id = ? AND usuario_id = ?`,
+            [
+                albumId,
+                d.titulo,
+                d.numeroPista,
+                d.idioma,
+                d.albumYear,
+                d.ytMusicUrl,
+                d.ytVideoId,
+                d.thumbnailUrl,
+                d.estadoEstudio,
+                d.enfoqueCorto,
+                songId,
+                uid
+            ]
+        );
+        const updateLegacy = () => dbQueryAsync(
             `UPDATE MusicaCanciones
              SET album_id = ?, titulo = ?, numero_pista = ?, idioma = ?,
                  yt_music_url = ?, yt_video_id = ?, thumbnail_url = ?,
@@ -6791,6 +7627,19 @@ app.put('/api/english/music/songs/:id', apiWriteLimiter.middleware, requireAdmin
                 uid
             ]
         );
+
+        try {
+            await updateWithAnio();
+        } catch (updErr) {
+            if (!isUnknownColumnDbError(updErr)) throw updErr;
+            await ensureMusicaSchemaExtraColumns();
+            try {
+                await updateWithAnio();
+            } catch (retryUpdErr) {
+                if (!isUnknownColumnDbError(retryUpdErr)) throw retryUpdErr;
+                await updateLegacy();
+            }
+        }
 
         await syncMusicaCancionArtistas(uid, songId, mainArtistId, d.collaborators, true);
 
@@ -7053,9 +7902,13 @@ async function openAllowedMediaUpstreamResponse(initialUrl, headers, signal) {
 
 app.get('/api/english/music/ytdlp-status', apiReadLimiter.middleware, requireAdmin, (_req, res) => {
     purgeExpiredPcMusicJobs();
+    const ytdlpStatus = ytdlpService.getYtDlpStatus();
+    const journalStatus = serverNotesService.getLocalJournalStatus({ rootDir: __dirname });
     res.json({
-        ...ytdlpService.getYtDlpStatus(),
+        ...ytdlpStatus,
         pcOnline: isPcBridgeOnline(),
+        serverAutonomous: serverNotesService.isServerAutonomousNotesEnabled(),
+        journalEncryptedLocal: Boolean(journalStatus.passwordConfigured),
         lastPcSeenAt: lastPcHeartbeatAt ? new Date(lastPcHeartbeatAt).toISOString() : null,
         pendingPcJobs: pcMusicJobs.size,
         pendingEnglishQueueCount: englishQueue.size()
@@ -7278,37 +8131,6 @@ function updateStudyNotebookCacheFromBuffer(docxBuffer, source = 'word', diskMet
 }
 
 async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
-    try {
-        // Strict isolation: Journal Notes (WORD_FILE_PATH / Personal_Journal.docx) are NEVER touched in the cloud.
-        const explicitPath = String(process.env.ENGLISH_WORD_FILE_PATH || '').trim();
-        const journalPathEnv = String(process.env.WORD_FILE_PATH || '').trim();
-        const localPath = explicitPath
-            ? path.resolve(explicitPath)
-            : path.join(__dirname, 'english-notes', 'English_Learning_Notebook.docx');
-        const pointsToJournal = Boolean(
-            (journalPathEnv && path.resolve(journalPathEnv) === localPath)
-            || /personal_journal|journal_notes/i.test(path.basename(localPath))
-        );
-
-        if (localPath && !pointsToJournal && fs.existsSync(localPath)) {
-            const stat = fs.statSync(localPath);
-            if (stat.isFile() && stat.size >= 64) {
-                if (
-                    !forceRefresh
-                    && studyNotebookCache.parsed
-                    && studyNotebookCache.source === 'local-word'
-                    && studyNotebookCache.mtimeMs === stat.mtimeMs
-                    && studyNotebookCache.size === stat.size
-                ) {
-                    return studyNotebookCache.parsed;
-                }
-                const buf = fs.readFileSync(localPath);
-                const parsedLocal = updateStudyNotebookCacheFromBuffer(buf, 'local-word', stat);
-                if (parsedLocal) return parsedLocal;
-            }
-        }
-    } catch (_) {}
-
     if (
         !forceRefresh
         && studyNotebookCache.parsed
@@ -7317,40 +8139,74 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
         return studyNotebookCache.parsed;
     }
 
+    // Strict isolation: Journal Notes (WORD_FILE_PATH / Diario.docx) are NEVER touched in the cloud.
+    const localPath = serverNotesService.resolveLocalEnglishPath({ rootDir: __dirname });
+    const readLocalMirror = () => {
+        try {
+            if (localPath && fs.existsSync(localPath)) {
+                const stat = fs.statSync(localPath);
+                if (stat.isFile() && stat.size >= 64) {
+                    if (
+                        !forceRefresh
+                        && studyNotebookCache.parsed
+                        && studyNotebookCache.source === 'local-word'
+                        && studyNotebookCache.mtimeMs === stat.mtimeMs
+                        && studyNotebookCache.size === stat.size
+                    ) {
+                        return studyNotebookCache.parsed;
+                    }
+                    const buf = fs.readFileSync(localPath);
+                    const parsedLocal = updateStudyNotebookCacheFromBuffer(buf, 'local-word', stat);
+                    if (parsedLocal) return parsedLocal;
+                }
+            }
+        } catch (_) {}
+        return null;
+    };
+
+    const probeRclone = resolveRcloneConfigPath({ preferStudy: true });
+    const hasConfiguredRclone = Boolean(probeRclone?.confPath && fs.existsSync(probeRclone.confPath));
+    if (probeRclone?.cleanup && probeRclone.confPath && fs.existsSync(probeRclone.confPath)) {
+        try { fs.unlinkSync(probeRclone.confPath); } catch (_) {}
+    }
+
+    if (!hasConfiguredRclone) {
+        const localRes = readLocalMirror();
+        if (localRes) return localRes;
+        return studyNotebookCache.parsed || null;
+    }
+
     if (_studyNotebookFetchPromise) {
         return _studyNotebookFetchPromise;
     }
 
-    _studyNotebookFetchPromise = ytdlpService.runWithHeavyTaskLock(async () => {
+    _studyNotebookFetchPromise = runWithDocxLock('pdh_docx_english', async () => {
         const { confPath: rcloneConf, cleanup: cleanupConf, usingStudyConfig } = resolveRcloneConfigPath({ preferStudy: true });
         const tmpDocxPath = path.join(os.tmpdir(), `English_Read_${process.pid}_${Date.now()}.docx`);
         try {
             if (!fs.existsSync(rcloneConf)) {
-                return studyNotebookCache.parsed || null;
+                return readLocalMirror() || studyNotebookCache.parsed || null;
             }
             const { remoteTarget } = resolveStudyDriveRemoteTarget(rcloneConf, usingStudyConfig);
-            const { execFile } = require('node:child_process');
-            const rcloneExecEnv = buildSafeRcloneExecEnv();
-            const runRclone = (args, timeout) => new Promise((resolve, reject) => {
-                execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
-                    if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
-                    resolve(stdout);
-                });
-            });
 
             // Only download to /tmp when remote size or ModTime changed (zero unnecessary RAM/network spikes)
             let remoteModTime = '';
             let remoteSize = 0;
             try {
-                const lsRaw = await runRclone(['lsjson', remoteTarget], 15000);
+                const lsRaw = await serverNotesService.runRcloneCommand({
+                    rcloneConf,
+                    args: ['lsjson', remoteTarget],
+                    timeout: 15000
+                });
                 const entries = JSON.parse(String(lsRaw || '[]'));
                 if (!Array.isArray(entries) || entries.length === 0) {
-                    return studyNotebookCache.parsed || null;
+                    return readLocalMirror() || studyNotebookCache.parsed || null;
                 }
                 remoteModTime = String(entries[0].ModTime || '');
                 remoteSize = Number(entries[0].Size) || 0;
                 if (
-                    studyNotebookCache.parsed
+                    !forceRefresh
+                    && studyNotebookCache.parsed
                     && studyNotebookCache.source === 'drive-word'
                     && remoteModTime
                     && studyNotebookCache.remoteModTime === remoteModTime
@@ -7363,11 +8219,28 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
                 // Proceed to copyto if lsjson isn't supported or timed out briefly
             }
 
-            await runRclone(['copyto', '--retries', '1', remoteTarget, tmpDocxPath], 25000);
+            await serverNotesService.runRcloneCommand({
+                rcloneConf,
+                args: ['copyto', '--retries', '1', remoteTarget, tmpDocxPath],
+                timeout: 25000
+            });
             const buf = fs.readFileSync(tmpDocxPath);
             if (buf.length < 64 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
-                return studyNotebookCache.parsed || null;
+                return readLocalMirror() || studyNotebookCache.parsed || null;
             }
+            // Mirror Drive copy locally via atomic rename so concurrent readers never observe partial bytes
+            let tmpMirrorPath = '';
+            try {
+                fs.mkdirSync(path.dirname(localPath), { recursive: true });
+                tmpMirrorPath = `${localPath}.${process.pid}.${Date.now()}.tmp`;
+                fs.writeFileSync(tmpMirrorPath, buf, { mode: 0o600 });
+                fs.renameSync(tmpMirrorPath, localPath);
+            } catch (_) {
+                if (tmpMirrorPath && fs.existsSync(tmpMirrorPath)) {
+                    try { fs.unlinkSync(tmpMirrorPath); } catch (_cleanupErr) {}
+                }
+            }
+
             const bufSha = crypto.createHash('sha256').update(buf).digest('hex');
             if (
                 studyNotebookCache.parsed
@@ -7382,9 +8255,9 @@ async function getStudyNotebookDataForUser({ forceRefresh = false } = {}) {
                 remoteModTime,
                 size: remoteSize || buf.length
             });
-            return parsedDrive || studyNotebookCache.parsed || null;
+            return parsedDrive || readLocalMirror() || studyNotebookCache.parsed || null;
         } catch (_err) {
-            return studyNotebookCache.parsed || null;
+            return readLocalMirror() || studyNotebookCache.parsed || null;
         } finally {
             try {
                 if (fs.existsSync(tmpDocxPath)) fs.unlinkSync(tmpDocxPath);
@@ -7526,64 +8399,27 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
                 ok: true,
                 uploaded: false,
                 remoteTarget,
-                message: 'rclone.conf no encontrado en entorno local; en EC2 se sube automáticamente con RCLONE_CONF_B64.'
+                message: 'rclone.conf no encontrado en entorno local; en servidor se sube automáticamente con RCLONE_CONF_B64.'
             });
         }
 
-        const { execFile } = require('node:child_process');
-        const rcloneExecEnv = buildSafeRcloneExecEnv();
-        const localSha256 = crypto.createHash('sha256').update(docxBuffer).digest('hex');
+        const syncRes = await runWithDocxLock('pdh_docx_english', () =>
+            serverNotesService.uploadAndVerifyStudyDocx({
+                docxBuffer,
+                filePath: tmpDocxPath,
+                rcloneConf,
+                remoteTarget
+            })
+        );
 
-        await new Promise((resolve, reject) => {
-            execFile(
-                'rclone',
-                ['--config', rcloneConf, 'copyto', '--retries', '2', tmpDocxPath, remoteTarget],
-                { timeout: 60000, env: rcloneExecEnv },
-                (err, _stdout, stderr) => {
-                    if (err) {
-                        return reject(new Error(String(stderr || err.message || 'rclone copyto failed').trim()));
-                    }
-                    resolve();
-                }
-            );
-        });
-
-        // Verificar que el archivo realmente existe en Google Drive y coincide en tamaño
-        let verified = false;
-        let remoteSize = null;
-        let remoteModTime = '';
-        try {
-            const lsOut = await new Promise((resolve, reject) => {
-                execFile(
-                    'rclone',
-                    ['--config', rcloneConf, 'lsjson', remoteTarget],
-                    { timeout: 15000, env: rcloneExecEnv },
-                    (err, stdout, stderr) => {
-                        if (err) return reject(new Error(String(stderr || err.message).trim()));
-                        resolve(stdout);
-                    }
-                );
-            });
-            const entries = JSON.parse(String(lsOut || '[]'));
-            if (Array.isArray(entries) && entries.length > 0) remoteModTime = String(entries[0].ModTime || '');
-            if (Array.isArray(entries) && entries.length > 0 && Number(entries[0].Size) === docxBuffer.length) {
-                verified = true;
-                remoteSize = Number(entries[0].Size);
-            } else if (Array.isArray(entries) && entries.length > 0) {
-                remoteSize = Number(entries[0].Size);
-            }
-        } catch (verifyErr) {
-            console.warn('[STUDY_DRIVE_VERIFY_WARN]', verifyErr.message);
-        }
-
-        if (!verified) {
+        if (!syncRes.verified) {
             return res.status(502).json({
                 ok: false,
                 uploaded: false,
                 verified: false,
                 remoteTarget,
-                localSize: docxBuffer.length,
-                remoteSize,
+                localSize: syncRes.localSize,
+                remoteSize: syncRes.remoteSize,
                 error: 'Google Drive upload could not be verified with matching byte size.'
             });
         }
@@ -7592,10 +8428,10 @@ app.post('/api/english/music/pc-word-drive-sync', apiWriteLimiter.middleware, ve
             ok: true,
             uploaded: true,
             verified: true,
-            localSize: docxBuffer.length,
-            remoteSize,
-            remoteModTime,
-            sha256: localSha256,
+            localSize: syncRes.localSize,
+            remoteSize: syncRes.remoteSize,
+            remoteModTime: syncRes.remoteModTime,
+            sha256: syncRes.sha256,
             remoteTarget
         });
     } catch (err) {
@@ -7621,14 +8457,7 @@ app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verif
         if (!fs.existsSync(rcloneConf)) {
             return res.json({ ok: true, exists: false, message: 'rclone.conf not available on this server.' });
         }
-        const { execFile } = require('node:child_process');
-        const rcloneExecEnv = buildSafeRcloneExecEnv();
-        const run = (args, timeout) => new Promise((resolve, reject) => {
-            execFile('rclone', ['--config', rcloneConf, ...args], { timeout, env: rcloneExecEnv }, (err, stdout, stderr) => {
-                if (err) return reject(new Error(String(stderr || err.message || 'rclone failed').trim()));
-                resolve(stdout);
-            });
-        });
+        const run = (args, timeout) => serverNotesService.runRcloneCommand({ rcloneConf, args, timeout });
 
         const entries = JSON.parse(String(await run(['lsjson', remoteTarget], 15000) || '[]'));
         if (!Array.isArray(entries) || !entries.length) {
@@ -7662,8 +8491,48 @@ app.get('/api/english/music/pc-word-drive-pull', pcPullLimiter.middleware, verif
     }
 });
 
-const AUTONOMOUS_LYRICS_DEADLINE_MS = 28000;
+const AUTONOMOUS_LYRICS_DEADLINE_MS = 34000;
 const autonomousLyricsInFlight = new Map();
+
+async function resolveSongArtistAndAlbumForLyrics(song, uid) {
+    let artistName = String(song.artista_principal_nombre || song.artistName || '').trim();
+    let albumTitle = String(song.album_titulo || song.albumTitle || '').trim();
+    try {
+        const [catData, songArtists] = await Promise.all([
+            fetchUserMusicAlbumsAndSongs(uid).catch(() => ({ albums: [], songs: [] })),
+            dbQueryAsync(
+                `SELECT mca.cancion_id, mca.artista_id, mca.rol, mca.orden, ma.nombre
+                 FROM MusicaCancionArtistas mca
+                 INNER JOIN MusicaCanciones c ON c.id = mca.cancion_id
+                 INNER JOIN MusicaArtistas ma ON ma.id = mca.artista_id
+                 WHERE c.usuario_id = ?
+                 ORDER BY mca.orden ASC, ma.nombre ASC`,
+                [uid]
+            ).catch(() => [])
+        ]);
+        const fullSong = Array.isArray(catData?.songs)
+            ? catData.songs.find((s) => Number(s.id) === Number(song.id))
+            : null;
+        if (fullSong && !albumTitle) {
+            albumTitle = String(fullSong.album_titulo || '').trim();
+        }
+        if (!artistName && Array.isArray(songArtists) && songArtists.length) {
+            const linked = songArtists.filter((l) => Number(l.cancion_id) === Number(song.id));
+            const mainLink = linked.find((l) => l.rol === 'main') || linked[0];
+            if (mainLink && mainLink.nombre) {
+                artistName = String(mainLink.nombre).trim();
+            }
+        }
+        if (fullSong && fullSong.album_id && Array.isArray(catData?.albums)) {
+            const albumObj = catData.albums.find((a) => Number(a.id) === Number(fullSong.album_id));
+            if (albumObj) {
+                if (!artistName) artistName = String(albumObj.artista_principal_nombre || '').trim();
+                if (!albumTitle) albumTitle = String(albumObj.titulo || '').trim();
+            }
+        }
+    } catch (_) {}
+    return { artistName, albumTitle };
+}
 
 /**
  * Evita que varios clics sobre la misma canción apilen trabajos pesados (rclone / yt-dlp) en la
@@ -7705,24 +8574,7 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
         return { ok: false, tier: 4, reason: 'song_not_found', error: 'Song not found.', storedInDb: false };
     }
 
-    let artistName = String(song.artista_principal_nombre || song.artistName || '').trim();
-    let albumTitle = String(song.album_titulo || song.albumTitle || '').trim();
-    try {
-        const catData = await fetchUserMusicAlbumsAndSongs(uid);
-        const fullSong = Array.isArray(catData?.songs)
-            ? catData.songs.find((s) => Number(s.id) === Number(song.id))
-            : null;
-        if (fullSong) {
-            if (!albumTitle) albumTitle = String(fullSong.album_titulo || '').trim();
-            if (!artistName && fullSong.album_id && Array.isArray(catData?.albums)) {
-                const albumObj = catData.albums.find((a) => Number(a.id) === Number(fullSong.album_id));
-                if (albumObj) {
-                    artistName = String(albumObj.artista_principal_nombre || '').trim();
-                    if (!albumTitle) albumTitle = String(albumObj.titulo || '').trim();
-                }
-            }
-        }
-    } catch (_) {}
+    const { artistName, albumTitle } = await resolveSongArtistAndAlbumForLyrics(song, uid);
 
     const videoId =
         ytdlpService.extractValidYouTubeVideoId(song.yt_video_id) ||
@@ -7787,23 +8639,31 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
         };
     }
 
-    // Tier 2 (YouTube Music InnerTube WEB_REMIX / MPLYt_) + Tier 3 (Server yt-dlp captionTracks)
+    // Tier 2 (YouTube Music InnerTube WEB_REMIX / MPLYt_) + Tier 3 (yt-dlp + LRCLIB + Watch Page + Alt Video + Lyrics.ovh + ASR)
     const extracted = await ytdlpService.extractSongLyrics({
         videoId,
         url: song.yt_music_url || '',
         idioma: song.idioma || '',
         preferredLangs,
         useInnerTube: true,
+        useExternalFallbacks: true,
         enrichCaptions: true,
-        budgetMs: 22000,
+        budgetMs: 30000,
         trackTitle: song.titulo || '',
-        trackArtist: artistName
+        trackArtist: artistName,
+        trackAlbum: albumTitle
     });
 
     if (extracted.ok && extracted.lyrics) {
         const cleanLyrics = String(extracted.lyrics).trim().slice(0, 50000);
         const cleanSource = String(extracted.source || 'yt-dlp').trim().slice(0, 80) || 'yt-dlp';
         const isInnerTube = cleanSource.includes('innertube') || cleanSource.includes('ytmusic');
+        serverLogger.info('YTDLP', 'Letra resuelta en servidor', {
+            songId: song.id,
+            videoId,
+            tier: isInnerTube ? 2 : 3,
+            source: cleanSource
+        });
         return {
             ok: true,
             tier: isInnerTube ? 2 : 3,
@@ -7825,6 +8685,11 @@ async function resolveAutonomousSongLyricsUncached({ song, uid, forceExtract = f
     }
 
     // Tier 4 — Local PC bridge only if Tiers 1-3 failed and PC is online
+    serverLogger.warn('YTDLP', 'Sin subtítulos/letra en fuentes del servidor', {
+        songId: song.id,
+        videoId,
+        reason: extracted.reason || 'no_subtitles'
+    });
     return {
         ok: false,
         tier: 4,
@@ -7876,6 +8741,7 @@ app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middlewa
             return res.status(400).send('This song does not have a valid YouTube or YouTube Music link yet.');
         }
 
+        const { artistName, albumTitle } = await resolveSongArtistAndAlbumForLyrics(song, uid);
         const preferredLangs = Array.isArray(req.body?.preferredLangs) ? req.body.preferredLangs : null;
         const extracted = await ytdlpService.extractSongLyrics({
             videoId,
@@ -7883,9 +8749,12 @@ app.post('/api/english/music/songs/:id/lyrics/extract', apiWriteLimiter.middlewa
             idioma: song.idioma || '',
             preferredLangs,
             useInnerTube: true,
+            useExternalFallbacks: true,
             enrichCaptions: true,
+            budgetMs: 30000,
             trackTitle: song.titulo || '',
-            trackArtist: song.artista_principal_nombre || ''
+            trackArtist: artistName,
+            trackAlbum: albumTitle
         });
 
         if (extracted.ok && extracted.lyrics) {
@@ -9356,6 +10225,15 @@ app.get('/api/version', apiReadLimiter.middleware, requireAuth, (req, res) => {
     }
 });
 
+app.get('/api/system/logs', apiReadLimiter.middleware, requireAdmin, (req, res) => {
+    const kind = String(req.query.kind || 'server').trim().toLowerCase();
+    const lines = Number.parseInt(String(req.query.lines || '120'), 10) || 120;
+    return res.json({
+        replicaId: REPLICA_ID,
+        ...serverLogger.getRecentLogTail({ kind, lines })
+    });
+});
+
 // Manejo controlado de rutas inexistentes y errores inesperados en API (sin filtrar stack traces)
 app.use('/api', (req, res) => {
     res.status(404).send('API endpoint not found.');
@@ -9368,18 +10246,36 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
     console.log(`Backend server running at http://localhost:${PORT}`);
+    serverLogger.info('SYSTEM', 'Servidor iniciado', {
+        replicaId: REPLICA_ID,
+        port: PORT,
+        tz: process.env.TZ || 'system',
+        trustProxy: process.env.TRUST_PROXY || 'off',
+        requireHttps: String(process.env.REQUIRE_HTTPS || '').toLowerCase() === 'true',
+        autonomousNotes: serverNotesService.isServerAutonomousNotesEnabled(),
+        fileLogs: serverLogger.fileEnabled,
+        logDir: serverLogger.logDir
+    });
 });
+// Protección anti-Slowloris / agotamiento de sockets HTTP
+httpServer.keepAliveTimeout = 15000;
+httpServer.headersTimeout = 20000;
+httpServer.requestTimeout = 90000;
+httpServer.maxHeadersCount = 64;
 
 // Capturar errores imprevistos para saber por qué se cayó
 process.on('uncaughtException', (err) => {
-    console.error(`\n[CRASH] ${new Date().toISOString()} - Server crashed with uncaughtException:`);
-    console.error(err);
+    serverLogger.crash('PROCESS', 'Server crashed with uncaughtException', {
+        error: err && err.stack ? err.stack : String(err)
+    });
     process.exit(1);
 });
 
 process.on('unhandledRejection', (reason) => {
-    console.error(`\n[CRASH] ${new Date().toISOString()} - Unhandled promise rejection:`, reason);
+    serverLogger.crash('PROCESS', 'Unhandled promise rejection', {
+        reason: reason && reason.stack ? reason.stack : String(reason)
+    });
     process.exit(1);
 });

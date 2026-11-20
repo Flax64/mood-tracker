@@ -231,7 +231,11 @@ def clean_caption_text(raw_text: str) -> str:
         if cue_m:
             cue_start = _parse_subtitle_time_sec(cue_m.group(1))
             cue_end = _parse_subtitle_time_sec(cue_m.group(2))
-            if prev_cue_end is not None and cue_start is not None and (cue_start - prev_cue_end) >= 2.5:
+            if (
+                prev_cue_end is not None
+                and cue_start is not None
+                and (cue_start - prev_cue_end) >= 2.5
+            ):
                 pending_break = True
             if cue_end is not None:
                 prev_cue_end = cue_end
@@ -241,7 +245,11 @@ def clean_caption_text(raw_text: str) -> str:
 
         lrc_m = LRC_LEAD_TIME_RE.match(line)
         if lrc_m:
-            frac = float(f"0.{lrc_m.group(3).ljust(3, '0')[:3]}") if lrc_m.group(3) else 0.0
+            frac = (
+                float(f"0.{lrc_m.group(3).ljust(3, '0')[:3]}")
+                if lrc_m.group(3)
+                else 0.0
+            )
             lrc_sec = int(lrc_m.group(1)) * 60.0 + int(lrc_m.group(2)) + frac
             if prev_lrc_sec is not None and (lrc_sec - prev_lrc_sec) >= 3.8:
                 pending_break = True
@@ -382,7 +390,11 @@ def _is_romanization_bracket_line(line: str) -> bool:
     t = str(line or "").strip()
     if not (t.startswith("[") and t.endswith("]")):
         return False
-    if STRUCTURAL_TAG_RE.match(t) or _LANG_SECTION_HEADER_RE.match(t) or _NOISE_LYRIC_LINE_RE.match(t):
+    if (
+        STRUCTURAL_TAG_RE.match(t)
+        or _LANG_SECTION_HEADER_RE.match(t)
+        or _NOISE_LYRIC_LINE_RE.match(t)
+    ):
         return False
     return bool(re.match(r"^\s*\[[a-z][a-z0-9\s,'’.\-?!~()]{1,140}\]\s*$", t))
 
@@ -408,7 +420,9 @@ def _is_predominantly_spanish_text(text: str) -> bool:
     if not lines or _HANGUL_RE.search(text or "") or _JAPANESE_RE.search(text or ""):
         return False
     es_count = sum(1 for l in lines if _is_likely_spanish_line(l))
-    return (es_count >= 2 and es_count / len(lines) >= 0.3) or (len(lines) == 1 and es_count == 1)
+    return (es_count >= 2 and es_count / len(lines) >= 0.3) or (
+        len(lines) == 1 and es_count == 1
+    )
 
 
 def _strip_standalone_latin_from_cjk(line: str) -> str:
@@ -421,7 +435,9 @@ def _strip_language_header_lines(text: str) -> str:
     kept: List[str] = []
     for raw in str(text or "").replace("\r", "").split("\n"):
         trimmed = raw.strip()
-        if _LANG_SECTION_HEADER_RE.match(trimmed) or _NOISE_LYRIC_LINE_RE.match(trimmed):
+        if _LANG_SECTION_HEADER_RE.match(trimmed) or _NOISE_LYRIC_LINE_RE.match(
+            trimmed
+        ):
             continue
         kept.append(raw.rstrip())
     return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
@@ -430,9 +446,22 @@ def _strip_language_header_lines(text: str) -> str:
 def parse_tagged_lyrics_sections(raw_text: str) -> Dict[str, Any]:
     clean = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not clean:
-        return {"has_tags": False, "original": "", "ko": "", "en": "", "ja": "", "es": ""}
+        return {
+            "has_tags": False,
+            "original": "",
+            "ko": "",
+            "en": "",
+            "ja": "",
+            "es": "",
+        }
 
-    buckets: Dict[str, List[str]] = {"original": [], "ko": [], "en": [], "ja": [], "es": []}
+    buckets: Dict[str, List[str]] = {
+        "original": [],
+        "ko": [],
+        "en": [],
+        "ja": [],
+        "es": [],
+    }
     current_key = "original"
     has_tags = False
 
@@ -440,13 +469,23 @@ def parse_tagged_lyrics_sections(raw_text: str) -> Dict[str, Any]:
         up = str(raw_tag or "").strip().upper()
         if up == "WORD":
             return "__ignore__"
-        if up.startswith(("ORIGINAL", "ORIG", "FULL", "MULTI", "MIX")) or "JP-EN" in up or "EN-JP" in up:
+        if (
+            up.startswith(("ORIGINAL", "ORIG", "FULL", "MULTI", "MIX"))
+            or "JP-EN" in up
+            or "EN-JP" in up
+        ):
             return "original"
         if up.startswith(("KO", "KR")) or "COREANO" in up or "KOREAN" in up:
             return "ko"
         if up.startswith(("JA", "JP")) or "JAPON" in up:
             return "ja"
-        if up.startswith("ES") or "ESPAÑOL" in up or "ESPANOL" in up or "SPANISH" in up or "TRADUCCI" in up:
+        if (
+            up.startswith("ES")
+            or "ESPAÑOL" in up
+            or "ESPANOL" in up
+            or "SPANISH" in up
+            or "TRADUCCI" in up
+        ):
             return "es"
         if up.startswith("EN") or "INGL" in up or "ENGLISH" in up:
             return "en"
@@ -482,7 +521,11 @@ def isolate_korean_only_lyrics(text: str) -> str:
             if kept:
                 pending_break = True
             continue
-        if _LANG_SECTION_HEADER_RE.match(line) or _NOISE_LYRIC_LINE_RE.match(line) or _is_romanization_bracket_line(line):
+        if (
+            _LANG_SECTION_HEADER_RE.match(line)
+            or _NOISE_LYRIC_LINE_RE.match(line)
+            or _is_romanization_bracket_line(line)
+        ):
             continue
         if " → " in line:
             line = line.split(" → ", 1)[0].strip()
@@ -511,7 +554,11 @@ def isolate_japanese_lyrics(text: str) -> str:
             if kept:
                 pending_break = True
             continue
-        if _LANG_SECTION_HEADER_RE.match(line) or _NOISE_LYRIC_LINE_RE.match(line) or _is_romanization_bracket_line(line):
+        if (
+            _LANG_SECTION_HEADER_RE.match(line)
+            or _NOISE_LYRIC_LINE_RE.match(line)
+            or _is_romanization_bracket_line(line)
+        ):
             continue
         if " → " in line:
             line = line.split(" → ", 1)[0].strip()
@@ -541,7 +588,11 @@ def isolate_english_only_lyrics(text: str) -> str:
             if kept:
                 pending_break = True
             continue
-        if _LANG_SECTION_HEADER_RE.match(line) or _NOISE_LYRIC_LINE_RE.match(line) or _is_romanization_bracket_line(line):
+        if (
+            _LANG_SECTION_HEADER_RE.match(line)
+            or _NOISE_LYRIC_LINE_RE.match(line)
+            or _is_romanization_bracket_line(line)
+        ):
             continue
         if " → " in line:
             line = line.split(" → ", 1)[0].strip()
@@ -557,8 +608,12 @@ def isolate_english_only_lyrics(text: str) -> str:
                 line,
             )
             ascii_chunk = re.sub(r"\s+", " ", ascii_chunk)
-            ascii_chunk = re.sub(r"^[\s/|·,–—-]+|[\s/|·,–—-]+$", "", ascii_chunk).strip()
-            if not re.search(r"[A-Za-z]{2,}\s+[A-Za-z'’]{1,}", ascii_chunk) or _is_likely_spanish_line(ascii_chunk):
+            ascii_chunk = re.sub(
+                r"^[\s/|·,–—-]+|[\s/|·,–—-]+$", "", ascii_chunk
+            ).strip()
+            if not re.search(
+                r"[A-Za-z]{2,}\s+[A-Za-z'’]{1,}", ascii_chunk
+            ) or _is_likely_spanish_line(ascii_chunk):
                 continue
             line = ascii_chunk
         else:
@@ -763,12 +818,22 @@ def build_structured_tracks(
     en_raw = by_lang.get("en", "")
     ja_raw = by_lang.get("ja", "")
     es_raw = by_lang.get("es", "")
-    en_has_cjk = bool(en_raw and (_HANGUL_RE.search(en_raw) or _JAPANESE_RE.search(en_raw)))
+    en_has_cjk = bool(
+        en_raw and (_HANGUL_RE.search(en_raw) or _JAPANESE_RE.search(en_raw))
+    )
 
     orig_txt = parsed_orig
     if not orig_txt:
-        ko_mixed = bool(ko_raw and _HANGUL_RE.search(ko_raw) and re.search(r"[A-Za-z]{2,}", _strip_language_header_lines(ko_raw)))
-        ja_mixed = bool(ja_raw and _JAPANESE_RE.search(ja_raw) and re.search(r"[A-Za-z]{2,}", _strip_language_header_lines(ja_raw)))
+        ko_mixed = bool(
+            ko_raw
+            and _HANGUL_RE.search(ko_raw)
+            and re.search(r"[A-Za-z]{2,}", _strip_language_header_lines(ko_raw))
+        )
+        ja_mixed = bool(
+            ja_raw
+            and _JAPANESE_RE.search(ja_raw)
+            and re.search(r"[A-Za-z]{2,}", _strip_language_header_lines(ja_raw))
+        )
         if ko_mixed:
             orig_txt = ko_raw
         elif ja_mixed:
@@ -798,8 +863,18 @@ def build_structured_tracks(
     )
     ja_clean = isolate_japanese_lyrics(ja_source) if ja_source else ""
 
-    es_clean = segment_lyrics_into_stanzas(_strip_language_header_lines(es_raw)) if es_raw else ""
-    if not es_clean and not ko_raw and not ja_raw and not en_raw and _is_predominantly_spanish_text(orig_txt):
+    es_clean = (
+        segment_lyrics_into_stanzas(_strip_language_header_lines(es_raw))
+        if es_raw
+        else ""
+    )
+    if (
+        not es_clean
+        and not ko_raw
+        and not ja_raw
+        and not en_raw
+        and _is_predominantly_spanish_text(orig_txt)
+    ):
         es_clean = segment_lyrics_into_stanzas(_strip_language_header_lines(orig_txt))
 
     if en_raw and not en_has_cjk:
@@ -813,19 +888,32 @@ def build_structured_tracks(
 
     orig_seg = segment_lyrics_into_stanzas(_strip_language_header_lines(orig_txt))
     norm_orig = _norm_comp_lyrics(orig_seg)
-    has_ko_en = bool(_HANGUL_RE.search(orig_seg) and re.search(r"[A-Za-z]{2,}", orig_seg) and isolate_english_only_lyrics(orig_seg))
-    has_ja_en = bool(_JAPANESE_RE.search(orig_seg) and re.search(r"[A-Za-z]{2,}", orig_seg) and isolate_english_only_lyrics(orig_seg))
+    has_ko_en = bool(
+        _HANGUL_RE.search(orig_seg)
+        and re.search(r"[A-Za-z]{2,}", orig_seg)
+        and isolate_english_only_lyrics(orig_seg)
+    )
+    has_ja_en = bool(
+        _JAPANESE_RE.search(orig_seg)
+        and re.search(r"[A-Za-z]{2,}", orig_seg)
+        and isolate_english_only_lyrics(orig_seg)
+    )
     has_ko_ja = bool(_HANGUL_RE.search(orig_seg) and _JAPANESE_RE.search(orig_seg))
     matches_single = bool(
         norm_orig
-        and norm_orig in (
+        and norm_orig
+        in (
             _norm_comp_lyrics(ko_only),
             _norm_comp_lyrics(en_clean),
             _norm_comp_lyrics(ja_clean),
             _norm_comp_lyrics(es_clean),
         )
     )
-    original_out = orig_seg if (orig_seg and (has_ko_en or has_ja_en or has_ko_ja or not matches_single)) else ""
+    original_out = (
+        orig_seg
+        if (orig_seg and (has_ko_en or has_ja_en or has_ko_ja or not matches_single))
+        else ""
+    )
 
     return {
         "original": original_out,
@@ -850,7 +938,11 @@ def format_structured_tracks_text(
     es = str(structured.get("es") or "").strip()
 
     sections: List[Tuple[str, str]] = []
-    if orig and _norm_comp_lyrics(orig) not in (_norm_comp_lyrics(ko), _norm_comp_lyrics(en), _norm_comp_lyrics(ja)):
+    if orig and _norm_comp_lyrics(orig) not in (
+        _norm_comp_lyrics(ko),
+        _norm_comp_lyrics(en),
+        _norm_comp_lyrics(ja),
+    ):
         sections.append(("ORIGINAL", orig))
     if ko:
         sections.append(("KO", ko))
@@ -1457,7 +1549,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _innertube_post(endpoint: str, body: Dict[str, Any], timeout: int = 15) -> Dict[str, Any]:
+def _innertube_post(
+    endpoint: str, body: Dict[str, Any], timeout: int = 15
+) -> Dict[str, Any]:
     url = f"{_INNERTUBE_BASE}{endpoint}?prettyPrint=false"
     if not _is_allowed_innertube_url(url):
         raise ValueError("URL InnerTube bloqueada por el validador anti-SSRF")
@@ -1520,9 +1614,12 @@ def _find_lyrics_browse_id(next_json: Dict[str, Any]) -> str:
     return (
         _walk_json(
             next_json,
-            lambda n: n.get("browseId")
-            if isinstance(n.get("browseId"), str) and n["browseId"].startswith("MPLYt_")
-            else None,
+            lambda n: (
+                n.get("browseId")
+                if isinstance(n.get("browseId"), str)
+                and n["browseId"].startswith("MPLYt_")
+                else None
+            ),
         )
         or ""
     )
@@ -1532,10 +1629,16 @@ def _parse_lyrics_from_browse(browse_json: Dict[str, Any]) -> str:
     """Prefers timedLyricsModel; falls back to musicDescriptionShelfRenderer. Keeps EN/KR/JP intact."""
     timed = _walk_json(
         browse_json,
-        lambda n: n.get("timedLyricsData") if isinstance(n.get("timedLyricsData"), list) else None,
+        lambda n: (
+            n.get("timedLyricsData")
+            if isinstance(n.get("timedLyricsData"), list)
+            else None
+        ),
     )
     if timed:
-        lines = [str(l.get("lyricLine", "")).rstrip() for l in timed if isinstance(l, dict)]
+        lines = [
+            str(l.get("lyricLine", "")).rstrip() for l in timed if isinstance(l, dict)
+        ]
         text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
         if text:
             return text
@@ -1551,15 +1654,19 @@ def _parse_lyrics_from_browse(browse_json: Dict[str, Any]) -> str:
 def _innertube_track_info(next_json: Dict[str, Any], video_id: str) -> Tuple[str, str]:
     item = _walk_json(
         next_json,
-        lambda n: n.get("playlistPanelVideoRenderer")
-        if isinstance(n.get("playlistPanelVideoRenderer"), dict)
-        and n["playlistPanelVideoRenderer"].get("videoId") == video_id
-        else None,
+        lambda n: (
+            n.get("playlistPanelVideoRenderer")
+            if isinstance(n.get("playlistPanelVideoRenderer"), dict)
+            and n["playlistPanelVideoRenderer"].get("videoId") == video_id
+            else None
+        ),
     )
     if not item:
         return "", ""
     title = _runs_text((item.get("title") or {}).get("runs"))
-    byline = (item.get("longBylineText") or item.get("shortBylineText") or {}).get("runs") or []
+    byline = (item.get("longBylineText") or item.get("shortBylineText") or {}).get(
+        "runs"
+    ) or []
     artist = byline[0].get("text", "") if byline and isinstance(byline[0], dict) else ""
     return title, artist
 
@@ -1570,9 +1677,14 @@ def _innertube_find_song_id(search_json: Dict[str, Any], exclude_id: str) -> str
         if not isinstance(r, dict):
             return None
         vid = (r.get("playlistItemData") or {}).get("videoId") or _walk_json(
-            r.get("overlay") or {}, lambda m: (m.get("watchEndpoint") or {}).get("videoId")
+            r.get("overlay") or {},
+            lambda m: (m.get("watchEndpoint") or {}).get("videoId"),
         )
-        return vid if isinstance(vid, str) and len(vid) == 11 and vid != exclude_id else None
+        return (
+            vid
+            if isinstance(vid, str) and len(vid) == 11 and vid != exclude_id
+            else None
+        )
 
     return _walk_json(search_json, visit) or ""
 
@@ -1587,10 +1699,18 @@ def fetch_ytmusic_lyrics(video_id: str) -> Dict[str, Any]:
         title, artist = _innertube_track_info(nxt, video_id)
         browse_id = _find_lyrics_browse_id(nxt)
         if browse_id:
-            text = _parse_lyrics_from_browse(_innertube_post("browse", {"browseId": browse_id}))
+            text = _parse_lyrics_from_browse(
+                _innertube_post("browse", {"browseId": browse_id})
+            )
             if text:
-                return {"ok": True, "lyrics": text, "title": title, "artist": artist,
-                        "source": "ytmusic:innertube", "video_id": video_id}
+                return {
+                    "ok": True,
+                    "lyrics": text,
+                    "title": title,
+                    "artist": artist,
+                    "source": "ytmusic:innertube",
+                    "video_id": video_id,
+                }
 
         query = f"{title} {artist}".strip()
         if query:
@@ -1602,15 +1722,29 @@ def fetch_ytmusic_lyrics(video_id: str) -> Dict[str, Any]:
                 nxt2 = _innertube_post("next", {"videoId": song_id})
                 bid2 = _find_lyrics_browse_id(nxt2)
                 if bid2:
-                    text = _parse_lyrics_from_browse(_innertube_post("browse", {"browseId": bid2}))
+                    text = _parse_lyrics_from_browse(
+                        _innertube_post("browse", {"browseId": bid2})
+                    )
                     if text:
-                        return {"ok": True, "lyrics": text, "title": title, "artist": artist,
-                                "source": "ytmusic:innertube:song", "video_id": video_id,
-                                "song_video_id": song_id}
-        return {"ok": False, "reason": "lyrics_not_available", "error": "Lyrics not available"}
+                        return {
+                            "ok": True,
+                            "lyrics": text,
+                            "title": title,
+                            "artist": artist,
+                            "source": "ytmusic:innertube:song",
+                            "video_id": video_id,
+                            "song_video_id": song_id,
+                        }
+        return {
+            "ok": False,
+            "reason": "lyrics_not_available",
+            "error": "Lyrics not available",
+        }
     except urllib.error.HTTPError as exc:
         reason = "rate_limited" if exc.code == 429 else "innertube_error"
-        LOGGER.warning("yt_lyrics_helper: InnerTube HTTP %s para %s", exc.code, video_id)
+        LOGGER.warning(
+            "yt_lyrics_helper: InnerTube HTTP %s para %s", exc.code, video_id
+        )
         return {"ok": False, "reason": reason, "error": f"HTTP {exc.code}"}
     except Exception as exc:  # network blocks, JSON errors, timeouts
         LOGGER.warning("yt_lyrics_helper: InnerTube falló para %s: %s", video_id, exc)
@@ -1644,15 +1778,29 @@ def run_yt_dlp_extract(
     if innertube_pre:
         yt = fetch_ytmusic_lyrics(video_id)
         if yt.get("ok") and _has_meaningful_lyrics(yt.get("lyrics", "")):
-            LOGGER.info("yt_lyrics_helper: letra de YT Music obtenida para %s (%s)", video_id, yt["source"])
-            yt_list = [{"lang": "original", "raw_lang": "multi", "lyrics": yt["lyrics"], "is_manual": True}]
+            LOGGER.info(
+                "yt_lyrics_helper: letra de YT Music obtenida para %s (%s)",
+                video_id,
+                yt["source"],
+            )
+            yt_list = [
+                {
+                    "lang": "original",
+                    "raw_lang": "multi",
+                    "lyrics": yt["lyrics"],
+                    "is_manual": True,
+                }
+            ]
             yt_structured = build_structured_tracks(yt_list, raw_original=yt["lyrics"])
             return {
                 "url": canonical_url,
                 "yt_dlp_bin": None,
                 "yt_dlp_source": yt["source"],
-                "metadata": {"video_id": video_id, "title": yt.get("title") or None,
-                             "artist": yt.get("artist") or None},
+                "metadata": {
+                    "video_id": video_id,
+                    "title": yt.get("title") or None,
+                    "artist": yt.get("artist") or None,
+                },
                 "tracks": yt_structured,
                 "track_list": yt_list,
                 "lyrics": yt["lyrics"],
@@ -1672,10 +1820,29 @@ def run_yt_dlp_extract(
     concise_langs = normalize_sub_langs_request(langs)
     preferred_list = [part.strip() for part in concise_langs.split(",") if part.strip()]
     expanded_langs = ",".join(
-        dict.fromkeys([*preferred_list, "ko", "ko-KR", "en", "en-US", "en-GB", "ja", "ja-JP", "es", "es-419", "es-MX", "es-ES"])
+        dict.fromkeys(
+            [
+                *preferred_list,
+                "ko",
+                "ko-KR",
+                "en",
+                "en-US",
+                "en-GB",
+                "ja",
+                "ja-JP",
+                "es",
+                "es-419",
+                "es-MX",
+                "es-ES",
+            ]
+        )
     )
     cookies_path = os.environ.get("YT_DLP_COOKIES_PATH", "").strip()
-    cookie_args = ["--cookies", cookies_path] if cookies_path and os.path.exists(cookies_path) else []
+    cookie_args = (
+        ["--cookies", cookies_path]
+        if cookies_path and os.path.exists(cookies_path)
+        else []
+    )
     node_bin = shutil.which("node")
 
     LOGGER.info(
@@ -1686,7 +1853,10 @@ def run_yt_dlp_extract(
     )
 
     with tempfile.TemporaryDirectory(prefix="pdh_yt_lyrics_") as tmp_dir:
-        def _invoke_ytdlp(extra_args: Optional[List[str]] = None, timeout_sec: int = 85):
+
+        def _invoke_ytdlp(
+            extra_args: Optional[List[str]] = None, timeout_sec: int = 85
+        ):
             base_cmd = [
                 exe,
                 "--ignore-errors",
@@ -1708,7 +1878,9 @@ def run_yt_dlp_extract(
                 os.path.join(tmp_dir, "%(id)s.%(ext)s"),
                 canonical_url,
             ]
-            primary_cmd = [exe, "--js-runtimes", "node", *base_cmd[1:]] if node_bin else base_cmd
+            primary_cmd = (
+                [exe, "--js-runtimes", "node", *base_cmd[1:]] if node_bin else base_cmd
+            )
             run_kwargs: Dict[str, Any] = {
                 "stdout": subprocess.PIPE,
                 "stderr": subprocess.PIPE,
@@ -1722,26 +1894,42 @@ def run_yt_dlp_extract(
             out_s = p.stdout.decode("utf-8", errors="replace").strip()
             err_s = p.stderr.decode("utf-8", errors="replace").strip()
 
-            if node_bin and p.returncode != 0 and re.search(
-                r"(?:unrecognized arguments?|no such option):\s*--js-runtimes", err_s, re.IGNORECASE
+            if (
+                node_bin
+                and p.returncode != 0
+                and re.search(
+                    r"(?:unrecognized arguments?|no such option):\s*--js-runtimes",
+                    err_s,
+                    re.IGNORECASE,
+                )
             ):
                 p = subprocess.run(base_cmd, **run_kwargs)
                 out_s = p.stdout.decode("utf-8", errors="replace").strip()
                 err_s = p.stderr.decode("utf-8", errors="replace").strip()
 
-            if p.returncode != 0 and not glob.glob(os.path.join(tmp_dir, "*.*")) and re.search(
-                r"(?:unrecognized arguments?|no such option):\s*--sleep-subtitles", err_s, re.IGNORECASE
+            if (
+                p.returncode != 0
+                and not glob.glob(os.path.join(tmp_dir, "*.*"))
+                and re.search(
+                    r"(?:unrecognized arguments?|no such option):\s*--sleep-subtitles",
+                    err_s,
+                    re.IGNORECASE,
+                )
             ):
                 no_sleep_cmd = [
-                    c for idx, c in enumerate(base_cmd)
-                    if c != "--sleep-subtitles" and (idx == 0 or base_cmd[idx - 1] != "--sleep-subtitles")
+                    c
+                    for idx, c in enumerate(base_cmd)
+                    if c != "--sleep-subtitles"
+                    and (idx == 0 or base_cmd[idx - 1] != "--sleep-subtitles")
                 ]
                 p = subprocess.run(no_sleep_cmd, **run_kwargs)
                 out_s = p.stdout.decode("utf-8", errors="replace").strip()
                 err_s = p.stderr.decode("utf-8", errors="replace").strip()
             return p, out_s, err_s
 
-        def _collect_from_tmp_and_info(info_obj: Dict[str, Any]) -> List[Dict[str, Any]]:
+        def _collect_from_tmp_and_info(
+            info_obj: Dict[str, Any],
+        ) -> List[Dict[str, Any]]:
             sub_files = pick_best_subtitle_files(tmp_dir, preferred_list)
             m_obj = extract_metadata_from_info_json(info_obj)
             manual_bases_loc = {
@@ -1760,9 +1948,13 @@ def run_yt_dlp_extract(
                         re.search(r"<\d{2}:\d{2}:\d{2}\.\d{3}><c>", raw_sub)
                     )
                     if manual_bases_loc:
-                        is_man = bool(base and base in manual_bases_loc) and not looks_asr
+                        is_man = (
+                            bool(base and base in manual_bases_loc) and not looks_asr
+                        )
                     else:
-                        is_man = not looks_asr and not str(lang_tag).lower().endswith("-orig")
+                        is_man = not looks_asr and not str(lang_tag).lower().endswith(
+                            "-orig"
+                        )
                     tracks_acc.append(
                         {
                             "lang": lang_tag,
@@ -1773,7 +1965,11 @@ def run_yt_dlp_extract(
                         }
                     )
 
-            dl_bases = {base_language_code(t["lang"]) for t in tracks_acc if base_language_code(t["lang"])}
+            dl_bases = {
+                base_language_code(t["lang"])
+                for t in tracks_acc
+                if base_language_code(t["lang"])
+            }
             if info_obj:
                 for req_lang in preferred_list:
                     b_req = base_language_code(req_lang)
@@ -1799,9 +1995,15 @@ def run_yt_dlp_extract(
 
         # Validation retry: if Attempt 1 returned 0 valid tracks or failed on default web client, retry tv/web_embedded/android_vr
         if not raw_tracks:
-            LOGGER.info("yt_lyrics_helper: reintentando extracción de subtítulos con clientes alternativos para %s", video_id)
+            LOGGER.info(
+                "yt_lyrics_helper: reintentando extracción de subtítulos con clientes alternativos para %s",
+                video_id,
+            )
             proc2, out2, err2 = _invoke_ytdlp(
-                extra_args=["--extractor-args", "youtube:player_client=tv,web_embedded,android_vr"],
+                extra_args=[
+                    "--extractor-args",
+                    "youtube:player_client=tv,web_embedded,android_vr",
+                ],
                 timeout_sec=90,
             )
             if out2:
@@ -1831,9 +2033,20 @@ def run_yt_dlp_extract(
         if not track_list and innertube_env != "0" and not innertube_pre:
             yt_fb = fetch_ytmusic_lyrics(video_id)
             if yt_fb.get("ok") and _has_meaningful_lyrics(yt_fb.get("lyrics", "")):
-                track_list = [{"lang": "original", "raw_lang": "multi", "lyrics": yt_fb["lyrics"], "is_manual": True}]
-                structured_tracks = build_structured_tracks(track_list, preferred_list, raw_original=yt_fb["lyrics"])
-                combined_lyrics = format_structured_tracks_text(structured_tracks, track_list)
+                track_list = [
+                    {
+                        "lang": "original",
+                        "raw_lang": "multi",
+                        "lyrics": yt_fb["lyrics"],
+                        "is_manual": True,
+                    }
+                ]
+                structured_tracks = build_structured_tracks(
+                    track_list, preferred_list, raw_original=yt_fb["lyrics"]
+                )
+                combined_lyrics = format_structured_tracks_text(
+                    structured_tracks, track_list
+                )
                 yt_dlp_src_out = f"{exe_source}+{yt_fb['source']}"
 
         if track_list:

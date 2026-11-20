@@ -35,6 +35,8 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
             'lib/language-studio.js',
             'lib/youtube-metadata.js',
             'lib/ytdlp-service.js',
+            'lib/server-notes-service.js',
+            'lib/server-logger.js',
             'public/theme-init.js',
             'public/i18n.js',
             'public/guia-visual.js',
@@ -162,10 +164,11 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
         assert.strictEqual(opens, closes, `Llaves desbalanceadas en style.css: ${opens} vs ${closes}`);
     });
 
-    it('valida sintaxis Python de sincronitation/sincronizador.py y yt_lyrics_helper.py (versionados en Git)', () => {
-        const pyFiles = [SYNC_PY_PATH, YT_HELPER_PY_PATH];
+    it('valida sintaxis Python de sincronitation/*.py y lib/docx_writer.py', () => {
+        const DOCX_WRITER_PY_PATH = path.resolve(ROOT, 'lib', 'docx_writer.py');
+        const pyFiles = [SYNC_PY_PATH, YT_HELPER_PY_PATH, DOCX_WRITER_PY_PATH];
         for (const pyPath of pyFiles) {
-            assert.ok(fs.existsSync(pyPath), `Falta ${path.relative(ROOT, pyPath)}: los scripts locales deben estar versionados (Issue #84)`);
+            assert.ok(fs.existsSync(pyPath), `Falta ${path.relative(ROOT, pyPath)}`);
         }
         const pyCmd = resolvePythonCmd();
         for (const pyPath of pyFiles) {
@@ -184,7 +187,7 @@ describe('Sintaxis de código (JS, HTML, CSS, Python, Bash)', () => {
     });
 
     it('valida formato Unix (LF), cabecera e higiene de los scripts bash', () => {
-        const scripts = ['scripts/backup.sh', 'scripts/env-vault.sh', 'scripts/restore.sh'];
+        const scripts = ['scripts/backup.sh', 'scripts/env-vault.sh', 'scripts/restore.sh', 'scripts/verify-ubuntu-local.sh'];
         for (const rel of scripts) {
             const full = path.join(ROOT, rel);
             const content = fs.readFileSync(full, 'utf8');
@@ -271,7 +274,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'guides/GUIA_OPERACION_Y_MIGRACION.md',
             'guides/GUIA_COMANDOS.md',
             'guides/GUIA_TECNICA.md',
-            'guides/GUIA_MIGRACION.md'
+            'guides/GUIA_MIGRACION.md',
+            'guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md'
         ]) {
             const top = readText(docPath).slice(0, 1200);
             assert.match(top, /## .*[ÍI]ndice/i, `${docPath} debe incluir un índice al inicio`);
@@ -313,7 +317,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="btnStartMicPronunciation"',
             'id="languageAiPanel"',
             'id="btnAskLangAi"',
-            'id="btnMusicAiExplainLyrics"',
             'id="transportSecurityCard"',
             'id="btnTransportBenchmark"',
             'id="setGeminiModel"',
@@ -325,6 +328,9 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="resumenVisualWeekDays"',
             'id="btnResumenWeekAllDays"',
             'id="musicEntityEditModal"',
+            'id="musicSongModal"',
+            'id="btnMusicNewSong"',
+            'id="btnCloseMusicSongModal"',
             'id="musicAlbumCreateModal"',
             'id="btnMusicNewAlbum"',
             'id="btnMusicQuickNewAlbum"',
@@ -342,7 +348,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="sleepEsDesvelo"',
             'id="sleepStillAwake"',
             'id="resumenSleepDetailsList"',
-            'id="btnMusicCleanTimestamps"',
             'id="btnTestGeminiConnection"',
             'id="settingsGeminiTestResult"',
             'id="floatingTranslatorModal"',
@@ -356,7 +361,6 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'translator-extension-textarea',
             'id="musicLyricsViewerCard"',
             'id="musicLyricsMetaBadge"',
-            'id="musicPcBridgeBadge"',
             'id="musicLyricsAlbumPlaylistBox"',
             'id="btnMusicExtractLyrics"',
             'id="btnMusicCopyLyricsToStudy"',
@@ -378,9 +382,22 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'id="musicYtdlpHelperBox"',
             'id="musicDockedTranslatorPane"',
             'id="musicDockedTransInput"',
-            'id="btnMusicDockedTranslateRun"'
+            'id="btnMusicDockedTranslateRun"',
+            'id="musicStudyLyrics"',
+            'id="btnMusicAiExplainLyrics"',
+            'id="btnMusicCleanTimestamps"',
+            'id="musicPcBridgeBadge"'
         ]) {
             assert.equal(indexHtml.includes(removedId), false, `public/index.html debe retirar el elemento obsoleto ${removedId}`);
+        }
+        const frontendSrcCheck = readText('public/frontend.js');
+        for (const removedFrontendRef of [
+            'musicStudyLyrics',
+            'btnMusicAiExplainLyrics',
+            'btnMusicCleanTimestamps',
+            'musicPcBridgeBadge'
+        ]) {
+            assert.equal(frontendSrcCheck.includes(removedFrontendRef), false, `public/frontend.js no debe referenciar ${removedFrontendRef}`);
         }
         assert.equal(
             indexHtml.includes('id="languageTranslatorPanel"'),
@@ -451,14 +468,14 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         }
     });
 
-    it('protege archivos secretos y optimiza Dockerfile / docker-compose.yml para t3.micro', () => {
+    it('protege archivos secretos y configura Dockerfile / docker-compose.yml para Ubuntu Server (8 GB RAM + Tailscale)', () => {
         const gitignore = readText('.gitignore');
-        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/']) {
+        for (const entry of ['.env', '.env.enc', '.env.*.tmp', 'english-notes/', 'data/', 'logs/', '*.log', '*.log.*']) {
             assert.ok(gitignore.includes(entry), `.gitignore debe excluir ${entry}`);
         }
 
         const dockerignore = readText('.dockerignore');
-        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes']) {
+        for (const entry of ['.git', '.env', '.env.enc', 'node_modules', 'test', 'tests', 'guides', 'english-notes', 'data', 'logs', '*.log.*']) {
             assert.ok(dockerignore.includes(entry), `.dockerignore debe excluir ${entry}`);
         }
 
@@ -468,7 +485,8 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             'guides/GUIA_OPERACION_Y_MIGRACION.md',
             'guides/GUIA_COMANDOS.md',
             'guides/GUIA_TECNICA.md',
-            'guides/GUIA_MIGRACION.md'
+            'guides/GUIA_MIGRACION.md',
+            'guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md'
         ]) {
             const guide = readText(guidePath);
             assert.equal(guide.includes('file:///'), false, `${guidePath} no debe contener enlaces locales file:///`);
@@ -478,19 +496,129 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         const dockerfile = readText('Dockerfile');
         assert.match(dockerfile, /FROM node:20-alpine/);
         assert.match(dockerfile, /npm ci --omit=dev/);
-        assert.match(dockerfile, /--max-old-space-size=384/);
+        assert.match(dockerfile, /--max-old-space-size=768/);
+        assert.match(dockerfile, /\btzdata\b/);
+        assert.match(dockerfile, /XDG_CACHE_HOME=\/tmp\/\.cache/);
+        assert.match(dockerfile, /OOXMLFile/);
+        assert.match(dockerfile, /\/app\/lib\/docx_writer\.py/);
+        assert.match(dockerfile, /chown -R 1000:1000/);
+        assert.match(dockerfile, /msoffcrypto-tool/);
         assert.match(dockerfile, /\bffmpeg\b/);
         assert.match(dockerfile, /\/usr\/local\/bin\/yt-dlp/);
         assert.match(dockerfile, /YTM_INNERTUBE=1/);
 
         const compose = readText('docker-compose.yml');
-        assert.match(compose, /mem_limit:\s*512m/);
-        assert.match(compose, /mem_limit:\s*420m/);
+        assert.match(compose, /mem_limit:\s*1024m/);
+        assert.match(compose, /no-new-privileges:true/);
+        assert.match(compose, /cap_drop:/);
+        assert.match(compose, /pids_limit:/);
+        assert.match(compose, /noexec,nosuid,nodev/);
+        assert.match(compose, /REQUIRE_HTTPS=/);
+        assert.match(compose, /REQUIRE_PC_BRIDGE_AUTH=/);
+        assert.match(compose, /\/healthz/);
         assert.match(compose, /--performance-schema=OFF/);
         assert.match(compose, /--skip-log-bin/);
+        assert.match(compose, /--innodb-buffer-pool-size=384M/);
+        assert.match(compose, /--innodb-flush-method=O_DIRECT/);
+        assert.match(compose, /--innodb-flush-log-at-trx-commit=2/);
+        assert.match(compose, /--innodb-io-capacity=150/);
+        assert.match(compose, /--innodb-redo-log-capacity=64M/);
+        assert.match(compose, /mysqladmin",\s*"ping",\s*"-h",\s*"127\.0\.0\.1"/);
+        assert.match(compose, /user:\s*"\$\{APP_UID:-1000\}:\$\{APP_GID:-1000\}"/);
+        assert.match(compose, /"127\.0\.0\.1:\$\{PORT:-3000\}:\$\{PORT:-3000\}"/);
+        assert.equal(/^\s*-\s*"\$\{PORT:-3000\}:\$\{PORT:-3000\}"/m.test(compose), false, 'app port no debe exponerse en 0.0.0.0');
+        assert.match(compose, /DB_RETENTION_DAYS=\$\{DB_RETENTION_DAYS:-0\}/);
+        assert.match(compose, /ENABLE_LOGIN_MFA=\$\{ENABLE_LOGIN_MFA:-false\}/);
+        assert.match(compose, /YOUTUBE_API_KEY=\$\{YOUTUBE_API_KEY:-\}/);
+        assert.match(compose, /\/app\/journal-data/);
+        assert.match(compose, /\/app\/english-notes/);
+        assert.match(compose, /\/app\/logs/);
+        assert.match(compose, /LOG_DIR=\$\{LOG_DIR:-\/app\/logs\}/);
+        assert.match(compose, /TRUST_PROXY=\$\{TRUST_PROXY:-1\}/);
+        assert.match(compose, /SERVER_AUTONOMOUS_NOTES=\$\{SERVER_AUTONOMOUS_NOTES:-true\}/);
         assert.match(compose, /YT_DLP_PATH=\$\{YT_DLP_PATH:-\}/);
         assert.ok((compose.match(/restart:\s*always/g) || []).length >= 3, 'db, app y proxy deben usar restart: always');
         assert.ok((compose.match(/healthcheck:/g) || []).length >= 3, 'db, app y proxy deben definir healthcheck');
+
+        // CryptoJS 100% local sin CDN externo + interoperabilidad E2EE y TransportCrypto
+        const cryptoVendorPath = path.join(ROOT, 'public', 'vendor', 'crypto-js.min.js');
+        assert.ok(fs.existsSync(cryptoVendorPath), 'Debe existir public/vendor/crypto-js.min.js');
+        assert.ok(fs.statSync(cryptoVendorPath).size > 30000, 'crypto-js.min.js debe estar completo (> 30 KB)');
+        const indexHtmlMain = readText('public/index.html');
+        assert.ok(indexHtmlMain.includes('src="vendor/crypto-js.min.js"'), 'index.html debe cargar vendor/crypto-js.min.js local');
+        assert.equal(indexHtmlMain.includes('cdnjs.cloudflare.com'), false, 'index.html no debe depender de cdnjs.cloudflare.com');
+        const serverSrc = readText('server.js');
+        assert.equal(serverSrc.includes('cdnjs.cloudflare.com'), false, 'server.js CSP no debe incluir cdnjs.cloudflare.com');
+        assert.match(serverSrc, /script-src 'self'/);
+
+        const { webcrypto } = require('node:crypto');
+        const serverNotes = require(path.join(ROOT, 'lib', 'server-notes-service.js'));
+        const vendorSandbox = {
+            window: { crypto: webcrypto },
+            self: { crypto: webcrypto },
+            globalThis: { crypto: webcrypto },
+            crypto: webcrypto
+        };
+        vm.runInNewContext(fs.readFileSync(cryptoVendorPath, 'utf8'), vendorSandbox);
+        const C = vendorSandbox.CryptoJS || vendorSandbox.window.CryptoJS;
+        assert.ok(C && C.AES && C.HmacSHA256 && C.mode.CBC && C.pad.Pkcs7);
+        const e2eeKey = '12345678901234567890123456789012';
+        const iv = C.lib.WordArray.random(16);
+        const encObj = C.AES.encrypt('Nota local Ubuntu Tailscale', C.enc.Utf8.parse(e2eeKey), { iv });
+        const envelope = iv.toString(C.enc.Hex) + ':' + encObj.toString();
+        const decCheck = serverNotes.decryptClientE2ee(envelope, e2eeKey);
+        assert.equal(decCheck.ok, true);
+        assert.equal(decCheck.plainText, 'Nota local Ubuntu Tailscale');
+
+        const transportSandbox = {
+            window: { crypto: webcrypto, CryptoJS: C },
+            globalThis: { crypto: webcrypto, CryptoJS: C },
+            CryptoJS: C,
+            crypto: webcrypto,
+            TextEncoder,
+            TextDecoder,
+            btoa: (str) => Buffer.from(str, 'binary').toString('base64'),
+            atob: (b64) => Buffer.from(b64, 'base64').toString('binary')
+        };
+        vm.runInNewContext(readText('public/transport-crypto.js'), transportSandbox);
+        const tcClient = transportSandbox.window.TransportCrypto || transportSandbox.globalThis.TransportCrypto;
+        assert.ok(tcClient && typeof tcClient.aes256CtrTransform === 'function');
+        const ctrKey = new Uint8Array(32).fill(7);
+        const ctrIv = new Uint8Array(16).fill(3);
+        const rawBytes = new TextEncoder().encode('Ubuntu 100% local');
+        const cipherBytes = tcClient.aes256CtrTransform(ctrKey, ctrIv, rawBytes, C);
+        const plainBytes = tcClient.aes256CtrTransform(ctrKey, ctrIv, cipherBytes, C);
+        assert.equal(new TextDecoder().decode(plainBytes), 'Ubuntu 100% local');
+
+        // Backup 100% local o Drive verificado, .backup.meta con DB_RETENTION_DAYS y .gitignore con node_modules/
+        const envVaultSh = readText('scripts/env-vault.sh');
+        assert.match(envVaultSh, /DB_RETENTION_DAYS/);
+        assert.match(envVaultSh, /REQUIRE_DRIVE_BACKUP/);
+        const backupShCfg = readText('scripts/backup.sh');
+        assert.match(backupShCfg, /DRIVE_ENABLED=0/);
+        assert.match(backupShCfg, /--require-drive/);
+        assert.match(backupShCfg, /REQUIRE_DRIVE_BACKUP/);
+        assert.match(backupShCfg, /lsf "\$\{REMOTE_NAME\}:\$\{REMOTE_DIR\}" --include "respaldo_mood_tracker\.sql\.gz"/);
+        const verifyUbuntuSh = readText('scripts/verify-ubuntu-local.sh');
+        assert.match(verifyUbuntuSh, /\[9\/10\].*Google Drive/);
+        assert.match(verifyUbuntuSh, /\[10\/10\].*Blindaje/);
+        assert.match(verifyUbuntuSh, /Strict-Transport-Security/);
+        assert.match(verifyUbuntuSh, /426/);
+        assert.match(verifyUbuntuSh, /evil\.example/);
+        assert.match(verifyUbuntuSh, /respaldo_mood_tracker\.sql\.gz/);
+        assert.match(readText('.gitignore'), /^node_modules\/$/m);
+
+        const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
+        assert.match(ubuntuGuide, /authorized_keys/);
+        assert.match(ubuntuGuide, /NOPASSWD:ALL/);
+        assert.match(ubuntuGuide, /TS_OAUTH_CLIENT_ID/);
+        assert.match(ubuntuGuide, /SERVER_SSH_KEY/);
+        assert.match(ubuntuGuide, /--require-drive/);
+        assert.match(ubuntuGuide, /hidepid=2/);
+        assert.match(ubuntuGuide, /fail2ban/);
+        assert.match(ubuntuGuide, /unattended-upgrades/);
+        assert.match(ubuntuGuide, /tcp_syncookies/);
+        assert.match(ubuntuGuide, /auditd/);
     });
 
     it('mantiene sincronizadas las variables env y envs en deploy.yml sin dejar .env en disco', () => {
@@ -510,6 +638,21 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
             );
         }
 
+        // Validación de Tailscale CI OAuth sin evaluar secrets.* dentro de expresiones if:
+        assert.match(deploy, /uses:\s*tailscale\/github-action@v3/);
+        assert.match(deploy, /steps\.ts_mode\.outputs\.mode\s*==\s*'oauth'/);
+        assert.equal(/if:\s*[^\r\n]*\bsecrets\./.test(deploy), false, 'GitHub Actions no permite secrets.* dentro de expresiones if:');
+        assert.match(deploy, /SERVER_HOST/);
+        assert.match(deploy, /SERVER_SSH_KEY/);
+        assert.match(deploy, /SECRET_DB_RETENTION_DAYS/);
+        assert.match(deploy, /SECRET_REQUIRE_DRIVE_BACKUP/);
+        assert.match(deploy, /SECRET_REQUIRE_HTTPS/);
+        assert.match(deploy, /SECRET_REQUIRE_PC_BRIDGE_AUTH/);
+        assert.match(deploy, /SECRET_CORS_ALLOWED_ORIGINS/);
+        assert.match(deploy, /APP_UID=/);
+        assert.match(deploy, /docker exec -u 0 mood_app yt-dlp -U/);
+        assert.match(deploy, /printf 'DB_RETENTION_DAYS=%s\\n' "\$FINAL_DB_RETENTION_DAYS"/);
+
         assert.match(deploy, /cleanup_deploy_env/);
         assert.match(deploy, /git remote set-url origin "https:\/\/github\.com\/\$\{GITHUB_REPO\}\.git"/);
         assert.match(deploy, /\/swapfile/);
@@ -527,6 +670,47 @@ describe('Integridad de configuración, Docker, SQL y CI/CD', () => {
         assert.match(deploy, /BACKUP_CRON_SCHEDULE:-30 3 \* \* \*/);
         assert.match(deploy, /SEAL_ENV_AFTER_DEPLOY:-true/);
         assert.match(deploy, /SECRET_YT_DLP_PATH/);
+
+        // Automatización integral de Ubuntu Server y configuración vía GitHub Variables
+        assert.match(deploy, /concurrency:\r?\n\s+group:\s*deploy-main\r?\n\s+cancel-in-progress:\s*false/);
+        assert.match(deploy, /vars\.TS_OAUTH_CLIENT_ID\s*\|\|\s*secrets\.TS_OAUTH_CLIENT_ID/);
+        assert.match(deploy, /git init/);
+        assert.match(deploy, /git fetch origin main/);
+        assert.match(deploy, /git reset --hard origin\/main/);
+        assert.equal(/git clone\s+["']?https:\/\/github\.com/.test(deploy), false, 'deploy.yml debe usar git init + fetch para no fallar si data/ ya existe');
+        for (const token of [
+            'DEPLOY_VIA_TAILSCALE',
+            'SECRET_TRUST_PROXY',
+            'SECRET_SERVER_SUDO_PASS',
+            'SUDO_ASKPASS',
+            'sudo -A',
+            'sudo -k',
+            'cleanup_sudo_askpass_files',
+            '/etc/cron.d/dailyhub-sys-update',
+            'AUTO_CONFIGURE_SERVER',
+            'ENABLE_TAILSCALE_SERVE',
+            'UFW_CLOSE_LAN_SSH',
+            'tailscale serve --bg',
+            'ufw default deny incoming',
+            'systemctl mask sleep.target',
+            '99-dailyhub-ignore-lid.conf',
+            '99-security-dos.conf',
+            'tcp_syncookies',
+            'hidepid=2',
+            '99-hardening.conf',
+            'sshd -t',
+            'fail2ban',
+            'unattended-upgrades',
+            '99-dailyhub-watch.rules',
+            './scripts/verify-ubuntu-local.sh'
+        ]) {
+            assert.ok(deploy.includes(token), `deploy.yml debe incluir ${token} para automatización completa del servidor`);
+        }
+
+        const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
+        for (const guideToken of ['EC2_SSH_KEY', 'SERVER_SUDO_PASS', 'AUTO_CONFIGURE_SERVER', 'UFW_CLOSE_LAN_SSH', 'ENABLE_TAILSCALE_SERVE']) {
+            assert.ok(ubuntuGuide.includes(guideToken), `GUIA_INSTALACION_UBUNTU_SERVER_26.md debe documentar ${guideToken}`);
+        }
 
         const ci = readText('.github/workflows/ci.yml');
         assert.match(ci, /branches-ignore:\r?\n\s+-\s*main/);
@@ -811,6 +995,8 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         const caddyfile = readText('Caddyfile');
         assert.match(caddyfile, /reverse_proxy\s+app:/);
         assert.match(caddyfile, /tls internal/);
+        assert.match(caddyfile, /max_size\s+16MB/);
+        assert.match(caddyfile, /header -Server/);
 
         const compose = readText('docker-compose.yml');
         assert.match(compose, /caddy:2-alpine/);
@@ -985,6 +1171,71 @@ describe('Arquitectura Fases 1-5: Plug-and-Play Cloud, Caddy HTTPS, Dual Drive, 
         const dividedPureKo = Array.from(sandbox.parseAndDivideLyricsByLanguage('', { original: '사랑해\n영원히', ko: '사랑해\n영원히', en: '', ja: '', es: '' }));
         assert.deepEqual(dividedPureKo.map(s => s.code), ['ko'], 'Canción en coreano puro debe renderizarse únicamente en Coreano puro');
 
+        // Verificación exhaustiva de división de letras en todos los idiomas predefinidos (EN, KO, EN_KO, JA, EN_JA, ES, ORIGINAL, ALL)
+        const adlibKpop = [
+            '[EN_KO]',
+            'Baby, 사랑해 (forever)!',
+            '사랑해, baby, 영원히',
+            '사랑해!',
+            '사랑해 (영원히)',
+            'Shining bright in the night'
+        ].join('\n');
+        const dividedAdlibKpop = Array.from(sandbox.parseAndDivideLyricsByLanguage(adlibKpop));
+        assert.deepEqual(dividedAdlibKpop.map(s => s.code), ['original', 'ko', 'en']);
+        const koSecAdlib = dividedAdlibKpop.find(s => s.code === 'ko');
+        assert.deepEqual(
+            Array.from(koSecAdlib.lines),
+            ['사랑해', '사랑해, 영원히', '사랑해!', '사랑해 (영원히)'],
+            'El apartado KO debe quitar palabras/ad-libs latinos con puntuación y conservar puntuación CJK real'
+        );
+        const enSecAdlib = dividedAdlibKpop.find(s => s.code === 'en');
+        assert.equal(enSecAdlib.lines.join('\n'), 'Shining bright in the night');
+
+        // J-Pop mixto (EN_JA) con structuredTracks solo en original + español
+        const jpopMixed = Array.from(sandbox.parseAndDivideLyricsByLanguage('', {
+            original: '愛してる, my love!\n夢を見る (tonight)\nShining bright in the dark',
+            ko: '',
+            en: '',
+            ja: '',
+            es: 'Te amo por siempre\nSueño esta noche'
+        }));
+        assert.deepEqual(jpopMixed.map(s => s.code), ['original', 'en', 'ja', 'es']);
+        assert.deepEqual(Array.from(jpopMixed.find(s => s.code === 'ja').lines), ['愛してる', '夢を見る']);
+        const jpopEnText = jpopMixed.find(s => s.code === 'en').lines.join('\n');
+        assert.equal(jpopEnText, 'my love!\nShining bright in the dark');
+        assert.equal(/tonight|愛してる|夢を見る|Te amo/i.test(jpopEnText), false);
+
+        // Filtro 'en' en _cleanLinesForLanguageAnalysis debe rechazar español y extraer bloques multi-palabra en inglés
+        const cleanedEn = Array.from(sandbox._cleanLinesForLanguageAnalysis([
+            '사랑해 forever',
+            '사랑해 shining night together',
+            'Te amo por siempre',
+            'Every single step'
+        ], 'en'));
+        assert.deepEqual(cleanedEn, ['shining night together', 'Every single step']);
+
+        // Validar extractLyricsForActiveLanguage con los 6 filtros predefinidos + original + all
+        const fullMulti = [
+            '[ORIGINAL]',
+            'Baby, 사랑해 (forever)!',
+            'Shining night together',
+            '[JA]',
+            '愛してる, my love!',
+            '夢を見る (tonight)',
+            '[ES]',
+            'Te amo por siempre',
+            'Noche brillante juntos'
+        ].join('\n');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'ko').text, '사랑해');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en').text, 'Shining night together');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'ja').text, '愛してる\n夢を見る');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'es').text, 'Te amo por siempre\nNoche brillante juntos');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en_ko').apiLanguage, 'en_ko');
+        assert.ok(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en_ko').text.includes('Baby, 사랑해 (forever)!'));
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'en_ja').apiLanguage, 'en_ja');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'original').langCode, 'original');
+        assert.equal(sandbox.extractLyricsForActiveLanguage(fullMulti, 'all').langCode, 'all');
+
         // Regresión Planificador Semanal V2: orden Título/Descripción arriba, Posponer, Skip, Repeticiones y Calendarios
         for (const reqAgendaSel of [
             'id="btnToggleAgendaCalendar"',
@@ -1124,5 +1375,151 @@ describe('Traductor Global por Selección e Integridad Bilingüe EN/ES', () => {
             }
         }
         assert.deepEqual(trappedEs, [], `Entradas de PAIRS que no regresan a inglés: ${JSON.stringify(trappedEs.slice(0, 5))}`);
+    });
+
+    it('cubre tooltips (title), mensajes de error del servidor, toasts, banners, loadingText y patrones dinámicos en EN <-> ES', () => {
+        const i18nSrc = readText('public/i18n.js');
+        const frontendJs = readText('public/frontend.js');
+        const mockDoc = {
+            readyState: 'loading',
+            title: '',
+            documentElement: { lang: 'en', style: {}, setAttribute() {}, querySelector() { return null; } },
+            getElementById() { return null; },
+            querySelector() { return null; },
+            querySelectorAll() { return []; },
+            addEventListener() {},
+            dispatchEvent() {}
+        };
+        const sandbox = {
+            window: {},
+            document: mockDoc,
+            localStorage: { getItem: () => 'en', setItem() {} },
+            CustomEvent: function CustomEvent(name, opts) { this.type = name; this.detail = opts && opts.detail; },
+            NodeFilter: { SHOW_TEXT: 4 },
+            dispatchEvent() {}
+        };
+        sandbox.window = sandbox;
+        vm.runInNewContext(i18nSrc, sandbox);
+        const i18n = sandbox.DailyHubI18n;
+
+        // 1. Todos los tooltips (title="...") en index.html y translator-popup.html deben diferir entre EN y ES
+        const missingTooltips = [];
+        for (const htmlFile of ['public/index.html', 'public/translator-popup.html']) {
+            const html = readText(htmlFile);
+            const titleRe = /\btitle="([^"]+)"/g;
+            let m;
+            while ((m = titleRe.exec(html))) {
+                const raw = m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+                if (!raw || !/[a-zA-ZáéíóúñÁÉÍÓÚÑ]/.test(raw)) continue;
+                i18n.setLang('en');
+                const enVal = i18n.translateServerMessage(raw);
+                i18n.setLang('es');
+                const esVal = i18n.translateServerMessage(raw);
+                if (enVal === esVal) {
+                    missingTooltips.push(`${htmlFile}: ${raw}`);
+                }
+            }
+        }
+        assert.deepEqual(missingTooltips, [], `Tooltips sin traducción bidireccional: ${JSON.stringify(missingTooltips)}`);
+
+        // 2. Verificar que mostrarBannerMusica y runWithButtonLock traduzcan mensajes/loadingText con tServer
+        assert.ok(frontendJs.includes('el.textContent = tServer(String(msg));'), 'mostrarBannerMusica debe traducir mensajes con tServer');
+        assert.ok(frontendJs.includes('label.textContent = tServer(String(loadingText));'), 'runWithButtonLock debe traducir loadingText con tServer');
+
+        // 3. Mensajes representativos de servidor, validaciones, toasts, banners y patrones dinámicos EN <-> ES
+        const samples = [
+            ['HTTPS is required for all API requests.', 'Se requiere HTTPS para todas las peticiones a la API.'],
+            ['Too many requests to the server. Please slow down briefly.', 'Demasiadas peticiones al servidor. Reduce el ritmo brevemente.'],
+            ['Concurrent English Notebook file write busy; please retry shortly.', 'Escritura concurrente del cuaderno de idiomas ocupada; reintenta en un momento.'],
+            ['Concurrent journal file write busy; please retry shortly.', 'Escritura concurrente de Diario.docx ocupada; reintenta en un momento.'],
+            ['Record updated successfully\nYou were still within the edit window.', 'Registro actualizado correctamente. Aún estabas dentro de la ventana de edición.'],
+            ['Invalid date format (expected YYYY-MM-DD).', 'Fecha inválida (formato esperado YYYY-MM-DD).'],
+            ['Intensity must be an integer between 1 and 5.', 'La intensidad debe ser un entero entre 1 y 5.'],
+            ['Google Drive upload could not be verified with matching byte size.', 'La subida a Google Drive no pudo verificarse con el mismo tamaño en bytes.'],
+            ['Song study notes encrypted & queued for Word!', '¡Notas de estudio de la canción cifradas y enviadas a Word!'],
+            ['Saving...', 'Guardando...'],
+            ['Edit Song: DRIP', 'Editar canción: DRIP'],
+            ['Edit Album: BABYMONS7ER', 'Editar álbum: BABYMONS7ER'],
+            ['Studying: BABYMONSTER — DRIP', 'Estudiando: BABYMONSTER — DRIP'],
+            ['Late bedtime (03:15) saved! Complete your wake-up time when you get up.', '¡Hora de dormir tardía (03:15) guardada! Completa tu hora de despertar cuando te levantes.'],
+            ['Note encrypted with password and saved locally (Nov 19th D-001).', 'Nota cifrada con contraseña y guardada localmente (Nov 19th D-001).'],
+            ['Today already has a journal entry (November 19th D-419); "Nothing to report." was skipped.', 'Hoy ya tiene una entrada en el diario (November 19th D-419); se omitió "Nothing to report.".'],
+            ['Marked "November 19th D-419" as "Nothing to report.".', 'Se marcó "November 19th D-419" como "Nothing to report.".'],
+            ['Filled 3 missing day(s) with "Nothing to report.".', 'Se llenaron 3 día(s) faltante(s) con "Nothing to report.".'],
+            ['All past days are already filled.', 'Todos los días anteriores ya están llenos.'],
+            ['Write the crisis reason or trigger (max 250 characters).', 'Escribe el motivo o detonante de la crisis (máx. 250 caracteres).'],
+            ['You must complete the previous lesson first: "Lesson 1".', 'Debes completar primero la lección previa: "Lesson 1".'],
+            ['Synced 4 schedule item(s) to Weekly Agenda (1 vacation day(s) skipped)', 'Se sincronizaron 4 actividades a tu Agenda Semanal (1 día(s) de vacaciones omitidos)'],
+            ['Failed to send note: Network Error', 'No se pudo enviar la nota: Network Error']
+        ];
+        for (const [enExpected, esExpected] of samples) {
+            i18n.setLang('es');
+            assert.equal(i18n.translateServerMessage(enExpected), esExpected, `EN -> ES falló para "${enExpected}"`);
+            i18n.setLang('en');
+            assert.equal(i18n.translateServerMessage(esExpected), enExpected.replace(/\n/g, ' '), `ES -> EN falló para "${esExpected}"`);
+        }
+    });
+});
+
+describe('Balanceador de cargas Caddy + Réplica app2 y Modal de Canción (#musicSongModal)', () => {
+    it('configura Caddy sticky-session load balancer, réplica app2 sin puertos públicos y locks en docker-compose', () => {
+        const caddyfile = readText('Caddyfile');
+        assert.match(caddyfile, /trusted_proxies\s+static\s+private_ranges/);
+        assert.match(caddyfile, /reverse_proxy\s+app:\{\$PORT:3000\}\s+app2:\{\$PORT:3000\}/);
+        assert.match(caddyfile, /lb_policy\s+cookie\s+pdh_lb/);
+        assert.match(caddyfile, /health_uri\s+\/healthz/);
+        assert.match(caddyfile, /fail_duration/);
+
+        const compose = readText('docker-compose.yml');
+        assert.match(compose, /^\s{2}app2:/m);
+        assert.match(compose, /container_name:\s*mood_app2/);
+        assert.match(compose, /REPLICA_ID=app2/);
+        assert.match(compose, /DISABLE_REMINDER_SCHEDULER=true/);
+        assert.match(compose, /DISABLE_CLEANUP_SCHEDULER=true/);
+        assert.match(compose, /LOG_DIR=\$\{LOG_DIR:-\/app\/logs\}\/app2/);
+        const app2BlockMatch = compose.match(/^\s{2}app2:[\s\S]*?(?=^\s{2}proxy:)/m);
+        assert.ok(app2BlockMatch, 'Debe existir sección app2 antes de proxy en docker-compose.yml');
+        assert.equal(/^\s+ports:/m.test(app2BlockMatch[0]), false, 'app2 no debe exponer puertos en el host');
+
+        const ubuntuGuide = readText('guides/GUIA_INSTALACION_UBUNTU_SERVER_26.md');
+        assert.match(ubuntuGuide, /mood_app2/);
+        assert.match(ubuntuGuide, /127\.0\.0\.1:8080/);
+        assert.match(ubuntuGuide, /pdh_lb/);
+        assert.match(ubuntuGuide, /\[1\/10\]/);
+        assert.match(ubuntuGuide, /\[10\/10\]/);
+    });
+
+    it('ubica #musicSongForm dentro de #musicSongModal antes de #musicAlbumCreateModal para superposición limpia', () => {
+        const indexHtml = readText('public/index.html');
+        const songModalPos = indexHtml.indexOf('id="musicSongModal"');
+        const songFormPos = indexHtml.indexOf('id="musicSongForm"');
+        const albumModalPos = indexHtml.indexOf('id="musicAlbumCreateModal"');
+
+        assert.ok(songModalPos > -1, 'public/index.html debe definir #musicSongModal');
+        assert.ok(songFormPos > songModalPos, '#musicSongForm debe estar contenido dentro de #musicSongModal');
+        assert.ok(albumModalPos > songFormPos, '#musicAlbumCreateModal debe ir después de #musicSongModal en el DOM');
+        assert.equal(indexHtml.includes('id="btnMusicNewSong"'), true, 'Catálogo debe incluir botón #btnMusicNewSong');
+        assert.equal(indexHtml.includes('id="btnCloseMusicSongModal"'), true, '#musicSongModal debe incluir botón de cierre');
+    });
+
+    it('amplía retención local y respaldos para discos >= 300 GB en backup.sh, docker-compose y deploy.yml', () => {
+        const backupSh = readText('scripts/backup.sh');
+        assert.match(backupSh, /RETENTION_DAYS="\$\{DB_RETENTION_DAYS:-0\}"/);
+        assert.match(backupSh, /LOCAL_SQL_DAILY_BACKUP_DAYS="\$\{LOCAL_SQL_DAILY_BACKUP_DAYS:-180\}"/);
+        assert.match(backupSh, /LOCAL_WORD_BACKUP_DAYS="\$\{LOCAL_WORD_BACKUP_DAYS:-365\}"/);
+        assert.ok(backupSh.includes('$RUTA_LOCAL/diario_sql'), 'backup.sh debe guardar respaldos SQL diarios locales en diario_sql/');
+
+        const compose = readText('docker-compose.yml');
+        assert.match(compose, /LOG_MAX_BYTES=\$\{LOG_MAX_BYTES:-20971520\}/);
+        assert.match(compose, /LOG_MAX_FILES=\$\{LOG_MAX_FILES:-10\}/);
+        assert.match(compose, /max-size:\s*"25m"/);
+        assert.match(compose, /max-file:\s*"5"/);
+
+        const verifySh = readText('scripts/verify-ubuntu-local.sh');
+        assert.equal(
+            /RCLONE_BACKUP_DIR=.*tr -d '"\r '/.test(verifySh),
+            false,
+            'verify-ubuntu-local.sh no debe eliminar espacios internos de RCLONE_BACKUP_DIR (ej. Personal Daily Hub/RespaldosApp)'
+        );
     });
 });

@@ -28,7 +28,7 @@ except ImportError:
 import time
 import logging
 from logging.handlers import RotatingFileHandler
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 try:
     import pythoncom
@@ -877,13 +877,45 @@ def _firmar_pc_request(
     }
 
 
-def calcular_encabezado(fecha_objetivo=None):
-    if fecha_objetivo is None:
-        fecha_objetivo = datetime.now()
+JOURNAL_NOTHING_TO_REPORT = "Nothing to report."
+_JOURNAL_EPOCH_DATE = date(2026, 8, 30)
+_JOURNAL_EPOCH_D = 500
+_JOURNAL_MONTH_MAP = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sept": 9, "sep": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+_RE_JOURNAL_ENCABEZADO = re.compile(
+    r"^(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|"
+    r"September|Sept|Sep|October|Oct|November|Nov|December|Dec)"
+    r"\s+(\d{1,2})(?:st|nd|rd|th)?\s+D\s*-\s*(-?\d+)$",
+    re.IGNORECASE,
+)
 
-    fecha_inicio = datetime(2026, 8, 30)
-    dias_pasados = (fecha_objetivo.date() - fecha_inicio.date()).days
-    d_actual = 500 - dias_pasados
+
+def _normalizar_fecha_journal(fecha_objetivo=None):
+    if fecha_objetivo is None:
+        return datetime.now().date()
+    if isinstance(fecha_objetivo, datetime):
+        return fecha_objetivo.date()
+    if isinstance(fecha_objetivo, date):
+        return fecha_objetivo
+    return datetime.strptime(str(fecha_objetivo)[:10], "%Y-%m-%d").date()
+
+
+def calcular_encabezado(fecha_objetivo=None):
+    fecha_dt = _normalizar_fecha_journal(fecha_objetivo)
+    dias_pasados = (fecha_dt - _JOURNAL_EPOCH_DATE).days
+    d_actual = _JOURNAL_EPOCH_D - dias_pasados
 
     meses_ingles = [
         "January",
@@ -899,8 +931,8 @@ def calcular_encabezado(fecha_objetivo=None):
         "November",
         "December",
     ]
-    mes = meses_ingles[fecha_objetivo.month - 1]
-    dia = fecha_objetivo.day
+    mes = meses_ingles[fecha_dt.month - 1]
+    dia = fecha_dt.day
 
     if 11 <= dia <= 13:
         sufijo = "th"
@@ -908,6 +940,116 @@ def calcular_encabezado(fecha_objetivo=None):
         sufijo = {1: "st", 2: "nd", 3: "rd"}.get(dia % 10, "th")
 
     return f"{mes} {dia:02d}{sufijo} D-{d_actual}"
+
+
+def parsear_fecha_encabezado(texto):
+    limpio = " ".join(str(texto or "").split()).strip()
+    if not limpio:
+        return None
+    m = _RE_JOURNAL_ENCABEZADO.match(limpio)
+    if not m:
+        return None
+    month_num = _JOURNAL_MONTH_MAP.get(m.group(1).lower())
+    if not month_num:
+        return None
+    try:
+        day_num = int(m.group(2))
+        d_num = int(m.group(3))
+    except ValueError:
+        return None
+    expected = _JOURNAL_EPOCH_DATE + timedelta(days=_JOURNAL_EPOCH_D - d_num)
+    if expected.month == month_num and expected.day == day_num:
+        return expected
+    try:
+        candidate = date(expected.year, month_num, day_num)
+        if abs((candidate - expected).days) <= 2:
+            return candidate
+    except ValueError:
+        pass
+    return None
+
+
+def _es_estilo_toc_journal(style_name):
+    low = str(style_name or "").strip().lower()
+    if not low:
+        return False
+    return bool(re.match(r"^(?:toc\s*\d*|toc\s+heading|tabla\s+de\s+contenido.*)$", low))
+
+
+def analizar_parrafos_journal(parrafos_info):
+    """Analiza [(idx, text, style_name), ...] y devuelve secciones diarias clasificadas."""
+    items = list(parrafos_info or [])
+    headings = []
+    for pos, (idx, text, style_name) in enumerate(items):
+        if _es_estilo_toc_journal(style_name):
+            continue
+        dt = parsear_fecha_encabezado(text)
+        if dt is not None:
+            headings.append((pos, idx, dt, str(text or "").strip()))
+
+    sections = []
+    total_items = len(items)
+    for h_i, (pos, start_idx, dt, heading_txt) in enumerate(headings):
+        next_pos = headings[h_i + 1][0] if h_i + 1 < len(headings) else total_items
+        end_idx = headings[h_i + 1][1] if h_i + 1 < len(headings) else (items[-1][0] + 1 if items else start_idx + 1)
+        content_indices = []
+        content_texts = []
+        for p_idx, p_txt, p_style in items[pos + 1 : next_pos]:
+            if _es_estilo_toc_journal(p_style):
+                continue
+            clean = str(p_txt or "").strip()
+            if clean:
+                content_indices.append(p_idx)
+                content_texts.append(clean)
+
+        if not content_texts:
+            status = "empty"
+        elif all(t.lower() == JOURNAL_NOTHING_TO_REPORT.lower() for t in content_texts):
+            status = "nothing_to_report"
+        else:
+            status = "filled"
+
+        sections.append(
+            {
+                "date": dt,
+                "date_iso": dt.isoformat(),
+                "heading": heading_txt,
+                "start_idx": start_idx,
+                "end_idx": end_idx,
+                "content_indices": content_indices,
+                "content_texts": content_texts,
+                "status": status,
+            }
+        )
+    return sections
+
+
+def calcular_dias_faltantes_journal(
+    fechas_existentes,
+    fecha_hasta,
+    fechas_vacias=None,
+    fill_if_empty_doc=True,
+    max_dias=550,
+):
+    hasta_dt = _normalizar_fecha_journal(fecha_hasta)
+    existentes = {_normalizar_fecha_journal(d) for d in (fechas_existentes or [])}
+    vacias = {_normalizar_fecha_journal(d) for d in (fechas_vacias or [])}
+    todas = existentes | vacias
+    if not todas:
+        return [hasta_dt] if fill_if_empty_doc else []
+
+    primera = min(todas)
+    if primera > hasta_dt:
+        return []
+
+    ventana_inicio = hasta_dt - timedelta(days=max(1, int(max_dias)) - 1)
+    cur = max(primera, ventana_inicio)
+    faltantes = []
+    while cur <= hasta_dt:
+        if cur not in existentes or cur in vacias:
+            faltantes.append(cur)
+        cur += timedelta(days=1)
+    return faltantes
 
 
 def _listar_pids_winword():
@@ -985,7 +1127,135 @@ def _iniciar_word_com_oculto():
     return com_init, word
 
 
-def agregar_texto_a_word(texto, fecha_objetivo=None):
+def _com_extraer_secciones_journal(doc):
+    parrafos_info = []
+    total = doc.Paragraphs.Count
+    for idx in range(1, total + 1):
+        p = doc.Paragraphs(idx)
+        raw_t = (p.Range.Text or "").replace("\r", "").replace("\x07", "").strip()
+        try:
+            st_name = str(p.Style.NameLocal or "")
+        except Exception:
+            st_name = ""
+        parrafos_info.append((idx, raw_t, st_name))
+    return analizar_parrafos_journal(parrafos_info)
+
+
+def _com_aplicar_estilo_normal(selection, doc):
+    selection.Style = doc.Styles(-1)
+    selection.Font.Name = "Arial"
+    selection.Font.Size = 11
+    selection.Font.Bold = False
+
+
+def _com_aplicar_estilo_heading1(selection, doc):
+    selection.Style = doc.Styles(-2)
+    selection.Font.Name = "Arial"
+    selection.Font.Size = 16
+    selection.Font.Bold = True
+    selection.Font.ColorIndex = 1
+
+
+def _com_insertar_o_actualizar_dia_word(word, doc, fecha_dt, texto):
+    texto_limpio = str(texto or "").strip()
+    if not texto_limpio:
+        return False, False
+    is_ntr = texto_limpio.lower() == JOURNAL_NOTHING_TO_REPORT.lower()
+    if is_ntr:
+        texto_limpio = JOURNAL_NOTHING_TO_REPORT
+
+    encabezado = calcular_encabezado(fecha_dt)
+    sections = _com_extraer_secciones_journal(doc)
+    matching = [sec for sec in sections if sec["date"] == fecha_dt]
+    selection = word.Selection
+
+    if matching:
+        sec = matching[-1]
+        if is_ntr and sec["status"] in ("filled", "nothing_to_report"):
+            return True, False
+
+        if not is_ntr and sec["status"] == "nothing_to_report" and sec["content_indices"]:
+            first_idx = sec["content_indices"][0]
+            for extra_idx in reversed(sec["content_indices"][1:]):
+                doc.Paragraphs(extra_idx).Range.Delete()
+            rng = doc.Paragraphs(first_idx).Range
+            if rng.End > rng.Start:
+                inner = doc.Range(rng.Start, max(rng.Start, rng.End - 1))
+                inner.Text = ""
+                inner.Select()
+            else:
+                rng.Collapse(1)
+                rng.Select()
+            _com_aplicar_estilo_normal(selection, doc)
+            selection.TypeText(texto_limpio)
+            return True, True
+
+        if sec["status"] == "empty":
+            if sec["start_idx"] < doc.Paragraphs.Count:
+                rng = doc.Paragraphs(sec["start_idx"] + 1).Range
+                rng.Collapse(1)
+                rng.Select()
+                _com_aplicar_estilo_normal(selection, doc)
+                selection.TypeText(texto_limpio)
+                selection.TypeParagraph()
+            else:
+                selection.EndKey(Unit=6)
+                selection.TypeParagraph()
+                _com_aplicar_estilo_normal(selection, doc)
+                selection.TypeText(texto_limpio)
+            return True, True
+
+        # Append inside existing filled section before the next day heading
+        last_idx = sec["content_indices"][-1] if sec["content_indices"] else sec["start_idx"]
+        if last_idx < doc.Paragraphs.Count:
+            rng = doc.Paragraphs(last_idx + 1).Range
+            rng.Collapse(1)
+            rng.Select()
+            selection.TypeParagraph()
+            _com_aplicar_estilo_normal(selection, doc)
+            selection.TypeText(texto_limpio)
+            selection.TypeParagraph()
+        else:
+            selection.EndKey(Unit=6)
+            selection.TypeParagraph()
+            selection.TypeParagraph()
+            _com_aplicar_estilo_normal(selection, doc)
+            selection.TypeText(texto_limpio)
+        return True, True
+
+    later_sec = next((sec for sec in sections if sec["date"] > fecha_dt), None)
+    if later_sec is not None:
+        later_idx = later_sec["start_idx"]
+        prev_has_text = False
+        if later_idx > 1:
+            prev_txt = (doc.Paragraphs(later_idx - 1).Range.Text or "").replace("\r", "").strip()
+            prev_has_text = bool(prev_txt)
+        rng = doc.Paragraphs(later_idx).Range
+        rng.Collapse(1)
+        rng.Select()
+        if prev_has_text:
+            selection.TypeParagraph()
+        _com_aplicar_estilo_heading1(selection, doc)
+        selection.TypeText(encabezado)
+        selection.TypeParagraph()
+        _com_aplicar_estilo_normal(selection, doc)
+        selection.TypeText(texto_limpio)
+        selection.TypeParagraph()
+        selection.TypeParagraph()
+        return True, True
+
+    selection.EndKey(Unit=6)
+    selection.TypeParagraph()
+    selection.TypeParagraph()
+    _com_aplicar_estilo_heading1(selection, doc)
+    selection.TypeText(encabezado)
+    selection.TypeParagraph()
+    _com_aplicar_estilo_normal(selection, doc)
+    selection.TypeText(texto_limpio)
+    return True, True
+
+
+def _ejecutar_en_journal_word(operacion_fn):
     ruta_journal, _ = resolver_rutas_word()
     if (not ruta_journal or not os.path.exists(ruta_journal)) and os.environ.get(
         "GITHUB_TOKEN", ""
@@ -1007,7 +1277,6 @@ def agregar_texto_a_word(texto, fecha_objetivo=None):
         doc = None
         watchdog = None
         timed_out_flag = {"triggered": False}
-        new_word_pids = set()
         try:
             pids_before = _listar_pids_winword()
             com_init, word = _iniciar_word_com_oculto()
@@ -1039,53 +1308,18 @@ def agregar_texto_a_word(texto, fecha_objetivo=None):
                 )
                 return False
 
-            selection = word.Selection
-            selection.EndKey(Unit=6)
-
-            encabezado = calcular_encabezado(fecha_objetivo)
-            texto_limpio = str(texto or "").strip()
-            texto_completo = doc.Content.Text
-
-            if encabezado in texto_completo:
-                if texto_limpio == "Nothing to report.":
-                    return True
-
-                selection.TypeParagraph()
-                selection.TypeParagraph()
-                selection.Style = doc.Styles(-1)
-
-                selection.Font.Name = "Arial"
-                selection.Font.Size = 11
-                selection.Font.Bold = False
-                selection.TypeText(texto_limpio)
-            else:
-                selection.TypeParagraph()
-                selection.TypeParagraph()
-
-                selection.Style = doc.Styles(-2)
-                selection.Font.Name = "Arial"
-                selection.Font.Size = 16
-                selection.Font.Bold = True
-                selection.Font.ColorIndex = 1
-                selection.TypeText(encabezado)
-
-                selection.TypeParagraph()
-                selection.Style = doc.Styles(-1)
-                selection.Font.Name = "Arial"
-                selection.Font.Size = 11
-                selection.Font.Bold = False
-                selection.TypeText(texto_limpio)
-
-            try:
-                if doc.TablesOfContents.Count > 0:
-                    doc.TablesOfContents(1).Update()
-            except Exception as toc_err:
-                logging.warning(
-                    f"No se pudo actualizar TOC en Journal Word (se guarda el texto igualmente): {toc_err}"
-                )
-
-            doc.Save()
-            logging.info(f"Registro exitoso bajo el dia: {encabezado}")
+            ok, modified = operacion_fn(word, doc)
+            if not ok:
+                return False
+            if modified:
+                try:
+                    if doc.TablesOfContents.Count > 0:
+                        doc.TablesOfContents(1).Update()
+                except Exception as toc_err:
+                    logging.warning(
+                        f"No se pudo actualizar TOC en Journal Word (se guarda el texto igualmente): {toc_err}"
+                    )
+                doc.Save()
             return True
 
         except Exception as e:
@@ -1120,6 +1354,75 @@ def agregar_texto_a_word(texto, fecha_objetivo=None):
                     pythoncom.CoUninitialize()
                 except Exception:
                     pass
+
+
+def agregar_texto_a_word(texto, fecha_objetivo=None):
+    target_dt = _normalizar_fecha_journal(fecha_objetivo)
+    encabezado = calcular_encabezado(target_dt)
+
+    def _op(word, doc):
+        sections = _com_extraer_secciones_journal(doc)
+        existentes = [s["date"] for s in sections if s["status"] in ("filled", "nothing_to_report")]
+        vacias = [s["date"] for s in sections if s["status"] == "empty"]
+        faltantes_previos = calcular_dias_faltantes_journal(
+            existentes,
+            target_dt - timedelta(days=1),
+            fechas_vacias=vacias,
+            fill_if_empty_doc=False,
+        )
+        any_modified = False
+        for d_miss in faltantes_previos:
+            ok_bf, mod_bf = _com_insertar_o_actualizar_dia_word(
+                word, doc, d_miss, JOURNAL_NOTHING_TO_REPORT
+            )
+            if not ok_bf:
+                return False, False
+            any_modified = any_modified or mod_bf
+
+        ok_main, mod_main = _com_insertar_o_actualizar_dia_word(word, doc, target_dt, texto)
+        if not ok_main:
+            return False, False
+        any_modified = any_modified or mod_main
+        if mod_main:
+            logging.info(f"Registro exitoso bajo el dia: {encabezado}")
+        return True, any_modified
+
+    return _ejecutar_en_journal_word(_op)
+
+
+def verificar_y_llenar_dias_faltantes_word(fecha_hasta=None):
+    hasta_dt = _normalizar_fecha_journal(
+        fecha_hasta if fecha_hasta is not None else (datetime.now().date() - timedelta(days=1))
+    )
+
+    def _op(word, doc):
+        sections = _com_extraer_secciones_journal(doc)
+        existentes = [s["date"] for s in sections if s["status"] in ("filled", "nothing_to_report")]
+        vacias = [s["date"] for s in sections if s["status"] == "empty"]
+        faltantes = calcular_dias_faltantes_journal(
+            existentes,
+            hasta_dt,
+            fechas_vacias=vacias,
+            fill_if_empty_doc=True,
+        )
+        if not faltantes:
+            return True, False
+
+        any_modified = False
+        for d_miss in faltantes:
+            ok_bf, mod_bf = _com_insertar_o_actualizar_dia_word(
+                word, doc, d_miss, JOURNAL_NOTHING_TO_REPORT
+            )
+            if not ok_bf:
+                return False, False
+            any_modified = any_modified or mod_bf
+        if any_modified:
+            logging.info(
+                f"Verificación diaria Word completada: {len(faltantes)} día(s) rellenados con '{JOURNAL_NOTHING_TO_REPORT}'."
+            )
+        return True, any_modified
+
+    return _ejecutar_en_journal_word(_op)
 
 
 SECCIONES_INGLES = {
@@ -1472,7 +1775,9 @@ _RE_ENCABEZADO_IDIOMA_LETRA = re.compile(
     re.IGNORECASE,
 )
 _RE_HANGUL_CHAR = re.compile(r"[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]")
-_RE_JAPANESE_CHAR = re.compile(r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]")
+_RE_JAPANESE_CHAR = re.compile(
+    r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]"
+)
 _RE_STRUCTURAL_TAG_LINE = re.compile(
     r"^\[(?:intro|verse(?:\s*\d+)?|pre-?chorus|post-?chorus|chorus|refrain|bridge|rap(?:\s*part)?|interlude|outro|hook|solo|breakdown|coro|verso(?:\s*\d+)?|puente|estribillo)[^\]]*\]$",
     re.IGNORECASE,
@@ -1691,8 +1996,15 @@ def _combinar_letra_por_idiomas(prev_val, new_val, append=False):
         slot = clave if enc else "__base__"
         if slot in block_map:
             old_clave, old_enc, old_cuerpo = block_map[slot]
-            if slot == "__base__" and append and old_cuerpo and norm(cuerpo) != norm(old_cuerpo):
-                updated_body = _combinar_campo_multilinea(old_cuerpo, cuerpo, append=True)
+            if (
+                slot == "__base__"
+                and append
+                and old_cuerpo
+                and norm(cuerpo) != norm(old_cuerpo)
+            ):
+                updated_body = _combinar_campo_multilinea(
+                    old_cuerpo, cuerpo, append=True
+                )
             else:
                 updated_body = cuerpo or old_cuerpo
             block_map[slot] = (clave or old_clave, enc or old_enc, updated_body)
@@ -2246,7 +2558,8 @@ def _aplicar_estilo_parrafo(
 
 def _word_com_normalizar_saltos_pagina(doc):
     """Aplica pageBreakBefore únicamente en Títulos Principales (H1 secciones y H2/H3 Álbum/Canción 2+),
-    manteniendo continuidad sin páginas en blanco en todos los subtítulos e ítems internos."""
+    manteniendo continuidad sin páginas en blanco en todos los subtítulos e ítems internos.
+    """
     try:
         current_section = ""
         music_albums_seen = 0
@@ -2730,7 +3043,9 @@ def _coincide_cancion_en_bloque(
 
 def _word_com_bloque_duplicado(doc, spec):
     """True si la sección ya contiene la misma entrada en modo Word COM."""
-    sec_start, sec_end = _buscar_rango_seccion(doc, spec["category"], include_eof_nonempty=True)
+    sec_start, sec_end = _buscar_rango_seccion(
+        doc, spec["category"], include_eof_nonempty=True
+    )
     if sec_start is None:
         return False
     target_heading = _normalizar_clave_texto(spec["heading"])
@@ -2752,7 +3067,10 @@ def _word_com_bloque_duplicado(doc, spec):
                         break
                     j += 1
                 existing = _ooxml_cuerpo_normalizado(
-                    [_texto_parrafo_limpio(doc.Paragraphs(k)) for k in range(idx + 1, j)]
+                    [
+                        _texto_parrafo_limpio(doc.Paragraphs(k))
+                        for k in range(idx + 1, j)
+                    ]
                 )
                 if existing == new_body:
                     return True
@@ -2792,7 +3110,9 @@ def _guardar_cancion_ordenada_en_word(doc, entry):
                     if combined_existing is None
                     else _combinar_metadata_cancion_word(
                         combined_existing,
-                        dict(existing_fields, category="music", append_study_fields=True),
+                        dict(
+                            existing_fields, category="music", append_study_fields=True
+                        ),
                     )
                 )
                 matched_ranges.append((tr["h3_idx"], tr["end_idx"]))
@@ -2805,7 +3125,9 @@ def _guardar_cancion_ordenada_en_word(doc, entry):
         else dict(entry)
     )
 
-    for del_s_idx, del_e_idx in sorted(matched_ranges, key=lambda x: x[0], reverse=True):
+    for del_s_idx, del_e_idx in sorted(
+        matched_ranges, key=lambda x: x[0], reverse=True
+    ):
         try:
             del_start = doc.Paragraphs(del_s_idx).Range.Start
             del_end = doc.Paragraphs(del_e_idx).Range.Start
@@ -3049,7 +3371,10 @@ def _ooxml_normalizar_saltos_pagina(body, style_levels):
     for idx in range(sect_idx):
         if t_start <= idx < t_end:
             continue
-        if body[idx].tag == p_tag and _nivel_parrafo_ooxml(body[idx], style_levels) == 1:
+        if (
+            body[idx].tag == p_tag
+            and _nivel_parrafo_ooxml(body[idx], style_levels) == 1
+        ):
             first_h1_idx = idx
             break
 
@@ -3629,7 +3954,9 @@ def _ooxml_bloque_duplicado(body, items, sec_start, sec_end, spec):
             j = idx + 1
             while j < sec_end and items[j][0] not in (1, 2):
                 j += 1
-            existing = _ooxml_cuerpo_normalizado([items[k][1] for k in range(idx + 1, j)])
+            existing = _ooxml_cuerpo_normalizado(
+                [items[k][1] for k in range(idx + 1, j)]
+            )
             if existing == new_body:
                 return True
             idx = j
@@ -3688,7 +4015,11 @@ def _guardar_entrada_ingles_en_docx_xml(archivo, entry):
                         if combined_existing is None
                         else _combinar_metadata_cancion_word(
                             combined_existing,
-                            dict(existing_fields, category="music", append_study_fields=True),
+                            dict(
+                                existing_fields,
+                                category="music",
+                                append_study_fields=True,
+                            ),
                         )
                     )
                     elems_to_remove.extend(body_children[tr["h3_idx"] : tr["end_idx"]])
@@ -3836,7 +4167,9 @@ def _ooxml_lineas_desde_textos(textos):
                 {
                     "label": m_lbl.group(1) + " ",
                     "text": m_lbl.group(2),
-                    "size": 9 if is_added else (10 if line.startswith("Language:") else 11),
+                    "size": (
+                        9 if is_added else (10 if line.startswith("Language:") else 11)
+                    ),
                     "italic": is_added or line.startswith("Language:"),
                     "muted": is_added or line.startswith("Language:"),
                 }
@@ -3885,7 +4218,9 @@ def _fusionar_pista_en_lista_musica(music_list, track_fields):
     music_list.append(clean_entry)
 
 
-def _agregar_entrada_texto_dedup(bucket_list, heading, body_lines, strict_heading=False):
+def _agregar_entrada_texto_dedup(
+    bucket_list, heading, body_lines, strict_heading=False
+):
     h_clean = _limpiar_linea(heading)
     if not h_clean:
         return
@@ -4027,7 +4362,9 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                         if "coreano" in h1_title.lower() or "ko" in h1_title.lower()
                         else "Base Fonética y Reglas de Pronunciación (EN -> ES)"
                     )
-                    _agregar_entrada_texto_dedup(buckets["grammar"], base_title, loose_lines)
+                    _agregar_entrada_texto_dedup(
+                        buckets["grammar"], base_title, loose_lines
+                    )
 
             elif kind == "legacy_apartado_2":
                 idx = s_idx + 1
@@ -4039,7 +4376,9 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                             j += 1
                         lines = [items[k][1] for k in range(idx + 1, j) if items[k][1]]
                         target_cat = (
-                            "phrasal_verb" if "phrasal verb" in txt.lower() else "grammar"
+                            "phrasal_verb"
+                            if "phrasal verb" in txt.lower()
+                            else "grammar"
                         )
                         _agregar_entrada_texto_dedup(
                             buckets[target_cat],
@@ -4068,10 +4407,16 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                                 items[k][1] for k in range(idx + 1, j) if items[k][1]
                             ]
                             if lines:
-                                _agregar_entrada_texto_dedup(buckets["grammar"], txt, lines)
+                                _agregar_entrada_texto_dedup(
+                                    buckets["grammar"], txt, lines
+                                )
                         else:
-                            grp_album, grp_type, grp_year = _parsear_album_release_linea(txt)
-                            is_standalone_grp = txt.lower().startswith("singles & standalone")
+                            grp_album, grp_type, grp_year = (
+                                _parsear_album_release_linea(txt)
+                            )
+                            is_standalone_grp = txt.lower().startswith(
+                                "singles & standalone"
+                            )
                             k = idx + 1
                             while k < j:
                                 klvl, ktxt = items[k]
@@ -4085,11 +4430,20 @@ def consolidar_y_deduplicar_cuaderno_word(ruta_docx=None):
                                         if items[p_i][1]
                                     ]
                                     fields = _extraer_campos_bloque_word(tr_lines, ktxt)
-                                    if not fields.get("album_title") and not is_standalone_grp:
+                                    if (
+                                        not fields.get("album_title")
+                                        and not is_standalone_grp
+                                    ):
                                         fields["album_title"] = grp_album
-                                        fields["album_type"] = fields.get("album_type") or grp_type
-                                        fields["release_year"] = fields.get("release_year") or grp_year
-                                    _fusionar_pista_en_lista_musica(music_entries, fields)
+                                        fields["album_type"] = (
+                                            fields.get("album_type") or grp_type
+                                        )
+                                        fields["release_year"] = (
+                                            fields.get("release_year") or grp_year
+                                        )
+                                    _fusionar_pista_en_lista_musica(
+                                        music_entries, fields
+                                    )
                                     k = m
                                 else:
                                     k += 1
@@ -4277,7 +4631,12 @@ _ENGLISH_WORD_DRIVE_STATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), ".english_word_drive_state.json"
 )
 _word_drive_sync_lock = threading.Lock()
-_word_watch_cache = {"mtime_ns": None, "size": None, "sha256": None, "last_attempt": 0.0}
+_word_watch_cache = {
+    "mtime_ns": None,
+    "size": None,
+    "sha256": None,
+    "last_attempt": 0.0,
+}
 
 
 def _leer_ultimo_hash_word_drive():
@@ -4314,7 +4673,9 @@ def _guardar_ultimo_hash_word_drive(
         pass
 
 
-def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, expected_sha256=None):
+def sincronizar_word_estudio_a_drive(
+    ruta_docx_estudio=None, blocking=False, expected_sha256=None
+):
     """
     Envía ÚNICAMENTE English_Learning_Notebook.docx al servidor EC2 por el puente HMAC
     para subirlo automáticamente al Google Drive configurado sin requerir rclone en la PC.
@@ -4323,7 +4684,9 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
     _, ruta_eng = resolver_rutas_word()
     target = os.path.abspath(ruta_docx_estudio or ruta_eng or DEFAULT_ENGLISH_WORD_PATH)
     if RUTA_WORD and os.path.abspath(RUTA_WORD) == target:
-        logging.error("SEGURIDAD: Se bloqueó intento de subir Journal.docx a Google Drive.")
+        logging.error(
+            "SEGURIDAD: Se bloqueó intento de subir Journal.docx a Google Drive."
+        )
         return False
     if not os.path.exists(target):
         return False
@@ -4387,12 +4750,16 @@ def sincronizar_word_estudio_a_drive(ruta_docx_estudio=None, blocking=False, exp
                 )
                 return False
             except Exception as exc:
-                logging.warning(f"Error temporal sincronizando Word de Idiomas a Drive (reintentará): {exc}")
+                logging.warning(
+                    f"Error temporal sincronizando Word de Idiomas a Drive (reintentará): {exc}"
+                )
                 return False
 
     if blocking:
         return _subir_via_ec2_drive()
-    threading.Thread(target=_subir_via_ec2_drive, name="drive-study-sync", daemon=True).start()
+    threading.Thread(
+        target=_subir_via_ec2_drive, name="drive-study-sync", daemon=True
+    ).start()
     return True
 
 
@@ -4430,7 +4797,9 @@ def _sincronizar_word_si_cambio():
             _word_watch_cache["sha256"] = current_sha
             return False
         _word_watch_cache["last_attempt"] = now
-        if sincronizar_word_estudio_a_drive(target, blocking=True, expected_sha256=current_sha):
+        if sincronizar_word_estudio_a_drive(
+            target, blocking=True, expected_sha256=current_sha
+        ):
             _word_watch_cache["sha256"] = current_sha
             return True
     except (PermissionError, OSError):
@@ -4499,9 +4868,10 @@ def _sincronizar_word_desde_drive(force=False):
                 return "noop"
 
             state = _leer_estado_word_drive()
-            same_remote = (
-                int(meta.get("remoteSize") or 0) == int(state.get("remoteSize") or -1)
-                and str(meta.get("remoteModTime") or "") == str(state.get("remoteModTime") or "")
+            same_remote = int(meta.get("remoteSize") or 0) == int(
+                state.get("remoteSize") or -1
+            ) and str(meta.get("remoteModTime") or "") == str(
+                state.get("remoteModTime") or ""
             )
             if same_remote:
                 return "noop"
@@ -4523,7 +4893,10 @@ def _sincronizar_word_desde_drive(force=False):
             # Drive ya contiene exactamente lo último que subimos desde esta PC
             if remote_sha == last_sha:
                 _guardar_ultimo_hash_word_drive(
-                    last_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                    last_sha,
+                    str(meta.get("remoteTarget") or ""),
+                    len(remote_bytes),
+                    True,
                     str(meta.get("remoteModTime") or ""),
                 )
                 return "noop"
@@ -4535,7 +4908,10 @@ def _sincronizar_word_desde_drive(force=False):
                     local_sha = hashlib.sha256(fh.read()).hexdigest()
             if local_sha == remote_sha:
                 _guardar_ultimo_hash_word_drive(
-                    remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                    remote_sha,
+                    str(meta.get("remoteTarget") or ""),
+                    len(remote_bytes),
+                    True,
                     str(meta.get("remoteModTime") or ""),
                 )
                 return "noop"
@@ -4552,15 +4928,20 @@ def _sincronizar_word_desde_drive(force=False):
                     f"Conflicto Word local vs Drive: se conservó el local; copia de Drive en {conflict_path}"
                 )
                 _guardar_ultimo_hash_word_drive(
-                    last_sha or local_sha, str(meta.get("remoteTarget") or ""),
-                    int(meta.get("remoteSize") or 0), False, str(meta.get("remoteModTime") or ""),
+                    last_sha or local_sha,
+                    str(meta.get("remoteTarget") or ""),
+                    int(meta.get("remoteSize") or 0),
+                    False,
+                    str(meta.get("remoteModTime") or ""),
                 )
                 _word_watch_cache["sha256"] = ""
                 _word_watch_cache["last_attempt"] = 0.0
                 return "conflict"
 
             if local_exists and _word_abierto_en_word(target):
-                logging.info("Drive tiene una versión nueva del Word, pero está abierto localmente; se pospone.")
+                logging.info(
+                    "Drive tiene una versión nueva del Word, pero está abierto localmente; se pospone."
+                )
                 return "deferred"
 
             with _english_docx_lock:
@@ -4569,7 +4950,9 @@ def _sincronizar_word_desde_drive(force=False):
                     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
                     with open(tmp_path, "wb") as fh:
                         fh.write(remote_bytes)
-                    os.replace(tmp_path, target)  # PermissionError si Word lo bloquea -> se reintenta luego
+                    os.replace(
+                        tmp_path, target
+                    )  # PermissionError si Word lo bloquea -> se reintenta luego
                 finally:
                     if os.path.exists(tmp_path):
                         try:
@@ -4577,11 +4960,16 @@ def _sincronizar_word_desde_drive(force=False):
                         except OSError:
                             pass
             _guardar_ultimo_hash_word_drive(
-                remote_sha, str(meta.get("remoteTarget") or ""), len(remote_bytes), True,
+                remote_sha,
+                str(meta.get("remoteTarget") or ""),
+                len(remote_bytes),
+                True,
                 str(meta.get("remoteModTime") or ""),
             )
             _word_watch_cache["sha256"] = remote_sha
-            logging.info("Word de Idiomas actualizado desde Google Drive (cambio remoto detectado).")
+            logging.info(
+                "Word de Idiomas actualizado desde Google Drive (cambio remoto detectado)."
+            )
             return "pulled"
         except PermissionError:
             return "deferred"
@@ -4701,7 +5089,9 @@ def agregar_entrada_ingles_a_word(entry, ruta_docx=None):
                 sincronizar_word_estudio_a_drive(archivo)
 
 
-_ESTUDIO_MAX_BYTES_RESPUESTA = 34000  # AES-GCM + base64 debe caber en el límite de 64000 del puente
+_ESTUDIO_MAX_BYTES_RESPUESTA = (
+    34000  # AES-GCM + base64 debe caber en el límite de 64000 del puente
+)
 _ESTUDIO_MAX_CHARS_ENTRADA = 10000
 
 
@@ -4729,10 +5119,16 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         _, ruta_english = resolver_rutas_word()
         archivo = os.path.abspath(ruta_english or DEFAULT_ENGLISH_WORD_PATH)
     if not os.path.exists(archivo):
-        return {"ok": False, "reason": "NO_WORD", "error": "English_Learning_Notebook.docx no existe en esta PC."}
+        return {
+            "ok": False,
+            "reason": "NO_WORD",
+            "error": "English_Learning_Notebook.docx no existe en esta PC.",
+        }
 
     try:
-        with open(archivo, "rb") as fh:  # lectura compartida: funciona aunque Word lo tenga abierto
+        with open(
+            archivo, "rb"
+        ) as fh:  # lectura compartida: funciona aunque Word lo tenga abierto
             raw = fh.read()
         with zipfile.ZipFile(io.BytesIO(raw), "r") as zf:
             estilos = _ooxml_cargar_estilos_mapa(zf)
@@ -4742,7 +5138,11 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         if body is None:
             raise ET.ParseError("word/document.xml sin w:body")
     except (zipfile.BadZipFile, KeyError, ET.ParseError, OSError) as exc:
-        return {"ok": False, "reason": "READ_ERROR", "error": f"No se pudo leer el Word: {exc}"}
+        return {
+            "ok": False,
+            "reason": "READ_ERROR",
+            "error": f"No se pudo leer el Word: {exc}",
+        }
 
     style_levels = estilos["levels"]
     toc_range = _ooxml_encontrar_rango_toc(list(body))
@@ -4751,7 +5151,9 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
     counts = {cat: 0 for cat in SECCIONES_INGLES}
 
     for cat in SECCIONES_INGLES:
-        sec_start, sec_end, items = _ooxml_buscar_rango_seccion(body, style_levels, cat, toc_range)
+        sec_start, sec_end, items = _ooxml_buscar_rango_seccion(
+            body, style_levels, cat, toc_range
+        )
         if sec_start is None:
             continue
         if cat == "music":
@@ -4761,7 +5163,9 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
                     fields = _extraer_campos_bloque_word(lines, tr["heading"])
                     artist = _limpiar_linea(fields.get("artists_display"))
                     album = grp["heading"]
-                    song_name = _limpiar_linea(fields.get("song_title")) or tr["heading"]
+                    song_name = (
+                        _limpiar_linea(fields.get("song_title")) or tr["heading"]
+                    )
                     for a in re.split(r"\s*(?:,|&|feat\.?|ft\.?|x)\s+", artist or ""):
                         if a.strip():
                             artists.add(a.strip())
@@ -4803,10 +5207,26 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
                     j = idx + 1
                     while j < sec_end and items[j][0] not in (1, 2):
                         j += 1
-                    body_lines = [t for _, t in items[idx + 1 : j] if t and not t.startswith("Added:")]
-                    added = next((t[6:].strip() for _, t in items[idx + 1 : j] if t.startswith("Added:")), "")
+                    body_lines = [
+                        t
+                        for _, t in items[idx + 1 : j]
+                        if t and not t.startswith("Added:")
+                    ]
+                    added = next(
+                        (
+                            t[6:].strip()
+                            for _, t in items[idx + 1 : j]
+                            if t.startswith("Added:")
+                        ),
+                        "",
+                    )
                     entries.append(
-                        {"section": cat, "heading": text, "lines": body_lines, "added": added}
+                        {
+                            "section": cat,
+                            "heading": text,
+                            "lines": body_lines,
+                            "added": added,
+                        }
                     )
                     counts[cat] += 1
                     idx = j
@@ -4826,7 +5246,9 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
             return False
         if f_album and f_album not in _normalizar_clave_texto(e.get("album")):
             return False
-        if f_song and f_song not in _normalizar_clave_texto(e.get("song") or e.get("heading")):
+        if f_song and f_song not in _normalizar_clave_texto(
+            e.get("song") or e.get("heading")
+        ):
             return False
         return not q or q in entry_text(e)
 
@@ -4836,10 +5258,17 @@ def leer_cuaderno_estudio_word(params=None, ruta_docx=None):
         e = dict(filtered[pos])
         if e.get("fields"):
             e["fields"] = {
-                k: (v if len(v) <= _ESTUDIO_MAX_CHARS_ENTRADA else v[:_ESTUDIO_MAX_CHARS_ENTRADA] + "…")
+                k: (
+                    v
+                    if len(v) <= _ESTUDIO_MAX_CHARS_ENTRADA
+                    else v[:_ESTUDIO_MAX_CHARS_ENTRADA] + "…"
+                )
                 for k, v in e["fields"].items()
             }
-            e["truncated"] = any(len(v) > _ESTUDIO_MAX_CHARS_ENTRADA for v in filtered[pos]["fields"].values())
+            e["truncated"] = any(
+                len(v) > _ESTUDIO_MAX_CHARS_ENTRADA
+                for v in filtered[pos]["fields"].values()
+            )
         size = len(json.dumps(e, ensure_ascii=False).encode("utf-8"))
         if page and used + size > _ESTUDIO_MAX_BYTES_RESPUESTA:
             next_offset = pos
@@ -5315,8 +5744,17 @@ def _formatear_pistas_ytdlp(tracks):
         ko = _aislar_lineas_coreano(_limpiar_ruido_letra(tracks.get("ko")))
         en = _limpiar_ruido_letra(tracks.get("en"))
         ja_raw = _limpiar_ruido_letra(tracks.get("ja"))
-        ja = _aislar_lineas_japones(ja_raw) if (ja_raw and re.search(r"[A-Za-z]{2,}", ja_raw)) else ja_raw
-        if not ja and orig and _RE_JAPANESE_CHAR.search(orig) and re.search(r"[A-Za-z]{2,}", orig):
+        ja = (
+            _aislar_lineas_japones(ja_raw)
+            if (ja_raw and re.search(r"[A-Za-z]{2,}", ja_raw))
+            else ja_raw
+        )
+        if (
+            not ja
+            and orig
+            and _RE_JAPANESE_CHAR.search(orig)
+            and re.search(r"[A-Za-z]{2,}", orig)
+        ):
             ja = _aislar_lineas_japones(orig)
         es = _limpiar_ruido_letra(tracks.get("es"))
 
@@ -5440,7 +5878,9 @@ def _extraer_cinco_apartados_desde_letra(lyrics_text):
         elif not clave and not out["original"]:
             out["original"] = c
     if not out["original"]:
-        out["original"] = out["ko"] or out["en"] or out["ja"] or _limpiar_ruido_letra(lyrics_text)
+        out["original"] = (
+            out["ko"] or out["en"] or out["ja"] or _limpiar_ruido_letra(lyrics_text)
+        )
     if out["ko"] or _RE_HANGUL_CHAR.search(out["original"]):
         iso_ko = _aislar_lineas_coreano(out["ko"] or out["original"])
         if iso_ko:
@@ -5647,13 +6087,19 @@ def _procesar_trabajo_pc(job_obj):
         search_meta = {
             "songTitle": resolved_title,
             "artistsDisplay": resolved_artist,
-            "albumTitle": word_entry.get("album_title") or req_data.get("albumTitle") or "",
+            "albumTitle": word_entry.get("album_title")
+            or req_data.get("albumTitle")
+            or "",
         }
         verified_word = None
         for read_attempt in range(2):
-            verified_word = buscar_letra_cancion_en_word(search_meta, use_ram_fallback=False)
+            verified_word = buscar_letra_cancion_en_word(
+                search_meta, use_ram_fallback=False
+            )
             if not (verified_word and verified_word.get("lyrics")):
-                verified_word = buscar_letra_cancion_en_word(req_data, use_ram_fallback=False)
+                verified_word = buscar_letra_cancion_en_word(
+                    req_data, use_ram_fallback=False
+                )
             if verified_word and verified_word.get("lyrics"):
                 break
             if read_attempt == 0:
@@ -5681,7 +6127,8 @@ def _procesar_trabajo_pc(job_obj):
             word_lyrics,
             language=verified_word.get("language") or chosen_lang or idioma,
             album_group=verified_word.get("album_group") or "",
-            track_heading=verified_word.get("track_heading") or f"{resolved_title} — {resolved_artist}",
+            track_heading=verified_word.get("track_heading")
+            or f"{resolved_title} — {resolved_artist}",
             pending_write=False,
         )
 
@@ -6083,16 +6530,18 @@ if __name__ == "__main__":
     word_watch_thread.start()
 
     journal_backoff_sec = 3
+    ultimo_intento_verif_ts = 0.0
 
     # Bucle resiliente para Journal Word COM con long-poll instantáneo desde EC2
     while True:
         try:
             ahora = datetime.now()
 
-            # 1. VERIFICACIÓN DE MADRUGADA (Journal diario)
-            if ahora.hour == 0 and ultimo_dia_verificado != ahora.date():
-                ayer = ahora - timedelta(days=1)
-                exito = agregar_texto_a_word("Nothing to report.", fecha_objetivo=ayer)
+            # 1. VERIFICACIÓN DIARIA CONTINUA (al iniciar y cada cambio de día)
+            if ultimo_dia_verificado != ahora.date() and (time.time() - ultimo_intento_verif_ts) >= 120:
+                ultimo_intento_verif_ts = time.time()
+                ayer = ahora.date() - timedelta(days=1)
+                exito = verificar_y_llenar_dias_faltantes_word(fecha_hasta=ayer)
                 if exito:
                     ultimo_dia_verificado = ahora.date()
 

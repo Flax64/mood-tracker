@@ -379,7 +379,7 @@ async function runWithButtonLock(btn, asyncFn, options = {}) {
         spinner.className = 'spinner-circle spinner-sm';
         spinner.setAttribute('aria-hidden', 'true');
         const label = document.createElement('span');
-        label.textContent = loadingText;
+        label.textContent = tServer(String(loadingText));
         loadingWrap.append(spinner, label);
         btn.replaceChildren(loadingWrap);
     }
@@ -703,7 +703,7 @@ const STUDY_DRAFTS_CONFIG = {
         'engNoteBody',
         'engNoteExample'
     ],
-    music: ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'],
+    music: ['musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'],
     ai: ['langAiQuestion']
 };
 const STUDY_DRAFTS_STORAGE_PREFIX = 'mt_study_draft_v1:';
@@ -1037,6 +1037,9 @@ function obtenerLlaveE2EE() {
 }
 
 function encriptarTextoE2EE(textoPlano, llaveTexto) {
+    if (typeof CryptoJS === 'undefined') {
+        throw new Error('Local CryptoJS library failed to load. Reload the page.');
+    }
     const keyWords = CryptoJS.enc.Utf8.parse(llaveTexto);
     const iv = CryptoJS.lib.WordArray.random(16);
     const encrypted = CryptoJS.AES.encrypt(textoPlano, keyWords, { iv: iv });
@@ -1044,6 +1047,9 @@ function encriptarTextoE2EE(textoPlano, llaveTexto) {
 }
 
 function desencriptarTextoE2EE(textoCifrado, llaveTexto) {
+    if (typeof CryptoJS === 'undefined') {
+        throw new Error('Local CryptoJS library failed to load. Reload the page.');
+    }
     if (!textoCifrado || typeof textoCifrado !== 'string' || !textoCifrado.includes(':')) {
         throw new Error('Formato de respuesta cifrada E2EE inválido.');
     }
@@ -1111,10 +1117,13 @@ async function autoQueueAiLearningToWord({ entry, hintEl, songToMarkSynced = nul
 
         if (hintEl) {
             const pcOnline = Boolean(musicState?.ytdlpStatus?.pcOnline);
+            const serverAuto = Boolean(musicState?.ytdlpStatus?.serverAutonomous);
             hintEl.hidden = false;
             hintEl.textContent = pcOnline
                 ? tUi('✅ Learning notes encrypted E2EE and sent to your PC Word automatically.', '✅ Aprendizaje cifrado E2EE y enviado a tu Word PC automáticamente.')
-                : tUi('☁️ PC offline: learning notes saved E2EE encrypted in server RAM (queued for Word when PC connects).', '☁️ PC apagada: aprendizaje guardado cifrado E2EE en la nube (se escribirá en Word al conectar tu PC).');
+                : serverAuto
+                    ? tUi('☁️ Learning notes saved directly to English Notebook on Google Drive.', '☁️ Aprendizaje guardado directamente en tu cuaderno Word en Google Drive.')
+                    : tUi('☁️ Learning notes saved E2EE encrypted on the server.', '☁️ Aprendizaje guardado cifrado E2EE en el servidor.');
         }
         return true;
     } catch (err) {
@@ -1423,6 +1432,7 @@ function showView(viewName, updateHash = true, options = {}) {
         if (typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
     } else if (targetView === 'journal') {
         updateE2eeKeyStatusUI();
+        if (typeof cargarEstadoDiarioJournal === 'function') cargarEstadoDiarioJournal({ silent: true });
     } else if (targetView === 'english') {
         updateE2eeKeyStatusUI();
         updateYouTubePlatformUI();
@@ -1495,14 +1505,22 @@ function openReminderTarget(reminder = {}) {
             momentoSelect.value = desiredMoment;
         }
         showView('mood', true, { preserveTarget: true });
-        const momentLabel = targetMoment === 'Madrugada' ? 'Late Night' : (targetMoment || 'current block');
+        const momentLabel = targetMoment
+            ? (window.DailyHubI18n?.momentLabel ? window.DailyHubI18n.momentLabel(targetMoment) : (targetMoment === 'Madrugada' ? 'Late Night' : targetMoment))
+            : tUi('current block', 'bloque actual');
         const pendingExtra = Array.isArray(reminder.pendingMoments) && reminder.pendingMoments.length > 1
-            ? ` (Pending blocks: ${reminder.pendingMoments.map(m => m === 'Madrugada' ? 'Late Night' : m).join(' → ')})`
+            ? tUi(
+                ` (Pending blocks: ${reminder.pendingMoments.map(m => m === 'Madrugada' ? 'Late Night' : m).join(' → ')})`,
+                ` (Bloques pendientes: ${reminder.pendingMoments.map(m => (window.DailyHubI18n?.momentLabel ? window.DailyHubI18n.momentLabel(m) : m)).join(' → ')})`
+            )
             : '';
         setInlineBanner(
             'moodStatusBanner',
             'info',
-            `Selected ${targetDate} · ${momentLabel}${pendingExtra}. Pick your mood below and click Save!`
+            tUi(
+                `Selected ${targetDate} · ${momentLabel}${pendingExtra}. Pick your mood below and click Save!`,
+                `Seleccionado ${targetDate} · ${momentLabel}${pendingExtra}. ¡Elige tu ánimo abajo y presiona Guardar!`
+            )
         );
         const firstMoodBtn = document.querySelector('#moodForm .mood-btn');
         if (firstMoodBtn) firstMoodBtn.focus({ preventScroll: true });
@@ -1516,7 +1534,10 @@ function openReminderTarget(reminder = {}) {
         setInlineBanner(
             'sleepStatusBanner',
             'info',
-            `Selected ${targetDate} sleep check-in — enter bedtime (auto-detects late desvelo like 3:00 AM), wake-up time, and rest quality.`
+            tUi(
+                `Selected ${targetDate} sleep check-in — enter bedtime (auto-detects late desvelo like 3:00 AM), wake-up time, and rest quality.`,
+                `Seleccionado registro de sueño ${targetDate} — ingresa tu hora de dormir (detecta desvelos como 3:00 AM), hora de despertar y calidad de descanso.`
+            )
         );
         const sleepInput = document.getElementById('sleepTime');
         const wakeInput = document.getElementById('wakeupTime');
@@ -2194,14 +2215,10 @@ function cargarResumenSemanalActual() {
     const reqToken = resumenTracker.begin();
     const fetchOpts = reqToken.signal ? { signal: reqToken.signal } : {};
 
-    const beginMs = Date.parse(`${begin}T00:00:00Z`);
-    const isHistoricalRange = Number.isFinite(beginMs) && (Date.now() - beginMs) > (28 * 24 * 60 * 60 * 1000);
     const resumenBanner = document.getElementById('resumenLoadingBanner');
     if (resumenBanner) {
         resumenBanner.replaceChildren(createLoadingBanner(
-            isHistoricalRange
-                ? tUi('Loading records from over 1 month ago (may take a moment longer)...', 'Cargando registros anteriores a 1 mes (puede tardar un poco más)...')
-                : tUi('Loading weekly data...', 'Cargando datos semanales...'),
+            tUi('Loading weekly data...', 'Cargando datos semanales...'),
             'sm'
         ));
         resumenBanner.hidden = false;
@@ -2993,7 +3010,10 @@ if (formSleep) {
         setInlineBanner(
             'sleepStatusBanner',
             'info',
-            `Completing wake-up for bedtime ${formatClockTime12h(row.hora_dormir)} — adjust wake-up time or quality if needed and click "Complete Sleep Wake-Up".`
+            tUi(
+                `Completing wake-up for bedtime ${formatClockTime12h(row.hora_dormir)} — adjust wake-up time or quality if needed and click "Complete Sleep Wake-Up".`,
+                `Completando despertar para hora de dormir ${formatClockTime12h(row.hora_dormir)} — ajusta tu hora de despertar o calidad si hace falta y presiona "Completar Despertar".`
+            )
         );
         formSleep.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -3223,9 +3243,157 @@ if (formSleep) {
 }
 
 // ==========================================
-// JOURNAL NOTES (ENCRYPTED NOTES TO PC WORD)
+// JOURNAL NOTES (ENCRYPTED NOTES & DAILY COVERAGE)
 // ==========================================
 const JOURNAL_DRAFT_KEY = 'mt_journal_draft';
+let lastJournalDailyStatus = null;
+
+function renderJournalDailyCoverage(data) {
+    const card = document.getElementById('journalDailyCoverageCard');
+    const badgeEl = document.getElementById('journalCoverageBadge');
+    const summaryEl = document.getElementById('journalCoverageSummary');
+    const stripEl = document.getElementById('journalRecentDaysStrip');
+    const verifyBtn = document.getElementById('btnJournalVerifyDays');
+    if (!card || !badgeEl || !summaryEl || !stripEl) return;
+
+    badgeEl.className = 'journal-coverage-badge';
+    stripEl.replaceChildren();
+
+    if (!data || !data.ok) {
+        badgeEl.classList.add('is-warn');
+        badgeEl.textContent = tUi('Unavailable', 'No disponible');
+        summaryEl.textContent = tUi(
+            'Could not verify daily journal coverage right now.',
+            'No se pudo verificar la cobertura diaria del diario en este momento.'
+        );
+        if (verifyBtn) verifyBtn.hidden = false;
+        return;
+    }
+
+    if (!data.coverageAvailable) {
+        badgeEl.classList.add('is-info');
+        badgeEl.textContent = tUi('PC Sync Mode', 'Modo Sync PC');
+        summaryEl.textContent = tUi(
+            'Automatic past-day checks run in your PC sync client (sincronizador.py) or once server encryption is configured. You can still send "Nothing to report." for today below.',
+            'La verificación de días anteriores corre en tu sincronizador PC (sincronizador.py) o al activar el cifrado en servidor. Aún puedes marcar "Nothing to report." para hoy abajo.'
+        );
+        if (verifyBtn) verifyBtn.hidden = true;
+        return;
+    }
+
+    if (verifyBtn) verifyBtn.hidden = false;
+    const cov = data.coverage || {};
+    const missingDates = Array.isArray(cov.missingPastDates) ? cov.missingPastDates : [];
+    const missingHeadings = Array.isArray(cov.missingPastHeadings) ? cov.missingPastHeadings : missingDates;
+    const missingCount = missingDates.length;
+    const todayStatus = cov.todayStatus || 'missing';
+
+    if (!data.exists) {
+        badgeEl.classList.add('is-info');
+        badgeEl.textContent = tUi('Ready to start', 'Listo para iniciar');
+        summaryEl.textContent = tUi(
+            'No Diario.docx has been created on the server yet. Save a note or click "Nothing to report." to begin.',
+            'Aún no existe Diario.docx en el servidor. Guarda una nota o pulsa "Nothing to report." para iniciar.'
+        );
+    } else if (missingCount > 0) {
+        badgeEl.classList.add('is-warn');
+        badgeEl.textContent = missingCount === 1
+            ? tUi('1 past day missing', '1 día previo faltante')
+            : `${missingCount} ${tUi('past days missing', 'días previos faltantes')}`;
+        const sampleHeadings = missingHeadings.slice(0, 6).join(', ') + (missingCount > 6 ? '…' : '');
+        summaryEl.textContent = `${tUi('Missing past day(s):', 'Día(s) previo(s) sin llenar:')} ${sampleHeadings}. ${tUi('Click "Verify & Fill Missing Days" to fill them with "Nothing to report.".', 'Pulsa "Verificar y Rellenar Días Faltantes" para llenarlos con "Nothing to report.".')}`;
+    } else {
+        if (todayStatus === 'filled') {
+            badgeEl.classList.add('is-ok');
+            badgeEl.textContent = tUi('All days filled · Today logged', 'Días al corriente · Hoy registrado');
+        } else if (todayStatus === 'nothing_to_report') {
+            badgeEl.classList.add('is-ok');
+            badgeEl.textContent = tUi('All days filled · Nothing to report.', 'Días al corriente · Nothing to report.');
+        } else {
+            badgeEl.classList.add('is-info');
+            badgeEl.textContent = tUi('Past days complete · Today pending', 'Días previos completos · Hoy pendiente');
+        }
+
+        const totalDays = Number(cov.totalDaysRecorded || 0);
+        const verifiedPrefix = tUi(
+            `Verified ${totalDays} day(s) with no gaps.`,
+            `Verificados ${totalDays} día(s) sin huecos.`
+        );
+        let todayMsg = '';
+        if (todayStatus === 'filled') {
+            todayMsg = tUi(
+                `Today (${cov.todayHeading || ''}) has a journal entry.`,
+                `Hoy (${cov.todayHeading || ''}) ya tiene una nota registrada.`
+            );
+        } else if (todayStatus === 'nothing_to_report') {
+            todayMsg = tUi(
+                `Today (${cov.todayHeading || ''}) is marked as "Nothing to report.".`,
+                `Hoy (${cov.todayHeading || ''}) está marcado como "Nothing to report.".`
+            );
+        } else {
+            todayMsg = tUi(
+                `Today (${cov.todayHeading || ''}) is still open — write a note or mark "Nothing to report.".`,
+                `Hoy (${cov.todayHeading || ''}) sigue abierto — escribe una nota o marca "Nothing to report.".`
+            );
+        }
+        summaryEl.textContent = `${verifiedPrefix} ${todayMsg}`;
+    }
+
+    const recentDays = Array.isArray(cov.recentDays) ? cov.recentDays : [];
+    recentDays.forEach(day => {
+        const chip = document.createElement('div');
+        const st = day.status || 'missing';
+        chip.className = 'journal-day-chip';
+        if (st === 'filled') chip.classList.add('is-filled');
+        else if (st === 'nothing_to_report') chip.classList.add('is-ntr');
+        else chip.classList.add('is-missing');
+        if (day.isToday) chip.classList.add('is-today');
+
+        const statusLabel = st === 'filled'
+            ? tUi('Entry recorded', 'Nota registrada')
+            : (st === 'nothing_to_report'
+                ? 'Nothing to report.'
+                : tUi('Pending / Empty', 'Pendiente / Vacío'));
+        chip.title = `${day.heading || day.dateIso}: ${statusLabel}`;
+
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'journal-day-date';
+        dateSpan.textContent = String(day.dateIso || '').slice(5);
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'journal-day-icon';
+        iconSpan.textContent = st === 'filled' ? '✓' : (st === 'nothing_to_report' ? '—' : '!');
+
+        chip.appendChild(dateSpan);
+        chip.appendChild(iconSpan);
+        stripEl.appendChild(chip);
+    });
+}
+
+async function cargarEstadoDiarioJournal({ silent = false } = {}) {
+    const card = document.getElementById('journalDailyCoverageCard');
+    if (!card || !currentUser || currentUser.rol !== 'admin') return null;
+    try {
+        const res = await fetch('/api/journal/daily-status', { cache: 'no-store' });
+        if (!res.ok) {
+            if (!silent) {
+                const errText = await res.text().catch(() => '');
+                showToast('err', tServer(formatHumanNetworkError(res.status, errText)));
+            }
+            return null;
+        }
+        const data = await res.json();
+        lastJournalDailyStatus = data;
+        renderJournalDailyCoverage(data);
+        return data;
+    } catch (err) {
+        if (!silent) {
+            showToast('err', tServer(err.message || 'Error inspecting local Journal daily status.'));
+        }
+        return null;
+    }
+}
+
 const journalForm = document.getElementById('journalForm');
 
 if (journalForm) {
@@ -3236,10 +3404,115 @@ if (journalForm) {
     const clearDraftBtn = document.getElementById('btnJournalClearDraft');
     const journalE2eeBtn = document.getElementById('journalE2eePill');
     const titleInput = document.getElementById('journalTitle');
+    const verifyDaysBtn = document.getElementById('btnJournalVerifyDays');
+    const nothingToReportBtn = document.getElementById('btnJournalNothingToReport');
 
     if (journalE2eeBtn) {
         journalE2eeBtn.addEventListener('click', () => {
             solicitarLlaveE2EEAsync({ forceEdit: true });
+        });
+    }
+
+    if (verifyDaysBtn) {
+        verifyDaysBtn.addEventListener('click', () => {
+            runWithButtonLock(verifyDaysBtn, async () => {
+                setInlineBanner('journalStatusBanner', '', '');
+                try {
+                    const res = await fetch('/api/journal/verify-days', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Idempotency-Key': createIdempotencyKey()
+                        },
+                        body: JSON.stringify({})
+                    });
+                    if (!res.ok) {
+                        const raw = await res.text().catch(() => '');
+                        let parsedErr = raw;
+                        try {
+                            const j = JSON.parse(raw);
+                            if (j && j.error) parsedErr = j.error;
+                        } catch (_) {}
+                        throw new Error(formatHumanNetworkError(res.status, parsedErr));
+                    }
+                    const data = await res.json();
+                    const msg = tServer(data.message || 'All past days are already filled.');
+                    setInlineBanner('journalStatusBanner', data.modified ? 'ok' : 'info', msg);
+                    showToast(data.modified ? 'ok' : 'info', msg);
+                    await cargarEstadoDiarioJournal({ silent: true });
+                } catch (err) {
+                    const errMsg = tServer(err.message);
+                    setInlineBanner('journalStatusBanner', 'err', errMsg);
+                    showToast('err', errMsg);
+                }
+            }, { loadingText: 'Verifying...' });
+        });
+    }
+
+    if (nothingToReportBtn) {
+        nothingToReportBtn.addEventListener('click', async () => {
+            if (busyActionElements.has(nothingToReportBtn) || nothingToReportBtn.disabled) return;
+            if (textInput && textInput.value.trim()) {
+                const ok = await openConfirmDialog({
+                    title: tUi('Mark Today as "Nothing to report."?', '¿Marcar hoy como "Nothing to report."?'),
+                    message: tUi(
+                        'You have unsent text in the box. Sending "Nothing to report." will leave your draft untouched. Continue?',
+                        'Tienes texto sin enviar en el cuadro. Enviar "Nothing to report." conservará tu borrador sin borrarlo. ¿Continuar?'
+                    ),
+                    confirmText: tUi('Mark Nothing to report.', 'Marcar Nothing to report.')
+                });
+                if (!ok) return;
+            }
+
+            setInlineBanner('journalStatusBanner', '', '');
+            runWithButtonLock(nothingToReportBtn, async () => {
+                try {
+                    const res = await fetch('/api/journal/nothing-to-report', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Idempotency-Key': createIdempotencyKey()
+                        },
+                        body: JSON.stringify({})
+                    });
+                    if (res.status === 409) {
+                        const data409 = await res.json().catch(() => null);
+                        if (data409 && data409.fallbackToPcQueue) {
+                            const llaveTexto = await solicitarLlaveE2EEAsync();
+                            if (!llaveTexto) return;
+                            const queueResp = await submitMutationRequest({
+                                url: '/api/send-to-pc',
+                                method: 'POST',
+                                scopeKey: 'journal-ntr',
+                                signature: `Nothing to report.:${Date.now()}`,
+                                buildBody: () => ({ texto: encriptarTextoE2EE('Nothing to report.', llaveTexto) })
+                            });
+                            const msg = String(queueResp || '').includes('was skipped.')
+                                ? tServer(queueResp)
+                                : tUi('Marked today as "Nothing to report." (queued for Word)!', '¡Hoy marcado como "Nothing to report." (enviado a Word)!');
+                            setInlineBanner('journalStatusBanner', 'ok', msg);
+                            showToast('ok', msg);
+                            await cargarEstadoDiarioJournal({ silent: true });
+                            return;
+                        }
+                        throw new Error(formatHumanNetworkError(res.status, data409?.error || ''));
+                    }
+                    if (!res.ok) {
+                        const raw = await res.text().catch(() => '');
+                        throw new Error(formatHumanNetworkError(res.status, raw));
+                    }
+                    const data = await res.json();
+                    const msg = tServer(data.message || 'Marked today as "Nothing to report.".').trim();
+                    const bannerType = data.skipped ? 'info' : 'ok';
+                    setInlineBanner('journalStatusBanner', bannerType, msg);
+                    showToast(bannerType, msg);
+                    await cargarEstadoDiarioJournal({ silent: true });
+                } catch (err) {
+                    const errMsg = tUi('Failed to send note: ', 'No se pudo enviar la nota: ') + tServer(err.message);
+                    setInlineBanner('journalStatusBanner', 'err', errMsg);
+                    showToast('err', errMsg);
+                }
+            }, { loadingText: 'Sending...' });
         });
     }
 
@@ -3329,7 +3602,7 @@ if (journalForm) {
 
         runWithButtonLock(btnEnviarWord, async () => {
             try {
-                await submitMutationRequest({
+                const respText = await submitMutationRequest({
                     url: '/api/send-to-pc',
                     method: 'POST',
                     scopeKey: 'journal',
@@ -3340,11 +3613,28 @@ if (journalForm) {
                 textInput.value = '';
                 if (titleInput) titleInput.value = '';
                 refreshJournalEditorMeta(true);
-                const msg = 'Note encrypted & queued! Your PC sync will add it to Word on the next scan.';
-                setInlineBanner('journalStatusBanner', 'ok', msg);
-                showToast('ok', msg);
+                const respStr = String(respText || '');
+                let bannerType = 'ok';
+                let msg = '';
+                if (respStr.includes('was skipped.')) {
+                    bannerType = 'info';
+                    msg = tServer(respStr);
+                } else if (respStr.toLowerCase().includes('queued for your pc')) {
+                    msg = tUi(
+                        'Journal note encrypted & queued for Word on your PC!',
+                        '¡Nota de Journal cifrada y enviada a la cola de Word en tu PC!'
+                    );
+                } else {
+                    msg = tUi(
+                        'Journal note encrypted with password & saved on server!',
+                        '¡Nota de Journal cifrada con contraseña y guardada localmente en el servidor!'
+                    );
+                }
+                setInlineBanner('journalStatusBanner', bannerType, msg);
+                showToast(bannerType, msg);
+                await cargarEstadoDiarioJournal({ silent: true });
             } catch (error) {
-                setInlineBanner('journalStatusBanner', 'err', 'Failed to send note: ' + error.message);
+                setInlineBanner('journalStatusBanner', 'err', tUi('Failed to send note: ', 'No se pudo enviar la nota: ') + tServer(error.message));
                 showToast('err', error.message);
             }
         }, { loadingText: 'Sending...' });
@@ -3686,13 +3976,13 @@ if (englishForm) {
 
         runWithButtonLock(btn, async () => {
             try {
-                await submitMutationRequest({
+                const saveRespText = String(await submitMutationRequest({
                     url: '/api/send-english',
                     method: 'POST',
                     scopeKey: `english:${category}`,
                     signature,
                     buildBody: () => ({ texto: encriptarTextoE2EE(JSON.stringify(entry), llaveTexto) })
-                });
+                }) || '');
                 sentEnglishSignatures.add(signature);
                 appendRecentEnglishItem(entry);
                 limpiarCamposEnglish(category);
@@ -3717,11 +4007,25 @@ if (englishForm) {
                     })
                     .catch(() => { });
 
-                const msg = 'Queued! Your PC sync will add this entry to english-notes/English_Learning_Notebook.docx and refresh the Table of Contents.';
+                const isLocalVolumeSave = /local english notebook volume/i.test(saveRespText);
+                const msg = isLocalVolumeSave
+                    ? tUi(
+                        'Saved! Your local Word English Notebook has been updated automatically.',
+                        '¡Guardado! Tu Cuaderno de Idiomas Word local se actualizó automáticamente.'
+                    )
+                    : tUi(
+                        'Saved! Your English Notebook on Google Drive has been updated automatically.',
+                        '¡Guardado! Tu Cuaderno de Idiomas en Google Drive se actualizó automáticamente.'
+                    );
                 mostrarEstadoEnglish('ok', msg);
-                showToast('ok', 'English note queued for Word (PC) & saved to AI Memory!');
+                showToast(
+                    'ok',
+                    isLocalVolumeSave
+                        ? tUi('English note saved to Local Word & AI Memory!', '¡Nota guardada en Word local y Memoria IA!')
+                        : tUi('English note saved to Cloud Drive & AI Memory!', '¡Nota guardada en Google Drive y Memoria IA!')
+                );
             } catch (err) {
-                mostrarEstadoEnglish('err', 'Failed to send entry: ' + err.message);
+                mostrarEstadoEnglish('err', tUi('Failed to send entry: ', 'No se pudo enviar la entrada: ') + tServer(err.message));
                 showToast('err', err.message);
             }
         }, { loadingText: 'Sending...' });
@@ -4084,24 +4388,13 @@ function initLanguageAiStudio() {
         });
     }
 
-    const btnMusicAi = document.getElementById('btnMusicAiExplainLyrics');
+    const btnMusicAi = document.getElementById('btnMusicCopyLyricsToStudy');
     const musicAiBox = document.getElementById('musicAiBreakdownPanel');
     const musicApplyRow = document.getElementById('musicAiApplyRow');
     const btnMusicInsert = document.getElementById('btnMusicAiInsertToNotes');
-    const studyLyricsFieldEl = document.getElementById('musicStudyLyrics');
-    if (studyLyricsFieldEl && studyLyricsFieldEl.dataset.manualEditWired !== 'true') {
-        studyLyricsFieldEl.dataset.manualEditWired = 'true';
-        studyLyricsFieldEl.addEventListener('input', ev => {
-            if (ev.isTrusted) {
-                studyLyricsFieldEl.dataset.syncedFromViewer = 'false';
-                studyLyricsFieldEl.dataset.filteredLang = '';
-            }
-        });
-    }
 
     const triggerMusicLyricsAi = () => {
         if (!btnMusicAi) return;
-        const studyLyricsEl = document.getElementById('musicStudyLyrics');
         const viewerLyricsEl = document.getElementById('musicSongLyricsViewer');
         const trackLangFilterEl = document.getElementById('musicLyricsTrackLangFilter');
         const activeFilter = String(
@@ -4109,41 +4402,30 @@ function initLanguageAiStudio() {
         ).trim().toLowerCase() || 'all';
         const selected = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
         const structuredTracks = selected ? (musicState.sessionLyricsBySongId[selected.id]?.tracks || null) : null;
-        const viewerRaw = (viewerLyricsEl?.value || '').trim();
-
-        const shouldFilterFromViewer = Boolean(
-            studyLyricsEl
-            && viewerRaw
-            && (
-                !studyLyricsEl.value.trim()
-                || studyLyricsEl.dataset.syncedFromViewer === 'true'
-                || (activeFilter !== 'all' && studyLyricsEl.value.trim() === viewerRaw)
-                || (['ko', 'en', 'ja', 'es'].includes(activeFilter) && studyLyricsEl.dataset.filteredLang !== activeFilter && studyLyricsEl.dataset.syncedFromViewer !== 'false')
-            )
+        const viewerRaw = (
+            (viewerLyricsEl?.value || '').trim() ||
+            (selected ? String(musicState.sessionLyricsBySongId[selected.id]?.lyrics || '').trim() : '')
         );
 
-        let extractedInfo = null;
-        if (shouldFilterFromViewer && typeof extractLyricsForActiveLanguage === 'function') {
-            extractedInfo = extractLyricsForActiveLanguage(viewerRaw, activeFilter, structuredTracks);
-            if (!extractedInfo.text) {
-                showToast('info', tUi(
-                    'No lines available in the selected language for stanza analysis.',
-                    `No hay versos disponibles en el idioma "${activeFilter.toUpperCase()}" para analizar.`
-                ));
-                return;
-            }
-            studyLyricsEl.value = extractedInfo.text.slice(0, 12000);
-            studyLyricsEl.dataset.syncedFromViewer = 'true';
-            studyLyricsEl.dataset.filteredLang = extractedInfo.langCode || activeFilter;
-            studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        const lyrics = (studyLyricsEl?.value || '').trim();
-        if (!lyrics) {
+        if (!viewerRaw) {
             showToast('err', tUi('Extract or load the song lyrics first above.', 'Extrae o carga primero la letra de la canción arriba.'));
-            (viewerLyricsEl && !viewerLyricsEl.closest('[hidden]') ? viewerLyricsEl : studyLyricsEl)?.focus();
+            document.getElementById('btnMusicExtractLyrics')?.focus();
             return;
         }
+
+        const extractedInfo = typeof extractLyricsForActiveLanguage === 'function'
+            ? extractLyricsForActiveLanguage(viewerRaw, activeFilter, structuredTracks)
+            : { text: viewerRaw, langCode: activeFilter, apiLanguage: null };
+
+        if (!extractedInfo || !extractedInfo.text || !extractedInfo.text.trim()) {
+            showToast('info', tUi(
+                'No lines available in the selected language for stanza analysis.',
+                `No hay versos disponibles en el idioma "${activeFilter.toUpperCase()}" para analizar.`
+            ));
+            return;
+        }
+
+        const lyrics = extractedInfo.text.slice(0, 12000).trim();
 
         const songTitle = selected?.titulo || (document.getElementById('musicSongTitle')?.value || '').trim();
         const artistName = selected
@@ -4177,6 +4459,9 @@ function initLanguageAiStudio() {
                 loadingByLang[activeFilter] || 'Desglosando letra, vocabulario y romanización...',
                 'sm'
             ));
+            if (typeof musicAiBox.scrollIntoView === 'function') {
+                musicAiBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
         }
 
         runWithButtonLock(btnMusicAi, async () => {
@@ -4421,7 +4706,7 @@ function initLanguageAiStudio() {
                                 box.appendChild(det);
                             });
                         }
-                        if (prac.wordPayload && (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline !== false)) {
+                        if (prac.wordPayload && (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline !== false || musicState.ytdlpStatus.serverAutonomous === true)) {
                             await autoQueueAiLearningToWord({ entry: prac.wordPayload, hintEl });
                         }
                         await cargarLeccionesSecuencialesUI();
@@ -5339,7 +5624,8 @@ const musicState = {
     openAlbumFolders: new Set(),
     sessionLyricsBySongId: {},
     sessionStudyFieldsBySongId: {},
-    activeLyricsLangFilter: 'all'
+    activeLyricsLangFilter: 'all',
+    lastAutoFillVideoId: null
 };
 
 function cleanCaptionTextToLyricsClient(rawText) {
@@ -5435,7 +5721,7 @@ async function cargarCatalogoMusical() {
         musicCatalogLoadRequested = false;
         const p = document.createElement('p');
         p.className = 'muted-text';
-        p.textContent = 'Could not load music catalog: ' + err.message;
+        p.textContent = tUi('Could not load music catalog: ', 'No se pudo cargar el catálogo musical: ') + tServer(err.message);
         container.replaceChildren(p);
     }
 }
@@ -5521,7 +5807,7 @@ function mostrarBannerMusica(id, tipo, msg) {
         return;
     }
     el.className = `english-status-banner ${tipo}`;
-    el.textContent = msg;
+    el.textContent = tServer(String(msg));
     el.hidden = false;
 }
 
@@ -5532,22 +5818,6 @@ function getCancionSeleccionada() {
 
 function getDefaultEmbedModeForSong() {
     return 'iframe';
-}
-
-function actualizarBadgePuentePc() {
-    const pcBadge = document.getElementById('musicPcBridgeBadge');
-    if (!pcBadge) return;
-    const stat = musicState.ytdlpStatus;
-    if (stat && stat.pcOnline) {
-        pcBadge.textContent = tUi('🟢 PC online · Ready', '🟢 Computadora en línea · Lista');
-        pcBadge.className = 'badge-pill badge-pill-ok';
-    } else if (stat) {
-        pcBadge.textContent = tUi('⚪ PC offline', '⚪ Computadora apagada');
-        pcBadge.className = 'badge-pill badge-pill-subtle';
-    } else {
-        pcBadge.textContent = tUi('⚪ Checking PC...', '⚪ Verificando computadora...');
-        pcBadge.className = 'badge-pill badge-pill-subtle';
-    }
 }
 
 function renderMusicLyricsAlbumPlaylist(song) {
@@ -5741,11 +6011,27 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
                 }
             }
 
-            const tierMsg = tierNum === 1
-                ? tUi('✅ Lyrics loaded from Drive Word notebook (Tier 1 • 0 AI tokens).', '✅ Letra cargada desde tu Word en Drive (Tier 1 • 0 tokens IA).')
-                : (tierNum === 2
-                    ? tUi('✅ Lyrics extracted via YouTube Music in the cloud (Tier 2 • 0 AI tokens).', '✅ Letra extraída desde YouTube Music en la nube (Tier 2 • 0 tokens IA).')
-                    : tUi('✅ Lyrics extracted on cloud server via yt-dlp (Tier 3 • 0 AI tokens).', '✅ Letra extraída en el servidor vía yt-dlp (Tier 3 • 0 tokens IA).'));
+            const srcLower = String(cloudData.source || '').toLowerCase();
+            let tierMsg;
+            if (tierNum === 1) {
+                tierMsg = tUi('✅ Lyrics loaded from Drive Word notebook (Tier 1 • 0 AI tokens).', '✅ Letra cargada desde tu Word en Drive (Tier 1 • 0 tokens IA).');
+            } else if (tierNum === 2 || srcLower.includes('innertube') || srcLower.includes('ytmusic')) {
+                tierMsg = tUi('✅ Lyrics extracted via YouTube Music in the cloud (Tier 2 • 0 AI tokens).', '✅ Letra extraída desde YouTube Music en la nube (Tier 2 • 0 tokens IA).');
+            } else if (srcLower.includes('lrclib')) {
+                tierMsg = tUi('✅ Studio lyrics retrieved via LRCLIB (Tier 3 • 0 AI tokens).', '✅ Letra de estudio obtenida vía LRCLIB (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('lyrics-ovh')) {
+                tierMsg = tUi('✅ Lyrics retrieved via Lyrics.ovh (Tier 3 • 0 AI tokens).', '✅ Letra obtenida vía Lyrics.ovh (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('alt-description') || srcLower.includes('youtube:description')) {
+                tierMsg = tUi('✅ Lyrics extracted from YouTube video description (Tier 3 • 0 AI tokens).', '✅ Letra extraída de la descripción de YouTube (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('alt-captions')) {
+                tierMsg = tUi('✅ Lyrics extracted from alternative official YouTube video captions (Tier 3 • 0 AI tokens).', '✅ Letra extraída desde video oficial/lírico alternativo en YouTube (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('watch-captions')) {
+                tierMsg = tUi('✅ Official subtitles extracted from YouTube page (Tier 3 • 0 AI tokens).', '✅ Subtítulos oficiales extraídos desde YouTube (Tier 3 • 0 tokens IA).');
+            } else if (srcLower.includes('asr') && !srcLower.includes('+')) {
+                tierMsg = tUi('⚠️ Auto-generated YouTube captions loaded as fallback (Tier 3 • 0 AI tokens).', '⚠️ Subtítulos auto-generados de YouTube cargados como respaldo (Tier 3 • 0 tokens IA).');
+            } else {
+                tierMsg = tUi('✅ Lyrics extracted on cloud server via yt-dlp (Tier 3 • 0 AI tokens).', '✅ Letra extraída en el servidor vía yt-dlp (Tier 3 • 0 tokens IA).');
+            }
             if (hintEl) hintEl.textContent = tierMsg;
             if (!silent) showToast('ok', tierMsg);
             return true;
@@ -5765,20 +6051,24 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
         if (timer) clearTimeout(timer);
         if (liveStatusRes.ok) {
             musicState.ytdlpStatus = await liveStatusRes.json();
-            actualizarBadgePuentePc();
         }
     } catch (_) {
         if (musicState.ytdlpStatus) {
             musicState.ytdlpStatus.pcOnline = false;
-            actualizarBadgePuentePc();
         }
     }
 
     if (!musicState.ytdlpStatus || musicState.ytdlpStatus.pcOnline === false) {
-        const offlineMsg = tUi(
-            'Could not get these lyrics from the cloud right now (YouTube may be limiting the server) and your computer is offline. Try again in a few minutes or turn on your PC.',
-            'No se pudo obtener esta letra desde la nube en este momento (YouTube puede estar limitando al servidor) y tu computadora está apagada. Intenta de nuevo en unos minutos o enciende tu PC.'
-        );
+        const isServerAuto = Boolean(musicState.ytdlpStatus && musicState.ytdlpStatus.serverAutonomous);
+        const offlineMsg = isServerAuto
+            ? tUi(
+                'No lyrics or subtitles were exposed by YouTube / YouTube Music for this video right now.',
+                'YouTube / YouTube Music no expuso subtítulos ni letra disponible para este video en este momento.'
+            )
+            : tUi(
+                'Could not get these lyrics from the cloud right now (YouTube may be limiting the server) and your computer is offline. Try again in a few minutes or turn on your PC.',
+                'No se pudo obtener esta letra desde la nube en este momento (YouTube puede estar limitando al servidor) y tu computadora está apagada. Intenta de nuevo en unos minutos o enciende tu PC.'
+            );
         if (hintEl) hintEl.textContent = `ℹ️ ${offlineMsg}`;
         if (!silent) showToast('info', offlineMsg);
         return false;
@@ -5851,7 +6141,6 @@ async function solicitarOExtraerLetraViaPc(song, { silent = false, forceExtract 
 
             if (jobResult) {
                 if (musicState.ytdlpStatus) musicState.ytdlpStatus.pcOnline = true;
-                actualizarBadgePuentePc();
                 if (jobResult.ok && jobResult.lyrics) {
                     applyResolvedLyricsPayload(song, jobResult, 'word-pc');
                     if (jobResult.wordSaved || jobResult.source === 'word-pc') markWordSyncedLocal();
@@ -5942,10 +6231,27 @@ function _isLikelySpanishLineClient(line) {
 }
 
 function _stripStandaloneLatinFromCjkClient(line) {
-    return String(line || '')
-        .replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ')
+    let s = String(line || '');
+    s = s
+        .replace(/\s*\([^()\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*[A-Za-z][^()\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*\)(?:[.,!?;:]+)?/g, ' ')
+        .replace(/\s*\[[^\[\]\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*[A-Za-z][^\[\]\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*\](?:[.,!?;:]+)?/g, ' ')
+        .replace(/\s*["“][^"”\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*[A-Za-z][^"”\r\n\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]*["”](?:[.,!?;:]+)?/g, ' ');
+    const latinTokenRe = /(^|[\s(\[{"'“‘¿¡,;/|·–—-\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF])[A-Za-z][A-Za-z'’\-]*(?:[.,!?;:]*)(?=$|[\s)\]}"'”’,;/|·–—-\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF])/g;
+    let prev;
+    do {
+        prev = s;
+        s = s.replace(latinTokenRe, '$1 ');
+    } while (prev !== s);
+    return s
+        .replace(/[\(\[]\s*[,.\-?!;:/|·]*\s*[\)\]]/g, ' ')
+        .replace(/([(\[])\s*[,;:\s]+/g, '$1')
+        .replace(/\s+\)/g, ')')
+        .replace(/[,;:]\s*([)\]])/g, '$1')
+        .replace(/(?:^|\s)["'“‘”’]+(?=\s|$)/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/([,;])\s*([,;])+/g, '$1')
         .replace(/\s+/g, ' ')
-        .replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '')
+        .replace(/^[\s/|·,;:–—-]+|[\s/|·,;:–—-]+$/g, '')
         .trim();
 }
 
@@ -6058,9 +6364,19 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
             else if (k === 'en') cleanStructured[k] = rawArr.some(ln => /[\uAC00-\uD7A3\u3040-\u30FF\u4E00-\u9FFF]/.test(ln)) ? _isolateEnglishLinesClient(rawArr) : rawArr;
             else cleanStructured[k] = rawArr;
         }
-        if (cleanStructured.original && (!cleanStructured.en || !cleanStructured.en.some(l => l.trim()))) {
-            const isoEn = _isolateEnglishLinesClient(cleanStructured.original);
-            if (isoEn.some(l => l.trim())) cleanStructured.en = isoEn;
+        if (cleanStructured.original) {
+            if (!cleanStructured.ko || !cleanStructured.ko.some(l => l.trim())) {
+                const isoKo = _isolateHangulLinesClient(cleanStructured.original);
+                if (isoKo.some(l => l.trim())) cleanStructured.ko = isoKo;
+            }
+            if (!cleanStructured.ja || !cleanStructured.ja.some(l => l.trim())) {
+                const isoJa = _isolateJapaneseLinesClient(cleanStructured.original);
+                if (isoJa.some(l => l.trim())) cleanStructured.ja = isoJa;
+            }
+            if (!cleanStructured.en || !cleanStructured.en.some(l => l.trim())) {
+                const isoEn = _isolateEnglishLinesClient(cleanStructured.original);
+                if (isoEn.some(l => l.trim())) cleanStructured.en = isoEn;
+            }
         }
         const normOrig = cleanStructured.original ? normLineKey(cleanStructured.original) : '';
         if (
@@ -6100,7 +6416,11 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
 
     const classifyTag = rawTag => {
         if (rawTag === 'WORD') return null;
-        if (rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL') || rawTag.startsWith('MULTI') || rawTag.startsWith('MIX') || rawTag.includes('JP-EN') || rawTag.includes('EN-JP')) {
+        if (
+            rawTag.startsWith('ORIGINAL') || rawTag.startsWith('ORIG') || rawTag.startsWith('FULL')
+            || rawTag.startsWith('MULTI') || rawTag.startsWith('MIX')
+            || /(?:EN[-_\s/&]+(?:KO|KR|JA|JP)|(?:KO|KR|JA|JP)[-_\s/&]+EN)/.test(rawTag)
+        ) {
             return SECTION_META.original;
         }
         if (rawTag.startsWith('KO') || rawTag.startsWith('KR') || rawTag.includes('COREANO') || rawTag.includes('KOREAN')) {
@@ -6181,6 +6501,8 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
 
     // Si existe [KO] o [JA] con mezcla EN+KR / EN+JP sin apartado original explícito, separar original + pista pura + inglés
     let hasOriginal = rawBlocks.some(b => b.code === 'original');
+    const hasExplicitKo = rawBlocks.some(b => b.code === 'ko');
+    const hasExplicitJa = rawBlocks.some(b => b.code === 'ja');
     const hasExplicitEn = rawBlocks.some(b => b.code === 'en');
     const normalized = [];
     for (const b of rawBlocks) {
@@ -6232,10 +6554,29 @@ function parseAndDivideLyricsByLanguage(rawLyrics = '', structuredTracks = null)
             }
         } else if (b.code === 'original') {
             normalized.push(b);
+            if (!hasExplicitKo) {
+                const koFromOrig = _isolateHangulLinesClient(b.lines);
+                if (koFromOrig.some(l => l.trim())) {
+                    normalized.push({
+                        ...SECTION_META.ko,
+                        lines: koFromOrig
+                    });
+                }
+            }
+            if (!hasExplicitJa) {
+                const jaFromOrig = _isolateJapaneseLinesClient(b.lines);
+                if (jaFromOrig.some(l => l.trim())) {
+                    normalized.push({
+                        ...SECTION_META.ja,
+                        lines: jaFromOrig
+                    });
+                }
+            }
             if (!hasExplicitEn) {
                 const englishFromOrig = _isolateEnglishLinesClient(b.lines);
                 const hasCjkInOrig = b.lines.some(ln => /[\uAC00-\uD7A3\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]/.test(ln));
-                if (hasCjkInOrig && englishFromOrig.some(l => l.trim())) {
+                const hasSpanishInOrig = b.lines.some(ln => _isLikelySpanishLineClient(ln));
+                if ((hasCjkInOrig || hasSpanishInOrig) && englishFromOrig.some(l => l.trim())) {
                     normalized.push({
                         ...SECTION_META.en,
                         lines: englishFromOrig
@@ -6476,7 +6817,7 @@ function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
             if (_isStructuralLyricTagClient(line)) {
                 keep = true;
             } else if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line)) {
-                line = line.replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '').trim();
+                line = _stripStandaloneLatinFromCjkClient(line);
                 keep = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/.test(line);
             } else {
                 keep = false;
@@ -6485,13 +6826,29 @@ function _cleanLinesForLanguageAnalysis(linesArr, langCode) {
             if (_isStructuralLyricTagClient(line)) {
                 keep = true;
             } else if (/[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line) && !/[\uAC00-\uD7A3]/.test(line)) {
-                line = line.replace(/(?:^|\s)[A-Za-z][A-Za-z'’\-]*(?=\s|$)/g, ' ').replace(/\s+/g, ' ').replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '').trim();
+                line = _stripStandaloneLatinFromCjkClient(line);
                 keep = /[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line);
             } else {
                 keep = false;
             }
         } else if (langCode === 'en') {
-            keep = _isStructuralLyricTagClient(line) || isLatinOnlyEnglish(line);
+            if (_isStructuralLyricTagClient(line)) {
+                keep = true;
+            } else if (/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]/.test(line)) {
+                const asciiChunk = line
+                    .replace(/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .replace(/^[\s/|·,–—-]+|[\s/|·,–—-]+$/g, '')
+                    .trim();
+                if (/[A-Za-z]{2,}\s+[A-Za-z'’]{1,}/.test(asciiChunk) && !_isLikelySpanishLineClient(asciiChunk)) {
+                    line = asciiChunk;
+                    keep = true;
+                } else {
+                    keep = false;
+                }
+            } else {
+                keep = isLatinOnlyEnglish(line) && !_isLikelySpanishLineClient(line);
+            }
         }
 
         if (keep) {
@@ -6572,18 +6929,6 @@ function extractLyricsForActiveLanguage(rawLyrics = '', filterLang = 'all', stru
     };
 }
 
-function syncStudyLyricsFieldWithActiveLang(rawLyrics, filterLang) {
-    const studyLyricsEl = document.getElementById('musicStudyLyrics');
-    if (!studyLyricsEl || studyLyricsEl.dataset.syncedFromViewer !== 'true') return;
-    const selSong = typeof getCancionSeleccionada === 'function' ? getCancionSeleccionada() : null;
-    const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
-    const extracted = extractLyricsForActiveLanguage(rawLyrics, filterLang, structuredTracks);
-    if (extracted.text) {
-        studyLyricsEl.value = extracted.text.slice(0, 12000);
-        studyLyricsEl.dataset.filteredLang = extracted.langCode || filterLang;
-    }
-}
-
 function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
     const host = document.getElementById('musicLyricsReadonlyBlocks');
     if (!host) return;
@@ -6602,7 +6947,6 @@ function renderReadonlyLyricsByLanguage(rawLyrics = '', filterLang = 'all') {
             }
             const floatingSelBtn = document.getElementById('btnMusicTranslateLyricsSel');
             if (floatingSelBtn) floatingSelBtn.hidden = true;
-            syncStudyLyricsFieldWithActiveLang(rawLyrics, nextLang);
             renderReadonlyLyricsByLanguage(rawLyrics, nextLang);
         }
     });
@@ -6658,7 +7002,6 @@ function actualizarPanelLetraCancion(song, { forceSyncText = false } = {}) {
         }
     }
 
-    actualizarBadgePuentePc();
     renderMusicLyricsAlbumPlaylist(song);
 
     const hasVideoId = Boolean(song.yt_video_id && /^[A-Za-z0-9_-]{11}$/.test(song.yt_video_id)) || Boolean(song.yt_music_url);
@@ -6972,12 +7315,6 @@ function seleccionarCancionParaEstudio(song) {
         setFieldVal('musicStudyVocab', nextSaved?.vocab || '');
         setFieldVal('musicStudyPronunciation', nextSaved?.pronunciation || '');
         setFieldVal('musicStudyExtraNotes', nextSaved?.notes || '');
-        const lyricsInputEl = document.getElementById('musicStudyLyrics');
-        if (lyricsInputEl && !musicState.sessionLyricsBySongId[nextSongId]?.lyrics) {
-            lyricsInputEl.value = '';
-            lyricsInputEl.dataset.syncedFromViewer = 'true';
-            lyricsInputEl.dataset.filteredLang = '';
-        }
         const breakdownEl = document.getElementById('musicAiBreakdownPanel');
         if (breakdownEl) {
             breakdownEl.innerHTML = '';
@@ -7031,19 +7368,25 @@ function prepararAgregarCancionAAlbum({ mainArtist = '', artistType = '', albumT
             : (mainArtist ? tUi(`Add Song for ${mainArtist}`, `Agregar canción para ${mainArtist}`) : tUi('Register or Link Song', 'Registrar o Vincular Canción'));
     }
 
-    const songTitleEl = document.getElementById('musicSongTitle');
+    openMusicSongModal({ reset: false, focusId: 'musicSongTitle' });
+}
+
+function clearMusicSongFormAutoFillFlags() {
     const form = document.getElementById('musicSongForm');
-    if (form && typeof form.scrollIntoView === 'function') {
-        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-    if (songTitleEl && typeof songTitleEl.focus === 'function') {
-        songTitleEl.focus();
-    }
+    if (!form) return;
+    form.querySelectorAll('input, select').forEach((el) => {
+        if (el.dataset) {
+            el.dataset.autofilled = '';
+            el.dataset.userEdited = '';
+        }
+    });
 }
 
 function cargarCancionEnFormularioEdicion(song) {
     if (!song) return;
     musicState.editingSongId = song.id;
+    musicState.lastAutoFillVideoId = null;
+    clearMusicSongFormAutoFillFlags();
     const setVal = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.value = val ?? '';
@@ -7073,25 +7416,28 @@ function cargarCancionEnFormularioEdicion(song) {
     const titleEl = document.getElementById('musicSongFormTitle');
     const cancelBtn = document.getElementById('btnMusicCancelEdit');
     const saveBtn = document.getElementById('btnMusicSaveSong');
-    if (titleEl) titleEl.textContent = `Edit Song: ${song.titulo}`;
-    if (cancelBtn) cancelBtn.hidden = false;
-    if (saveBtn) saveBtn.textContent = 'Update Song Metadata';
+    if (titleEl) titleEl.textContent = tUi(`Edit Song: ${song.titulo}`, `Editar canción: ${song.titulo}`);
+    if (cancelBtn) {
+        cancelBtn.hidden = false;
+        cancelBtn.textContent = tUi('Cancel Edit', 'Cancelar Edición');
+    }
+    if (saveBtn) saveBtn.textContent = tUi('Update Song Metadata', 'Actualizar Metadatos de Canción');
     mostrarBannerMusica('musicSongFormBanner', '', '');
 
     const form = document.getElementById('musicSongForm');
-    form?.closest('.music-panel-card')?.classList.add('is-editing-song');
-    if (form && typeof form.scrollIntoView === 'function') {
-        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-    document.getElementById('musicSongTitle')?.focus();
+    form?.closest('.modal-card, .music-panel-card')?.classList.add('is-editing-song');
+    openMusicSongModal({ reset: false, focusId: 'musicSongTitle' });
 }
 
-function cancelarEdicionCancionMusica() {
+function cancelarEdicionCancionMusica({ closeModal = false } = {}) {
     musicState.editingSongId = null;
+    musicState.lastAutoFillVideoId = null;
     const form = document.getElementById('musicSongForm');
     if (form) {
         form.reset();
+        form.closest('.modal-card')?.classList.remove('is-editing-song');
         form.closest('.music-panel-card')?.classList.remove('is-editing-song');
+        clearMusicSongFormAutoFillFlags();
     }
     const langInput = document.getElementById('musicSongLanguage');
     if (langInput) langInput.value = 'English + Korean (K-Pop)';
@@ -7100,9 +7446,67 @@ function cancelarEdicionCancionMusica() {
     const titleEl = document.getElementById('musicSongFormTitle');
     const cancelBtn = document.getElementById('btnMusicCancelEdit');
     const saveBtn = document.getElementById('btnMusicSaveSong');
-    if (titleEl) titleEl.textContent = 'Register or Link Song';
-    if (cancelBtn) cancelBtn.hidden = true;
-    if (saveBtn) saveBtn.textContent = 'Save Song Metadata';
+    if (titleEl) titleEl.textContent = tUi('Register or Link Song', 'Registrar o Vincular Canción');
+    if (cancelBtn) {
+        cancelBtn.hidden = false;
+        cancelBtn.textContent = tUi('Cancel', 'Cancelar');
+    }
+    if (saveBtn) saveBtn.textContent = tUi('Save Song Metadata', 'Guardar Metadatos de Canción');
+    if (closeModal) {
+        const modal = document.getElementById('musicSongModal');
+        if (modal) modal.hidden = true;
+        mostrarBannerMusica('musicSongFormBanner', '', '');
+    }
+}
+
+function openMusicSongModal({ reset = false, focusId = 'musicSongYtUrl' } = {}) {
+    const modal = document.getElementById('musicSongModal');
+    if (!modal) return;
+    if (reset) {
+        cancelarEdicionCancionMusica({ closeModal: false });
+        mostrarBannerMusica('musicSongFormBanner', '', '');
+    }
+    modal.hidden = false;
+    const focusEl = focusId ? document.getElementById(focusId) : null;
+    if (focusEl && typeof focusEl.focus === 'function') {
+        focusEl.focus();
+    }
+}
+
+function closeMusicSongModal({ reset = true } = {}) {
+    const modal = document.getElementById('musicSongModal');
+    if (modal) modal.hidden = true;
+    mostrarBannerMusica('musicSongFormBanner', '', '');
+    if (reset) {
+        cancelarEdicionCancionMusica({ closeModal: false });
+    }
+}
+
+function initMusicSongModal() {
+    const modal = document.getElementById('musicSongModal');
+    const btnClose = document.getElementById('btnCloseMusicSongModal');
+    const btnNewSong = document.getElementById('btnMusicNewSong');
+    if (!modal || modal.dataset.wired === 'true') return;
+    modal.dataset.wired = 'true';
+
+    if (btnNewSong) {
+        btnNewSong.addEventListener('click', () => {
+            openMusicSongModal({ reset: true, focusId: 'musicSongYtUrl' });
+        });
+    }
+    if (btnClose) {
+        btnClose.addEventListener('click', () => closeMusicSongModal({ reset: true }));
+    }
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeMusicSongModal({ reset: true });
+    });
+    document.addEventListener('keydown', (e) => {
+        const albumCreateModal = document.getElementById('musicAlbumCreateModal');
+        const albumModalOpen = Boolean(albumCreateModal && !albumCreateModal.hidden);
+        if (e.key === 'Escape' && !modal.hidden && !albumModalOpen) {
+            closeMusicSongModal({ reset: true });
+        }
+    });
 }
 
 function openMusicEntityEditModal(kind, entity) {
@@ -7123,7 +7527,11 @@ function openMusicEntityEditModal(kind, entity) {
     const notesGroup = document.getElementById('musicEntityNotesGroup');
     const notesInput = document.getElementById('musicEntityNotes');
 
-    if (titleEl) titleEl.textContent = isArtist ? `Edit Artist: ${entity.nombre || ''}` : `Edit Album: ${entity.titulo || ''}`;
+    if (titleEl) {
+        titleEl.textContent = isArtist
+            ? tUi(`Edit Artist: ${entity.nombre || ''}`, `Editar artista: ${entity.nombre || ''}`)
+            : tUi(`Edit Album: ${entity.titulo || ''}`, `Editar álbum: ${entity.titulo || ''}`);
+    }
     if (kindEl) kindEl.value = isArtist ? 'artist' : 'album';
     if (idEl) idEl.value = String(entity.id || '');
     if (nameLabel) nameLabel.textContent = isArtist ? 'Artist / Group Name *' : 'Album / Release Title *';
@@ -7371,7 +7779,7 @@ function initMusicAlbumCreateModal() {
                 if (resData?.album?.id) {
                     musicState.navAlbumKey = `alb_${resData.album.id}`;
                 }
-                showToast('ok', resData?.message || `Saved "${payload.albumTitle}".`);
+                showToast('ok', resData?.message || tUi(`Saved "${payload.albumTitle}".`, `Guardado "${payload.albumTitle}".`));
                 await cargarCatalogoMusical();
                 if (andAddSong) {
                     prepararAgregarCancionAAlbum({
@@ -7381,6 +7789,22 @@ function initMusicAlbumCreateModal() {
                         albumType: payload.albumType,
                         albumYear: payload.albumYear
                     });
+                } else {
+                    const songModal = document.getElementById('musicSongModal');
+                    if (songModal && !songModal.hidden) {
+                        const songAlbumTitleEl = document.getElementById('musicAlbumTitle');
+                        const songAlbumTypeEl = document.getElementById('musicAlbumType');
+                        const songAlbumYearEl = document.getElementById('musicAlbumYear');
+                        const songMainArtistEl = document.getElementById('musicMainArtist');
+                        const songMainArtistTypeEl = document.getElementById('musicMainArtistType');
+                        if (songAlbumTitleEl) songAlbumTitleEl.value = payload.albumTitle || '';
+                        if (songAlbumTypeEl && payload.albumType) songAlbumTypeEl.value = payload.albumType;
+                        if (songAlbumYearEl && payload.albumYear) songAlbumYearEl.value = String(payload.albumYear);
+                        if (songMainArtistEl && !songMainArtistEl.value.trim()) {
+                            songMainArtistEl.value = payload.mainArtist || '';
+                            if (songMainArtistTypeEl && payload.artistType) songMainArtistTypeEl.value = payload.artistType;
+                        }
+                    }
                 }
             } catch (err) {
                 mostrarBannerMusica('musicAlbumCreateBanner', 'err', err.message || 'Could not create album.');
@@ -7919,6 +8343,12 @@ function renderMusicCatalog() {
                     langBadge.textContent = song.idioma;
                     badgeRow.appendChild(langBadge);
                 }
+                if (!album.albumId && song.album_anio) {
+                    const yearBadge = document.createElement('span');
+                    yearBadge.className = 'music-word-badge';
+                    yearBadge.textContent = String(song.album_anio);
+                    badgeRow.appendChild(yearBadge);
+                }
                 if (song.word_sincronizado) {
                     const wordBadge = document.createElement('span');
                     wordBadge.className = 'music-word-badge';
@@ -8002,6 +8432,7 @@ if (englishMusicStudioRoot) {
     const songForm = document.getElementById('musicSongForm');
     const wordForm = document.getElementById('musicWordNotesForm');
 
+    initMusicSongModal();
     initMusicAlbumCreateModal();
 
     if (btnNewAlbum) {
@@ -8120,6 +8551,7 @@ if (englishMusicStudioRoot) {
                     useBtn.className = 'btn-primary btn-small';
                     useBtn.textContent = 'Select Song';
                     useBtn.addEventListener('click', () => {
+                        cancelarEdicionCancionMusica({ closeModal: false });
                         const urlEl = document.getElementById('musicSongYtUrl');
                         const titleEl = document.getElementById('musicSongTitle');
                         const artistEl = document.getElementById('musicMainArtist');
@@ -8129,6 +8561,7 @@ if (englishMusicStudioRoot) {
                         if (urlEl) urlEl.value = chosenUrl;
                         if (titleEl && !titleEl.value.trim()) titleEl.value = item.title || '';
                         if (artistEl && !artistEl.value.trim()) artistEl.value = item.channelTitle || '';
+                        openMusicSongModal({ reset: false, focusId: 'musicSongTitle' });
                     });
                     meta.append(t, ch, useBtn);
                     card.appendChild(meta);
@@ -8137,6 +8570,18 @@ if (englishMusicStudioRoot) {
                 resultsBox.hidden = false;
             }, { loadingText: 'Searching...' });
         });
+    }
+
+    if (songForm) {
+        const markUserTouched = (ev) => {
+            const target = ev?.target;
+            if (target && target.id && target.id !== 'musicSongYtUrl' && target.dataset) {
+                target.dataset.autofilled = '';
+                target.dataset.userEdited = '1';
+            }
+        };
+        songForm.addEventListener('input', markUserTouched);
+        songForm.addEventListener('change', markUserTouched);
     }
 
     if (btnResolveYt) {
@@ -8166,54 +8611,115 @@ if (englishMusicStudioRoot) {
                         musicState.embeddableByVideoId[data.videoId] = data.embeddable;
                     }
 
+                    const isNewAutoFillTarget = Boolean(
+                        !musicState.editingSongId &&
+                        data.videoId &&
+                        musicState.lastAutoFillVideoId &&
+                        musicState.lastAutoFillVideoId !== data.videoId
+                    );
+                    if (data.videoId) {
+                        musicState.lastAutoFillVideoId = data.videoId;
+                    }
+
                     const titleEl = document.getElementById('musicSongTitle');
                     const artistEl = document.getElementById('musicMainArtist');
+                    const artistTypeEl = document.getElementById('musicMainArtistType');
                     const collabsEl = document.getElementById('musicCollaborators');
+                    const trackNumEl = document.getElementById('musicSongTrackNumber');
+                    const langEl = document.getElementById('musicSongLanguage');
                     const albumEl = document.getElementById('musicAlbumTitle');
                     const albumTypeEl = document.getElementById('musicAlbumType');
                     const albumYearEl = document.getElementById('musicAlbumYear');
 
+                    const applyAutoFillField = (el, val, extraCanOverwrite = false) => {
+                        if (!el) return false;
+                        const strVal = val === null || val === undefined ? '' : String(val).trim();
+                        if (!strVal) return false;
+                        const isEmpty = !String(el.value || '').trim();
+                        const wasAutofilled = Boolean(el.dataset && el.dataset.autofilled === '1');
+                        const userManuallyEdited = Boolean(el.dataset && el.dataset.userEdited === '1');
+                        if (isEmpty || (!userManuallyEdited && (extraCanOverwrite || (isNewAutoFillTarget && wasAutofilled)))) {
+                            el.value = strVal;
+                            if (el.dataset) {
+                                el.dataset.autofilled = '1';
+                                el.dataset.userEdited = '';
+                            }
+                            return true;
+                        }
+                        return false;
+                    };
+
                     const currentTitle = (titleEl?.value || '').trim();
-                    const looksRawYtTitle = !currentTitle || /[\[(]?(?:M\/V|Official\s+(?:Music\s+)?Video|Official\s+Audio|Lyric\s+Video)[\])]?|\s-\s*['"]/i.test(currentTitle);
-                    if (titleEl && looksRawYtTitle && data.suggestedTitle) {
-                        titleEl.value = data.suggestedTitle;
-                    }
+                    const looksRawYtTitle = !currentTitle || /[\[(]?(?:M\/V|MV|Official\s+(?:Music\s+)?Video|Official\s+Audio|Lyric\s+Video|Lyrics?)[\])]?|\s-\s*['"]/i.test(currentTitle);
+                    applyAutoFillField(titleEl, data.suggestedTitle, looksRawYtTitle);
 
                     const currentArtist = (artistEl?.value || '').trim();
-                    if (artistEl && (!currentArtist || /\s*-\s*Topic$/i.test(currentArtist)) && data.suggestedArtist) {
-                        artistEl.value = data.suggestedArtist;
+                    const looksTopicOrGeneric = !currentArtist || /\s*-\s*Topic$/i.test(currentArtist);
+                    applyAutoFillField(artistEl, data.suggestedArtist, looksTopicOrGeneric);
+
+                    if (artistTypeEl && data.suggestedArtistType) {
+                        const validArtistOpt = Array.from(artistTypeEl.options || []).some(o => o.value === data.suggestedArtistType);
+                        if (validArtistOpt && !musicState.editingSongId && artistTypeEl.dataset?.userEdited !== '1') {
+                            artistTypeEl.value = data.suggestedArtistType;
+                            if (artistTypeEl.dataset) artistTypeEl.dataset.autofilled = '1';
+                        }
                     }
 
-                    if (collabsEl && !collabsEl.value.trim() && data.suggestedCollaborators) {
-                        collabsEl.value = data.suggestedCollaborators;
+                    if (collabsEl) {
+                        if (data.suggestedCollaborators) {
+                            applyAutoFillField(collabsEl, data.suggestedCollaborators);
+                        } else if (isNewAutoFillTarget && collabsEl.dataset?.autofilled === '1') {
+                            collabsEl.value = '';
+                            collabsEl.dataset.autofilled = '';
+                        }
                     }
 
+                    if (trackNumEl && Number.isInteger(Number(data.suggestedTrackNumber)) && Number(data.suggestedTrackNumber) >= 1) {
+                        applyAutoFillField(trackNumEl, String(data.suggestedTrackNumber));
+                    }
+
+                    if (langEl && data.suggestedLanguage) {
+                        const hasLangOption = Array.from(langEl.options || []).some(o => o.value === data.suggestedLanguage);
+                        const canSetLang = !musicState.editingSongId && langEl.dataset?.userEdited !== '1';
+                        if (hasLangOption && canSetLang) {
+                            langEl.value = data.suggestedLanguage;
+                            if (langEl.dataset) langEl.dataset.autofilled = '1';
+                        }
+                    }
+
+                    // Album is completely optional: skip auto-filling when it is just a redundant single title copy
+                    const shouldFillAlbumTitle = Boolean(data.suggestedAlbumTitle && !data.suggestedAlbumIsSingleDuplicate);
                     let albumWasAutoFilled = false;
-                    if (albumEl && !albumEl.value.trim() && data.suggestedAlbumTitle) {
-                        albumEl.value = data.suggestedAlbumTitle;
-                        albumWasAutoFilled = true;
+                    if (shouldFillAlbumTitle) {
+                        albumWasAutoFilled = applyAutoFillField(albumEl, data.suggestedAlbumTitle);
+                    } else if (albumEl && isNewAutoFillTarget && albumEl.dataset?.autofilled === '1') {
+                        albumEl.value = '';
+                        albumEl.dataset.autofilled = '';
                     }
 
-                    if (albumTypeEl && data.suggestedAlbumType && (albumWasAutoFilled || albumTypeEl.value === 'album')) {
+                    if (albumTypeEl && data.suggestedAlbumType && (albumWasAutoFilled || albumTypeEl.dataset?.userEdited !== '1')) {
                         albumTypeEl.value = data.suggestedAlbumType;
+                        if (albumTypeEl.dataset) albumTypeEl.dataset.autofilled = '1';
                     }
 
-                    if (albumYearEl && !albumYearEl.value.trim() && data.suggestedAlbumYear) {
-                        albumYearEl.value = String(data.suggestedAlbumYear);
-                    }
+                    // Year is ALWAYS independent of whether album was filled
+                    applyAutoFillField(albumYearEl, data.suggestedAlbumYear);
 
                     const summaryParts = [];
-                    if (data.suggestedTitle) summaryParts.push(`Track: "${data.suggestedTitle}"`);
-                    if (data.suggestedArtist) summaryParts.push(`Artist: ${data.suggestedArtist}`);
-                    if (data.suggestedAlbumTitle) {
-                        summaryParts.push(`Album: ${data.suggestedAlbumTitle}${data.suggestedAlbumYear ? ` (${data.suggestedAlbumYear})` : ''}`);
-                    }
+                    if (data.suggestedTitle) summaryParts.push(`${tUi('Track', 'Pista')}: "${data.suggestedTitle}"`);
+                    if (data.suggestedArtist) summaryParts.push(`${tUi('Artist', 'Artista')}: ${data.suggestedArtist}`);
+                    if (data.suggestedAlbumYear) summaryParts.push(`${tUi('Year', 'Año')}: ${data.suggestedAlbumYear}`);
+                    if (data.suggestedLanguage) summaryParts.push(`${tUi('Lang', 'Idioma')}: ${data.suggestedLanguage}`);
+                    if (shouldFillAlbumTitle) summaryParts.push(`${tUi('Album', 'Álbum')}: ${data.suggestedAlbumTitle}`);
                     const embedWarning = data.embeddable === false
-                        ? ' · ⚠️ Owner blocks iframe embed (use Ventana flotante in Study Player).'
+                        ? tUi(
+                            ' · ⚠️ Owner blocks iframe embed (use Floating Window in Study Player).',
+                            ' · ⚠️ El propietario bloquea el reproductor incrustado (usa Ventana flotante en Estudio).'
+                        )
                         : '';
                     const msg = summaryParts.length
-                        ? `Auto-fill detected -> ${summaryParts.join(' · ')}${embedWarning}`
-                        : `Link verified and cleaned (single-track, playlist-safe).${embedWarning}`;
+                        ? `${tUi('Auto-fill detected', 'Autocompletado')} -> ${summaryParts.join(' · ')}${embedWarning}`
+                        : `${tUi('Link verified and cleaned (single-track, playlist-safe).', 'Enlace verificado y limpio (pista individual, seguro para playlists).')}${embedWarning}`;
                     mostrarBannerMusica('musicSongFormBanner', 'ok', msg);
                     actualizarBarraCancionEstudio();
                 } catch (err) {
@@ -8223,7 +8729,7 @@ if (englishMusicStudioRoot) {
         });
     }
 
-    if (btnCancelEdit) btnCancelEdit.addEventListener('click', cancelarEdicionCancionMusica);
+    if (btnCancelEdit) btnCancelEdit.addEventListener('click', () => closeMusicSongModal({ reset: true }));
     if (btnRefreshCatalog) btnRefreshCatalog.addEventListener('click', cargarCatalogoMusical);
 
     if (btnToggleEmbed) {
@@ -8238,7 +8744,6 @@ if (englishMusicStudioRoot) {
 
     const btnMusicExtractLyrics = document.getElementById('btnMusicExtractLyrics');
     const btnMusicSaveLyrics = document.getElementById('btnMusicSaveLyrics');
-    const btnMusicCopyLyricsToStudy = document.getElementById('btnMusicCopyLyricsToStudy');
     const btnMusicTranslateLyricsSel = document.getElementById('btnMusicTranslateLyricsSel');
     const btnMusicTranslateFullLyricsEs = document.getElementById('btnMusicTranslateFullLyricsEs');
     const songLyricsViewerEl = document.getElementById('musicSongLyricsViewer');
@@ -8336,53 +8841,7 @@ if (englishMusicStudioRoot) {
         trackLangFilterEl.addEventListener('change', () => {
             musicState.activeLyricsLangFilter = trackLangFilterEl.value || 'all';
             if (btnMusicTranslateLyricsSel) btnMusicTranslateLyricsSel.hidden = true;
-            if (typeof syncStudyLyricsFieldWithActiveLang === 'function') {
-                syncStudyLyricsFieldWithActiveLang(songLyricsViewerEl.value, trackLangFilterEl.value);
-            }
             renderReadonlyLyricsByLanguage(songLyricsViewerEl.value, trackLangFilterEl.value);
-        });
-    }
-
-    if (btnMusicCopyLyricsToStudy) {
-        btnMusicCopyLyricsToStudy.addEventListener('click', () => {
-            const raw = (songLyricsViewerEl?.value || '').trim();
-            if (!raw) {
-                showToast('err', tUi('Extract or load the song lyrics first.', 'Primero extrae o carga la letra arriba.'));
-                songLyricsViewerEl?.focus();
-                return;
-            }
-            const activeLang = String(
-                trackLangFilterEl?.value || musicState.activeLyricsLangFilter || 'all'
-            ).trim().toLowerCase() || 'all';
-            const selSong = getCancionSeleccionada();
-            const structuredTracks = selSong ? (musicState.sessionLyricsBySongId[selSong.id]?.tracks || null) : null;
-            const extracted = typeof extractLyricsForActiveLanguage === 'function'
-                ? extractLyricsForActiveLanguage(raw, activeLang, structuredTracks)
-                : { text: raw, langCode: activeLang };
-
-            if (!extracted.text) {
-                showToast('info', tUi(
-                    'No lines available in the selected language for stanza analysis.',
-                    `No hay versos disponibles en el idioma seleccionado (${activeLang.toUpperCase()}) para analizar.`
-                ));
-                return;
-            }
-
-            const studyLyricsEl = document.getElementById('musicStudyLyrics');
-            if (studyLyricsEl) {
-                studyLyricsEl.value = extracted.text.slice(0, 12000);
-                studyLyricsEl.dataset.syncedFromViewer = 'true';
-                studyLyricsEl.dataset.filteredLang = extracted.langCode || activeLang;
-                studyLyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                studyLyricsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-            const btnAiExplain = document.getElementById('btnMusicAiExplainLyrics');
-            if (btnAiExplain) {
-                btnAiExplain.click();
-            } else if (studyLyricsEl) {
-                studyLyricsEl.focus();
-                showToast('ok', tUi('Filtered lyrics ready for stanza analysis.', 'Letra filtrada lista para analizar por estrofas.'));
-            }
         });
     }
 
@@ -8405,7 +8864,6 @@ if (englishMusicStudioRoot) {
                 }
 
                 const hintEl = document.getElementById('musicLyricsStatusHint');
-                const studyLyricsEl = document.getElementById('musicStudyLyrics');
                 const existingEs = extractExistingSpanishLyricsSection(rawLyrics);
                 const cachedTracks = musicState.sessionLyricsBySongId[song.id]?.tracks || null;
                 const forceAiRefresh = Boolean(ev.shiftKey);
@@ -8483,15 +8941,6 @@ if (englishMusicStudioRoot) {
                 const currentFilter = (langFilterEl ? langFilterEl.value : musicState.activeLyricsLangFilter) || 'all';
                 renderReadonlyLyricsByLanguage(updatedLyrics, currentFilter);
 
-                if (studyLyricsEl) {
-                    const extractedForStudy = typeof extractLyricsForActiveLanguage === 'function'
-                        ? extractLyricsForActiveLanguage(updatedLyrics, currentFilter, musicState.sessionLyricsBySongId[song.id]?.tracks)
-                        : { text: updatedLyrics, langCode: currentFilter };
-                    studyLyricsEl.value = (extractedForStudy.text || updatedLyrics).slice(0, 12000);
-                    studyLyricsEl.dataset.syncedFromViewer = 'true';
-                    studyLyricsEl.dataset.filteredLang = extractedForStudy.langCode || currentFilter;
-                }
-
                 const saved = alreadyInWordNotebook
                     ? true
                     : await guardarLetraYNotasEnWordPc(song, {
@@ -8513,25 +8962,6 @@ if (englishMusicStudioRoot) {
                 }
                 showToast('ok', tUi('Spanish translation added at the end & saved to Word!', '¡Traducción al español mostrada al final y guardada en Word!'));
             }, { loadingText: tUi('Translating lyrics to Spanish...', 'Traduciendo letra a español...') });
-        });
-    }
-
-    const btnCleanTimestamps = document.getElementById('btnMusicCleanTimestamps');
-
-    if (btnCleanTimestamps) {
-        btnCleanTimestamps.addEventListener('click', () => {
-            const lyricsEl = document.getElementById('musicStudyLyrics');
-            const raw = lyricsEl ? lyricsEl.value : '';
-            if (!raw.trim()) {
-                showToast('err', tUi('Paste or load lyrics first.', 'Pega o carga primero la letra.'));
-                return;
-            }
-            const cleaned = cleanCaptionTextToLyricsClient(raw);
-            if (lyricsEl && cleaned) {
-                lyricsEl.value = cleaned.slice(0, 12000);
-                lyricsEl.dispatchEvent(new Event('input', { bubbles: true }));
-                showToast('ok', tUi(`Cleaned timestamps (${cleaned.split('\n').length} lines ready).`, `Texto limpiado (${cleaned.split('\n').length} líneas listas).`));
-            }
         });
     }
 
@@ -8591,8 +9021,8 @@ if (englishMusicStudioRoot) {
                         parseJson: true
                     });
 
-                    cancelarEdicionCancionMusica();
-                    mostrarBannerMusica('musicSongFormBanner', 'ok', data.message || 'Song metadata saved.');
+                    closeMusicSongModal({ reset: true });
+                    showToast('ok', data.message || 'Song metadata saved.');
                     if (data && data.songId) {
                         musicState.selectedSongId = Number(data.songId);
                     }
@@ -8609,13 +9039,19 @@ if (englishMusicStudioRoot) {
             e.preventDefault();
             const btnSend = document.getElementById('btnSendMusicWord');
             const val = id => (document.getElementById(id)?.value || '').trim();
-            const lyricsStudy = val('musicStudyLyrics');
-            if (!lyricsStudy) {
-                mostrarBannerMusica('musicWordStatusBanner', 'err', 'Write your personal song meanings or study lines first.');
+            const selected = getCancionSeleccionada();
+            const lyricsStudy = (
+                (selected ? String(musicState.sessionLyricsBySongId[selected.id]?.lyrics || '').trim() : '') ||
+                val('musicSongLyricsViewer')
+            );
+            const vocabVal = val('musicStudyVocab');
+            const pronVal = val('musicStudyPronunciation');
+            const notesVal = val('musicStudyExtraNotes');
+            if (!lyricsStudy && !vocabVal && !pronVal && !notesVal) {
+                mostrarBannerMusica('musicWordStatusBanner', 'err', 'Extract lyrics or write vocabulary, pronunciation, or notes first.');
                 return;
             }
 
-            const selected = getCancionSeleccionada();
             const fallbackTitle = val('musicSongTitle');
             const fallbackArtist = val('musicMainArtist');
 
@@ -8644,9 +9080,9 @@ if (englishMusicStudioRoot) {
                     yt_music_url: selected.yt_music_url || '',
                     focus_summary: selected.enfoque_corto || '',
                     lyrics_study: lyricsStudy,
-                    vocabulary_list: val('musicStudyVocab'),
-                    pronunciation_notes: val('musicStudyPronunciation'),
-                    notes: val('musicStudyExtraNotes')
+                    vocabulary_list: vocabVal,
+                    pronunciation_notes: pronVal,
+                    notes: notesVal
                 }
                 : {
                     category: 'music',
@@ -8661,16 +9097,16 @@ if (englishMusicStudioRoot) {
                     yt_music_url: val('musicSongYtUrl'),
                     focus_summary: val('musicFocusSummary'),
                     lyrics_study: lyricsStudy,
-                    vocabulary_list: val('musicStudyVocab'),
-                    pronunciation_notes: val('musicStudyPronunciation'),
-                    notes: val('musicStudyExtraNotes')
+                    vocabulary_list: vocabVal,
+                    pronunciation_notes: pronVal,
+                    notes: notesVal
                 };
 
             mostrarBannerMusica('musicWordStatusBanner', '', '');
 
             runWithButtonLock(btnSend, async () => {
                 try {
-                    const signature = `${entry.song_title}|${entry.artists_display}|${entry.lyrics_study}`;
+                    const signature = `${entry.song_title}|${entry.artists_display}|${entry.lyrics_study}|${entry.vocabulary_list}|${entry.pronunciation_notes}|${entry.notes}`;
                     await submitMutationRequest({
                         url: '/api/send-english',
                         method: 'POST',
@@ -8680,7 +9116,7 @@ if (englishMusicStudioRoot) {
                     });
 
                     clearStudyNoteDrafts('music');
-                    ['musicStudyLyrics', 'musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'].forEach(id => {
+                    ['musicStudyVocab', 'musicStudyPronunciation', 'musicStudyExtraNotes'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) el.value = '';
                     });
@@ -8706,7 +9142,7 @@ if (englishMusicStudioRoot) {
                     );
                     showToast('ok', 'Song study notes encrypted & queued for Word!');
                 } catch (err) {
-                    mostrarBannerMusica('musicWordStatusBanner', 'err', 'Failed to send encrypted notes: ' + err.message);
+                    mostrarBannerMusica('musicWordStatusBanner', 'err', tUi('Failed to send encrypted notes: ', 'No se pudieron enviar las notas cifradas: ') + tServer(err.message));
                     showToast('err', err.message);
                 }
             }, { loadingText: 'Encrypting...' });
@@ -11112,7 +11548,8 @@ function initAuthHandlers() {
                     });
                     onSuccess(data, form, spec.payload);
                 } catch (err) {
-                    setInlineBanner(bannerId, 'err', `${errorPrefix}${err.message}`);
+                    const errText = tServer(err.message || '');
+                    setInlineBanner(bannerId, 'err', errorPrefix ? `${tServer(errorPrefix.trim())} ${errText}` : errText);
                 }
             }, { loadingText });
         });
@@ -13525,11 +13962,14 @@ function openQuickLocationModal(target = 'current', { showHttpNotice = false, er
                 try {
                     await applyCapturedLocationToTarget(target, { lat: p.lat, lng: p.lng }, p.label, 'preset');
                     modal.hidden = true;
-                    showToast('ok', `Location updated: ${p.label} — commute recalculated!`);
+                    showToast('ok', tUi(
+                        `Location updated: ${p.label} — commute recalculated!`,
+                        `Ubicación actualizada: ${p.label} — ¡traslado recalculado!`
+                    ));
                 } catch (err) {
                     if (bannerEl) {
                         bannerEl.className = 'inline-status-banner is-error';
-                        bannerEl.textContent = err.message || 'Could not apply location.';
+                        bannerEl.textContent = tServer(err.message || 'Could not apply location.');
                         bannerEl.hidden = false;
                     }
                 }
@@ -13892,10 +14332,16 @@ function initAcademicPlannerHandlers() {
             const existingIdx = editId ? activeSem.courses.findIndex(c => c.id === editId) : -1;
             if (existingIdx >= 0) {
                 activeSem.courses[existingIdx] = nextCourse;
-                showToast('ok', `Updated "${name}" (${room}). Remember to click "Save All" below.`);
+                showToast('ok', tUi(
+                    `Updated "${name}" (${room}). Remember to click "Save All" below.`,
+                    `Actualizado "${name}" (${room}). Recuerda presionar "Guardar Todo" abajo.`
+                ));
             } else {
                 activeSem.courses.push(nextCourse);
-                showToast('ok', `Added "${name}" (${room}) to semester.`);
+                showToast('ok', tUi(
+                    `Added "${name}" (${room}) to semester.`,
+                    `Agregado "${name}" (${room}) al semestre.`
+                ));
             }
             resetPlannerCourseForm();
             renderPlannerSemesterUI();
@@ -13923,7 +14369,7 @@ function initAcademicPlannerHandlers() {
             });
             vacForm.reset();
             renderPlannerVacationsUI();
-            showToast('ok', `Added vacation break: ${name}`);
+            showToast('ok', tUi(`Added vacation break: ${name}`, `Periodo vacacional agregado: ${name}`));
         });
     }
 
@@ -14486,8 +14932,6 @@ function initKeyboardShortcuts() {
     bindEnterToButton('musicSongYtUrl', 'btnMusicResolveYt');
     // AI Question box -> Enter asks AI (Shift+Enter adds newline)
     bindEnterToButton('langAiQuestion', 'btnAskLangAi', { multilinePlainEnter: true });
-    // Lyrics study textarea -> Ctrl+Enter runs AI Lyrics Breakdown
-    bindEnterToButton('musicStudyLyrics', 'btnMusicAiExplainLyrics', { ctrlOrCmd: true });
     // Crisis Spanish reason textarea -> Ctrl+Enter saves immediately
     bindEnterToButton('crisisMotivo', 'btnSaveCrisis', { ctrlOrCmd: true });
     // Sleep desvelo note textarea -> Ctrl+Enter saves sleep log
@@ -14517,7 +14961,6 @@ function refreshDynamicLanguageViews() {
     updateE2eeKeyStatusUI();
     updateYouTubePlatformUI();
     if (typeof updateAiMemoryBadgeUI === 'function') updateAiMemoryBadgeUI();
-    if (typeof actualizarBadgePuentePc === 'function') actualizarBadgePuentePc();
 
     const activeViewEl = document.querySelector('.app-view.active');
     if (activeViewEl && mobileViewTitle) {
@@ -14544,6 +14987,7 @@ function refreshDynamicLanguageViews() {
         else if (vid === 'view-mood' && typeof cargarMoodsHoy === 'function') cargarMoodsHoy();
         else if (vid === 'view-crisis' && typeof cargarCrisisRecientes === 'function') cargarCrisisRecientes();
         else if (vid === 'view-sueno' && typeof cargarSuenoHoy === 'function') cargarSuenoHoy();
+        else if (vid === 'view-journal' && typeof renderJournalDailyCoverage === 'function' && lastJournalDailyStatus) renderJournalDailyCoverage(lastJournalDailyStatus);
         else if (vid === 'view-english') {
             if (typeof renderMusicCatalog === 'function') renderMusicCatalog();
             if (typeof renderMusicRepertoireNavigator === 'function') renderMusicRepertoireNavigator();
@@ -15280,7 +15724,9 @@ function initStudyNotebookViewer() {
 
             if (!result) {
                 if (forceRefresh && statusBar) {
-                    statusBar.textContent = tUi('Refreshing from PC / Google Drive...', 'Actualizando desde PC / Google Drive...');
+                    statusBar.textContent = musicState?.ytdlpStatus?.serverAutonomous && musicState?.ytdlpStatus?.pcOnline === false
+                        ? tUi('Refreshing from local Word notebook / Google Drive...', 'Actualizando desde cuaderno Word local / Google Drive...')
+                        : tUi('Refreshing from PC / Google Drive...', 'Actualizando desde PC / Google Drive...');
                 }
                 const pcPayload = {
                     action: 'read_study_notebook',
@@ -15304,7 +15750,7 @@ function initStudyNotebookViewer() {
                             : tUi('Word File', 'Archivo Word');
                     }
                 }
-                if (!result && (obtenerLlaveE2EE() || forceRefresh)) {
+                if (!result && musicState?.ytdlpStatus?.pcOnline !== false && (obtenerLlaveE2EE() || forceRefresh)) {
                     try {
                         const pcRes = await fetchNotebookFromPcBridge(pcPayload);
                         if (pcRes && pcRes.ok) {
@@ -15316,10 +15762,17 @@ function initStudyNotebookViewer() {
             }
 
             if (!result) {
-                throw new Error(tUi(
-                    'No copy is available on Drive yet and PC sync is offline.',
-                    'No hay copia disponible aún en Drive ni sincronizador PC activo.'
-                ));
+                throw new Error(
+                    musicState?.ytdlpStatus?.serverAutonomous
+                        ? tUi(
+                            'No entries are saved in your local Word notebook or Google Drive yet.',
+                            'Aún no hay entradas guardadas en tu cuaderno Word del servidor ni en Google Drive.'
+                        )
+                        : tUi(
+                            'No copy is available on Drive yet and PC sync is offline.',
+                            'No hay copia disponible aún en Drive ni sincronizador PC activo.'
+                        )
+                );
             }
             if (!result.ok) throw new Error(result.error || tUi('Could not read the Word notebook.', 'No se pudo leer el cuaderno Word.'));
 
