@@ -1,8 +1,32 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.17.0",
-  "updatedAt": "2026-11-18T06:40:49.383Z",
+  "currentVersion": "1.18.2",
+  "updatedAt": "2026-11-20T17:58:47.137Z",
   "releases": [
+    {
+      "version": "1.18.2",
+      "tag": "v1.18.2",
+      "bumpType": "patch",
+      "previousVersion": "1.18.1",
+      "releasedAt": "2026-11-20T17:58:47.137Z",
+      "commitSha": "3f64e95",
+      "trigger": "push",
+      "summary": "fix: oauth",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 1,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix: oauth (7fb0266)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.17.0",
       "tag": "v1.17.0",
