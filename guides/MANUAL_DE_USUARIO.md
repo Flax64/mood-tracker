@@ -13,6 +13,7 @@
 
 ---
 
+
 ## 1. Inicio Rápido y Acceso
 
 | Rol | Qué puede hacer | Expiración de sesión |
