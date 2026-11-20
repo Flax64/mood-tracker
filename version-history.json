@@ -1,8 +1,33 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.17.0",
-  "updatedAt": "2026-11-18T06:40:49.383Z",
+  "currentVersion": "1.18.1",
+  "updatedAt": "2026-11-20T17:38:10.143Z",
   "releases": [
+    {
+      "version": "1.18.1",
+      "tag": "v1.18.1",
+      "bumpType": "patch",
+      "previousVersion": "1.18.0",
+      "releasedAt": "2026-11-20T17:38:10.143Z",
+      "commitSha": "61309dd",
+      "trigger": "push",
+      "summary": "fix:tailscale 2",
+      "counts": {
+        "breaking": 0,
+        "features": 0,
+        "fixes": 2,
+        "maintenance": 0
+      },
+      "changes": {
+        "breaking": [],
+        "features": [],
+        "fixes": [
+          "fix:tailscale 2 (75be8e3)",
+          "fix:tailscale (7da1136)"
+        ],
+        "maintenance": []
+      }
+    },
     {
       "version": "1.17.0",
       "tag": "v1.17.0",
