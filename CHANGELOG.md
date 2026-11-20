@@ -1,11 +1,32 @@
 # Historial de Versiones / Changelog
 
-> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.17.0**
+> Estándar aplicado: **SemVer 2.0.0 + Conventional Commits** · Versión actual desplegada: **v1.18.0**
 >
 > Reglas automáticas en cada despliegue a `main`:
 > - **MAJOR (`+1.0.0`)**: Cambios incompatibles (`BREAKING CHANGE:` o `<tipo>!:`).
 > - **MINOR (`+0.1.0`)**: Nuevas funcionalidades compatibles (`feat:` / `feat(alcance):`).
 > - **PATCH (`+0.0.1`)**: Corrección de errores (`fix:`), seguridad, documentación o mantenimiento.
+
+## [v1.18.0] - 2026-11-20 (MINOR) · `c95fe47`
+**feat: automatizacion**
+
+### ✨ Features / Nuevas Funciones
+- feat: automatizacion (6f61a1b)
+- feat: automatitation (0f97719)
+- feat: nothing to report function (37cb6d3)
+- feat: mejoras de backup (b9e241e)
+- feat(i18n,docs): cobertura bilingüe EN/ES completa y guía actualizada de Ubuntu Server 26.04 (7b8a3e5)
+- feat: ventana flotante (5f3a331)
+- feat: security and integrity (c828a77)
+- feat(server): sistema de logs rotativos sanitizados, endpoint /api/system/logs y exclusión en Git/Docker (7746f7f)
+- feat(server): notas autónomas en Ubuntu Server, journal cifrado local y guía 26.04 LTS (aa6eba8)
+
+### 🐛 Bug Fixes / Correcciones
+- fix (546a0d1)
+
+### 🔧 Maintenance & Docs
+- chore: indentation (4c7ec10)
+- docs: instalation guide updated (8ba722d)
 
 ## [v1.17.0] - 2026-11-18 (MINOR) · `593ce77`
 **feat: ntfy**

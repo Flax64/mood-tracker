@@ -1,8 +1,45 @@
 {
   "standard": "SemVer 2.0.0 + Conventional Commits",
-  "currentVersion": "1.17.0",
-  "updatedAt": "2026-11-18T06:40:49.383Z",
+  "currentVersion": "1.18.0",
+  "updatedAt": "2026-11-20T17:26:29.088Z",
   "releases": [
+    {
+      "version": "1.18.0",
+      "tag": "v1.18.0",
+      "bumpType": "minor",
+      "previousVersion": "1.17.0",
+      "releasedAt": "2026-11-20T17:26:29.088Z",
+      "commitSha": "c95fe47",
+      "trigger": "push",
+      "summary": "feat: automatizacion",
+      "counts": {
+        "breaking": 0,
+        "features": 9,
+        "fixes": 1,
+        "maintenance": 2
+      },
+      "changes": {
+        "breaking": [],
+        "features": [
+          "feat: automatizacion (6f61a1b)",
+          "feat: automatitation (0f97719)",
+          "feat: nothing to report function (37cb6d3)",
+          "feat: mejoras de backup (b9e241e)",
+          "feat(i18n,docs): cobertura bilingüe EN/ES completa y guía actualizada de Ubuntu Server 26.04 (7b8a3e5)",
+          "feat: ventana flotante (5f3a331)",
+          "feat: security and integrity (c828a77)",
+          "feat(server): sistema de logs rotativos sanitizados, endpoint /api/system/logs y exclusión en Git/Docker (7746f7f)",
+          "feat(server): notas autónomas en Ubuntu Server, journal cifrado local y guía 26.04 LTS (aa6eba8)"
+        ],
+        "fixes": [
+          "fix (546a0d1)"
+        ],
+        "maintenance": [
+          "chore: indentation (4c7ec10)",
+          "docs: instalation guide updated (8ba722d)"
+        ]
+      }
+    },
     {
       "version": "1.17.0",
       "tag": "v1.17.0",
